@@ -28,6 +28,9 @@
 		elevationGainDb
 	} from '$lib/rf/antenna.js';
 	import { rampCss } from '$lib/canvas/heatmap-ramp.js';
+	// The client plane a low-mounted unit is measured against is the project's own client
+	// height — the height the coverage figure is computed at, so the two agree.
+	import { projectMeta } from '$state/project-meta.svelte';
 
 	let {
 		beamwidthDeg,
@@ -70,6 +73,23 @@
 	const apY = $derived(FLOOR_Y - clamp(mountHeightM, 0, ceilingM) * SCALE);
 
 	/**
+	 * The plane this picture measures the pattern on, and which way the bars grow.
+	 *
+	 * A ceiling-mounted unit radiates down at the floor beneath it, so the floor is the
+	 * surface to draw: reddest where the beam lands, weakest at the edges. A low-mounted
+	 * one is the other way round — it sits *under* the clients and radiates up at them —
+	 * and drawing the floor two metres below it showed the back of the antenna instead,
+	 * which is why the two mounts' pictures looked the same.
+	 *
+	 * So a floor mount is measured against the client plane above it, and the drawing is
+	 * mirrored about that plane, so the bars hang from it towards the unit and the beam
+	 * visibly points up.
+	 */
+	const serveAbove = $derived(mount === 'floor');
+	const clientPlaneM = $derived(clamp(projectMeta.clientHeight, mountHeightM + 0.2, ceilingM));
+	const serveY = $derived(serveAbove ? FLOOR_Y - clientPlaneM * SCALE : FLOOR_Y);
+
+	/**
 	 * The band's pattern, with the edited numbers in it — the same profile the models use.
 	 *
 	 * Including the mount: a wall-mounted unit has a horizontal cut, and this picture
@@ -91,7 +111,10 @@
 	 * ray and the term is zero, which is why the picture has always looked symmetric.
 	 */
 	const bars = $derived.by(() => {
-		const drop = FLOOR_Y - apY;
+		// The vertical drop from the unit to the plane it is measured on: for a ceiling
+		// mount that is its height above the floor, for a low mount the clients' height
+		// above it.
+		const drop = Math.abs(serveY - apY);
 		const full = (FLOOR_Y - CEILING_Y) * 0.78;
 		const out: Array<{ x: number; h: number; color: string }> = [];
 		for (let x = BAR_STEP / 2; x < W; x += BAR_STEP) {
@@ -119,25 +142,32 @@
 	<rect x="0" y={FLOOR_Y} width={W} height={GROUND} class="ground" />
 	<line x1="0" y1={FLOOR_Y} x2={W} y2={FLOOR_Y} class="floor" />
 
-	{#each bars as bar, i (i)}
-		<rect
-			x={bar.x - BAR_W / 2}
-			y={FLOOR_Y - bar.h}
-			width={BAR_W}
-			height={bar.h}
-			rx="1"
-			fill={bar.color}
-		/>
-	{/each}
+	<!--
+		The bars and the client are drawn against the served plane; for a low mount the
+		whole group is mirrored about it, so the antenna's beam points up at the clients
+		without either shape being written twice.
+	-->
+	<g transform={serveAbove ? `translate(0 ${2 * serveY}) scale(1 -1)` : undefined}>
+		{#each bars as bar, i (i)}
+			<rect
+				x={bar.x - BAR_W / 2}
+				y={serveY - bar.h}
+				width={BAR_W}
+				height={bar.h}
+				rx="1"
+				fill={bar.color}
+			/>
+		{/each}
 
-	{#if bestX !== null}
-		<!-- A client, on the strongest patch: the spot a change of aim moves. -->
-		<rect x={bestX - 4.5} y={FLOOR_Y - 10} width="9" height="7" rx="1" class="client" />
-		<path
-			d={`M ${bestX - 6},${FLOOR_Y - 3} L ${bestX + 6},${FLOOR_Y - 3} L ${bestX + 7},${FLOOR_Y} L ${bestX - 7},${FLOOR_Y} Z`}
-			class="client"
-		/>
-	{/if}
+		{#if bestX !== null}
+			<!-- A client, on the strongest patch: the spot a change of aim moves. -->
+			<rect x={bestX - 4.5} y={serveY - 10} width="9" height="7" rx="1" class="client" />
+			<path
+				d={`M ${bestX - 6},${serveY - 3} L ${bestX + 6},${serveY - 3} L ${bestX + 7},${serveY} L ${bestX - 7},${serveY} Z`}
+				class="client"
+			/>
+		{/if}
+	</g>
 
 	<line x1="0" y1={CEILING_Y} x2={W} y2={CEILING_Y} class="ceiling" />
 	{#if mount === 'wall'}
