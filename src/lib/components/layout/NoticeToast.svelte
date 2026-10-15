@@ -8,16 +8,21 @@
 	 * the walls — is on the canvas. A corner notice is visible in every tab, moves nothing,
 	 * and is where a reader looks for exactly this.
 	 *
-	 * Two slots behind one notice. The transient one is a refusal the user has just been
+	 * Three slots behind one notice. The transient one is a refusal the user has just been
 	 * shown (a click that placed nothing); the standing one is the "APs outside the
-	 * building" check, recomputed whenever walls or access points move. Sharing a single
-	 * slot meant that check wiped the refusal before it could be read, so the notice
-	 * shows the transient one when there is one and the standing one otherwise.
+	 * building" check, recomputed whenever walls or access points move; the storage one
+	 * says the project could not be written. Sharing a single slot meant the standing
+	 * check wiped the refusal before it could be read.
+	 *
+	 * Storage comes first when it is set: a plan that is wrong can be fixed, a plan that
+	 * was not saved is work to redo.
 	 */
 	import { appState } from '$state/app.svelte';
 	import Icon from '$components/shared/Icon.svelte';
 
-	const text = $derived(appState.placementNotice ?? appState.outsideNotice);
+	const text = $derived(
+		appState.storageNotice ?? appState.placementNotice ?? appState.outsideNotice
+	);
 </script>
 
 {#if text}

@@ -24,6 +24,16 @@ export const appState = $state({
 	 */
 	placementNotice: null as string | null,
 	/**
+	 * Why the project could not be written to the browser's storage, if it could not.
+	 *
+	 * Its own slot, and the most important of the three: the other two are about the plan
+	 * being wrong, this one is about work being lost. The save path used to swallow the
+	 * failure — a quota of about five megabytes with a PNG mask per floor is easy to
+	 * reach — so the first sign of trouble was a project that came back short after a
+	 * reload.
+	 */
+	storageNotice: null as string | null,
+	/**
 	 * The standing warning about access points that sit outside the building, if any.
 	 *
 	 * Kept in a slot of its own rather than sharing `placementNotice`, because the two

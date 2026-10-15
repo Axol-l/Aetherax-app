@@ -22,6 +22,8 @@ import {
 	setPathLossScenario,
 	type PathLossScenario
 } from '../rf/propagation.js';
+import { appState } from './app.svelte.js';
+import { t } from './i18n.svelte.js';
 
 /**
  * Every key this app writes starts with this. Exported because `WelcomeDialog` has to
@@ -344,8 +346,13 @@ function saveToStorage(): void {
 		};
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
 		persistenceState.lastSaved = new Date();
+		// A later save that works clears the warning: storage was full, and is not any
+		// more.
+		appState.storageNotice = null;
 	} catch {
-		// localStorage might be full or unavailable
+		appState.storageNotice = t(
+			'The project could not be saved: the browser storage is full or unavailable. Export it to a file (File → Export JSON), then remove a floorplan or a floor to make room.'
+		);
 	}
 
 	// Persist floorplan images per floor
