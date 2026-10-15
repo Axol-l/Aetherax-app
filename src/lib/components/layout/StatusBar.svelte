@@ -1,9 +1,8 @@
 <script lang="ts">
 	import { wallState } from '$state/wall-state.svelte';
-	import { canvasState } from '$state/canvas.svelte';
+	import { canvasEngineRef, canvasState } from '$state/canvas.svelte';
 	import { persistenceState } from '$state/persistence.svelte';
 	import { appState, type FloorView } from '$state/app.svelte';
-	import { getEngineRef } from '$canvas/engine-ref.js';
 	import { fitCanvasToContent } from '$canvas/fit.js';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
@@ -23,7 +22,7 @@
 	});
 
 	function handleFit() {
-		const engine = getEngineRef();
+		const engine = canvasEngineRef.engine;
 		if (!engine) return;
 		// One implementation, shared with the PDF export, which has to frame each page the
 		// same way before it screenshots it.
@@ -32,7 +31,7 @@
 	}
 
 	function handleReset() {
-		const engine = getEngineRef();
+		const engine = canvasEngineRef.engine;
 		if (!engine) return;
 		engine.camera.reset();
 		engine.markDirty();

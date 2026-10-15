@@ -42,7 +42,7 @@
 	
 import { wallState } from '$state/wall-state.svelte.js';
 	import { projectMeta } from '$state/project-meta.svelte.js';
-	import { canvasState, clearSelection } from '$state/canvas.svelte.js';
+	import { canvasEngineRef, canvasState, clearSelection } from '$state/canvas.svelte.js';
 	import {
 		appState,
 		setFloorAlignMode,
@@ -61,7 +61,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	} from '$state/solver.svelte.js';
 	import { updateCoverage, optimizerState, floorCoverage, apsOutsideInterior } from '$state/optimizer.svelte.js';
 	import { hitTest } from '$canvas/hit-test.js';
-	import { setEngineRef } from '$canvas/engine-ref.js';
 	import { restoreFromStorage } from '$state/persistence.svelte.js';
 	import { importFloorplanFile } from '$canvas/import-floorplan.js';
 	import { labelWallBlobs, relabelBlob, labelRooms, fillRegion, encodeMaterialMask, decodeMaterialMask } from '$canvas/region-labels.js';
@@ -661,7 +660,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 		window.addEventListener('keydown', handleKeyDown);
 		window.addEventListener('keyup', handleKeyUp);
 		engine = new CanvasEngine(canvasEl);
-		setEngineRef(engine);
+		// Published so the toolbar and the status bar can act on the live view: they
+		// export the frame, fit the plan and reset the camera. See `canvasEngineRef`.
+		canvasEngineRef.engine = engine;
 		// Create layers
 		floorplanLayer = new FloorplanLayer();
 		gridLayer = new GridLayer();

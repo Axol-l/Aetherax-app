@@ -1,3 +1,20 @@
+import type { CanvasEngine } from '$canvas/engine.js';
+
+/**
+ * The live canvas engine, once a view has mounted one.
+ *
+ * The components outside the canvas — the toolbar and the status bar — have to act on
+ * it ("redraw now", "fit the plan", "export this frame"), and importing the canvas view
+ * would be an import cycle. This used to be a module-level `let` with `set`/`get`
+ * helpers in `canvas/engine-ref.ts`; a store does the same job in the state layer the
+ * rest of the app already reads, and a reader that mounts before the canvas exists is
+ * notified when it arrives instead of quietly holding `null` forever.
+ *
+ * Null is legitimate rather than an error: there is no engine until a floorplan view is
+ * on screen, so callers check.
+ */
+export const canvasEngineRef = $state({ engine: null as CanvasEngine | null });
+
 export const canvasState = $state({
 	zoom: 1,
 	selectedApIds: [] as string[],

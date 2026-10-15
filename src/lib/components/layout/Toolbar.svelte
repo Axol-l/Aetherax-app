@@ -11,7 +11,7 @@
 	import { downloadJson, importJson } from '$lib/export/json.js';
 	import { exportPng } from '$lib/export/png.js';
 	import { exportPdf } from '$lib/export/pdf.js';
-	import { getEngineRef } from '$canvas/engine-ref.js';
+	import { canvasEngineRef } from '$state/canvas.svelte';
 	import { t, i18nState, toggleLocale } from '$state/i18n.svelte';
 	import { projectMeta } from '$state/project-meta.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
@@ -71,13 +71,13 @@
 	}
 
 	async function handleExportPng() {
-		const engine = getEngineRef();
+		const engine = canvasEngineRef.engine;
 		if (!engine) return;
 		await exportPng(engine, { scale: 2, includeGrid: false });
 	}
 
 	async function handleExportPdf() {
-		const engine = getEngineRef();
+		const engine = canvasEngineRef.engine;
 		if (!engine) return;
 		await exportPdf(engine);
 	}
