@@ -48,7 +48,20 @@ import {
 	type ChannelWidth,
 	type RegulatoryDomain
 } from '@aetherax/channels';
+import {
+	OPTIMIZER_PAYLOAD_VERSION,
+	assertApPayload
+} from './optimizer-protocol.js';
 
+/**
+ * One placed access point, as this worker reads it.
+ *
+ * The shape the *caller* is held to is `optimizer-protocol.ts`'s `ApInput`, derived
+ * from the app's own `AccessPoint` so that a payload which forgets the mounting or the
+ * facing does not compile. This declaration stays here as the receiving contract, with
+ * the fields optional because the graph-only path and the tests build messages by hand;
+ * `assertApPayload` is what catches a caller that bypasses the type.
+ */
 interface ApInput {
 	id: string;
 	x: number;
@@ -304,6 +317,14 @@ interface OptimizeMessage {
 	 * See `buildWallPlacement`.
 	 */
 	wallBandWu?: number;
+	/**
+	 * The protocol version the message was built against. See `optimizer-protocol.ts`.
+	 *
+	 * Optional so a hand-built message in a test stays simple, and checked when present:
+	 * a bundle left in a browser cache while the app around it moved on then fails
+	 * loudly instead of scoring a different model.
+	 */
+	payloadVersion?: number;
 	/**
 	 * ε-constraint (F3): the covered share the result must reach, as a 0-1 fraction.
 	 *
@@ -1937,6 +1958,21 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 		medianDensity,
 		roomTypeMask
 	} = msg;
+
+	/*
+	 * The payload's shape is declared in `optimizer-protocol.ts` and derived from the
+	 * app's own `AccessPoint`, so the caller cannot build a message that omits a field
+	 * the model reads. This check is for everything the type cannot cover: a hand-built
+	 * message in a test, or a worker bundle left in a browser cache while the app around
+	 * it moved on. It throws rather than scoring a different antenna than the one on
+	 * screen.
+	 */
+	if (msg.payloadVersion !== undefined && msg.payloadVersion !== OPTIMIZER_PAYLOAD_VERSION) {
+		throw new Error(
+			`optimiser payload version ${msg.payloadVersion} does not match this worker's ${OPTIMIZER_PAYLOAD_VERSION}`
+		);
+	}
+	if (msg.payloadVersion !== undefined) assertApPayload(aps as unknown as Array<Record<string, unknown>>);
 
 	// One coefficient per run, selected before anything is evaluated: every propagation
 	// function in this realm reads it. See `setPathLossScenario`.

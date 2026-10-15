@@ -1,6 +1,6 @@
 import { SvelteMap } from 'svelte/reactivity';
 import { projectState, updateAp, beginMove } from './project.svelte.js';
-import { apHeightAboveFloor, apSplitFor, apVerticalOffsetTo, antennaProfileFor, getEffectiveWupm } from './ap-state.svelte.js';
+import { apHeightAboveFloor, apSplitFor, apVerticalOffsetTo, antennaProfileFor, getEffectiveWupm, type AccessPoint } from './ap-state.svelte.js';
 import { antennaRayLossDb } from '$lib/rf/antenna.js';
 import type { Band, ChannelWidth } from '@aetherax/channels';
 import { scheduleSave } from './persistence.svelte.js';
@@ -44,6 +44,7 @@ import { isInsideInterior } from './ap-interior.js';
 import { projectMeta } from './project-meta.svelte.js';
 import { wallState } from './wall-state.svelte.js';
 import { WALL_BAND_M, wallSnapForFloor } from './wall-snap.js';
+import { OPTIMIZER_PAYLOAD_VERSION, type ApInput } from '../workers/optimizer-protocol.js';
 
 const bridge = new OptimizerBridge();
 
@@ -837,6 +838,55 @@ function localVerticalDropFor(floor: Floor | undefined): number {
 	return Math.abs(floor.ceilingHeight - projectMeta.clientHeight) * getEffectiveWupm();
 }
 
+/**
+ * One access point, as the worker's payload wants it.
+ *
+ * The body of this function used to be an object literal inlined at each construction
+ * site, which is how a payload ends up missing a field the model reads: forgetting
+ * `mount` did not fail to compile, it silently meant "an upright omni". The type is
+ * `ApInput`, derived in `optimizer-protocol.ts` from the app's own `AccessPoint`, so a
+ * new antenna field is a compile error here and at every other caller.
+ *
+ * Two things happen that the worker cannot do for itself, both of them coordinate
+ * conversions rather than copies:
+ *  - the AP is stored in **world** coordinates and the worker indexes the floor's own
+ *    mask, which starts at `(originX, originY)` because a tiled mask materialises on a
+ *    256 px lattice that can extend into negative space;
+ *  - the vertical gap to the client is floor geometry, which this side has and the
+ *    worker does not (`apVerticalOffsetTo`, in world units).
+ *
+ * The antenna fields travel as they are: they are properties of the hardware, and the
+ * worker resolves the pattern from them per sample.
+ */
+function toApInput(
+	ap: AccessPoint,
+	frame: { originX: number; originY: number; floorId: string }
+): ApInput {
+	return {
+		id: ap.id,
+		x: ap.x - frame.originX,
+		y: ap.y - frame.originY,
+		interferenceRadius: ap.interferenceRadius,
+		band: ap.band,
+		// Channels are per AP and survive the move: the interference term scores the
+		// layout the solver last coloured, and null means "no assignment yet", which the
+		// worker reads as the all-co-channel bound.
+		assignedChannel: ap.assignedChannel,
+		// A pin is a constraint rather than a starting point: the worker re-colours every
+		// layout it scores, so it must treat a pinned channel as fixed.
+		fixedChannel: ap.fixedChannel,
+		// The palette the colourer may use has to be non-overlapping at the width actually
+		// in use, and it has to be the same palette the solver uses. See `planningChannels`.
+		channelWidth: ap.channelWidth,
+		verticalGap:
+			apVerticalOffsetTo(ap, frame.floorId, projectMeta.clientHeight) * getEffectiveWupm(),
+		beamwidthDeg: ap.beamwidthDeg,
+		aimDeg: ap.aimDeg,
+		mount: ap.mount,
+		facingDeg: ap.facingDeg
+	};
+}
+
 async function crossingSlabsFor(
 	apFloorId: string,
 	clientFloorId: string,
@@ -971,48 +1021,9 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 		 * included: their domain is the band along the walls (`wallBandWu` below).
 		 */
 		const pinnedAps = onThisFloor.filter((ap) => ap.pinned);
-		const localAps = onThisFloor
+		const localAps: ApInput[] = onThisFloor
 			.filter((ap) => !ap.pinned)
-			.map((ap) => ({
-				id: ap.id,
-				// APs are stored in WORLD coordinates but the optimiser indexes the
-				// wall mask, which starts at (originX, originY) because TiledMask
-				// materialises on a 256 px tile lattice that can extend into
-				// negative space. Without this shift the whole run happens in a
-				// coordinate frame offset from the one the canvas draws in, which is
-				// why APs looked like they were placed outside the rooms even though
-				// the interior test said they were inside.
-				x: ap.x - originX,
-				y: ap.y - originY,
-				interferenceRadius: ap.interferenceRadius,
-				band: ap.band,
-				// Channels are per AP and survive the move: the interference term
-				// scores the layout the solver last coloured. Null means no
-				// assignment yet, which the worker reads as the all-co-channel bound.
-				assignedChannel: ap.assignedChannel,
-				// A pin is a constraint rather than a starting point: the worker
-				// re-colours every layout it scores, and must not move a pinned AP.
-				fixedChannel: ap.fixedChannel,
-				// The palette the colourer may use has to be non-overlapping at the
-				// width actually in use, and it has to be the same palette the solver
-				// uses. See `planningChannels`.
-				channelWidth: ap.channelWidth,
-				// How far this AP is from the client vertically, in the frame the
-				// worker marches in. Zero while the project leaves mounting heights
-				// off, which is the flat same-floor path the model has always used;
-				// with them on it is the AP's own height against `clientHeight`, and
-				// the worker adds it to the plan distance. Computed here because the
-				// worker has no floor geometry.
-				verticalGap: apVerticalOffsetTo(ap, curFloorId, projectMeta.clientHeight) * getEffectiveWupm(),
-				// The antenna's cuts, for the same reason: they are properties of the
-				// AP rather than of the search, so they travel with the payload. The
-				// mount decides whether there *is* a horizontal cut at all, and the
-				// facing says where it points.
-				beamwidthDeg: ap.beamwidthDeg,
-				aimDeg: ap.aimDeg,
-				mount: ap.mount,
-				facingDeg: ap.facingDeg
-			}));
+			.map((ap) => toApInput(ap, { originX, originY, floorId: curFloorId }));
 
 		if (localAps.length === 0) {
 			if (floorId === floorState.currentFloorId) {
@@ -1073,21 +1084,11 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 		 */
 		for (const ap of pinnedAps) {
 			fixedAps.push({
-				id: ap.id,
-				x: ap.x - originX,
-				y: ap.y - originY,
-				interferenceRadius: ap.interferenceRadius,
+				// The same fields, from the same mapper the movable APs use, plus the ones
+				// that only a fixed source carries: a slab factor of 1 (a same-floor path
+				// crosses nothing) and no wall-split data.
+				...toApInput(ap, { originX, originY, floorId: curFloorId }),
 				signalScale: 1,
-				verticalGap:
-					apVerticalOffsetTo(ap, curFloorId, projectMeta.clientHeight) * wupmForGap,
-				beamwidthDeg: ap.beamwidthDeg,
-				aimDeg: ap.aimDeg,
-				mount: ap.mount,
-				facingDeg: ap.facingDeg,
-				band: ap.band,
-				assignedChannel: ap.assignedChannel,
-				fixedChannel: ap.fixedChannel,
-				channelWidth: ap.channelWidth,
 				slabs: []
 			});
 		}

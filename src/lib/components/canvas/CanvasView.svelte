@@ -27,6 +27,7 @@
 	import { DragHandler, type WallProbe } from '$canvas/interactions/drag.js';
 	import { PlaceHandler } from '$canvas/interactions/place.js';
 	import { wallSnapFrom } from '$state/wall-snap.js';
+	import { antennaSignature } from '$lib/rf/antenna.js';
 	import {
 		apState,
 		removeAps,
@@ -1878,7 +1879,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					// under one mounting must not stand in for another — and the antenna's
 					// own cuts belong in the key for the same reason, including the
 					// mounting that decides whether there is a horizontal cut at all.
-					`${a.mountHeightM}:${a.beamwidthDeg}/${a.aimDeg}/${a.mount}/${a.facingDeg}`
+					`${a.mountHeightM}:${antennaSignature(a)}`
 			)
 			.join('|');
 		const floors = floorState.floors
@@ -1995,8 +1996,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 					// the key: a change here moves the coverage figure and, with
 					// auto-solve on, the placement the solver would choose. The antenna's
 					// cuts move it too — a wall mount's facing decides which half of the
-					// floor it reaches.
-					`${ap.mountHeightM}:${ap.beamwidthDeg}/${ap.aimDeg}/${ap.mount}/${ap.facingDeg}`
+					// floor it reaches. See `antennaSignature`.
+					`${ap.mountHeightM}:${antennaSignature(ap)}`
 			)
 			.join('|') +
 		`|wm:${wallMaskVersion}:${wallState.wallMaterial}` +

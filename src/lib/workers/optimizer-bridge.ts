@@ -1,5 +1,6 @@
 import type { Band, ChannelWidth, RegulatoryDomain } from '@aetherax/channels';
 import type { PathLossScenario } from '../rf/propagation.js';
+import { OPTIMIZER_PAYLOAD_VERSION } from './optimizer-protocol.js';
 
 export interface OptimizeResult {
 	positions: Array<{ id: string; x: number; y: number }>;
@@ -347,6 +348,11 @@ export class OptimizerBridge {
 				worldUnitsPerMeter: options?.worldUnitsPerMeter,
 				localVerticalDrop: options?.localVerticalDrop ?? 0,
 				wallBandWu: options?.wallBandWu,
+				// The payload shape this bridge builds. See `optimizer-protocol.ts`: the
+				// worker checks it when present, so a bundle left in a browser cache while
+				// the app around it moved on fails loudly instead of scoring a different
+				// model.
+				payloadVersion: OPTIMIZER_PAYLOAD_VERSION,
 				coverageFloor: options?.coverageFloor
 			};
 			this.getWorker().postMessage(msg, transferable);

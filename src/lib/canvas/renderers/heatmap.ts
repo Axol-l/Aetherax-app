@@ -58,7 +58,7 @@ import {
 	invalidateAttenCache,
 	type AttenField
 } from '../../rf/propagation.js';
-import { antennaRayLossDb, type AntennaProfile } from '../../rf/antenna.js';
+import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../rf/antenna.js';
 import { rampColorAt } from '../heatmap-ramp.js';
 import { antennaProfileFor } from '$state/ap-state.svelte.js';
 
@@ -340,11 +340,12 @@ export class HeatmapLayer implements Layer {
 			this.aps
 				.map(
 					(ap) =>
-						`${ap.id}:${snap(ap.x)}:${snap(ap.y)}:${ap.interferenceRadius}:${ap.band}:${ap.channelWidth}:${ap.power}:${ap.verticalOffset ?? 0}:${ap.floorDbPerMeter ?? 0}:${ap.floorThickness ?? 0}:${ap.beamwidthDeg ?? 0}/${ap.aimDeg ?? 0}` +
-						// The antenna's whole pattern, not just its vertical half: a wall
-						// mount's facing changes the picture without moving the AP, and a
-						// change of mounting adds or removes the horizontal cut entirely.
-						`/${ap.mount ?? ''}/${ap.facingDeg ?? 0}` +
+						`${ap.id}:${snap(ap.x)}:${snap(ap.y)}:${ap.interferenceRadius}:${ap.band}:${ap.channelWidth}:${ap.power}:${ap.verticalOffset ?? 0}:${ap.floorDbPerMeter ?? 0}:${ap.floorThickness ?? 0}:` +
+						// The whole pattern, from the one function that lists what a pattern
+						// depends on: a wall mount's facing changes the picture without moving
+						// the AP, and a change of mounting adds or removes the horizontal cut
+						// entirely. See `antennaSignature`.
+						antennaSignature(ap) +
 						// The AP's own floor's mask, when the path is split at the slab:
 						// editing that floor's walls changes this image too.
 						(ap.crossFloor

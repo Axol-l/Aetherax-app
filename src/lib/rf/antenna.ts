@@ -325,3 +325,21 @@ export function antennaRayLossDb(
 		azimuthLossDb(bearingDeg(dx, dy), profile)
 	);
 }
+
+/**
+ * A short identity for everything about an access point that changes its *pattern*.
+ *
+ * Cache keys are this codebase's most repeated source of stale-picture bugs: a key that
+ * forgets one of these fields hands back a picture built for a different antenna, and
+ * the symptom is a heatmap, a tile or a coverage figure that disagrees with the panel.
+ * Every key that covers an antenna builds that part by calling this — one list of
+ * fields, three call sites, instead of three hand-written fragments that drift apart.
+ */
+export function antennaSignature(ap: {
+	beamwidthDeg?: number | null;
+	aimDeg?: number | null;
+	mount?: string | null;
+	facingDeg?: number | null;
+}): string {
+	return `${ap.beamwidthDeg ?? 0}/${ap.aimDeg ?? 0}/${ap.mount ?? ''}/${ap.facingDeg ?? 0}`;
+}
