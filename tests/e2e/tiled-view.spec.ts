@@ -411,3 +411,64 @@ test('a card is drawn with its own floor’s walls', async ({ page }) => {
 	// than floor 1. Equal numbers here mean the two cards shared one field.
 	expect(card2).toBeLessThan(card1 * 0.8);
 });
+
+/**
+ * Pixels painted in a material's colour rather than in the white of the raw wall mask.
+ *
+ * The overview draws walls at half alpha over the card background, so a material colour
+ * arrives blended: brick `(180,80,60)` reads about `(95,46,40)` on screen. The test is
+ * therefore "this channel clearly dominates", which no grey or white pixel can satisfy —
+ * the mask on its own is `(255,255,255)`, and at the same alpha that is grey, so a view
+ * that skipped the material map scores zero here.
+ */
+async function wallTintPixels(page: Page, tint: 'brick' | 'glass'): Promise<number> {
+	return page.evaluate((kind) => {
+		const canvas = document.querySelector('canvas') as HTMLCanvasElement | null;
+		if (!canvas) return 0;
+		const ctx = canvas.getContext('2d');
+		if (!ctx) return 0;
+		const { data } = ctx.getImageData(0, 0, canvas.width, canvas.height);
+		let n = 0;
+		for (let i = 0; i < data.length; i += 4) {
+			const r = data[i]!;
+			const g = data[i + 1]!;
+			const b = data[i + 2]!;
+			if (kind === 'brick') {
+				if (r > 55 && g < 90 && r > g * 1.6 && r > b * 1.6) n++;
+			} else if (b > 85 && b > r * 1.4 && g > r * 1.15) {
+				n++;
+			}
+		}
+		return n;
+	}, tint);
+}
+
+test('the sheet colours walls by material, not as a white silhouette', async ({ page }) => {
+	// Brick, the loudest material in the palette: on the plan this floor's walls are
+	// red, and the sheet used to draw the same walls white because it drew the wall
+	// mask itself and never looked at a material.
+	await seedTwoFloors(page, { wallMaterial: 3 });
+	await page.goto('/');
+	await page.waitForSelector('canvas');
+	await page.waitForTimeout(2000);
+	await openFloorplanTab(page);
+	await page.locator('.view-btn[title^="Tile every floor"]').click();
+	await page.waitForTimeout(2500);
+
+	expect(await wallTintPixels(page, 'brick')).toBeGreaterThan(500);
+
+	/*
+	 * The same plan in drywall — the identical walls, a different material. The count
+	 * collapsing is what makes this a check about the *material* rather than about
+	 * "there are some reddish pixels on screen somewhere": the app's own accents and
+	 * labels are on the canvas too, and they do not move between the two runs.
+	 */
+	await seedTwoFloors(page, { wallMaterial: 0 });
+	await page.reload();
+	await page.waitForSelector('canvas');
+	await page.waitForTimeout(2000);
+	await openFloorplanTab(page);
+	await page.locator('.view-btn[title^="Tile every floor"]').click();
+	await page.waitForTimeout(2500);
+	expect(await wallTintPixels(page, 'brick')).toBeLessThan(200);
+});

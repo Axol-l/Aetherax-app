@@ -14,6 +14,8 @@
  */
 
 import { apMarkerColor } from './ap.js';
+import { colorizeWalls } from './walls.js';
+import type { WallMaterialId } from '../materials.js';
 
 /** Underlay width in world units. Matches `FloorplanLayer` so plans scale alike. */
 export const CARD_PLAN_WIDTH = 800;
@@ -29,6 +31,17 @@ export interface FloorCardSource {
 	planOffsetX: number;
 	planOffsetY: number;
 	maskUrl: string | null;
+	/**
+	 * This floor's painted material map, as stored — the same raster the plan colours
+	 * its walls from.
+	 *
+	 * Without it an overview can only draw the wall mask, which is white walls on
+	 * transparent: every material looked alike up there while the plan told a glass
+	 * door from a brick wall. Null when nothing on the floor has been repainted.
+	 */
+	materialUrl: string | null;
+	/** The material unpainted walls are drawn in, per floor. See `getFloorMask`. */
+	defaultMaterial: number;
 	maskOriginX: number;
 	maskOriginY: number;
 	maskWidth: number;
@@ -104,8 +117,74 @@ export class FloorCardCache {
 	 * colouring has exactly one implementation.
 	 */
 	readonly heatmaps = new Map<string, FloorHeatmap>();
+	/**
+	 * Per-floor walls, coloured by material, keyed by floor id.
+	 *
+	 * Built from the two rasters the floor already has (its wall mask and its material
+	 * map) with the *plan's* own colourizer, so the sheet and the stack show what the
+	 * plan shows. Kept as a canvas rather than rebuilt per frame: a full-resolution
+	 * mask is millions of pixels and both views redraw on every camera move.
+	 */
+	private readonly wallCanvases = new Map<string, { signature: string; canvas: HTMLCanvasElement }>();
+	/**
+	 * The builds in flight, by floor id.
+	 *
+	 * A coloured raster needs both bitmaps decoded, and an image finishing its load is
+	 * not a state change the views sync on — so the work waits on the images itself
+	 * rather than hoping for another `sync`. This is what stops a second identical build
+	 * from being started while the first is waiting.
+	 */
+	private readonly wallJobs = new Map<string, string>();
 	/** Called once a plan image finishes loading, so the engine can repaint. */
 	onLoad: (() => void) | null = null;
+
+	/** Everything a coloured wall raster depends on, so a stale one is never drawn. */
+	private wallSignature(s: FloorCardSource): string {
+		return `${s.maskUrl ?? ''}|${s.materialUrl ?? ''}|${s.defaultMaterial}|${s.maskWidth}x${s.maskHeight}`;
+	}
+
+	/**
+	 * Make sure this floor's coloured walls exist, and start building them if not.
+	 *
+	 * The two rasters are read from the bitmaps `sync` already loaded — the wall mask is
+	 * white-on-transparent and the material map carries the material id in red, which is
+	 * how the app's own decoders read them — and colourised with the *plan's* function,
+	 * so the sheet and the stack show what the plan shows.
+	 */
+	private ensureWalls(s: FloorCardSource): void {
+		if (!s.maskUrl || s.maskWidth <= 0 || s.maskHeight <= 0) {
+			this.wallCanvases.delete(s.id);
+			return;
+		}
+		const signature = this.wallSignature(s);
+		if (this.wallCanvases.get(s.id)?.signature === signature) return;
+		if (this.wallJobs.get(s.id) === signature) return;
+		const maskImg = this.images.get(s.maskUrl);
+		const materialImg = s.materialUrl ? this.images.get(s.materialUrl) : null;
+		if (!maskImg) return;
+
+		this.wallJobs.set(s.id, signature);
+		void Promise.all([whenDecoded(maskImg), materialImg ? whenDecoded(materialImg) : null]).then(
+			() => {
+				this.wallJobs.delete(s.id);
+				// A newer signature (the user painted another material) owns the slot now.
+				if (this.wallSignature(s) !== signature) return;
+				const mask = readRaster(maskImg, s.maskWidth, s.maskHeight);
+				const materials = materialImg ? readRaster(materialImg, s.maskWidth, s.maskHeight) : null;
+				this.wallCanvases.set(s.id, {
+					signature,
+					canvas: colorizeWalls(
+						mask,
+						s.maskWidth,
+						s.maskHeight,
+						materials,
+						s.defaultMaterial as WallMaterialId
+					)
+				});
+				this.onLoad?.();
+			}
+		);
+	}
 
 	/** Load what is wanted, drop what is not. */
 	sync(sources: FloorCardSource[]): void {
@@ -113,7 +192,7 @@ export class FloorCardCache {
 		const liveFloors = new Set<string>();
 		for (const s of sources) {
 			liveFloors.add(s.id);
-			for (const url of [s.planUrl, s.maskUrl]) {
+			for (const url of [s.planUrl, s.maskUrl, s.materialUrl]) {
 				if (!url) continue;
 				wanted.add(url);
 				if (this.images.has(url)) continue;
@@ -122,12 +201,18 @@ export class FloorCardCache {
 				img.src = url;
 				this.images.set(url, img);
 			}
+			// The material map is wanted as an image for its pixels, so the coloured
+			// walls can be built from the same bitmaps the plan reads.
+			this.ensureWalls(s);
 		}
 		for (const url of [...this.images.keys()]) {
 			if (!wanted.has(url)) this.images.delete(url);
 		}
 		for (const id of [...this.heatmaps.keys()]) {
 			if (!liveFloors.has(id)) this.heatmaps.delete(id);
+		}
+		for (const id of [...this.wallCanvases.keys()]) {
+			if (!liveFloors.has(id)) this.wallCanvases.delete(id);
 		}
 	}
 
@@ -189,10 +274,17 @@ export class FloorCardCache {
 		}
 
 		if (opts.showWalls && src.maskUrl) {
-			const maskImg = this.images.get(src.maskUrl);
-			if (maskImg?.complete && maskImg.naturalWidth > 0) {
-				ctx.globalAlpha = 0.5;
-				ctx.drawImage(maskImg, src.maskOriginX, src.maskOriginY);
+			const coloured = this.wallCanvases.get(src.id)?.canvas;
+			ctx.globalAlpha = 0.5;
+			if (coloured) {
+				// The plan's own colouring — see `colorizeWalls`. Falls back to the raw
+				// mask below while the two rasters are still decoding.
+				ctx.drawImage(coloured, src.maskOriginX, src.maskOriginY);
+			} else {
+				const maskImg = this.images.get(src.maskUrl);
+				if (maskImg?.complete && maskImg.naturalWidth > 0) {
+					ctx.drawImage(maskImg, src.maskOriginX, src.maskOriginY);
+				}
 			}
 		}
 
@@ -222,4 +314,35 @@ export class FloorCardCache {
 			}
 		}
 	}
+}
+
+/**
+ * One raster's pixels, as bytes: red channel, so both mask conventions read alike.
+ *
+ * The wall mask is white walls on transparent and the material map carries the material
+ * id in red (`encodeMask`, `encodeMaterialMask`), which is exactly how the two decoders
+ * in `wall-detect.ts` and `region-labels.ts` read them — the same numbers, from images
+ * that are already loaded rather than from a second decode of the same data URL.
+ */
+function readRaster(img: HTMLImageElement, width: number, height: number): Uint8Array {
+	const canvas = document.createElement('canvas');
+	canvas.width = width;
+	canvas.height = height;
+	const ctx = canvas.getContext('2d')!;
+	ctx.drawImage(img, 0, 0, width, height);
+	const data = ctx.getImageData(0, 0, width, height).data;
+	const out = new Uint8Array(width * height);
+	for (let i = 0; i < out.length; i++) out[i] = data[i * 4]!;
+	return out;
+}
+
+/** Resolve when an image is decodable, immediately if it already is. */
+function whenDecoded(img: HTMLImageElement): Promise<void> {
+	if (img.complete && img.naturalWidth > 0) return Promise.resolve();
+	return new Promise((resolve) => {
+		// Both outcomes resolve: a mask that failed to load leaves the raw silhouette
+		// drawn, which is what the views showed before the material colouring existed.
+		img.addEventListener('load', () => resolve(), { once: true });
+		img.addEventListener('error', () => resolve(), { once: true });
+	});
 }

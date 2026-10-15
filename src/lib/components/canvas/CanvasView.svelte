@@ -1746,6 +1746,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 			planOffsetX: f.floorplanOffsetX,
 			planOffsetY: f.floorplanOffsetY,
 			maskUrl: f.wallMask?.dataUrl ?? null,
+			// The overviews colour walls from the same two rasters the plan does: without
+			// the material map they could only draw the mask, which is white walls on
+			// transparent, and every material looked alike up there.
+			materialUrl: f.materialMask?.dataUrl ?? null,
+			defaultMaterial: f.wallMaterial ?? 0,
 			maskOriginX: f.wallMask?.originX ?? 0,
 			maskOriginY: f.wallMask?.originY ?? 0,
 			maskWidth: f.wallMask?.width ?? 0,

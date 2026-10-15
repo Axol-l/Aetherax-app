@@ -29,7 +29,13 @@ export class WallLayer implements Layer {
 			this.defaultMaterial !== this.cachedDefaultMat;
 
 		if (needsRegen) {
-			this.cachedImage = colorize(this.mask, this.materialMap, this.defaultMaterial);
+			this.cachedImage = colorizeWalls(
+				this.mask.data,
+				this.mask.width,
+				this.mask.height,
+				this.materialMap,
+				this.defaultMaterial
+			);
 			this.cachedMaskRef = this.mask.data;
 			this.cachedMatRef = this.materialMap;
 			this.cachedDefaultMat = this.defaultMaterial;
@@ -47,20 +53,36 @@ export class WallLayer implements Layer {
 	}
 }
 
-function colorize(
-	mask: DecodedWallMask,
+/**
+ * Walls as a coloured raster: one pixel per mask pixel, in its material's colour.
+ *
+ * Exported because the plan is no longer the only view that needs it. The overviews
+ * (the tiles sheet and the 2.5D stack) used to draw the encoded wall mask as it is —
+ * white walls on transparent — which is why a glass door and a brick wall looked the
+ * same up there while the plan told them apart. One function, so they cannot drift
+ * again.
+ *
+ * A virtual partition gets a diagonal hatch: it attenuates nothing, and a plain fill
+ * would make it look identical to a real wall in the same material's colour, which is
+ * the one thing the user has to be able to tell apart. Cheap here because this runs
+ * once per mask change rather than per frame.
+ */
+export function colorizeWalls(
+	maskData: Uint8Array,
+	width: number,
+	height: number,
 	materialMap: Uint8Array | null,
 	defaultMaterial: WallMaterialId
 ): HTMLCanvasElement {
 	const canvas = document.createElement('canvas');
-	canvas.width = mask.width;
-	canvas.height = mask.height;
+	canvas.width = width;
+	canvas.height = height;
 	const ctx = canvas.getContext('2d')!;
-	const imgData = ctx.createImageData(mask.width, mask.height);
+	const imgData = ctx.createImageData(width, height);
 	const defaultColor = WALL_MATERIALS[defaultMaterial]?.color ?? WALL_MATERIALS[0]!.color;
 
-	for (let i = 0; i < mask.data.length; i++) {
-		if (!mask.data[i]) continue;
+	for (let i = 0; i < maskData.length; i++) {
+		if (!maskData[i]) continue;
 		const j = i * 4;
 		const matId = materialMap ? materialMap[i]! : defaultMaterial;
 		const color = WALL_MATERIALS[matId]?.color ?? defaultColor;
@@ -69,12 +91,8 @@ function colorize(
 		let b = color[2];
 
 		if (isVirtualMaterial(matId as WallMaterialId)) {
-			// Diagonal hatch. A virtual partition attenuates nothing, and a plain
-			// fill would make it look identical to a real wall in the material's
-			// colour — the one thing the user must be able to tell apart.
-			// Cheap to do here: this runs once per mask change, not per frame.
-			const x = i % mask.width;
-			const y = (i / mask.width) | 0;
+			const x = i % width;
+			const y = (i / width) | 0;
 			if ((x + y) % 8 < 4) {
 				r = Math.round(r * 0.32);
 				g = Math.round(g * 0.32);
