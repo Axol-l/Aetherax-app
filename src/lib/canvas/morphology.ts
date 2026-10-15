@@ -32,6 +32,26 @@ export interface BuildingInteriorOptions {
 	 * *every wall on the plan*. Default off, so that filter keeps working unchanged.
 	 */
 	trimWallAdjacent?: boolean;
+	/**
+	 * Drop enclosed regions too narrow to hold an access point, in mask pixels.
+	 *
+	 * The interior is "everything the flood fill could not reach from the border", which
+	 * is not the same as "rooms". A plan drawn with double lines — a facade with a cavity,
+	 * a wall with an air gap, two parallel partitions a few centimetres apart — encloses
+	 * slivers that the fill cannot enter, and an optimiser given those as placement domain
+	 * will use them: an access point 3 cm from a wall, in a 0.6 m² pocket, is what a user
+	 * sees as "the optimiser put it outside the room".
+	 *
+	 * A region's **largest inscribed circle** is what tells a room from a cavity: a
+	 * 1.2 m-wide corridor has a 0.6 m one, a drawing gap has centimetres. Regions below
+	 * this radius are removed whole, so what survives keeps its full extent — a wall mount
+	 * still has the wall it needs.
+	 *
+	 * Mask pixels are world units, so this is a physical length: multiply metres by
+	 * worldUnitsPerMeter. Zero (the default) keeps every enclosed region, which is what
+	 * wall detection's blob filter wants.
+	 */
+	minRegionRadius?: number;
 }
 
 // ─── Reusable morphological operations ─────────────────────────────
@@ -262,5 +282,101 @@ export function computeBuildingInterior(
 		}
 	}
 
+	// Cavities and drawing gaps out. See `minRegionRadius` for why this is a region test
+	// rather than an erosion: an eroded domain would take the wall away from a wall mount.
+	if (options?.minRegionRadius && options.minRegionRadius > 0) {
+		dropThinRegions(interior, wallMask, w, h, options.minRegionRadius);
+	}
+
 	return { interior, exterior };
+}
+
+/**
+ * Remove every enclosed region whose largest inscribed circle is under `minRadius`.
+ *
+ * Two passes: a distance transform of the walls gives each interior pixel its clearance
+ * (an approximation on the coarse grid, which is all this needs), and a connected
+ * labelling walks the regions. A region is kept or dropped as a whole, so a room keeps
+ * the pixels against its walls.
+ *
+ * Mutates `interior`.
+ */
+export function dropThinRegions(
+	interior: Uint8Array,
+	wallMask: Uint8Array,
+	w: number,
+	h: number,
+	minRadius: number
+): void {
+	const n = w * h;
+	const clearance = new Float32Array(n);
+	// Chebyshev distance to the nearest wall by two sweeps: close enough to tell a room
+	// from a gap, and it avoids pulling a Euclidean transform into the worker's hot path.
+	const INF = 1e9;
+	for (let i = 0; i < n; i++) clearance[i] = wallMask[i] ? 0 : INF;
+	for (let y = 0; y < h; y++) {
+		for (let x = 0; x < w; x++) {
+			const i = y * w + x;
+			if (clearance[i] === 0) continue;
+			let best = clearance[i]!;
+			if (y > 0) best = Math.min(best, clearance[i - w]! + 1);
+			if (x > 0) best = Math.min(best, clearance[i - 1]! + 1);
+			if (y > 0 && x > 0) best = Math.min(best, clearance[i - w - 1]! + 1);
+			if (y > 0 && x < w - 1) best = Math.min(best, clearance[i - w + 1]! + 1);
+			clearance[i] = best;
+		}
+	}
+	for (let y = h - 1; y >= 0; y--) {
+		for (let x = w - 1; x >= 0; x--) {
+			const i = y * w + x;
+			if (clearance[i] === 0) continue;
+			let best = clearance[i]!;
+			if (y < h - 1) best = Math.min(best, clearance[i + w]! + 1);
+			if (x < w - 1) best = Math.min(best, clearance[i + 1]! + 1);
+			if (y < h - 1 && x < w - 1) best = Math.min(best, clearance[i + w + 1]! + 1);
+			if (y < h - 1 && x > 0) best = Math.min(best, clearance[i + w - 1]! + 1);
+			clearance[i] = best;
+		}
+	}
+
+	const label = new Int32Array(n).fill(-1);
+	const queue = new Int32Array(n);
+	/** The pixels of each region, so a dropped one can be cleared without a rescan. */
+	const pixelsOf: number[][] = [];
+
+	for (let start = 0; start < n; start++) {
+		if (!interior[start] || label[start] !== -1) continue;
+		const id = pixelsOf.length;
+		const pixels: number[] = [];
+		pixelsOf.push(pixels);
+		let head = 0;
+		let tail = 0;
+		queue[tail++] = start;
+		label[start] = id;
+		let maxClearance = 0;
+		while (head < tail) {
+			const i = queue[head++]!;
+			pixels.push(i);
+			const c = clearance[i]!;
+			if (c > maxClearance) maxClearance = c;
+			const x = i % w;
+			const y = (i / w) | 0;
+			for (let dy = -1; dy <= 1; dy++) {
+				const ny = y + dy;
+				if (ny < 0 || ny >= h) continue;
+				for (let dx = -1; dx <= 1; dx++) {
+					const nx = x + dx;
+					if (nx < 0 || nx >= w) continue;
+					const ni = ny * w + nx;
+					if (!interior[ni] || label[ni] !== -1) continue;
+					label[ni] = id;
+					queue[tail++] = ni;
+				}
+			}
+		}
+		// `maxClearance` is the radius of the largest circle that fits in this region.
+		if (maxClearance < minRadius) {
+			for (const i of pixels) interior[i] = 0;
+		}
+	}
 }

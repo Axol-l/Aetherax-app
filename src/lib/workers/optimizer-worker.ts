@@ -318,6 +318,17 @@ interface OptimizeMessage {
 	 */
 	wallBandWu?: number;
 	/**
+	 * Smallest inscribed radius an enclosed region may have and still be placed in, in
+	 * world units. See `computeBuildingInterior`'s `minRegionRadius` and `room-domain.ts`.
+	 *
+	 * Omitted means zero: every enclosed region counts, which is the behaviour before
+	 * cavities were understood to be a bug — the domain then includes a plan's wall
+	 * cavities and drawing gaps, and an access point placed in one is what a user sees as
+	 * "outside the room". The caller sends a physical length because this realm has no
+	 * calibration of its own.
+	 */
+	minRoomRadiusWu?: number;
+	/**
 	 * The protocol version the message was built against. See `optimizer-protocol.ts`.
 	 *
 	 * Optional so a hand-built message in a test stays simple, and checked when present:
@@ -1987,7 +1998,11 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 		dilateRatio: 0.04,
 		minDilateR: 4,
 		// This mask is the placement domain: an AP against a wall face is not a placement.
-		trimWallAdjacent: true
+		trimWallAdjacent: true,
+		// ...and a wall cavity is not a room. Without this the domain includes every
+		// sliver a plan encloses between two drawn lines, which the search then uses —
+		// an AP 3 cm from a wall, in a 0.6 m² pocket. See `minRoomRadiusWu`.
+		minRegionRadius: msg.minRoomRadiusWu ?? 0
 	});
 
 	// Voids are holes in the floor, so they come out of the interior an AP may be
@@ -2076,7 +2091,10 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 		const { interior: untrimmed } = computeBuildingInterior(mask, w, h, {
 			maxDim: 400,
 			dilateRatio: 0.04,
-			minDilateR: 4
+			minDilateR: 4,
+			// The band has to obey the same room test as the domain: a wall mount in a
+			// cavity between two drawn lines is the same complaint as a ceiling one there.
+			minRegionRadius: msg.minRoomRadiusWu ?? 0
 		});
 		if (roomTypeMask && roomTypeMask.length === w * h) {
 			for (let i = 0; i < w * h; i++) {

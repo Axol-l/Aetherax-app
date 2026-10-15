@@ -15,6 +15,7 @@
 import { computeBuildingInterior } from '$canvas/morphology.js';
 import { isVoidRoomType } from '$canvas/room-types.js';
 import { getFloorMask } from './floor-mask.js';
+import { minRoomRadiusWu } from './room-domain.js';
 
 interface CachedInterior {
 	/** Identity of the mask this was computed from, so a re-detected plan invalidates it. */
@@ -41,7 +42,9 @@ async function interiorFor(floorId: string): Promise<CachedInterior | null> {
 		maxDim: 400,
 		dilateRatio: 0.04,
 		minDilateR: 4,
-		trimWallAdjacent: true
+		trimWallAdjacent: true,
+		// ...including which regions count as rooms. See `room-domain.ts`.
+		minRegionRadius: minRoomRadiusWu()
 	});
 	const roomTypes = decoded.roomTypeData;
 	if (roomTypes && roomTypes.length === interior.length) {

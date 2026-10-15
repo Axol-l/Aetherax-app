@@ -172,3 +172,70 @@ describe('computeBuildingInterior', () => {
 	});
 });
 
+describe('minRegionRadius', () => {
+	/**
+	 * A room with a wall cavity beside it, both enclosed.
+	 *
+	 * Two parallel lines with a 16 px gap between them are exactly what a plan drawn with
+	 * a doubled facade produces, and the flood fill cannot enter either space: to the
+	 * interior they are both "inside". Only one of them is a room.
+	 */
+	function roomWithCavity(w = 120, h = 100) {
+		const mask = new Uint8Array(w * h);
+		const line = (x0: number, y0: number, x1: number, y1: number) => {
+			for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) mask[y * w + x] = 1;
+		};
+		// The building: a closed box, 4 px thick.
+		line(4, 4, w - 5, 8);
+		line(4, h - 9, w - 5, h - 5);
+		line(4, 4, 8, h - 5);
+		line(w - 9, 4, w - 5, h - 5);
+		// The cavity: two lines with a 16 px gap, closed at both ends, inside the box.
+		line(20, 20, 100, 22);
+		line(20, 39, 100, 41);
+		line(20, 20, 22, 41);
+		line(98, 20, 100, 41);
+		return { mask, w, h, cavity: { x: 60, y: 30 }, room: { x: 60, y: 70 } };
+	}
+
+	it('drops a cavity and keeps the room around it', () => {
+		const { mask, w, h, cavity, room } = roomWithCavity();
+		const { interior } = computeBuildingInterior(mask, w, h, {
+			maxDim: 0,
+			dilateRatio: 0.04,
+			minDilateR: 4,
+			// A 16 px gap has an inscribed radius of ~8, the room's is ~45.
+			minRegionRadius: 20
+		});
+		expect(interior[cavity.y * w + cavity.x]).toBe(0);
+		expect(interior[room.y * w + room.x]).toBe(1);
+	});
+
+	it('keeps every enclosed region when no threshold is given', () => {
+		// The behaviour before cavities were understood to be a placement bug: the domain
+		// was "everything the fill could not reach", cavity included.
+		const { mask, w, h, cavity } = roomWithCavity();
+		const { interior } = computeBuildingInterior(mask, w, h, {
+			maxDim: 0,
+			dilateRatio: 0.04,
+			minDilateR: 4
+		});
+		expect(interior[cavity.y * w + cavity.x]).toBe(1);
+	});
+
+	it('keeps a narrow space when the threshold is below its radius', () => {
+		// The threshold is a radius, and the cavity's is about 8: at 5 it stays, which is
+		// what keeps a genuinely narrow room — a 1.2 m corridor — out of the filter's way
+		// at the real threshold of 0.3 m.
+		const { mask, w, h, cavity, room } = roomWithCavity();
+		const { interior } = computeBuildingInterior(mask, w, h, {
+			maxDim: 0,
+			dilateRatio: 0.04,
+			minDilateR: 4,
+			minRegionRadius: 5
+		});
+		expect(interior[cavity.y * w + cavity.x]).toBe(1);
+		expect(interior[room.y * w + room.x]).toBe(1);
+	});
+});
+

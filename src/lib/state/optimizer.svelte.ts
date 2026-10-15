@@ -44,6 +44,7 @@ import { isInsideInterior } from './ap-interior.js';
 import { projectMeta } from './project-meta.svelte.js';
 import { wallState } from './wall-state.svelte.js';
 import { WALL_BAND_M, wallSnapForFloor } from './wall-snap.js';
+import { minRoomRadiusWu } from './room-domain.js';
 import { OPTIMIZER_PAYLOAD_VERSION, type ApInput } from '../workers/optimizer-protocol.js';
 import { apState } from '$state/ap-state.svelte.js';
 
@@ -208,8 +209,11 @@ async function ensureCoverageCache(): Promise<boolean> {
 		maxDim: 400,
 		dilateRatio: 0.04,
 		minDilateR: 4,
-		// The coverage sample set: the same domain the optimiser places in.
-		trimWallAdjacent: true
+		// The coverage sample set: the same domain the optimiser places in — including
+		// which regions count as rooms, so a cavity is not counted as floor area that
+		// needs covering either. See `room-domain.ts`.
+		trimWallAdjacent: true,
+		minRegionRadius: minRoomRadiusWu()
 	});
 
 	const interiorPixels: number[] = [];
@@ -567,7 +571,10 @@ async function getDensityRoomLabels(
 	const { interior } = computeBuildingInterior(decoded.data, maskWidth, maskHeight, {
 		maxDim: 400,
 		dilateRatio: 0.04,
-		minDilateR: 4
+		minDilateR: 4,
+		// Rooms, not cavities: this drives the per-room density the objective weights
+		// samples by, and a wall cavity is not a room with an occupancy. See `room-domain.ts`.
+		minRegionRadius: minRoomRadiusWu()
 	});
 	densityRoomLabels = labelRooms(interior, maskWidth, maskHeight).labels;
 	densityWallMaskRef = wm;
@@ -1253,6 +1260,10 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 				// indexes the mask in world units and has no calibration of its own. The
 				// face itself is where `wallSnapForFloor` puts the AP afterwards.
 				wallBandWu: WALL_BAND_M * getEffectiveWupm(),
+				// What counts as a room, so the worker's placement domain agrees with the
+				// app's own "is this point inside?" guard. See `room-domain.ts` — a domain
+				// the two do not share is how an optimised AP ends up in a wall cavity.
+				minRoomRadiusWu: minRoomRadiusWu(),
 				// F3's ε-constraint. Zero means no constraint, which is the objective every
 				// figure recorded before it was measured on. The per-floor switch changes who
 				// the requirement is about, not how it is enforced: this block scores one
@@ -1367,8 +1378,10 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 				dilateRatio: 0.04,
 				minDilateR: 4,
 				// Same domain the worker placed into, or this check would be comparing an AP
-				// against a different interior from the one it was placed in.
-				trimWallAdjacent: true
+				// against a different interior from the one it was placed in — including
+				// which regions count as rooms. See `room-domain.ts`.
+				trimWallAdjacent: true,
+				minRegionRadius: minRoomRadiusWu()
 			});
 			// Mirror the worker's void exclusion, or a void reads as "AP landed
 			// outside the interior" when the worker deliberately placed it there.

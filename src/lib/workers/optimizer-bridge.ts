@@ -268,6 +268,13 @@ export class OptimizerBridge {
 			 */
 			wallBandWu?: number;
 			/**
+			 * Smallest inscribed radius an enclosed region may have and still be placed in,
+			 * in world units. Omit to count every enclosed region, which is the behaviour
+			 * before wall cavities were understood to be a placement bug — see
+			 * `minRegionRadius` in `computeBuildingInterior`, and `room-domain.ts`.
+			 */
+			minRoomRadiusWu?: number;
+			/**
 			 * ε-constraint (F3): the covered share the result must reach, as a 0-1
 			 * fraction. Zero is no constraint.
 			 */
@@ -348,6 +355,7 @@ export class OptimizerBridge {
 				worldUnitsPerMeter: options?.worldUnitsPerMeter,
 				localVerticalDrop: options?.localVerticalDrop ?? 0,
 				wallBandWu: options?.wallBandWu,
+				minRoomRadiusWu: options?.minRoomRadiusWu,
 				// The payload shape this bridge builds. See `optimizer-protocol.ts`: the
 				// worker checks it when present, so a bundle left in a browser cache while
 				// the app around it moved on fails loudly instead of scoring a different
