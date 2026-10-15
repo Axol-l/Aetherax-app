@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { projectState, updateAp, removeAp, removeAps, radiusFromPower } from '$state/project.svelte';
+	import { updateAp, removeAp, removeAps, radiusFromPower } from '$state/project.svelte';
 	import {
 		MOUNT_PRESETS,
 		apHeightAboveFloor,
@@ -26,6 +26,8 @@
 	import ModelPicker from '$components/shared/ModelPicker.svelte';
 	import { t } from '$state/i18n.svelte';
 	import { displayLength, lengthInputHints, lengthUnit, unitToMetres } from '$lib/units.js';
+	import { apState } from '$state/ap-state.svelte.js';
+	import { floorplanState } from '$state/floorplan-state.svelte.js';
 
 	/** Narrowest beam the field accepts: below this the pattern is a pencil. */
 	const MIN_BEAMWIDTH_DEG = 10;
@@ -72,7 +74,7 @@
 	}
 
 	let selectedAps = $derived(
-		projectState.aps.filter((a) => canvasState.selectedApIds.includes(a.id))
+		apState.aps.filter((a) => canvasState.selectedApIds.includes(a.id))
 	);
 	let singleAp = $derived(selectedAps.length === 1 ? selectedAps[0] : null);
 	let multiSelect = $derived(selectedAps.length > 1);
@@ -86,7 +88,7 @@
 	 * The range is a *derived readout*, never typed, so it converts in one place
 	 * through `displayLength` and cannot drift from the rest of the column.
 	 */
-	const lengthDisplayUnit = $derived(lengthUnit(projectState.unitSystem));
+	const lengthDisplayUnit = $derived(lengthUnit(floorplanState.unitSystem));
 
 	const mountOptions = $derived(
 		MOUNT_PRESETS.map((preset) => ({ value: preset.mount, label: t(preset.label) }))
@@ -222,7 +224,7 @@
 		for (const [a, b] of conflicts) {
 			const otherId = a === singleAp.id ? b : b === singleAp.id ? a : null;
 			if (!otherId) continue;
-			const other = projectState.aps.find((ap) => ap.id === otherId);
+			const other = apState.aps.find((ap) => ap.id === otherId);
 			if (!other) continue;
 			const pairKey = [singleAp.id, other.id].sort().join(':');
 			const signal = edgeSignals.get(pairKey) ?? 0;
@@ -235,7 +237,7 @@
 		if (!singleAp) return [];
 		const channels = getAvailableChannels(
 			singleAp.band,
-			projectState.regulatoryDomain
+			apState.regulatoryDomain
 		);
 		const opts: Array<{ value: string; label: string }> = [
 			{ value: '', label: 'Auto' }
@@ -287,7 +289,7 @@
 			return;
 		}
 		const spec =
-			getBandSpec(model, singleAp.band) ?? getBandSpec(model, projectState.band) ?? model.bands[0];
+			getBandSpec(model, singleAp.band) ?? getBandSpec(model, apState.band) ?? model.bands[0];
 		if (!spec) return;
 
 		// Set power from model spec — radius is auto-derived by the $effect
@@ -331,7 +333,7 @@
 {#if singleAp}
 	<div class="editor">
 		<button class="back-link" onclick={() => clearSelection()}>
-			&larr; {t('All APs ({count})', { count: projectState.aps.length })}
+			&larr; {t('All APs ({count})', { count: apState.aps.length })}
 		</button>
 		<div class="section-header">{t('PROPERTIES')}</div>
 

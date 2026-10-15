@@ -3,7 +3,7 @@ import { planningChannels, planningCandidates, estimateThroughput } from '@aethe
 import type { ChannelWidth, ThroughputEstimate, ThroughputInput } from '@aetherax/channels';
 import type { Band } from '@aetherax/channels';
 import type { SolverResult, ComparisonResult } from '@aetherax/solver';
-import { projectState, updateAp, clearAssignments } from './project.svelte.js';
+import { updateAp, clearAssignments } from './project.svelte.js';
 import { appState } from './app.svelte.js';
 import { SolverBridge } from '../workers/solver-bridge.js';
 import { floorState, getFloorSlabAttenuation } from './floor-state.svelte.js';
@@ -56,7 +56,7 @@ function getFloorZ(): Map<string, number> {
 
 function getApPositions() {
 	const floorZ = getFloorZ();
-	return projectState.aps.map((ap) => ({
+	return apState.aps.map((ap) => ({
 		id: ap.id,
 		x: ap.x,
 		y: ap.y,
@@ -80,6 +80,8 @@ export {
 	invalidateSolverMaskCache,
 	type DecodedFloorMask
 } from './floor-mask.js';
+import { apState } from '$state/ap-state.svelte.js';
+import { projectMeta } from '$state/project-meta.svelte.js';
 
 
 // ─── Attenuation helpers ──────────────────────────────────────────
@@ -156,10 +158,10 @@ async function buildSerializedGraph() {
 	prepareSortedFloors();
 	edgeSignals.clear();
 	const aps = getApPositions();
-	const apMap = new Map(projectState.aps.map((ap) => [ap.id, ap]));
+	const apMap = new Map(apState.aps.map((ap) => [ap.id, ap]));
 
 	// Pre-decode wall masks for floors that have APs (parallel decode)
-	const apFloorIds = new Set(projectState.aps.map((ap) => ap.floorId));
+	const apFloorIds = new Set(apState.aps.map((ap) => ap.floorId));
 	const maskPromises = [...apFloorIds].map(async (fid) => [fid, await getFloorMask(fid)] as const);
 	const masks = new Map(await Promise.all(maskPromises));
 
@@ -268,13 +270,13 @@ async function buildSerializedGraph() {
  * either. See `planningChannels`.
  */
 function widestWidthOn(band: Band): ChannelWidth {
-	const widths = projectState.aps.filter((ap) => ap.band === band).map((ap) => ap.channelWidth);
+	const widths = apState.aps.filter((ap) => ap.band === band).map((ap) => ap.channelWidth);
 	return (widths.length > 0 ? Math.max(...widths) : 20) as ChannelWidth;
 }
 
 /** Channels the planner may assign on a band: non-overlapping, so `number_a === number_b` means "interferes". */
 function planningChannelNumbers(band: Band): number[] {
-	return planningChannels(band, projectState.regulatoryDomain, widestWidthOn(band)).map(
+	return planningChannels(band, apState.regulatoryDomain, widestWidthOn(band)).map(
 		(ch) => ch.number
 	);
 }
@@ -282,15 +284,15 @@ function planningChannelNumbers(band: Band): number[] {
 function getColorOptions(): number[] {
 	// Use the most common band among APs, falling back to project default
 	const bandCounts = new Map<string, number>();
-	for (const ap of projectState.aps) {
+	for (const ap of apState.aps) {
 		bandCounts.set(ap.band, (bandCounts.get(ap.band) ?? 0) + 1);
 	}
-	let primaryBand = projectState.band;
+	let primaryBand = apState.band;
 	let maxCount = 0;
 	for (const [band, count] of bandCounts) {
 		if (count > maxCount) {
 			maxCount = count;
-			primaryBand = band as typeof projectState.band;
+			primaryBand = band as typeof apState.band;
 		}
 	}
 	return planningChannelNumbers(primaryBand);
@@ -298,7 +300,7 @@ function getColorOptions(): number[] {
 
 function getFixedAssignments(): [string, number][] {
 	const fixed: [string, number][] = [];
-	for (const ap of projectState.aps) {
+	for (const ap of apState.aps) {
 		if (ap.fixedChannel !== null) {
 			fixed.push([ap.id, ap.fixedChannel]);
 		}
@@ -313,11 +315,11 @@ function applyAssignments(assignment: Map<string, number>): void {
 }
 
 function computeThroughput(): void {
-	const inputs: ThroughputInput[] = projectState.aps.map((ap) => {
+	const inputs: ThroughputInput[] = apState.aps.map((ap) => {
 		// Use real attenuated signal from edgeSignals (computed during graph build
 		// with wall + floor attenuation), not geometric overlap
 		const coChannelOverlaps: number[] = [];
-		for (const other of projectState.aps) {
+		for (const other of apState.aps) {
 			if (other.id === ap.id) continue;
 			if (other.assignedChannel !== ap.assignedChannel || ap.assignedChannel === null) continue;
 			const pairKey = [ap.id, other.id].sort().join(':');
@@ -341,13 +343,13 @@ function computeThroughput(): void {
 	});
 
 	solverState.throughputEstimates = estimateThroughput(inputs, {
-		ispSpeed: projectState.ispSpeed,
-		targetThroughput: projectState.targetThroughput
+		ispSpeed: projectMeta.ispSpeed,
+		targetThroughput: projectMeta.targetThroughput
 	});
 }
 
 export async function runSolver(): Promise<void> {
-	if (projectState.aps.length === 0) return;
+	if (apState.aps.length === 0) return;
 	if (solverState.isRunning) return;
 
 	solverState.isRunning = true;
@@ -358,7 +360,7 @@ export async function runSolver(): Promise<void> {
 		const fixedAssignments = getFixedAssignments();
 
 		// Solve each band independently — different bands don't interfere
-		const bands = new Set(projectState.aps.map((ap) => ap.band));
+		const bands = new Set(apState.aps.map((ap) => ap.band));
 		const mergedAssignment = new Map<string, number>();
 		let totalConflicts: [string, string][] = [];
 		let totalColors = 0;
@@ -366,7 +368,7 @@ export async function runSolver(): Promise<void> {
 
 		for (const band of bands) {
 			const bandApIds = new Set(
-				projectState.aps.filter((ap) => ap.band === band).map((ap) => ap.id)
+				apState.aps.filter((ap) => ap.band === band).map((ap) => ap.id)
 			);
 			// Filter graph to only this band's APs
 			const bandNodes = graph.nodes.filter((id) => bandApIds.has(id));
@@ -417,7 +419,7 @@ export async function runSolver(): Promise<void> {
 			// is evaluated before the body's binding exists — a trap for the next edit.
 			const bandNames = bandNodes.map(() => band as string);
 			const widths = bandNodes.map(
-				(id) => projectState.aps.find((ap) => ap.id === id)?.channelWidth ?? 20
+				(id) => apState.aps.find((ap) => ap.id === id)?.channelWidth ?? 20
 			);
 			const overlap = makeOverlapLookup(bandNames, widths);
 			// The graph's weights, in this band's own index space, so the widening pass
@@ -432,12 +434,12 @@ export async function runSolver(): Promise<void> {
 			}
 			const pinnedFlags = bandNodes.map((id) => pinnedIds.has(id));
 			const candidates = bandNodes.map((id) => {
-				const ap = projectState.aps.find((a) => a.id === id);
+				const ap = apState.aps.find((a) => a.id === id);
 				// A pin is a single-element list, exactly as in the worker's colourer.
 				if (!ap || ap.fixedChannel !== null) return [ap?.fixedChannel ?? availableColors[0]!];
 				return planningCandidates(
 					ap.band,
-					projectState.regulatoryDomain,
+					apState.regulatoryDomain,
 					ap.channelWidth
 				).map((ch) => ch.number);
 			});
@@ -471,7 +473,7 @@ export async function runSolver(): Promise<void> {
 		solverState.lastTiming = totalTime;
 		clearAssignments();
 		applyAssignments(mergedAssignment);
-		projectState.aps = [...projectState.aps];
+		apState.aps = [...apState.aps];
 		// The assignment is part of the project, so it has to be persisted like any
 		// other change to it. It used to be written to state and never saved: the only
 		// save in flight when the automatic solver ran was the one the *optimiser* had
@@ -495,7 +497,7 @@ export async function runSolver(): Promise<void> {
 }
 
 export async function runComparison(): Promise<void> {
-	if (projectState.aps.length === 0) return;
+	if (apState.aps.length === 0) return;
 	if (solverState.isRunning) return;
 
 	solverState.isRunning = true;
@@ -522,7 +524,7 @@ export async function runComparison(): Promise<void> {
 			solverState.algorithm = best.algorithm as Algorithm;
 			clearAssignments();
 			applyAssignments(best.assignment);
-			projectState.aps = [...projectState.aps];
+			apState.aps = [...apState.aps];
 			// Same reason as in `runSolver`: the assignment is project state, and the
 			// comparison's winning colouring used not to be saved at all.
 			scheduleSave(true);

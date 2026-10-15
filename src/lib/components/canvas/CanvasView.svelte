@@ -39,7 +39,7 @@
 		type AccessPoint
 	} from '$state/ap-state.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
-	import { projectState } from '$state/project.svelte.js';
+	
 import { wallState } from '$state/wall-state.svelte.js';
 	import { projectMeta } from '$state/project-meta.svelte.js';
 	import { canvasState, clearSelection } from '$state/canvas.svelte.js';
@@ -828,7 +828,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				: null;
 
 		const show = appState.floorView === 'single' && appState.showAPs && !appState.wallEditMode;
-		const unit = lengthUnit(projectState.unitSystem);
+		const unit = lengthUnit(floorplanState.unitSystem);
 		const wupm = getEffectiveWupm();
 
 		const annotations = new Map<string, WallDistanceAnnotation>();
@@ -1664,7 +1664,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 */
 	$effect(() => {
 		void wallState.wallMask;
-		for (const ap of projectState.aps) {
+		for (const ap of apState.aps) {
 			void ap.x;
 			void ap.y;
 			void ap.floorId;

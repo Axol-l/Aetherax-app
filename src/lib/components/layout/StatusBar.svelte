@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { projectState } from '$state/project.svelte';
 	import { wallState } from '$state/wall-state.svelte';
 	import { canvasState } from '$state/canvas.svelte';
 	import { persistenceState } from '$state/persistence.svelte';

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { projectState, removeAps } from '$state/project.svelte';
+	import { removeAps } from '$state/project.svelte';
 	import { canvasState, selectAp, selectAps, clearSelection } from '$state/canvas.svelte';
 	import { solverState } from '$state/solver.svelte';
 	import { appState } from '$state/app.svelte';
@@ -8,6 +8,7 @@
 	import Icon from '$components/shared/Icon.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
 	import { t } from '$state/i18n.svelte';
+	import { apState } from '$state/ap-state.svelte.js';
 
 	let confirmOpen = $state(false);
 	let confirmMessage = $state('');
@@ -38,14 +39,14 @@
 	}
 
 	let apsByFloor = $derived.by(() => {
-		const groups: Array<{ floor: { id: string; name: string }; aps: typeof projectState.aps }> = [];
+		const groups: Array<{ floor: { id: string; name: string }; aps: typeof apState.aps }> = [];
 		for (const floor of floorState.floors) {
-			const aps = projectState.aps.filter((ap) => ap.floorId === floor.id);
+			const aps = apState.aps.filter((ap) => ap.floorId === floor.id);
 			if (aps.length > 0) groups.push({ floor: { id: floor.id, name: floor.name }, aps });
 		}
 		// Add any APs with orphaned floorIds
 		const knownFloorIds = new Set(floorState.floors.map((f) => f.id));
-		const orphans = projectState.aps.filter((ap) => !knownFloorIds.has(ap.floorId));
+		const orphans = apState.aps.filter((ap) => !knownFloorIds.has(ap.floorId));
 		if (orphans.length > 0) groups.push({ floor: { id: '', name: 'Unknown Floor' }, aps: orphans });
 		return groups;
 	});
@@ -61,7 +62,7 @@
 	}
 
 	function selectAll() {
-		selectAps(projectState.aps.map((ap) => ap.id));
+		selectAps(apState.aps.map((ap) => ap.id));
 	}
 
 	function deleteSelected() {
@@ -73,7 +74,7 @@
 
 	function clearAll() {
 		showConfirm('Delete all access points on this floor?', () => {
-			removeAps(projectState.aps.map((ap) => ap.id));
+			removeAps(apState.aps.map((ap) => ap.id));
 			clearSelection();
 		});
 	}
@@ -90,7 +91,7 @@
 					{selectionCount}
 				</button>
 			{/if}
-			{#if projectState.aps.length > 0}
+			{#if apState.aps.length > 0}
 				<button class="action-btn" onclick={selectAll} aria-label={t('Select all')}>
 					{t('All')}
 				</button>
@@ -101,7 +102,7 @@
 		</div>
 	</div>
 
-	{#if projectState.aps.length === 0}
+	{#if apState.aps.length === 0}
 		<div class="empty-state">
 			<p class="empty-text">{t('No access points yet')}</p>
 			<!-- Placement is a mode now, so "click the canvas" is only true while it is on. -->

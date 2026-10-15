@@ -1,5 +1,6 @@
 import type { CanvasEngine } from '$canvas/engine.js';
-import { projectState } from '$state/project.svelte.js';
+import { projectMeta } from '$state/project-meta.svelte.js';
+
 
 export interface PngOptions {
 	scale?: number; // resolution multiplier (1, 2, 4). Default 2
@@ -60,7 +61,7 @@ export async function exportPng(engine: CanvasEngine, options: PngOptions = {}):
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = `${projectState.name.replace(/[^a-zA-Z0-9-_]/g, '_')}.png`;
+			a.download = `${projectMeta.name.replace(/[^a-zA-Z0-9-_]/g, '_')}.png`;
 			a.click();
 			URL.revokeObjectURL(url);
 			resolve();

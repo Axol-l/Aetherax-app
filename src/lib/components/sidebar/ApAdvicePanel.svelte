@@ -11,7 +11,7 @@
 	 * the advice would be about a plan nobody has scored. See `docs/AP_ADVICE.md`
 	 * for the conditions, their thresholds and what each estimate assumes.
 	 */
-	import { projectState } from '$state/project.svelte';
+	
 	import { projectMeta } from '$state/project-meta.svelte';
 	import { optimizerState, floorCoverage } from '$state/optimizer.svelte';
 	import { floorState, currentFloor } from '$state/floor-state.svelte';
@@ -21,6 +21,8 @@
 	import { areaUnit as areaUnitFor, sqmToUnit } from '$lib/units.js';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
+	import { apState } from '$state/ap-state.svelte.js';
+	import { floorplanState } from '$state/floorplan-state.svelte.js';
 
 	/**
 	 * Dismissal, and which run it applied to.
@@ -37,8 +39,8 @@
 
 	/** The APs the run arranged: every AP on a single-storey project, else the floor's. */
 	const apsOnFloor = $derived.by(() => {
-		if (floorState.floors.length <= 1) return projectState.aps;
-		return projectState.aps.filter((ap) => ap.floorId === floorState.currentFloorId);
+		if (floorState.floors.length <= 1) return apState.aps;
+		return apState.aps.filter((ap) => ap.floorId === floorState.currentFloorId);
 	});
 
 	/** The requirement the advice measures against: the ε floor, else the default. */
@@ -84,7 +86,7 @@
 			interference: optimizerState.interference,
 			contention: optimizerState.contention,
 			target,
-			unassigned: projectState.aps.filter((ap) => ap.assignedChannel === null).length,
+			unassigned: apState.aps.filter((ap) => ap.assignedChannel === null).length,
 			calibrated: floorState.floors[0]?.calibration != null,
 			floorAreaSqm,
 			multiFloor: floorState.floors.length > 1,
@@ -112,7 +114,7 @@
 
 	/** An area-per-AP figure with its unit, in whatever unit the toolbar selects. */
 	function areaPerApLabel(sqmPerAp: number): string {
-		const unit = areaUnitFor(projectState.unitSystem);
+		const unit = areaUnitFor(floorplanState.unitSystem);
 		return `${Math.round(sqmToUnit(sqmPerAp, unit))} ${unit}`;
 	}
 

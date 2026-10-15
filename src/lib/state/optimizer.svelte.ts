@@ -1,5 +1,5 @@
 import { SvelteMap } from 'svelte/reactivity';
-import { projectState, updateAp, beginMove } from './project.svelte.js';
+import { updateAp, beginMove } from './project.svelte.js';
 import { apHeightAboveFloor, apSplitFor, apVerticalOffsetTo, antennaProfileFor, getEffectiveWupm, type AccessPoint } from './ap-state.svelte.js';
 import { antennaRayLossDb } from '$lib/rf/antenna.js';
 import type { Band, ChannelWidth } from '@aetherax/channels';
@@ -45,6 +45,7 @@ import { projectMeta } from './project-meta.svelte.js';
 import { wallState } from './wall-state.svelte.js';
 import { WALL_BAND_M, wallSnapForFloor } from './wall-snap.js';
 import { OPTIMIZER_PAYLOAD_VERSION, type ApInput } from '../workers/optimizer-protocol.js';
+import { apState } from '$state/ap-state.svelte.js';
 
 const bridge = new OptimizerBridge();
 
@@ -151,9 +152,9 @@ export const floorCoverage = new SvelteMap<string, { coverage: number; samples: 
  * before there are walls to judge against, and it is re-run when the mask arrives.
  */
 export async function apsOutsideInterior(): Promise<string[]> {
-	if (projectState.allowOutsideRooms) return [];
+	if (projectMeta.allowOutsideRooms) return [];
 	const outside: string[] = [];
-	for (const ap of projectState.aps) {
+	for (const ap of apState.aps) {
 		if (!(await isInsideInterior(ap.floorId, ap.x, ap.y))) outside.push(ap.name);
 	}
 	return outside;
@@ -180,7 +181,7 @@ let cachedSamplePixelIdx: number[] | null = null;
 let cachedMaterialData: Uint8Array | null = null;
 
 async function ensureCoverageCache(): Promise<boolean> {
-	const mask = projectState.wallMask;
+	const mask = wallState.wallMask;
 	if (!mask) return false;
 	if (mask.dataUrl === cachedMaskUrl && cachedMask && cachedSamples) return true;
 
@@ -231,7 +232,7 @@ async function ensureCoverageCache(): Promise<boolean> {
 
 /** Compute real-time coverage score from current AP positions */
 export async function updateCoverage(): Promise<void> {
-	if (projectState.aps.length === 0 || !projectState.wallMask) {
+	if (apState.aps.length === 0 || !wallState.wallMask) {
 		optimizerState.coverage = 0;
 		return;
 	}
@@ -251,7 +252,7 @@ export async function updateCoverage(): Promise<void> {
 	const { data, width, height } = cachedMask;
 	const ox = cachedMask.originX ?? 0;
 	const oy = cachedMask.originY ?? 0;
-	const wallDb = projectState.wallAttenuation;
+	const wallDb = wallState.wallAttenuation;
 
 	// Per-band material tables. rayMarchWallAtten takes one table per call, so a
 	// Map keyed by band is what lets each AP be evaluated on its own band. The table is the
@@ -290,9 +291,9 @@ export async function updateCoverage(): Promise<void> {
 
 	// Include virtual APs from other floors as fixed signal sources
 	const curFloorId = floorState.currentFloorId;
-	const localAps = projectState.aps.filter((ap) => ap.floorId === curFloorId);
+	const localAps = apState.aps.filter((ap) => ap.floorId === curFloorId);
 	const virtualAps: Array<
-		(typeof projectState.aps)[0] & {
+		(typeof apState.aps)[0] & {
 			signalScale: number;
 			verticalGapWu: number;
 			source: Awaited<ReturnType<typeof sourceFloorMaskFor>>;
@@ -314,7 +315,7 @@ export async function updateCoverage(): Promise<void> {
 	const wupmForGap = getEffectiveWupm();
 	for (const otherFloor of floorState.floors) {
 		if (otherFloor.id === curFloorId) continue;
-		const otherAps = projectState.aps.filter((ap) => ap.floorId === otherFloor.id);
+		const otherAps = apState.aps.filter((ap) => ap.floorId === otherFloor.id);
 		if (otherAps.length === 0) continue;
 		// The vertical gap enters the *distance* as well as the loss: an AP two
 		// storeys away is further away, not merely more attenuated. The heatmap has
@@ -722,7 +723,7 @@ function applyPositions(
 		);
 	}
 	// Force a small state mutation to guarantee canvas reactivity triggers.
-	projectState.aps = [...projectState.aps];
+	apState.aps = [...apState.aps];
 }
 
 /**
@@ -765,7 +766,7 @@ function applyPowers(
 	for (const entry of powers) {
 		updateAp(entry.id, { power: entry.power, interferenceRadius: entry.radius });
 	}
-	projectState.aps = [...projectState.aps];
+	apState.aps = [...apState.aps];
 }
 
 /**
@@ -989,7 +990,7 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 		positions: []
 	};
 
-	if (projectState.aps.length === 0) return nothing;
+	if (apState.aps.length === 0) return nothing;
 	if (!floor?.wallMask) {
 		// Only worth surfacing when it is the floor on screen; during an all-floor
 		// run a floor that has no plan is simply skipped.
@@ -1012,7 +1013,7 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 
 		// Only optimize APs on the current floor (or all APs if single floor)
 		const singleFloor = floorState.floors.length === 1;
-		const onThisFloor = projectState.aps.filter((ap) => singleFloor || ap.floorId === curFloorId);
+		const onThisFloor = apState.aps.filter((ap) => singleFloor || ap.floorId === curFloorId);
 		/*
 		 * A **pinned** AP is not the optimiser's to move. It is handed over as a fixed
 		 * source instead — the same shape another floor's AP arrives in, minus the slab
@@ -1097,7 +1098,7 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 		const densityResult = await buildDensityMap(mask.width, mask.height, floor);
 		for (const otherFloor of floorState.floors) {
 			if (otherFloor.id === curFloorId) continue;
-			const otherAps = projectState.aps.filter((ap) => ap.floorId === otherFloor.id);
+			const otherAps = apState.aps.filter((ap) => ap.floorId === otherFloor.id);
 			if (otherAps.length === 0) continue;
 			// Decoded once per other floor, not once per AP: the ray split needs the
 			// AP's own floor's walls, and a PNG decode per AP would be absurd.
@@ -1200,8 +1201,8 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 					roomTypeMask: densityResult?.roomTypeData ?? null,
 					defaultMaterial: floor.wallMaterial,
 					metersPerPixel: 1 / getEffectiveWupm(),
-					allowOutside: projectState.allowOutsideRooms,
-					regulatoryDomain: projectState.regulatoryDomain,
+					allowOutside: projectMeta.allowOutsideRooms,
+					regulatoryDomain: apState.regulatoryDomain,
 					coverageSoftnessDb: projectMeta.coverageSoftnessDb,
 					pathLossScenario: projectMeta.pathLossScenario,
 					graphOnly: true
@@ -1235,14 +1236,14 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 				roomTypeMask: densityResult?.roomTypeData ?? null,
 				defaultMaterial: floor.wallMaterial,
 				metersPerPixel: 1 / getEffectiveWupm(),
-				allowOutside: projectState.allowOutsideRooms,
+				allowOutside: projectMeta.allowOutsideRooms,
 				// B4: power is a decision variable, offered as reductions from each AP's
 				// configured maximum. The pass can only lower it — raising it would
 				// invent a capability the user did not configure — and only when the
 				// exact objective strictly improves, so an AP whose power buys nothing
 				// keeps it. See `refinePower`.
 				powerLevelsDbm: localAps.map((ap) =>
-					powerLevelsFor(projectState.aps.find((a) => a.id === ap.id)?.power ?? 20)
+					powerLevelsFor(apState.aps.find((a) => a.id === ap.id)?.power ?? 20)
 				),
 				worldUnitsPerMeter: getEffectiveWupm(),
 				// The drop a same-floor path has and the path loss deliberately ignores. The
@@ -1276,7 +1277,7 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 				// knows every band's channel list and every pin, so each layout it
 				// scores is measured under its own best assignment rather than under
 				// the assignment left over from before the search moved anything.
-				regulatoryDomain: projectState.regulatoryDomain
+				regulatoryDomain: apState.regulatoryDomain
 			}
 		);
 
@@ -1322,7 +1323,7 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 		{
 			const powers = result.powers ?? [];
 			const lowered = powers.filter((p) => {
-				const ap = projectState.aps.find((a) => a.id === p.id);
+				const ap = apState.aps.find((a) => a.id === p.id);
 				return ap && p.power < ap.power;
 			});
 			if (powers.length === 0) {
@@ -1346,7 +1347,7 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 		// radius that large.
 		{
 			const wupm = getEffectiveWupm();
-			const floorAps = projectState.aps.filter((a) => a.floorId === curFloorId);
+			const floorAps = apState.aps.filter((a) => a.floorId === curFloorId);
 			const maxRadius = floorAps.length
 				? Math.max(...floorAps.map((a) => a.interferenceRadius))
 				: 0;
@@ -1360,7 +1361,7 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 		// used, and report the geometry when an AP lands outside it. The failure
 		// mode this guards against is invisible otherwise: the optimiser reports
 		// success and the APs simply sit somewhere unexpected.
-		if (!projectState.allowOutsideRooms) {
+		if (!projectMeta.allowOutsideRooms) {
 			const check = computeBuildingInterior(decoded.data, mask.width, mask.height, {
 				maxDim: 400,
 				dilateRatio: 0.04,
@@ -1396,7 +1397,7 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 				// A wall-mounted AP is *meant* to be against a wall, and the trimmed
 				// interior the check reads excludes exactly that ring. Its domain is the
 				// band, which the worker enforced.
-				const ap = projectState.aps.find((a) => a.id === p.id);
+				const ap = apState.aps.find((a) => a.id === p.id);
 				if (ap?.mount === 'wall') return false;
 				const ix = Math.round(p.x);
 				const iy = Math.round(p.y);
@@ -1426,7 +1427,7 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 			 * optimiser leaves behind is then a position and a facing the user could have
 			 * picked by hand, rather than a spot a bracket's depth off a wall.
 			 */
-			const ap = projectState.aps.find((a) => a.id === pos.id);
+			const ap = apState.aps.find((a) => a.id === pos.id);
 			if (ap?.mount === 'wall') {
 				const snap = await wallSnapForFloor(floorId, x, y, getEffectiveWupm());
 				if (snap) {
@@ -1516,7 +1517,7 @@ export async function buildAssignmentConflictEdges(): Promise<{
 		// Single-floor plans optimise every AP in one pass (see `optimizeFloor`), so
 		// the first floor is the whole graph. Multi-floor plans are scored a floor at
 		// a time, and a floor with no APs on it is never scored at all.
-		if (multiFloor && !projectState.aps.some((ap) => ap.floorId === floor.id)) continue;
+		if (multiFloor && !apState.aps.some((ap) => ap.floorId === floor.id)) continue;
 		const outcome = await optimizeFloor(floor.id, { apply: false, graphOnly: true });
 		if (!outcome.ok || !outcome.graph || !outcome.sourceIds) {
 			complete = false;
@@ -1677,7 +1678,7 @@ export async function runOptimizer(): Promise<void> {
 async function runAlternatingPasses(): Promise<void> {
 	const order = [...floorState.floors].sort((a, b) => a.level - b.level);
 	const runnable = order.filter(
-		(f) => f.wallMask && projectState.aps.some((ap) => ap.floorId === f.id)
+		(f) => f.wallMask && apState.aps.some((ap) => ap.floorId === f.id)
 	);
 	if (runnable.length === 0) {
 		optimizerState.error = t('No floors with both a floorplan and APs to place');

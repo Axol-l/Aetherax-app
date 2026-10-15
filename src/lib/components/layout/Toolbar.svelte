@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { appState } from '$state/app.svelte';
-	import { projectState } from '$state/project.svelte';
+	
 	import { scheduleSave } from '$state/persistence.svelte';
 	import { undo, redo, canUndo, canRedo } from '$state/history.svelte';
 	import Icon from '$components/shared/Icon.svelte';
@@ -13,6 +13,8 @@
 	import { exportPdf } from '$lib/export/pdf.js';
 	import { getEngineRef } from '$canvas/engine-ref.js';
 	import { t, i18nState, toggleLocale } from '$state/i18n.svelte';
+	import { projectMeta } from '$state/project-meta.svelte.js';
+	import { floorplanState } from '$state/floorplan-state.svelte.js';
 
 	let helpOpen = $state(false);
 	let newProjectOpen = $state(false);
@@ -31,8 +33,8 @@
 	}
 
 	function commitRename() {
-		const trimmed = projectState.name.trim();
-		if (!trimmed) projectState.name = 'Untitled Project';
+		const trimmed = projectMeta.name.trim();
+		if (!trimmed) projectMeta.name = 'Untitled Project';
 		editingName = false;
 		scheduleSave();
 	}
@@ -144,7 +146,7 @@
 				bind:this={nameInputEl}
 				class="project-name-input"
 				type="text"
-				bind:value={projectState.name}
+				bind:value={projectMeta.name}
 				onblur={commitRename}
 				onkeydown={handleNameKeydown}
 			/>
@@ -154,7 +156,7 @@
 				class="project-name"
 				ondblclick={startRename}
 				title={t('Double-click to rename')}
-			>{projectState.name}</span>
+			>{projectMeta.name}</span>
 		{/if}
 
 		<Dropdown items={fileMenuItems}>
@@ -189,12 +191,12 @@
 			<button
 				class="unit-btn"
 				onclick={() => {
-					projectState.unitSystem = projectState.unitSystem === 'imperial' ? 'metric' : 'imperial';
+					floorplanState.unitSystem = floorplanState.unitSystem === 'imperial' ? 'metric' : 'imperial';
 					scheduleSave();
 				}}
 				aria-label={t('Toggle units')}
 			>
-				{projectState.unitSystem === 'imperial' ? 'ft' : 'm'}
+				{floorplanState.unitSystem === 'imperial' ? 'ft' : 'm'}
 			</button>
 		</Tooltip>
 	</div>

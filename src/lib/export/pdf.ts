@@ -1,11 +1,13 @@
 import { jsPDF } from 'jspdf';
-import { projectState } from '$state/project.svelte.js';
+
 import { solverState } from '$state/solver.svelte.js';
 import { getBuildingCoverage, floorCoverage, optimizerState, updateCoverage } from '$state/optimizer.svelte.js';
 import { floorState, switchFloor } from '$state/floor-state.svelte.js';
 import { appState } from '$state/app.svelte.js';
 import { fitCanvasToContent } from '$canvas/fit.js';
 import type { CanvasEngine } from '$canvas/engine.js';
+import { apState } from '$state/ap-state.svelte.js';
+import { projectMeta } from '$state/project-meta.svelte.js';
 
 /** Wait for Svelte effects + async decodes to settle after a floor switch. */
 function waitForRender(): Promise<void> {
@@ -77,7 +79,7 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 		month: 'long',
 		day: 'numeric'
 	});
-	const apCount = projectState.aps.length;
+	const apCount = apState.aps.length;
 	const floorCount = floorState.floors.length;
 	const sortedFloors = [...floorState.floors].sort((a, b) => a.level - b.level);
 
@@ -112,7 +114,7 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 	doc.setFontSize(28);
 	doc.setFont('helvetica', 'bold');
 	doc.setTextColor(...DARK);
-	doc.text(projectState.name, margin, y);
+	doc.text(projectMeta.name, margin, y);
 
 	y += 12;
 	doc.setFontSize(11);
@@ -290,12 +292,12 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 	y += 10;
 
 	// Build column definitions
-	const hasModel = projectState.aps.some((ap) => ap.modelLabel);
+	const hasModel = apState.aps.some((ap) => ap.modelLabel);
 
 	type Col = {
 		header: string;
 		width: number;
-		getValue: (ap: (typeof projectState.aps)[0]) => string;
+		getValue: (ap: (typeof apState.aps)[0]) => string;
 	};
 	const cols: Col[] = [
 		{ header: 'NAME', width: 35, getValue: (ap) => ap.name },
@@ -311,9 +313,9 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 	];
 
 	for (const floor of sortedFloors) {
-		const floorAps = projectState.aps.filter((ap) => ap.floorId === floor.id);
+		const floorAps = apState.aps.filter((ap) => ap.floorId === floor.id);
 		if (floorAps.length === 0 && floorCount > 1) continue;
-		const apsToShow = floorCount === 1 ? projectState.aps : floorAps;
+		const apsToShow = floorCount === 1 ? apState.aps : floorAps;
 
 		// Floor section header
 		if (floorCount > 1) {
@@ -439,7 +441,7 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 	drawFooter(doc, pageWidth, pageHeight, margin);
 
 	// Save
-	const filename = projectState.name.replace(/[^a-zA-Z0-9-_]/g, '_');
+	const filename = projectMeta.name.replace(/[^a-zA-Z0-9-_]/g, '_');
 	doc.save(`${filename}-report.pdf`);
 }
 

@@ -1,4 +1,4 @@
-import { projectState } from '$state/project.svelte.js';
+
 import { floorplanState } from '$state/floorplan-state.svelte.js';
 import { wallState } from '$state/wall-state.svelte.js';
 import { scheduleSave } from '$state/persistence.svelte.js';
@@ -25,7 +25,7 @@ export async function importFloorplanFile(file: File): Promise<void> {
 	floorplanState.importNotice = null;
 
 	const blobUrl = URL.createObjectURL(file);
-	projectState.floorplanUrl = blobUrl;
+	floorplanState.floorplanUrl = blobUrl;
 	floorplanState.sourceIsVector = file.type === 'image/svg+xml';
 
 	try {
@@ -37,7 +37,7 @@ export async function importFloorplanFile(file: File): Promise<void> {
 		const result = detectBoundary(image);
 		if (result && result.polygon.length >= 3) {
 			const scaleFactor = FLOORPLAN_TARGET_WIDTH / image.naturalWidth;
-			projectState.floorplanBoundary = result.polygon.map((p) => ({
+			floorplanState.floorplanBoundary = result.polygon.map((p) => ({
 				x: p.x * scaleFactor,
 				y: p.y * scaleFactor
 			}));
@@ -45,10 +45,10 @@ export async function importFloorplanFile(file: File): Promise<void> {
 		}
 
 		if (wallMask) {
-			projectState.wallMask = wallMask;
+			wallState.wallMask = wallMask;
 			// A vector detection knows what each opening is; a raster one cannot, so it
 			// leaves the material map alone rather than half-filling it.
-			if (materialMask) projectState.materialMask = materialMask;
+			if (materialMask) wallState.materialMask = materialMask;
 		}
 		// What the vector reader saw, for the review panel. Cleared by a raster run so a
 		// stale report cannot describe a mask that has since been replaced.

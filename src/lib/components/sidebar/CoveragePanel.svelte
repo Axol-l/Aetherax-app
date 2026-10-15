@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { projectState } from '$state/project.svelte';
+	
 	import { projectMeta } from '$state/project-meta.svelte';
 	import {
 		optimizerState,
@@ -32,6 +32,8 @@
 		lengthUnit,
 		unitToMetres
 	} from '$lib/units.js';
+	import { apState } from '$state/ap-state.svelte.js';
+	import { floorplanState } from '$state/floorplan-state.svelte.js';
 
 	/**
 	 * Coverage readout plus the placement optimiser's primary action.
@@ -64,8 +66,8 @@
 	 */
 	let channelCount = $derived.by(() => {
 		try {
-			const available = getAvailableChannels(projectState.band, projectState.regulatoryDomain);
-			return nonOverlappingChannels(available, projectState.channelWidth).length;
+			const available = getAvailableChannels(apState.band, apState.regulatoryDomain);
+			return nonOverlappingChannels(available, apState.channelWidth).length;
 		} catch {
 			return 0;
 		}
@@ -109,7 +111,7 @@
 	 * cross-floor path, and the models take metres. Only the field and its readout
 	 * convert.
 	 */
-	const lengthDisplayUnit = $derived(lengthUnit(projectState.unitSystem));
+	const lengthDisplayUnit = $derived(lengthUnit(floorplanState.unitSystem));
 	const clientHeightHints = $derived(lengthInputHints(0.5, 3, 0.1, lengthDisplayUnit));
 
 	/**
@@ -180,7 +182,7 @@
 	</button>
 {/if}
 
-{#if projectState.aps.length >= 1}
+{#if apState.aps.length >= 1}
 	<div class="coverage-panel">
 		{#if optimizerState.coverage > 0}
 			<div class="metric">
@@ -342,9 +344,9 @@
 						<label class="setting-row">
 							<input
 								type="checkbox"
-								checked={projectState.allowOutsideRooms}
+								checked={projectMeta.allowOutsideRooms}
 								onchange={(e) =>
-									(projectState.allowOutsideRooms = (
+									(projectMeta.allowOutsideRooms = (
 										e.currentTarget as HTMLInputElement
 									).checked)}
 							/>
@@ -364,13 +366,13 @@
 								min="-95"
 								max="-55"
 								step="5"
-								value={projectState.heatmapRssiFloor}
+								value={projectMeta.heatmapRssiFloor}
 								oninput={(e) =>
-									(projectState.heatmapRssiFloor = Number(
+									(projectMeta.heatmapRssiFloor = Number(
 										(e.currentTarget as HTMLInputElement).value
 									))}
 							/>
-							<span class="setting-value">{projectState.heatmapRssiFloor} dBm</span>
+							<span class="setting-value">{projectMeta.heatmapRssiFloor} dBm</span>
 						</label>
 					</Tooltip>
 

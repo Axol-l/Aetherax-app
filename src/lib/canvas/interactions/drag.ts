@@ -1,9 +1,10 @@
 import type { CanvasEngine } from '../engine.js';
 import { hitTest } from '../hit-test.js';
-import { projectState, moveAp, faceAp, beginMove } from '$state/project.svelte.js';
+import { moveAp, faceAp, beginMove } from '$state/project.svelte.js';
 import { scheduleSave } from '$state/persistence.svelte.js';
 import { canvasState, isSelected } from '$state/canvas.svelte.js';
 import { facingFollowsWall, type WallSnap } from '$state/wall-snap.js';
+import { apState } from '$state/ap-state.svelte.js';
 
 /**
  * The nearest wall to a world point, as the view can answer it on every frame.
@@ -37,7 +38,7 @@ export class DragHandler {
 	handlePointerDown(e: PointerEvent): boolean {
 		const rect = this.engine.canvas.getBoundingClientRect();
 		const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-		const hit = hitTest(screenPoint, this.engine.camera, projectState.aps);
+		const hit = hitTest(screenPoint, this.engine.camera, apState.aps);
 
 		if (hit && isSelected(hit.id)) {
 			beginMove();
@@ -50,7 +51,7 @@ export class DragHandler {
 			this.apStartPositions.clear();
 			this.followsWall.clear();
 			for (const id of canvasState.selectedApIds) {
-				const ap = projectState.aps.find((a) => a.id === id);
+				const ap = apState.aps.find((a) => a.id === id);
 				if (ap) {
 					this.apStartPositions.set(id, { x: ap.x, y: ap.y });
 					if (ap.mount === 'wall' && this.wallProbe) {
@@ -76,7 +77,7 @@ export class DragHandler {
 
 		// Move all selected APs by the delta
 		for (const [id, start] of this.apStartPositions) {
-			const ap = projectState.aps.find((a) => a.id === id);
+			const ap = apState.aps.find((a) => a.id === id);
 			const x = start.x + dx;
 			const y = start.y + dy;
 			/*

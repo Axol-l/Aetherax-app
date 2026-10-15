@@ -1,11 +1,15 @@
 <script lang="ts">
 	import Button from '$components/shared/Button.svelte';
-	import { projectState } from '$state/project.svelte';
+	
 	import { clearHistory } from '$state/history.svelte';
 	import { clearSavedState } from '$state/persistence.svelte';
 	import { floorState } from '$state/floor-state.svelte';
 	import { DEFAULT_COVERAGE_SOFTNESS_DB } from '../../rf/propagation.js';
 	import { t } from '$state/i18n.svelte';
+	import { floorplanState } from '$state/floorplan-state.svelte.js';
+	import { projectMeta } from '$state/project-meta.svelte.js';
+	import { apState } from '$state/ap-state.svelte.js';
+	import { wallState } from '$state/wall-state.svelte.js';
 
 	let {
 		open = $bindable(false),
@@ -18,30 +22,30 @@
 	let projectName = $state('Untitled Project');
 
 	function handleConfirm() {
-		if (projectState.floorplanUrl?.startsWith('blob:')) {
-			URL.revokeObjectURL(projectState.floorplanUrl);
+		if (floorplanState.floorplanUrl?.startsWith('blob:')) {
+			URL.revokeObjectURL(floorplanState.floorplanUrl);
 		}
-		projectState.name = projectName;
-		projectState.band = '5ghz';
-		projectState.channelWidth = 20;
-		projectState.regulatoryDomain = 'fcc';
-		projectState.aps = [];
-		projectState.floorplanUrl = null;
-		projectState.floorplanScale = 0.4;
-		projectState.wallMask = null;
-		projectState.wallMaterial = 0;
-		projectState.materialMask = null;
-		projectState.roomTypeMask = null;
-		projectState.calibration = null;
-		projectState.floorplanBoundary = null;
-		projectState.ispSpeed = 0;
-		projectState.targetThroughput = 25;
-		projectState.allowOutsideRooms = false;
-		projectState.heatmapRssiFloor = -70;
+		projectMeta.name = projectName;
+		apState.band = '5ghz';
+		apState.channelWidth = 20;
+		apState.regulatoryDomain = 'fcc';
+		apState.aps = [];
+		floorplanState.floorplanUrl = null;
+		floorplanState.floorplanScale = 0.4;
+		wallState.wallMask = null;
+		wallState.wallMaterial = 0;
+		wallState.materialMask = null;
+		wallState.roomTypeMask = null;
+		floorplanState.calibration = null;
+		floorplanState.floorplanBoundary = null;
+		projectMeta.ispSpeed = 0;
+		projectMeta.targetThroughput = 25;
+		projectMeta.allowOutsideRooms = false;
+		projectMeta.heatmapRssiFloor = -70;
 		// Default weight of the co-channel interference term in the objective.
-		projectState.interferenceWeight = 0.2;
+		projectMeta.interferenceWeight = 0.2;
 		// And the objective's threshold softness, back to the shipped default.
-		projectState.coverageSoftnessDb = DEFAULT_COVERAGE_SOFTNESS_DB;
+		projectMeta.coverageSoftnessDb = DEFAULT_COVERAGE_SOFTNESS_DB;
 
 		// Reset floor state to a single default floor
 		const newFloorId = crypto.randomUUID();

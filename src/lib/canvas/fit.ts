@@ -1,8 +1,9 @@
 import { appState } from '$state/app.svelte';
 import { floorState } from '$state/floor-state.svelte';
-import { projectState } from '$state/project.svelte';
+
 import { wallState } from '$state/wall-state.svelte';
 import type { CanvasEngine } from '$canvas/engine.js';
+import { apState } from '$state/ap-state.svelte.js';
 
 /**
  * Frame the canvas on what the active view is actually showing.
@@ -60,7 +61,7 @@ export function fitCanvasToContent(engine: CanvasEngine, includeAps = false): bo
 
 	// If no floorplan/walls, fit to AP centers (no radius inflation)
 	if (points.length === 0 || includeAps) {
-		for (const ap of projectState.aps) {
+		for (const ap of apState.aps) {
 			if (appState.floorView === 'single' && ap.floorId !== floorState.currentFloorId) continue;
 			points.push({ x: ap.x, y: ap.y });
 		}

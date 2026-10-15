@@ -1,14 +1,20 @@
 /**
- * Backward-compatible re-export layer.
+ * The four state atoms, and the access-point mutators, re-exported under one name.
  *
- * The actual state lives in four focused atoms:
- *   - apState (ap-state.svelte.ts) — APs, band, channelWidth, regulatoryDomain
- *   - floorplanState (floorplan-state.svelte.ts) — floorplan, calibration, units
- *   - wallState (wall-state.svelte.ts) — wall mask, materials
- *   - projectMeta (project-meta.svelte.ts) — name, ISP speed, target throughput
+ * There is deliberately **no `projectState` here any more**. It used to be a
+ * hand-written mirror of the atoms — a getter and a setter per field — and a mirror is
+ * a thing that goes stale: adding a field to an atom and forgetting its pair left
+ * callers reading `undefined` with no compile error, and every refactor had to chase
+ * both spellings of the same state. Import the atom you need instead:
  *
- * This file provides `projectState` as a unified view for files that haven't
- * migrated yet. New code should import from the specific atom it needs.
+ *   apState        — access points, band, channel width, regulatory domain
+ *   floorplanState — underlay, calibration, units
+ *   wallState      — wall mask, materials, room types
+ *   projectMeta    — name, ISP speed, target throughput, optimiser settings
+ *
+ * This module stays as a re-export while the last importers migrate, so a file that
+ * only wants `addAp` or the `AccessPoint` type does not have to know which atom owns
+ * them.
  */
 
 // Re-export atoms
@@ -33,140 +39,3 @@ export {
 	radiusFromPower,
 	DEFAULT_WUPM
 } from './ap-state.svelte.js';
-
-// Re-export a unified projectState for backward compatibility.
-// Consumers should migrate to importing the specific atom they need.
-import { apState } from './ap-state.svelte.js';
-import { floorplanState } from './floorplan-state.svelte.js';
-import { wallState } from './wall-state.svelte.js';
-import { projectMeta } from './project-meta.svelte.js';
-
-/** @deprecated Import from the specific atom instead. */
-export const projectState = {
-	get name() {
-		return projectMeta.name;
-	},
-	set name(v) {
-		projectMeta.name = v;
-	},
-	get band() {
-		return apState.band;
-	},
-	set band(v) {
-		apState.band = v;
-	},
-	get channelWidth() {
-		return apState.channelWidth;
-	},
-	set channelWidth(v) {
-		apState.channelWidth = v;
-	},
-	get regulatoryDomain() {
-		return apState.regulatoryDomain;
-	},
-	set regulatoryDomain(v) {
-		apState.regulatoryDomain = v;
-	},
-	get aps() {
-		return apState.aps;
-	},
-	set aps(v) {
-		apState.aps = v;
-	},
-	get floorplanUrl() {
-		return floorplanState.floorplanUrl;
-	},
-	set floorplanUrl(v) {
-		floorplanState.floorplanUrl = v;
-	},
-	get floorplanScale() {
-		return floorplanState.floorplanScale;
-	},
-	set floorplanScale(v) {
-		floorplanState.floorplanScale = v;
-	},
-	get calibration() {
-		return floorplanState.calibration;
-	},
-	set calibration(v) {
-		floorplanState.calibration = v;
-	},
-	get floorplanBoundary() {
-		return floorplanState.floorplanBoundary;
-	},
-	set floorplanBoundary(v) {
-		floorplanState.floorplanBoundary = v;
-	},
-	get unitSystem() {
-		return floorplanState.unitSystem;
-	},
-	set unitSystem(v) {
-		floorplanState.unitSystem = v;
-	},
-	get ispSpeed() {
-		return projectMeta.ispSpeed;
-	},
-	set ispSpeed(v) {
-		projectMeta.ispSpeed = v;
-	},
-	get targetThroughput() {
-		return projectMeta.targetThroughput;
-	},
-	set targetThroughput(v) {
-		projectMeta.targetThroughput = v;
-	},
-	get allowOutsideRooms() {
-		return projectMeta.allowOutsideRooms;
-	},
-	set allowOutsideRooms(v) {
-		projectMeta.allowOutsideRooms = v;
-	},
-	get heatmapRssiFloor() {
-		return projectMeta.heatmapRssiFloor;
-	},
-	set heatmapRssiFloor(v) {
-		projectMeta.heatmapRssiFloor = v;
-	},
-	get interferenceWeight() {
-		return projectMeta.interferenceWeight;
-	},
-	set interferenceWeight(v) {
-		projectMeta.interferenceWeight = v;
-	},
-	get coverageSoftnessDb() {
-		return projectMeta.coverageSoftnessDb;
-	},
-	set coverageSoftnessDb(v) {
-		projectMeta.coverageSoftnessDb = v;
-	},
-	get wallMask() {
-		return wallState.wallMask;
-	},
-	set wallMask(v) {
-		wallState.wallMask = v;
-	},
-	get wallAttenuation() {
-		return wallState.wallAttenuation;
-	},
-	set wallAttenuation(v) {
-		wallState.wallAttenuation = v;
-	},
-	get wallMaterial() {
-		return wallState.wallMaterial;
-	},
-	set wallMaterial(v) {
-		wallState.wallMaterial = v;
-	},
-	get materialMask() {
-		return wallState.materialMask;
-	},
-	set materialMask(v) {
-		wallState.materialMask = v;
-	},
-	get roomTypeMask() {
-		return wallState.roomTypeMask;
-	},
-	set roomTypeMask(v) {
-		wallState.roomTypeMask = v;
-	}
-};

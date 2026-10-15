@@ -1,8 +1,9 @@
 import type { CanvasEngine } from '../engine.js';
 import type { SelectionRectLayer } from '../renderers/selection-rect.js';
 import { hitTest } from '../hit-test.js';
-import { projectState } from '$state/project.svelte.js';
+
 import { canvasState, selectAp, selectAps, clearSelection } from '$state/canvas.svelte.js';
+import { apState } from '$state/ap-state.svelte.js';
 
 export class SelectHandler {
 	private engine: CanvasEngine;
@@ -18,7 +19,7 @@ export class SelectHandler {
 	handlePointerDown(e: PointerEvent): boolean {
 		const rect = this.engine.canvas.getBoundingClientRect();
 		const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-		const hit = hitTest(screenPoint, this.engine.camera, projectState.aps);
+		const hit = hitTest(screenPoint, this.engine.camera, apState.aps);
 
 		if (hit) {
 			selectAp(hit.id, e.shiftKey);
@@ -52,7 +53,7 @@ export class SelectHandler {
 			return;
 		}
 
-		const hit = hitTest(screenPoint, this.engine.camera, projectState.aps);
+		const hit = hitTest(screenPoint, this.engine.camera, apState.aps);
 		const newHoveredId = hit ? hit.id : null;
 
 		if (newHoveredId !== canvasState.hoveredApId) {
@@ -69,7 +70,7 @@ export class SelectHandler {
 		const minY = Math.min(this.selectionRectLayer.startY, this.selectionRectLayer.endY);
 		const maxY = Math.max(this.selectionRectLayer.startY, this.selectionRectLayer.endY);
 
-		const selected = projectState.aps
+		const selected = apState.aps
 			.filter((ap) => ap.x >= minX && ap.x <= maxX && ap.y >= minY && ap.y <= maxY)
 			.map((ap) => ap.id);
 
