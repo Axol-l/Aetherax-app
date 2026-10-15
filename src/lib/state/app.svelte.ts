@@ -1,0 +1,135 @@
+export type SidebarPanel = 'floorplan' | 'aps';
+export type FloorView = 'single' | 'tiled' | 'stacked';
+
+/**
+ * Limits of the stacked view's angles, in degrees.
+ *
+ * Shared by the panel's sliders and the canvas drag so the two cannot drift: the
+ * sliders' range *is* the drag's clamp, which is what lets a drag stop at the limit
+ * instead of winding up slack behind it. Yaw is clamped at ±180 rather than allowed
+ * to run on, because ±180 is the same orientation and a value outside the slider's
+ * range would leave the control unable to show where the view is.
+ */
+export const STACK_YAW_LIMIT_DEG = 180;
+export const STACK_MIN_PITCH_DEG = 5;
+export const STACK_MAX_PITCH_DEG = 75;
+export type WallEditMode = 'erase' | 'draw' | 'line' | 'rect' | 'arc' | 'material' | null;
+
+export const appState = $state({
+	/**
+	 * Why the last click on the canvas did not place anything, if it did not.
+	 *
+	 * Rendered in the corner notice. Transient by nature: it belongs to one click, and
+	 * the next successful placement clears it.
+	 */
+	placementNotice: null as string | null,
+	/**
+	 * The standing warning about access points that sit outside the building, if any.
+	 *
+	 * Kept in a slot of its own rather than sharing `placementNotice`, because the two
+	 * are written by different things at different times: this one is recomputed
+	 * whenever walls or access points move, and while it shared the slot every such
+	 * recomputation wiped a refusal the user had just been shown.
+	 */
+	outsideNotice: null as string | null,
+	sidebarPanel: 'floorplan' as SidebarPanel,
+	sidebarOpen: true,
+	showGrid: true,
+	showLabels: true,
+	showHeatmap: false,
+	showFloorplan: true,
+	showAPs: true,
+	showWalls: true,
+	showRoomLabels: true,
+	/** Ghost of the floor below, for checking that two floors line up. */
+	showFloorBelow: false,
+	/**
+	 * Drag on the canvas moves the whole current floor instead of panning or
+	 * selecting. Used to bring one floor onto another.
+	 */
+	floorAlignMode: false,
+	/**
+	 * A click on empty canvas adds an access point.
+	 *
+	 * Off by default: with it on, the canvas is in "add" mode all the time, so a
+	 * click meant to deselect, or a drag meant to pan, leaves a stray AP behind.
+	 * Selecting and dragging APs is unaffected — this only decides what a click on
+	 * *nothing* does.
+	 */
+	apPlaceMode: false,
+	/**
+	 * `single` draws the current floor on its own, `tiled` draws a read-only card
+	 * per floor side by side, and `stacked` draws the same cards stacked by their
+	 * real elevation in an oblique projection. Both overviews hide the editing
+	 * layers rather than trying to run the wall editor and the heatmap once per
+	 * floor; `stacked` is the one that answers "how do the storeys line up".
+	 */
+	floorView: 'single' as FloorView,
+	/**
+	 * Where the stacked overview is being looked at from.
+	 *
+	 * `stackYaw` spins the building about its vertical axis and `stackPitch` tilts
+	 * down onto the floors; the two together are the whole viewpoint. Pitching is
+	 * also what separates the storeys on screen (`z·sin(pitch)`), which is why the
+	 * default looks down at 40° rather than straight down — from straight above, a
+	 * stack is indistinguishable from one floor. `stackSpread` multiplies the storey
+	 * spacing *on screen only*, so a stack can be pulled apart to see into it without
+	 * touching the geometry the RF model reads. View settings, not project settings:
+	 * they change nothing about the plan, so they are not persisted.
+	 */
+	stackYaw: 0,
+	stackPitch: 40,
+	stackSpread: 1,
+	/** Draw only the current floor and the one either side of it. */
+	stackFocus: false,
+	wallEditMode: null as WallEditMode,
+	wallEditLastMode: 'erase' as Exclude<WallEditMode, null>,
+	wallBrushSize: 15
+});
+
+/** True when alignment mode is what switched the ghost on, so it can undo it. */
+let alignOwnsGhost = false;
+
+/**
+ * Enter or leave floor-alignment mode.
+ *
+ * Owns the ghost as well as the mode. The ghost is the only way to see what you
+ * are aligning to, so entering the mode switches it on; leaving switches it back
+ * off — unless the user had already turned it on for their own reasons, in which
+ * case it is left alone.
+ *
+ * This lives here rather than in the sidebar because the mode can also be left
+ * with Escape or a right-click on the canvas, and every exit path has to put the
+ * ghost back. Having only the sidebar know about it was the bug: the mode closed
+ * and the ghost of the floor below stayed on the canvas with nothing to explain
+ * it.
+ */
+export function setFloorAlignMode(on: boolean): void {
+	if (appState.floorAlignMode === on) return;
+	appState.floorAlignMode = on;
+	if (on) {
+		// Both modes own what a bare canvas drag does, so they cannot both be on.
+		appState.apPlaceMode = false;
+		alignOwnsGhost = !appState.showFloorBelow;
+		appState.showFloorBelow = true;
+	} else if (alignOwnsGhost) {
+		appState.showFloorBelow = false;
+		alignOwnsGhost = false;
+	}
+}
+
+/**
+ * Turn AP placement on or off.
+ *
+ * A mode rather than a permanent state of the canvas: while it is on, a click on
+ * empty canvas creates an AP and nothing else uses that gesture. Leaving it on by
+ * default meant every stray click — deselecting, starting a marquee, fumbling a
+ * pan — dropped an AP on the plan.
+ *
+ * Exclusive with floor alignment, which also owns the bare-canvas drag.
+ */
+export function setApPlaceMode(on: boolean): void {
+	if (appState.apPlaceMode === on) return;
+	appState.apPlaceMode = on;
+	if (on) setFloorAlignMode(false);
+}

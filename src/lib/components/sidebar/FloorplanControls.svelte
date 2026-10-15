@@ -1,0 +1,1296 @@
+<script lang="ts">
+	import { wallState } from '$state/wall-state.svelte.js';
+	import { floorplanState } from '$state/floorplan-state.svelte.js';
+	import { apState, getEffectiveWupm } from '$state/ap-state.svelte.js';
+	import {
+		floorState,
+		switchFloor,
+		addFloor,
+		removeFloor,
+		currentFloor,
+		translateFloor,
+		setProjectCalibration
+	} from '$state/floor-state.svelte.js';
+	import { FLOOR_MATERIALS } from '$canvas/floor-materials.js';
+	import Select from '$components/shared/Select.svelte';
+	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
+
+	let confirmOpen = $state(false);
+	let confirmMessage = $state('');
+	let confirmAction = $state<(() => void) | null>(null);
+	let confirmTitle = $state('Delete');
+	let confirmLabel = $state('Delete');
+
+	function showConfirm(
+		message: string,
+		action: () => void,
+		title = 'Delete',
+		label = 'Delete'
+	) {
+		confirmMessage = message;
+		confirmAction = action;
+		confirmTitle = title;
+		confirmLabel = label;
+		confirmOpen = true;
+	}
+
+	let editingFloorId = $state<string | null>(null);
+	let editingFloorName = $state('');
+
+	function handleAddFloor() {
+		pushState();
+		const floor = addFloor();
+		switchFloor(floor.id);
+		scheduleSave();
+	}
+
+	function startRenameFloor(id: string, name: string) {
+		editingFloorId = id;
+		editingFloorName = name;
+	}
+
+	function commitRenameFloor() {
+		if (editingFloorId) {
+			const floor = floorState.floors.find((f) => f.id === editingFloorId);
+			if (floor) {
+				floor.name = editingFloorName.trim() || floor.name;
+				scheduleSave();
+			}
+		}
+		editingFloorId = null;
+	}
+
+	function moveFloor(id: string, direction: -1 | 1) {
+		const idx = floorState.floors.findIndex((f) => f.id === id);
+		const newIdx = idx + direction;
+		if (newIdx < 0 || newIdx >= floorState.floors.length) return;
+		// Swap levels
+		const a = floorState.floors[idx]!;
+		const b = floorState.floors[newIdx]!;
+		const tmpLevel = a.level;
+		a.level = b.level;
+		b.level = tmpLevel;
+		// Swap positions in array
+		floorState.floors[idx] = b;
+		floorState.floors[newIdx] = a;
+		floorState.floors = [...floorState.floors]; // trigger reactivity
+		scheduleSave();
+	}
+
+	/**
+	 * Shift the current floor so its plan lines up with the floors above and
+	 * below it.
+	 *
+	 * The argument is in the project's *display* unit, rounded the way the field
+	 * shows it, and is converted to metres before it reaches the model — the model
+	 * is metric whatever the toolbar says. A display value of 0 ft is a real
+	 * request to move the floor onto its neighbour, so it is honoured rather than
+	 * treated as "no input"; only a non-finite one is ignored.
+	 *
+	 * The whole floor moves — underlay, masks and APs — so the floor stays rigid.
+	 *
+	 * `translateFloor` shifts the mask *origin* without touching a pixel, so the
+	 * canvas's decode effect has to notice the origin too; see the origin
+	 * tracking in CanvasView.
+	 */
+	function applyAlign(axis: 'x' | 'y', displayValue: number): void {
+		const floor = currentFloor();
+		if (!Number.isFinite(displayValue)) return;
+		const metres = unitToMetres(displayValue, lengthUnit(unitSystem));
+		const wupm = getEffectiveWupm();
+		const target = metres * wupm;
+		const current = axis === 'x' ? floor.floorplanOffsetX : floor.floorplanOffsetY;
+		const delta = target - current;
+		if (delta === 0) return;
+		pushState();
+		translateFloor(floor.id, axis === 'x' ? delta : 0, axis === 'y' ? delta : 0, apState.aps);
+		scheduleSave();
+	}
+
+	/** World-unit offset shown as metres or feet, matching the toolbar. */
+	function alignDisplay(worldUnits: number): number {
+		const metres = worldUnits / (getEffectiveWupm() || 1);
+		return displayLength(metres, lengthUnit(unitSystem)).value;
+	}
+
+	function handleDeleteFloor(id: string) {
+		if (floorState.floors.length <= 1) return;
+		showConfirm('Delete this floor and all its access points?', () => {
+			pushState();
+			apState.aps = apState.aps.filter((ap) => ap.floorId !== id);
+			removeFloor(id);
+			scheduleSave();
+		});
+	}
+	import { appState, setFloorAlignMode } from '$state/app.svelte.js';
+	import { detectBoundary, polygonArea } from '$canvas/boundary-detect.js';
+	import { encodeMask } from '$canvas/wall-detect.js';
+	import { detectFloorplanMasks } from '$canvas/detect-floorplan.js';
+	import { scheduleSave } from '$state/persistence.svelte.js';
+	import { pushState } from '$state/history.svelte.js';
+	import Button from '$components/shared/Button.svelte';
+	import Icon from '$components/shared/Icon.svelte';
+	import WallDetectionPanel from '$components/sidebar/WallDetectionPanel.svelte';
+	import { t } from '$state/i18n.svelte';
+	import {
+		areaUnit as areaUnitFor,
+		convertArea,
+		displayArea,
+		displayLength,
+		lengthInputHints,
+		lengthUnit,
+		roundForDisplay,
+		unitToMetres,
+		unitToSqm,
+		type AreaUnit
+	} from '$lib/units.js';
+
+	const FLOORPLAN_TARGET_WIDTH = 800;
+
+
+	let fileInput = $state<HTMLInputElement>();
+	let dragOver = $state(false);
+	let detecting = $state(false);
+	let detectedWorldArea = $state<number | null>(null);
+	let calibrationDone = $state(false);
+
+	/**
+	 * The unit system the toolbar's ft/m button selects, and the area unit that
+	 * follows from it.
+	 *
+	 * The area field used to carry its own sqm/sqft button, which meant a project
+	 * could be shown in feet everywhere except the one field that decides its
+	 * scale. It is derived now, so the two cannot disagree.
+	 */
+	const unitSystem = $derived(floorplanState.unitSystem);
+	const areaUnit = $derived(areaUnitFor(unitSystem));
+
+	/**
+	 * The area the user has typed, as text, and the unit that text is in.
+	 *
+	 * Kept as the raw string rather than as a parsed number: the field has to
+	 * survive a half-typed decimal ("1.") without the renderer rewriting it, and a
+	 * parsed number round-tripped through the display formatter would eat the dot.
+	 */
+	let areaInput = $state('');
+	let areaInputUnit = $state<AreaUnit>(areaUnitFor(floorplanState.unitSystem));
+
+	/**
+	 * Re-express what the user typed in the newly selected unit.
+	 *
+	 * This is the "convert, don't reinterpret" half of the ft/m switch: an area
+	 * typed as 200 sqm has to read as 2153 sqft afterwards, not stay 200 and
+	 * silently become square feet. Values that are not a number — an empty field,
+	 * or a half-typed one — are left exactly as they are.
+	 */
+	$effect(() => {
+		const next = areaUnit;
+		if (next === areaInputUnit) return;
+		const typed = parseFloat(areaInput);
+		if (Number.isFinite(typed) && typed > 0) {
+			areaInput = String(roundForDisplay(convertArea(typed, areaInputUnit, next)));
+		}
+		areaInputUnit = next;
+	});
+
+	/** Write an area in square metres into the field, in the unit on screen. */
+	function setAreaSqm(sqm: number): void {
+		areaInputUnit = areaUnit;
+		areaInput = displayArea(sqm, areaUnit).text;
+	}
+
+	/** What the field holds, in square metres, or null when it holds no area. */
+	function areaInputSqm(): number | null {
+		const typed = parseFloat(areaInput);
+		if (!Number.isFinite(typed) || typed <= 0) return null;
+		return unitToSqm(typed, areaInputUnit);
+	}
+
+	let hasFloorplan = $derived(floorplanState.floorplanUrl !== null || wallState.wallMask !== null);
+
+	/**
+	 * Whether there is anything for this floor to be aligned *to*.
+	 *
+	 * Alignment shifts the current floor onto the one below it, so the bottom
+	 * floor has no counterpart: its offsets exist only because every floor carries
+	 * them. Offering the control there invites a shift that lines the floor up with
+	 * nothing.
+	 *
+	 * Tiled view cannot honour it either — a pointer down there picks a card and
+	 * returns, so the drag the button asks for never reaches the alignment handler.
+	 * That makes the button a mode the user can enter and not use, which is worse
+	 * than not showing it.
+	 */
+	let canAlign = $derived(
+		floorState.floors.length > 1 &&
+			floorState.floors.findIndex((f) => f.id === floorState.currentFloorId) > 0 &&
+			appState.floorView === 'single'
+	);
+
+	// Leaving align mode on the way out matters: the button that leaves it is the
+	// one being hidden, and a mode with no visible escape reads as a stuck app.
+	// (Escape and a right-click also leave it; this is the path that keeps the two
+	// from disagreeing.)
+	$effect(() => {
+		if (!canAlign && appState.floorAlignMode) setFloorAlignMode(false);
+	});
+
+	/**
+	 * The bundled sample plans, by name and true area.
+	 *
+	 * The area is stored in square metres — it is what the plan physically is, and
+	 * what `loadSample` calibrates against — while the label is built for display,
+	 * so a sample does not read "48sqm" in a column that is otherwise in feet.
+	 */
+	const sampleFloorplans = [
+		{ name: 'Apartment', file: '/samples/apartment-48sqm.svg', areaSqm: 48 },
+		{ name: 'House', file: '/samples/house-120sqm.svg', areaSqm: 120 },
+		{ name: 'Office', file: '/samples/office-300sqm.svg', areaSqm: 300 }
+	];
+
+	/** The sample buttons, each with its area in the unit on screen. */
+	const sampleOptions = $derived(
+		sampleFloorplans.map((sample) => ({
+			...sample,
+			label: `${sample.name} (${displayArea(sample.areaSqm, areaUnit).text} ${areaUnit})`
+		}))
+	);
+
+	/**
+	 * The calibration scale, in the unit the toolbar selects.
+	 *
+	 * Two decimals whatever the unit: this is a ratio, not a length, and
+	 * "1px = 0.07 ft" is the informative form of a figure whose whole point is the
+	 * second decimal. `roundForDisplay`'s whole-number rule would flatten it to
+	 * "0 ft".
+	 */
+	let scaleDisplay = $derived.by(() => {
+		if (!floorplanState.calibration) return null;
+		const mPerPx = 1 / floorplanState.calibration.worldUnitsPerMeter;
+		if (unitSystem === 'imperial') {
+			return `1px = ${(mPerPx * 3.28084).toFixed(2)}ft`;
+		}
+		return `1px = ${mPerPx.toFixed(2)}m`;
+	});
+
+	/**
+	 * The unit every length in this panel is shown in — ceiling height, slab
+	 * thickness and the two alignment offsets.
+	 *
+	 * One binding for all four, so they cannot disagree with each other or with
+	 * the toolbar button that changes them.
+	 */
+	const lengthDisplayUnit = $derived(lengthUnit(unitSystem));
+
+	// The model's real bounds, in the unit on screen: a ceiling is 2–10 m whatever
+	// the field says. See `lengthInputHints`.
+	const ceilingHints = $derived(lengthInputHints(2, 10, 0.5, lengthDisplayUnit));
+	const thicknessHints = $derived(lengthInputHints(0.05, 1, 0.05, lengthDisplayUnit));
+
+	/**
+	 * Where the current floor's underlay sits in world space.
+	 *
+	 * Wall detection and boundary detection both measure in image pixels, so
+	 * everything they return is anchored at the image's top-left. That used to be
+	 * the world origin because the underlay was pinned there; now that a floor can
+	 * be moved with `translateFloor`, their output has to move with it.
+	 */
+	function underlayOffset(): { x: number; y: number } {
+		const floor = currentFloor();
+		return { x: floor?.floorplanOffsetX ?? 0, y: floor?.floorplanOffsetY ?? 0 };
+	}
+
+	/**
+	 * Shift a freshly detected mask so it lands under the underlay.
+	 *
+	 * `detectWalls` always reports an origin of (0, 0) — the image's top-left.
+	 * Without this the detected walls come back offset from the plan by exactly
+	 * the floor's alignment.
+	 *
+	 * Added rather than assigned, so it stays correct if detection ever reports a
+	 * non-zero image-space origin.
+	 */
+	function anchorToUnderlay<T extends { originX: number; originY: number }>(mask: T): T {
+		const off = underlayOffset();
+		mask.originX += off.x;
+		mask.originY += off.y;
+		return mask;
+	}
+
+	/**
+	 * Load a plan, detect its boundary and its walls.
+	 *
+	 * Detection itself is `detectFloorplanMasks`, which picks the vector reader or the
+	 * pixel one on the file's *content*. The only thing decided here is how the result
+	 * maps onto this floor — origin, calibration prompt, undo-free replace.
+	 *
+	 * `isSvg` is passed through for the fallback: a vector plan whose classifier finds
+	 * no walls still falls back to pixels, and OCR is skipped there for the reason
+	 * measured on the samples — see `detectFloorplanMasks`.
+	 */
+	async function runBoundaryDetection(url: string, isSvg = false) {
+		detecting = true;
+		calibrationDone = false;
+		detectedWorldArea = null;
+		areaInput = '';
+		floorplanState.calibration = null;
+		floorplanState.floorplanBoundary = null;
+		floorplanState.sourceIsVector = isSvg;
+
+		try {
+			const detection = await detectFloorplanMasks(url, FLOORPLAN_TARGET_WIDTH);
+
+			// Boundary detection for area calculation
+			const result = detectBoundary(detection.image);
+			if (result && result.polygon.length >= 3) {
+				const cleanScaleFactor = FLOORPLAN_TARGET_WIDTH / detection.image.naturalWidth;
+				const off = underlayOffset();
+				const worldPolygon = result.polygon.map((p) => ({
+					x: p.x * cleanScaleFactor + off.x,
+					y: p.y * cleanScaleFactor + off.y
+				}));
+				floorplanState.floorplanBoundary = worldPolygon;
+
+				// Use the actual pixel area from boundary detection, scaled to world coords.
+				// Morphological close ensures door gaps don't leak flood fill but area
+				// isn't inflated by the dilation step.
+				detectedWorldArea = result.areaPx * cleanScaleFactor * cleanScaleFactor;
+			}
+
+			if (detection.wallMask) {
+				wallState.wallMask = anchorToUnderlay(detection.wallMask);
+				// A vector read knows which openings are doors and which are glass and
+				// writes them into the material map; a pixel read cannot, and leaves
+				// whatever was painted there rather than inventing an assignment.
+				if (detection.materialMask) wallState.materialMask = anchorToUnderlay(detection.materialMask);
+				scheduleSave();
+			}
+			wallState.vectorReview =
+				detection.via === 'vector' && detection.summary && detection.elements && detection.source
+					? {
+							summary: detection.summary,
+							elements: detection.elements,
+							overrides: new Map(),
+							source: detection.source,
+							targetWidth: FLOORPLAN_TARGET_WIDTH
+						}
+					: null;
+			wallState.rasterReason = detection.rasterReason;
+			wallState.textMaskingFailed = detection.textMaskingFailed;
+		} catch (e) {
+			console.warn('Detection failed:', e);
+		}
+		detecting = false;
+	}
+
+	/**
+	 * Re-run detection against the current floorplan image.
+	 *
+	 * Deliberately NOT runBoundaryDetection: that also clears the calibration and
+	 * replays the area prompt, which is wrong when the user just wants the walls
+	 * redrawn on a plan they have already calibrated.
+	 *
+	 * This used to be the one path that could not tell an SVG from a raster — the
+	 * underlay is a session blob URL by now — so it ran OCR on vector plans, which
+	 * measurably erases their walls. `detectFloorplanMasks` decides on the file's
+	 * content instead, so Re-detect and the import path now agree.
+	 */
+	async function redetectWalls(forceRaster = false) {
+		const url = floorplanState.floorplanUrl;
+		if (!url || detecting) return;
+		detecting = true;
+		try {
+			const detection = forceRaster
+				? await detectFloorplanMasks(url, FLOORPLAN_TARGET_WIDTH, { forceRaster: true })
+				: await detectFloorplanMasks(url, FLOORPLAN_TARGET_WIDTH);
+			if (detection.wallMask) {
+				wallState.wallMask = anchorToUnderlay(detection.wallMask);
+				wallState.materialMask = detection.materialMask
+					? anchorToUnderlay(detection.materialMask)
+					: null;
+				wallState.vectorReview =
+					detection.via === 'vector' && detection.summary && detection.elements && detection.source
+						? {
+								summary: detection.summary,
+								elements: detection.elements,
+								overrides: new Map(),
+								source: detection.source,
+								targetWidth: FLOORPLAN_TARGET_WIDTH
+							}
+						: null;
+				wallState.rasterReason = detection.rasterReason;
+				wallState.textMaskingFailed = detection.textMaskingFailed;
+				scheduleSave();
+			}
+		} catch (e) {
+			console.warn('Wall detection failed:', e);
+		}
+		detecting = false;
+	}
+
+	/**
+	 * Redo the walls from pixels, on a plan the vector reader handled.
+	 *
+	 * The escape hatch for a misclassification, and the only way to get the old
+	 * behaviour back on a vector plan without re-importing it: a plan whose doors were
+	 * read wrongly is often better served by the dumb threshold, which at least draws
+	 * every drawn line.
+	 */
+	function redetectFromPixels() {
+		wallState.vectorReview = null;
+		void redetectWalls(true);
+	}
+
+	/**
+	 * Entry point for the Detect / Re-detect Walls button.
+	 *
+	 * Detection replaces the entire wall mask and nulls the material mask, so on a
+	 * plan that already has walls it silently discards everything hand-drawn or
+	 * paint-edited. Ask first when there is something to lose. The very first
+	 * detection (no wall mask yet) runs straight through, since prompting there
+	 * would just add friction to the normal import path.
+	 */
+	function requestWallDetection() {
+		if (!wallState.wallMask) {
+			void redetectWalls();
+			return;
+		}
+		const clearsMaterials = wallState.materialMask !== null;
+		showConfirm(
+			clearsMaterials
+				? 'This replaces the current wall mask and clears every wall material assignment. Walls you drew or edited will be lost.'
+				: 'This replaces the current wall mask. Walls you drew or edited will be lost.',
+			() => void redetectWalls(),
+			'Re-detect walls',
+			'Re-detect'
+		);
+	}
+
+	/** Enter wall editing, remembering the last tool used. */
+	function startWallEdit() {
+		pushState();
+		appState.wallEditMode = appState.wallEditLastMode;
+		if (window.innerWidth < 768) appState.sidebarOpen = false;
+	}
+
+	function applyCalibration() {
+		// The field is in whatever unit the toolbar selects; the model is metric.
+		const realAreaSqm = areaInputSqm();
+		if (!realAreaSqm) return;
+
+		// Use detected area if available, otherwise compute from wall mask bounding box
+		let worldArea = detectedWorldArea;
+		if (!worldArea && wallState.wallMask) {
+			const { width, height } = wallState.wallMask;
+			// Use the mask dimensions as the world area (pixels squared)
+			worldArea = width * height;
+		}
+		if (!worldArea) return;
+
+		const worldUnitsPerMeter = Math.sqrt(worldArea / realAreaSqm);
+		const oldCalibration = floorplanState.calibration;
+		// One scale for the whole project, so every floor is calibrated at once.
+		setProjectCalibration({ worldUnitsPerMeter });
+		floorplanState.calibration = { worldUnitsPerMeter };
+
+		if (oldCalibration === null) {
+			// First calibration: set uncalibrated APs (radius=150) to real 15m
+			const defaultRadiusWorld = Math.round(15 * worldUnitsPerMeter);
+			for (const ap of apState.aps) {
+				if (ap.interferenceRadius === 150) {
+					ap.interferenceRadius = defaultRadiusWorld;
+				}
+			}
+		} else {
+			// Recalibration: scale all AP radii proportionally to preserve real-world meters
+			const ratio = worldUnitsPerMeter / oldCalibration.worldUnitsPerMeter;
+			for (const ap of apState.aps) {
+				ap.interferenceRadius = Math.round(ap.interferenceRadius * ratio);
+			}
+		}
+
+		calibrationDone = true;
+		scheduleSave();
+	}
+
+	function skipCalibration() {
+		floorplanState.floorplanBoundary = null;
+		detectedWorldArea = null;
+		calibrationDone = true;
+	}
+
+	function handleAreaKeydown(e: KeyboardEvent) {
+		if (e.key === 'Enter') {
+			applyCalibration();
+		}
+	}
+
+	async function loadSample(url: string, knownAreaSqm?: number) {
+		pushState();
+		floorplanState.importNotice = null;
+		try {
+			const response = await fetch(url);
+			const blob = await response.blob();
+			const blobUrl = URL.createObjectURL(blob);
+			floorplanState.floorplanUrl = blobUrl;
+			await runBoundaryDetection(blobUrl, url.endsWith('.svg'));
+
+			// Auto-calibrate if we know the area. The sample's area is stated in
+			// square metres; the field shows it in the unit the toolbar selects.
+			if (knownAreaSqm && detectedWorldArea && detectedWorldArea > 0) {
+				setAreaSqm(knownAreaSqm);
+				applyCalibration();
+			}
+		} catch {
+			// Failed to load sample
+		}
+	}
+
+	function handleFile(file: File) {
+		const validTypes = ['image/png', 'image/jpeg', 'image/svg+xml'];
+		if (!validTypes.includes(file.type)) {
+			// Mirrors `importFloorplanFile`, which the canvas drop target uses. A PDF is
+			// the format a real floorplan most often arrives in, and doing nothing at all
+			// is indistinguishable from the app being broken.
+			floorplanState.importNotice =
+				file.type === 'application/pdf'
+					? 'PDF plans are not supported yet — export the page as a PNG and drop that.'
+					: 'That file type is not supported — use a PNG, JPEG or SVG.';
+			return;
+		}
+		floorplanState.importNotice = null;
+		pushState();
+		const blobUrl = URL.createObjectURL(file);
+		floorplanState.floorplanUrl = blobUrl;
+		runBoundaryDetection(blobUrl, file.type === 'image/svg+xml');
+	}
+
+	function handleInputChange(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (file) handleFile(file);
+		input.value = '';
+	}
+
+	function handleDrop(e: DragEvent) {
+		e.preventDefault();
+		dragOver = false;
+		const file = e.dataTransfer?.files[0];
+		if (file) handleFile(file);
+	}
+
+	function handleDragOver(e: DragEvent) {
+		e.preventDefault();
+		dragOver = true;
+	}
+
+	function handleDragLeave() {
+		dragOver = false;
+	}
+
+	function removeFloorplan() {
+		showConfirm('Remove floorplan and all APs on this floor?', doRemoveFloorplan);
+	}
+
+	function doRemoveFloorplan() {
+		pushState();
+		floorplanState.floorplanUrl = null;
+		floorplanState.floorplanBoundary = null;
+		floorplanState.calibration = null;
+		wallState.wallMask = null;
+		wallState.wallMaterial = 0;
+		wallState.materialMask = null;
+		wallState.roomTypeMask = null;
+		currentFloor().roomDensityOverrides = {};
+		currentFloor().roomCustomLabels = {};
+		apState.aps = apState.aps.filter((ap) => ap.floorId !== floorState.currentFloorId);
+		detectedWorldArea = null;
+		calibrationDone = false;
+		areaInput = '';
+		scheduleSave();
+	}
+
+	function handleOpacityChange(e: Event) {
+		const input = e.target as HTMLInputElement;
+		floorplanState.floorplanScale = parseFloat(input.value);
+	}
+</script>
+
+<div class="floorplan-controls">
+	<div class="floor-manager">
+		<div class="floor-strip">
+			{#each floorState.floors as floor}
+				{#if editingFloorId === floor.id}
+					<input
+						class="floor-name-input"
+						type="text"
+						bind:value={editingFloorName}
+						onblur={commitRenameFloor}
+						onkeydown={(e) => { if (e.key === 'Enter') commitRenameFloor(); if (e.key === 'Escape') { editingFloorId = null; } }}
+						autofocus
+					/>
+				{:else}
+					<button
+						class="floor-pill"
+						class:active={floor.id === floorState.currentFloorId}
+						onclick={() => switchFloor(floor.id)}
+						ondblclick={() => startRenameFloor(floor.id, floor.name)}
+						title={t('Click to switch, double-click to rename')}
+					>
+						{floor.name}
+						{#if floor.id === floorState.currentFloorId && floorState.floors.length > 1}
+							{#if floorState.floors.indexOf(floor) > 0}
+								<span class="floor-action" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); moveFloor(floor.id, -1); }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); moveFloor(floor.id, -1); } }}>&#9664;</span>
+							{/if}
+							{#if floorState.floors.indexOf(floor) < floorState.floors.length - 1}
+								<span class="floor-action" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); moveFloor(floor.id, 1); }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); moveFloor(floor.id, 1); } }}>&#9654;</span>
+							{/if}
+							<span class="floor-action delete" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); handleDeleteFloor(floor.id); }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); handleDeleteFloor(floor.id); } }}>&times;</span>
+						{/if}
+					</button>
+				{/if}
+			{/each}
+			<button class="floor-pill add" onclick={handleAddFloor} aria-label={t('Add floor')}>+</button>
+		</div>
+	</div>
+	{#if floorState.floors.length > 1}
+		<div class="floor-props">
+			<div class="prop-row">
+				<span class="prop-label">{t('Ceiling height')}</span>
+				<input
+					type="number"
+					class="prop-input"
+					value={displayLength(currentFloor().ceilingHeight, lengthDisplayUnit).value}
+					min={ceilingHints.min} max={ceilingHints.max} step={ceilingHints.step}
+					onchange={(e) => { pushState(); currentFloor().ceilingHeight = unitToMetres(Number((e.target as HTMLInputElement).value), lengthDisplayUnit); scheduleSave(); }}
+				/>
+				<span class="prop-unit">{lengthDisplayUnit}</span>
+			</div>
+			<div class="prop-row">
+				<span class="prop-label">{t('Floor thickness')}</span>
+				<input
+					type="number"
+					class="prop-input"
+					value={displayLength(currentFloor().floorThickness, lengthDisplayUnit).value}
+					min={thicknessHints.min} max={thicknessHints.max} step={thicknessHints.step}
+					onchange={(e) => { pushState(); currentFloor().floorThickness = unitToMetres(Number((e.target as HTMLInputElement).value), lengthDisplayUnit); scheduleSave(); }}
+				/>
+				<span class="prop-unit">{lengthDisplayUnit}</span>
+			</div>
+			<div class="prop-row">
+				<span class="prop-label">{t('Floor material')}</span>
+				<Select
+					value={String(currentFloor().floorMaterial)}
+					options={FLOOR_MATERIALS.map(m => ({ value: String(m.id), label: m.name }))}
+					onchange={(v) => { pushState(); currentFloor().floorMaterial = Number(v) as any; scheduleSave(); }}
+				/>
+			</div>
+			<!--
+				Alignment. Two floors only line up if their plans happen to share a
+				margin; these shift the whole floor, so a floor that was drawn or
+				auto-detected off-position can be brought onto the one below. Hidden on
+				the bottom floor and in the tiled overview, where there is no floor
+				below to align to and no canvas drag to give the mode — see `canAlign`.
+			-->
+			{#if canAlign}
+				<div class="prop-row">
+					<span class="prop-label">{t('Align X')}</span>
+					<input
+						type="number"
+						class="prop-input"
+						value={alignDisplay(currentFloor().floorplanOffsetX)}
+						step="0.1"
+						title={t('Shift this floor sideways to line it up with the floor below. Moves the plan, the walls and the APs together.')}
+						onchange={(e) => applyAlign('x', Number((e.target as HTMLInputElement).value))}
+					/>
+					<span class="prop-unit">{lengthDisplayUnit}</span>
+				</div>
+				<div class="prop-row">
+					<span class="prop-label">{t('Align Y')}</span>
+					<input
+						type="number"
+						class="prop-input"
+						value={alignDisplay(currentFloor().floorplanOffsetY)}
+						step="0.1"
+						title={t('Shift this floor to line it up with the floor below. Moves the plan, the walls and the APs together.')}
+						onchange={(e) => applyAlign('y', Number((e.target as HTMLInputElement).value))}
+					/>
+					<span class="prop-unit">{lengthDisplayUnit}</span>
+				</div>
+				<div class="prop-row align-row">
+					<span
+						class="prop-label"
+						title={t('Drag on the canvas to move this floor onto the one below. Moves the plan, the walls and the APs together.')}
+					>{t('Align')}</span>
+					<Button
+						size="sm"
+						variant={appState.floorAlignMode ? 'primary' : 'secondary'}
+						onclick={() => setFloorAlignMode(!appState.floorAlignMode)}
+					>
+						{appState.floorAlignMode ? t('Drag on canvas…') : t('Drag to align')}
+					</Button>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
+	{#if floorplanState.importNotice}
+		<!-- A dropped file this app cannot read. Said out loud, because a silent no-op on
+		     a dropped PDF is indistinguishable from the app being broken. -->
+		<div class="import-notice" role="status">{t(floorplanState.importNotice)}</div>
+	{/if}
+
+	{#if !hasFloorplan}
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div
+			class="drop-zone"
+			class:drag-over={dragOver}
+			ondrop={handleDrop}
+			ondragover={handleDragOver}
+			ondragleave={handleDragLeave}
+		>
+			<Button variant="secondary" onclick={() => fileInput?.click()}>
+				<Icon name="upload" size={14} />
+				{t('Import Floorplan')}
+			</Button>
+			<input
+				bind:this={fileInput}
+				type="file"
+				accept=".png,.jpg,.jpeg,.svg"
+				onchange={handleInputChange}
+				hidden
+			/>
+		</div>
+		<div class="samples">
+			<span class="samples-label">{t('or try a sample:')}</span>
+			<div class="sample-buttons">
+				{#each sampleOptions as sample}
+					<button class="sample-btn" onclick={() => loadSample(sample.file, sample.areaSqm)}>
+						{sample.label}
+					</button>
+				{/each}
+			</div>
+		</div>
+		<div class="draw-scratch">
+			<Button variant="secondary" size="sm" onclick={() => {
+				pushState();
+				const w = 2000;
+				const h = 1500;
+				const emptyData = new Uint8Array(w * h);
+				const dataUrl = encodeMask(emptyData, w, h);
+				wallState.wallMask = { dataUrl, width: w, height: h, originX: 0, originY: 0 };
+				appState.wallEditMode = 'draw';
+				if (window.innerWidth < 768) appState.sidebarOpen = false;
+				scheduleSave();
+			}}>
+				<Icon name="pencil" size={14} />
+				{t('Draw from Scratch')}
+			</Button>
+		</div>
+	{:else}
+		<div class="loaded-controls">
+			<div class="loaded-header">
+				<span class="loaded-label">
+					<Icon name="file" size={14} />
+					{floorplanState.floorplanUrl ? t('Floorplan loaded') : t('Walls drawn')}
+				</span>
+				<Button variant="ghost" size="sm" onclick={removeFloorplan}>
+					<Icon name="trash" size={14} />
+				</Button>
+			</div>
+			<!-- Underlay opacity for the single-floor view. The tiled overview has its
+			     own slider in the LAYERS panel, and each shows in exactly one view, so
+			     there is never a second slider for the same property on screen.
+			     Showing it here while tiled would also be a lie: this row writes the
+			     current floor's value, which the tiles only borrow. -->
+			{#if appState.floorView === 'single'}
+				<div class="opacity-row">
+					<label class="opacity-label" for="floorplan-opacity">{t('Opacity')}</label>
+					<input
+						id="floorplan-opacity"
+						type="range"
+						min="0.1"
+						max="1"
+						step="0.1"
+						value={floorplanState.floorplanScale}
+						oninput={handleOpacityChange}
+						class="opacity-slider"
+					/>
+					<span class="opacity-value">{Math.round(floorplanState.floorplanScale * 100)}%</span>
+				</div>
+			{/if}
+
+			<!--
+				What the vector reader made of this plan, with a way to disagree with it.
+				The panel owns its own re-read; this passes it the one thing it cannot
+				reach — the pixel fallback, which belongs to the panel that also owns
+				`runBoundaryDetection`.
+			-->
+			<WallDetectionPanel {redetectFromPixels} />
+
+			{#if detecting}
+				<div class="calibration-section">
+					<span class="calibration-status">{t('Detecting boundary...')}</span>
+				</div>
+			{:else if (detectedWorldArea || wallState.wallMask) && !calibrationDone}
+				<div class="calibration-section">
+					<span class="calibration-label">{t('What is the total area of the floorplan?')}</span>
+					<div class="calibration-input-row">
+						<input
+							type="number"
+							class="area-input"
+							placeholder={t('e.g. 200')}
+							bind:value={areaInput}
+							onkeydown={handleAreaKeydown}
+							min="1"
+							step="any"
+						/>
+						<!--
+							The unit is a readout, not a control: it follows the
+							toolbar's ft/m button and converts what is already typed.
+							A button here would be a second, independent answer to
+							"which units is this project in" — and the one place it
+							would disagree with the toolbar is the field that sets the
+							scale of everything else.
+						-->
+						<span
+							class="unit-toggle"
+							title={t('Set by the ft/m switch in the toolbar, which converts what is already typed.')}
+							>{areaUnit}</span
+						>
+						<button class="apply-btn" onclick={applyCalibration}>{t('Apply')}</button>
+					</div>
+					<button class="skip-link" onclick={skipCalibration}>{t('Skip')}</button>
+				</div>
+			{:else if scaleDisplay}
+				<div class="calibration-section">
+					<span class="calibration-confirmed">{t('Scale:')} {scaleDisplay}</span>
+					<button class="skip-link" onclick={() => { calibrationDone = false; }}>{t('Recalibrate')}</button>
+				</div>
+			{/if}
+
+		</div>
+	{/if}
+
+	{#if wallState.wallMask || floorplanState.floorplanUrl}
+		<!-- Hidden while the tiled overview is up. Both actions edit or replace the
+		     current floor's wall mask, and that view draws every floor as a
+		     read-only card, so pressing them there would change something the user
+		     cannot see or aim at. -->
+		{#if appState.floorView === 'single'}
+			<div class="wall-actions">
+				{#if wallState.wallMask}
+					<Button variant="secondary" size="sm" onclick={startWallEdit}>
+						<Icon name="eraser" size={14} />
+						{t('Edit Walls')}
+					</Button>
+				{/if}
+				<Button variant="secondary" size="sm" onclick={requestWallDetection} disabled={detecting}>
+					<Icon name="sparkles" size={14} />
+					{detecting ? t('Detecting…') : wallState.wallMask ? t('Re-detect Walls') : t('Detect Walls')}
+				</Button>
+				{#if !wallState.wallMask}
+					<span class="wall-hint">{t('Detect walls from the floorplan, or import one first')}</span>
+				{/if}
+			</div>
+		{/if}
+	{/if}
+
+</div>
+
+<ConfirmDialog
+	bind:open={confirmOpen}
+	title={confirmTitle}
+	message={confirmMessage}
+	confirmLabel={confirmLabel}
+	onconfirm={() => { confirmAction?.(); }}
+/>
+
+<style>
+	.floorplan-controls {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-3);
+	}
+
+	.floor-strip {
+		display: flex;
+		gap: 4px;
+		overflow-x: auto;
+		overflow-y: hidden;
+		padding-bottom: var(--space-2);
+		border-bottom: 1px solid var(--border-subtle);
+		flex-wrap: nowrap;
+		min-width: 0;
+	}
+
+	.floor-pill {
+		padding: 4px 10px;
+		border: 1px solid var(--border-default);
+		border-radius: 999px;
+		background: var(--bg-surface);
+		color: var(--text-secondary);
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		cursor: pointer;
+		white-space: nowrap;
+		flex: 0 0 auto;
+		transition: all var(--transition-fast);
+	}
+
+	.floor-pill:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.floor-pill.active {
+		border-color: var(--accent-primary);
+		color: var(--accent-primary);
+		background: var(--accent-primary-glow);
+	}
+
+	.floor-pill.add {
+		border-style: dashed;
+		color: var(--text-tertiary);
+		min-width: 28px;
+		text-align: center;
+	}
+
+	.floor-pill.add:hover {
+		border-color: var(--accent-primary-dim);
+		color: var(--accent-primary);
+	}
+
+	.floor-manager {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+	}
+
+	.floor-props {
+		display: flex;
+		flex-direction: column;
+		gap: 6px;
+		padding-bottom: var(--space-2);
+		border-bottom: 1px solid var(--border-subtle);
+	}
+
+	.prop-row {
+		display: flex;
+		align-items: center;
+		gap: 6px;
+	}
+
+	.prop-label {
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+		min-width: 80px;
+		flex-shrink: 0;
+	}
+
+	.prop-input {
+		width: 60px;
+		height: 24px;
+		background: var(--bg-surface);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-sm);
+		color: var(--text-primary);
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		text-align: center;
+		padding: 0 4px;
+	}
+
+	.prop-input:focus {
+		outline: none;
+		border-color: var(--accent-primary);
+	}
+
+	.prop-unit {
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+	}
+
+	/* The shared Button is sized for toolbars and is inline-flex; in a property
+	   row it should fill the same slot as the controls above it, with the toggle
+	   state carried by the variant rather than by bespoke CSS. */
+	.align-row :global(.btn) {
+		flex: 1 1 auto;
+		min-width: 0;
+		height: 24px;
+		justify-content: center;
+	}
+
+	.floor-action {
+		margin-left: 2px;
+		font-size: 10px;
+		line-height: 1;
+		opacity: 0.4;
+		cursor: pointer;
+		padding: 2px;
+	}
+
+	.floor-action:hover {
+		opacity: 1;
+	}
+
+	.floor-action.delete:hover {
+		color: var(--danger, #ef4444);
+	}
+
+	.floor-name-input {
+		padding: 3px 8px;
+		border: 1px solid var(--accent-primary);
+		border-radius: 999px;
+		background: var(--bg-surface);
+		color: var(--text-primary);
+		font-family: var(--font-sans);
+		font-size: var(--text-xs);
+		width: 80px;
+		outline: none;
+	}
+
+	.drop-zone {
+		display: flex;
+		width: 100%;
+	}
+
+	.drop-zone :global(.btn) {
+		width: 100%;
+	}
+
+	.import-notice {
+		margin-top: var(--space-2);
+		padding: var(--space-2);
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-sm);
+	}
+
+	.drop-zone.drag-over {
+		outline: 2px dashed var(--accent-primary);
+		outline-offset: 2px;
+		border-radius: var(--radius-md);
+	}
+
+	.samples {
+		margin-top: var(--space-2);
+		text-align: center;
+	}
+
+	.samples-label {
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+	}
+
+	.sample-buttons {
+		display: flex;
+		gap: var(--space-1);
+		margin-top: var(--space-1);
+		justify-content: center;
+	}
+
+	.sample-btn {
+		font-size: var(--text-xs);
+		color: var(--accent-primary);
+		background: none;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		padding: 2px 8px;
+		cursor: pointer;
+		transition: all var(--transition-fast);
+	}
+
+	.sample-btn:hover {
+		background: var(--bg-hover);
+		border-color: var(--accent-primary-dim);
+	}
+
+	.sample-btn:focus-visible {
+		outline: 2px solid var(--accent-primary);
+		outline-offset: 1px;
+	}
+
+	.loaded-controls {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+	}
+
+	.loaded-header {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+	}
+
+	.loaded-label {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--text-sm);
+		color: var(--text-secondary);
+	}
+
+	.opacity-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+	}
+
+	.opacity-label {
+		font-size: var(--text-sm);
+		color: var(--text-tertiary);
+		flex-shrink: 0;
+	}
+
+	.opacity-slider {
+		flex: 1;
+		accent-color: var(--accent-primary);
+		height: 4px;
+	}
+
+	.opacity-value {
+		font-size: var(--text-sm);
+		color: var(--text-tertiary);
+		min-width: 36px;
+		text-align: right;
+	}
+
+	.calibration-section {		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		margin-top: var(--space-2);
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--border-subtle);
+	}
+
+	.calibration-status {
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+		font-style: italic;
+	}
+
+	.calibration-label {
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		line-height: 1.4;
+	}
+
+	.calibration-input-row {
+		display: flex;
+		gap: var(--space-1);
+		align-items: center;
+	}
+
+	.area-input {
+		flex: 1;
+		height: 28px;
+		background: var(--bg-surface);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		color: var(--text-primary);
+		font-family: var(--font-mono);
+		font-size: var(--text-sm);
+		padding: 0 var(--space-2);
+		outline: none;
+		min-width: 0;
+	}
+
+	.area-input:focus {
+		border-color: var(--accent-primary);
+	}
+
+	/* The unit beside the area field. A readout now, not a button: it shows what
+	   the toolbar's ft/m switch selected, so it must not look pressable. */
+	.unit-toggle {
+		display: inline-flex;
+		align-items: center;
+		height: 28px;
+		padding: 0 var(--space-2);
+		background: var(--bg-surface);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		color: var(--text-tertiary);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		white-space: nowrap;
+	}
+
+	.apply-btn {
+		height: 28px;
+		padding: 0 var(--space-2);
+		background: var(--accent-primary);
+		border: none;
+		border-radius: var(--radius-md);
+		color: var(--text-on-accent, #fff);
+		font-size: var(--text-xs);
+		font-weight: 500;
+		cursor: pointer;
+		white-space: nowrap;
+	}
+
+	.apply-btn:hover {
+		opacity: 0.9;
+	}
+
+	.apply-btn:focus-visible {
+		outline: 2px solid var(--accent-primary);
+		outline-offset: 1px;
+	}
+
+	.skip-link {
+		background: none;
+		border: none;
+		color: var(--text-tertiary);
+		font-size: var(--text-xs);
+		cursor: pointer;
+		padding: 0;
+		text-decoration: underline;
+		align-self: flex-start;
+	}
+
+	.skip-link:hover {
+		color: var(--text-secondary);
+	}
+
+	.skip-link:focus-visible {
+		outline: 2px solid var(--accent-primary);
+		outline-offset: 1px;
+	}
+
+	.calibration-confirmed {
+		font-size: var(--text-xs);
+		color: var(--color-success, #4ade80);
+		font-family: var(--font-mono);
+	}
+
+	.wall-actions {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-1);
+		margin-top: var(--space-2);
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--border-subtle);
+	}
+
+	.wall-actions :global(.btn) {
+		width: 100%;
+	}
+
+	.wall-hint {
+		font-size: var(--text-xs);
+		color: var(--text-disabled);
+	}
+
+	.draw-scratch {
+		margin-top: var(--space-2);
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--border-subtle);
+	}
+
+	.draw-scratch :global(.btn) {
+		width: 100%;
+	}
+
+</style>
