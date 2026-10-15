@@ -16,8 +16,11 @@
  * the wall suggests a direction, it does not own it.
  */
 import { normaliseBearing, wrap180 } from '../rf/antenna.js';
+import { isVirtualMaterial, type WallMaterialId } from '$canvas/materials.js';
 import { wallDistanceTransform, type WallDistanceTransform } from '$canvas/wall-distance.js';
 import { getFloorMask } from './floor-mask.js';
+import { floorState } from './floor-state.svelte.js';
+import { wallState } from './wall-state.svelte.js';
 
 export interface WallSnap {
 	/** The point on the wall this was measured to, in world units. */
@@ -128,6 +131,66 @@ function transformFor(key: string, data: Uint8Array, width: number, height: numb
 	return transform;
 }
 
+/**
+ * The walls a wall mount may attach to: walls, minus the ones that are not surfaces.
+ *
+ * A **virtual partition** is a modelling device — a boundary that attenuates nothing, for
+ * separating areas of one open plan. There is no surface to screw a bracket to, so a wall
+ * mount must not attach to one: its facing would be derived from a line that radiates both
+ * ways, and the unit would sit in the middle of a room pointing at nothing.
+ *
+ * Exported so the rule can be read on its own; the transform below is built from it.
+ */
+export function attachableWallMask(
+	wallData: Uint8Array,
+	materialMap: Uint8Array | null,
+	defaultMaterial: number
+): Uint8Array {
+	if (!materialMap) return wallData;
+	const attachable = new Uint8Array(wallData.length);
+	for (let i = 0; i < wallData.length; i++) {
+		if (!wallData[i]) continue;
+		const material = materialMap[i] ?? defaultMaterial;
+		if (isVirtualMaterial(material as WallMaterialId)) continue;
+		attachable[i] = 1;
+	}
+	return attachable;
+}
+
+/**
+ * The distance transform of those walls.
+ *
+ * Built as its own raster because the transform answers "the nearest wall" and cannot be
+ * asked for "the nearest wall that is not virtual": the line has to not be there in the
+ * first place. Cached per mask-and-material identity, like the plain transform.
+ */
+let attachableCache: {
+	key: string;
+	transform: WallDistanceTransform | null;
+} | null = null;
+
+function attachableTransformFor(
+	key: string,
+	wallData: Uint8Array,
+	materialMap: Uint8Array | null,
+	defaultMaterial: number,
+	width: number,
+	height: number
+) {
+	if (!materialMap) return transformFor(key, wallData, width, height);
+	const materialKey = `${key}|mat|${defaultMaterial}`;
+	if (materialKey !== 'live' && attachableCache && attachableCache.key === materialKey) {
+		return attachableCache.transform;
+	}
+	const transform = wallDistanceTransform(
+		attachableWallMask(wallData, materialMap, defaultMaterial),
+		width,
+		height
+	);
+	if (materialKey !== 'live') attachableCache = { key: materialKey, transform };
+	return transform;
+}
+
 /** The nearest wall of a floor to a world point, decoding that floor's mask if needed. */
 export async function wallSnapForFloor(
 	floorId: string,
@@ -137,6 +200,20 @@ export async function wallSnapForFloor(
 ): Promise<WallSnap | null> {
 	const mask = await getFloorMask(floorId);
 	if (!mask) return null;
-	const transform = transformFor(mask.sourceKey, mask.wallData, mask.width, mask.height);
+	// The floor's own default material, with the live value for the floor on screen: the
+	// same choice the canvas makes when it colours the walls.
+	const floor = floorState.floors.find((f) => f.id === floorId);
+	const defaultMaterial =
+		floorId === floorState.currentFloorId
+			? (wallState.wallMaterial ?? floor?.wallMaterial ?? 0)
+			: (floor?.wallMaterial ?? 0);
+	const transform = attachableTransformFor(
+		mask.sourceKey,
+		mask.wallData,
+		mask.materialMap,
+		defaultMaterial,
+		mask.width,
+		mask.height
+	);
 	return wallSnapFrom(transform, mask.originX, mask.originY, x, y, wupm);
 }

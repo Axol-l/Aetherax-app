@@ -40,7 +40,9 @@ import {
 } from '../rf/interference.js';
 import { makeOverlapLookup } from '../rf/channel-overlap.js';
 import {
-	getMaterialDbTable
+	getMaterialDbTable,
+	isVirtualMaterial,
+	type WallMaterialId
 } from '../canvas/materials.js';
 import {
 	planningCandidates,
@@ -559,7 +561,17 @@ function buildWallPlacement(
 	inside: Uint8Array,
 	w: number,
 	h: number,
-	radiusWu: number
+	radiusWu: number,
+	/**
+	 * Materials per wall pixel and the floor's default, when the caller sent them.
+	 *
+	 * A **virtual partition** is a modelling line, not a surface: it attenuates nothing,
+	 * and a bracket cannot be screwed to it. Such pixels are not seeds here, so the band
+	 * never forms against one and a wall-mounted AP is never placed facing a line that
+	 * radiates both ways. See `wall-snap.ts`, which applies the same rule on the app side.
+	 */
+	materialMap: Uint8Array | null = null,
+	defaultMaterial = 0
 ): WallPlacement | null {
 	const n = w * h;
 	const radius = Math.max(1, Math.min(64, Math.round(radiusWu)));
@@ -573,10 +585,13 @@ function buildWallPlacement(
 	let tail = 0;
 
 	for (let i = 0; i < n; i++) {
-		if (wallMask[i]) {
-			dist[i] = 0;
-			queue[tail++] = i;
+		if (!wallMask[i]) continue;
+		if (materialMap) {
+			const material = materialMap[i] ?? defaultMaterial;
+			if (isVirtualMaterial(material as WallMaterialId)) continue;
 		}
+		dist[i] = 0;
+		queue[tail++] = i;
 	}
 	if (tail === 0) return null;
 
@@ -2101,7 +2116,15 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 				if (untrimmed[i] && isVoidRoomType(roomTypeMask[i]!)) untrimmed[i] = 0;
 			}
 		}
-		wallPlacement = buildWallPlacement(mask, untrimmed, w, h, msg.wallBandWu ?? 4);
+		wallPlacement = buildWallPlacement(
+			mask,
+			untrimmed,
+			w,
+			h,
+			msg.wallBandWu ?? 4,
+			materialMask && materialMask.length === w * h ? materialMask : null,
+			defaultMaterial
+		);
 	}
 	/** Band pixels, for the initial seeding of a wall-mounted AP. */
 	const bandPixels: number[] = [];

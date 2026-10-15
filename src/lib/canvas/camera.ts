@@ -7,6 +7,19 @@ export interface CameraState {
 	zoom: number; // scale factor (1.0 = 100%)
 }
 
+/**
+ * How far in the plan may be magnified.
+ *
+ * It used to be ten, which is past the point where the drawing has any more detail to
+ * show: mask pixels are world units, so at 10x a single pixel of a wall covers ten screen
+ * pixels and everything derived from it — the nearest-wall snap a wall-mounted access
+ * point follows, the facing that comes out of it — visibly steps from one pixel to the
+ * next. Four keeps a comfortable working zoom and keeps those steps at the scale the
+ * plan was drawn at.
+ */
+export const MAX_ZOOM = 4;
+export const MIN_ZOOM = 0.1;
+
 export class Camera {
 	state: CameraState = { x: 0, y: 0, zoom: 1 };
 
@@ -54,7 +67,7 @@ export class Camera {
 	/** Zoom centered on a screen-space point */
 	zoomAt(screenPoint: Point, factor: number): void {
 		const worldBefore = this.screenToWorld(screenPoint);
-		this.state.zoom = Math.max(0.1, Math.min(10, this.state.zoom * factor));
+		this.state.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.state.zoom * factor));
 		this.invalidateCache();
 		const worldAfter = this.screenToWorld(screenPoint);
 		this.state.x += worldAfter.x - worldBefore.x;
@@ -112,7 +125,7 @@ export class Camera {
 
 		const scaleX = (viewWidth - padding * 2) / boundsWidth;
 		const scaleY = (viewHeight - padding * 2) / boundsHeight;
-		const zoom = Math.max(0.1, Math.min(10, Math.min(scaleX, scaleY)));
+		const zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, Math.min(scaleX, scaleY)));
 
 		this.state.zoom = zoom;
 		this.state.x = viewWidth / (2 * zoom) - centerX;
