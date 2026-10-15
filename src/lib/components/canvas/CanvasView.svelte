@@ -1677,10 +1677,24 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 */
 	$effect(() => {
 		void wallState.wallMask;
+		// The verdict is about every floor's mask, not the one on screen: an access point on
+		// Floor 4 is judged against Floor 4's, which a re-detect replaces without the live
+		// mask changing at all. Without these dependencies the notice could stand from a
+		// geometry that no longer exists — which is how a point that the app itself now
+		// calls inside was still being reported as outside the building.
+		void floorState.currentFloorId;
+		for (const floor of floorState.floors) void floor.wallMask;
 		for (const ap of apState.aps) {
 			void ap.x;
 			void ap.y;
 			void ap.floorId;
+		}
+		// While the walls are being drawn the mask is a draft. Judging against a half-drawn
+		// wall accuses points that are inside the moment the edit is committed, and the
+		// notice is not worth showing for a geometry the user has not finished describing.
+		if (appState.wallEditMode) {
+			appState.outsideNotice = null;
+			return;
 		}
 		let cancelled = false;
 		void (async () => {

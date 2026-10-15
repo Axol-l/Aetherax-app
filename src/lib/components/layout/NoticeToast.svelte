@@ -26,8 +26,12 @@
 	/**
 	 * The save acknowledgment, which is not a warning: it gets a tick rather than the
 	 * warning triangle, so "saved" never reads as "something is wrong".
+	 *
+	 * It is rendered *beside* the warnings rather than instead of them. Sharing the slot
+	 * meant an export said nothing at all whenever a standing warning was up — which is
+	 * exactly when a user is most likely to be pressing things.
 	 */
-	const saved = $derived(text === null ? appState.savedNotice : null);
+	const saved = $derived(appState.savedNotice);
 </script>
 
 {#if text}
@@ -35,8 +39,10 @@
 		<Icon name="warning" size={15} />
 		<p>{text}</p>
 	</div>
-{:else if saved}
-	<div class="notice saved" role="status" aria-live="polite">
+{/if}
+
+{#if saved}
+	<div class="notice saved" class:stacked={text !== null} role="status" aria-live="polite">
 		<Icon name="check" size={15} />
 		<p>{saved}</p>
 	</div>
@@ -74,5 +80,10 @@
 	.notice.saved {
 		color: var(--color-success, #4ade80);
 		border-left-color: var(--color-success, #4ade80);
+	}
+
+	/* Above the warning when both are up, so neither hides the other. */
+	.notice.stacked {
+		bottom: calc(var(--space-4) + 46px);
 	}
 </style>
