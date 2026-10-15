@@ -177,19 +177,47 @@
 		'vector-failed': 'The vector reader could not handle this drawing.',
 		forced: 'You chose the pixel detector for this plan.'
 	} as const;
+
+	/**
+	 * How much of the vector report is unfolded.
+	 *
+	 * Both levels start closed. The block appears by itself after a vector import and most
+	 * plans never need to change anything in it, so opening at full height put a table of
+	 * every opening in the sidebar uninvited. The counts stay visible either way, which is
+	 * the part a reader actually wants at a glance.
+	 *
+	 * Plain component state on purpose: the read it describes is session-only
+	 * (`wallState.vectorReview` is not persisted), so there is nothing to remember across
+	 * a restart, and remembering *within* one is not worth a store.
+	 */
+	let expanded = $state(false);
+	let showRows = $state(false);
 </script>
 
 {#if review}
 	<div class="review">
-		<div class="review-head">
+		<!--
+			The heading is the toggle: this block appears on its own after a vector import,
+			and it used to open at full height with a table of every opening in it — which
+			is a lot of sidebar for something most plans never need to change. Collapsed it
+			still says what was read (the counts line below stays visible), so the summary
+			is one glance and the detail is one click.
+
+			Session state only, like the read itself: `vectorReview` is not persisted, so the
+			block is gone on the next start and there is nothing to remember between runs.
+		-->
+		<button
+			class="review-head"
+			aria-expanded={expanded}
+			title={t('Read from vector geometry')}
+			onclick={() => (expanded = !expanded)}
+		>
 			<span class="review-title">
 				<Icon name="sparkles" size={12} />
 				{t('Read from vector geometry')}
 			</span>
-			{#if review.overrides.size > 0}
-				<button class="link" onclick={reset} disabled={busy}>{t('Reset')}</button>
-			{/if}
-		</div>
+			<Icon name="chevron-down" size={12} class={expanded ? 'chev open' : 'chev'} />
+		</button>
 
 		<span class="counts">
 			{t('{walls} walls · {windows} windows · {doors} doors', {
@@ -198,60 +226,79 @@
 				doors: review.summary.doors
 			})}
 		</span>
-		<span class="meta">
-			{t('{count} fixtures and labels left out of the mask', { count: review.summary.ignored })}
-			{#if review.overrides.size > 0}
-				<!-- An override usually moves an element out of this list (a door that is
-				     now a wall is not an opening), so without this the only sign that
-				     something changed is a count in a line above. -->
-				· {t('{count} changed by you', { count: review.overrides.size })}
-			{/if}
-		</span>
 
-		{#if rows.length > 0}
-			<span class="review-sub">
-				{t('Check the openings and anything unclassified')}
-				{#if rows.length > shown.length}
-					· {t('showing {shown} of {total}', { shown: shown.length, total: rows.length })}
-				{/if}
-			</span>
-			<ul class="rows">
-				{#each shown as element (element.id)}
-					<li
-						class="row"
-						class:overridden={isOverridden(element.id)}
-						onmouseenter={() => highlight(element)}
-						onmouseleave={() => highlight(null)}
-						onfocusin={() => highlight(element)}
-						onfocusout={() => highlight(null)}
-					>
-						<span class="role" data-role={element.role}>{element.role}</span>
-						<span class="label" title={labelFor(element)}>{labelFor(element)}</span>
-						<span class="choices">
-							{#each CHOICES as choice (choice.role)}
-								<button
-									class="choice"
-									class:current={element.role === choice.role}
-									disabled={busy}
-									title={t('Treat this element as') + ' ' + t(choice.label)}
-									onclick={() => setRole(element.id, choice.role)}
-								>
-									{t(choice.label)}
-								</button>
-							{/each}
-						</span>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-
-		{#if failed}
-			<span class="error">{t('That change left no walls at all — undo it or re-detect.')}</span>
+		<!--
+			Reset and the escape hatch stay outside the fold. Neither is detail: one undoes
+			the user's own reclassifications, the other gives up on the vector read
+			entirely, and both are things a reader reaches for while looking at the counts.
+		-->
+		{#if review.overrides.size > 0}
+			<button class="link" onclick={reset} disabled={busy}>{t('Reset')}</button>
 		{/if}
 
 		<button class="link" data-action="raster-detect" onclick={usePixels} disabled={busy}>
 			{t('Read walls from pixels instead')}
 		</button>
+
+		{#if expanded}
+			<span class="meta">
+				{t('{count} fixtures and labels left out of the mask', { count: review.summary.ignored })}
+				{#if review.overrides.size > 0}
+					<!-- An override usually moves an element out of this list (a door that is
+					     now a wall is not an opening), so without this the only sign that
+					     something changed is a count in a line above. -->
+					· {t('{count} changed by you', { count: review.overrides.size })}
+				{/if}
+			</span>
+
+			{#if rows.length > 0}
+				<!--
+					The second level. Each row carries four role buttons, so this list is the
+					bulk of the block and the rare reason to open it at all.
+				-->
+				<button class="review-sub toggle" aria-expanded={showRows} onclick={() => (showRows = !showRows)}>
+					<Icon name="chevron-down" size={11} class={showRows ? 'chev open' : 'chev'} />
+					{t('Check the openings and anything unclassified')}
+					{#if rows.length > shown.length}
+						· {t('showing {shown} of {total}', { shown: shown.length, total: rows.length })}
+					{/if}
+				</button>
+				{#if showRows}
+					<ul class="rows">
+						{#each shown as element (element.id)}
+							<li
+								class="row"
+								class:overridden={isOverridden(element.id)}
+								onmouseenter={() => highlight(element)}
+								onmouseleave={() => highlight(null)}
+								onfocusin={() => highlight(element)}
+								onfocusout={() => highlight(null)}
+							>
+								<span class="role" data-role={element.role}>{element.role}</span>
+								<span class="label" title={labelFor(element)}>{labelFor(element)}</span>
+								<span class="choices">
+									{#each CHOICES as choice (choice.role)}
+										<button
+											class="choice"
+											class:current={element.role === choice.role}
+											disabled={busy}
+											title={t('Treat this element as') + ' ' + t(choice.label)}
+											onclick={() => setRole(element.id, choice.role)}
+										>
+											{t(choice.label)}
+										</button>
+									{/each}
+								</span>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			{/if}
+
+			{#if failed}
+				<span class="error">{t('That change left no walls at all — undo it or re-detect.')}</span>
+			{/if}
+		{/if}
 	</div>
 {/if}
 
@@ -311,6 +358,51 @@
 		align-items: center;
 		justify-content: space-between;
 		gap: var(--space-2);
+	}
+
+	/*
+	 * The heading is a button now, so it needs the button taken back off it: a sidebar
+	 * heading that arrives with a border, a background and the browser's own font is the
+	 * tell that a div was turned into a control without anyone looking at it.
+	 */
+	button.review-head {
+		width: 100%;
+		padding: 0;
+		font: inherit;
+		color: inherit;
+		text-align: left;
+		background: none;
+		border: 0;
+		cursor: pointer;
+	}
+
+	/* Points down when closed, up when open — the same shape both levels use. */
+	.chev {
+		flex: none;
+		color: var(--text-tertiary);
+		transition: transform 120ms ease;
+	}
+
+	.chev.open {
+		transform: rotate(180deg);
+	}
+
+	button.toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		padding: 0;
+		font: inherit;
+		color: inherit;
+		text-align: left;
+		background: none;
+		border: 0;
+		cursor: pointer;
+	}
+
+	button.toggle:hover,
+	button.review-head:hover .review-title {
+		color: var(--text-primary);
 	}
 
 	.review-title {
