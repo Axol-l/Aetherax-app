@@ -24,6 +24,13 @@ import {
 } from '../rf/propagation.js';
 import { appState } from './app.svelte.js';
 import { t } from './i18n.svelte.js';
+import {
+	indexDbStore,
+	localStore,
+	migrateInto,
+	type KeyValueStore,
+	type StorageBackend
+} from './storage.js';
 
 /**
  * Every key this app writes starts with this. Exported because `WelcomeDialog` has to
@@ -284,7 +291,16 @@ function syncCurrentFloorFromLegacy(): void {
 	cur.roomTypeMask = wallState.roomTypeMask;
 }
 
-function saveToStorage(): void {
+/**
+ * Write the project to whichever store is in use.
+ *
+ * Asynchronous because the backend is: IndexedDB, with localStorage as the fallback for a
+ * browser that has none (see `state/storage.ts`). The debounced caller fires and forgets —
+ * a failure is not silent, it lands in `appState.storageNotice`, which is the whole point
+ * of the notice: with a five-megabyte quota and a PNG mask per floor, "saved nothing and
+ * said nothing" is the failure mode that loses work.
+ */
+async function saveToStorage(): Promise<void> {
 	/*
 	 * The timer has fired, so nothing is pending any more.
 	 *
@@ -295,6 +311,7 @@ function saveToStorage(): void {
 	 */
 	saveTimeout = null;
 	syncCurrentFloorFromLegacy();
+	const store = await ensureStore();
 	try {
 		const data: SavedStateV3 = {
 			version: 3,
@@ -344,7 +361,7 @@ function saveToStorage(): void {
 			})),
 			aps: JSON.parse(JSON.stringify(apState.aps))
 		};
-		localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+		await store.write(STORAGE_KEY, JSON.stringify(data));
 		persistenceState.lastSaved = new Date();
 		// A later save that works clears the warning: storage was full, and is not any
 		// more.
@@ -367,11 +384,9 @@ function saveToStorage(): void {
 					canvas.height = img.naturalHeight;
 					const ctx = canvas.getContext('2d')!;
 					ctx.drawImage(img, 0, 0);
-					try {
-						localStorage.setItem(key, canvas.toDataURL('image/png'));
-					} catch {
-						// too large
-					}
+					void store.write(key, canvas.toDataURL('image/png')).catch(() => {
+						// too large: the project document is what has to land
+					});
 				};
 				img.src = floor.floorplanUrl;
 			}
@@ -444,17 +459,67 @@ function migrateV2(data: SavedStateV2): SavedStateV3 {
 	};
 }
 
-export function restoreFromStorage(): boolean {
-	// First thing: a project saved before the rename lives under the old prefix.
-	migrateLegacyStorageKeys();
+/**
+ * Which store the project is kept in.
+ *
+ * `localstorage` today, on purpose, and the seam exists so that turning the other one on
+ * is a one-line change rather than a rewrite. The reason it is still the old one: every
+ * test helper that asks "what did the app save?" reads `localStorage`, and so may any tool
+ * a user has around their projects. Moving the project into IndexedDB therefore has to
+ * move those readers with it, and that is a change of its own — measured, not assumed.
+ * `indexeddb` is implemented and unit-tested behind this switch; see `state/storage.ts`
+ * for why it is the destination (a five-megabyte quota against a PNG mask per floor).
+ */
+const BACKEND: StorageBackend = 'localstorage';
+
+/**
+ * The store the project is kept in, opened once.
+ *
+ * Whichever backend is selected, any record that only exists in localStorage is carried
+ * over first, so a project saved by an older build is found by this one.
+ */
+let projectStore: KeyValueStore | null = null;
+async function ensureStore(): Promise<KeyValueStore> {
+	if (projectStore) return projectStore;
+	let store: KeyValueStore = localStore;
+	if (BACKEND === 'indexeddb') {
+		try {
+			// A round trip rather than a feature test: a private window can expose
+			// `indexedDB` and refuse to open a database.
+			await indexDbStore.keys();
+			store = indexDbStore;
+		} catch {
+			store = localStore;
+		}
+	}
 	try {
-		const raw = localStorage.getItem(STORAGE_KEY);
+		await migrateInto(store, [STORAGE_KEY, FLOORPLAN_KEY]);
+	} catch {
+		// The legacy copy is still there and still readable: carry on with what we have
+		// rather than starting the app with no project at all.
+	}
+	projectStore = store;
+	return store;
+}
+
+/** Which backend the project is in, for the storage notice. Exported for diagnostics. */
+export function storageBackend(): StorageBackend | null {
+	return projectStore?.backend ?? null;
+}
+
+export async function restoreFromStorage(): Promise<boolean> {
+	// First thing: a project saved before the rename lives under the old prefix, and that
+	// is a localStorage concern — it runs before anything is read.
+	migrateLegacyStorageKeys();
+	const store = await ensureStore();
+	try {
+		const raw = await store.read(STORAGE_KEY);
 		if (!raw) return false;
 
 		let parsed: SavedState = JSON.parse(raw);
 		if (!parsed.version || parsed.version < 2) {
-			localStorage.removeItem(STORAGE_KEY);
-			localStorage.removeItem(FLOORPLAN_KEY);
+			await store.remove(STORAGE_KEY);
+			await store.remove(FLOORPLAN_KEY);
 			return false;
 		}
 
@@ -568,14 +633,14 @@ export function restoreFromStorage(): boolean {
 		// Restore floorplan images
 		for (const floor of floorState.floors) {
 			const perFloorKey = `${FLOORPLAN_KEY}:${floor.id}`;
-			const perFloorData = localStorage.getItem(perFloorKey);
+			const perFloorData = await store.read(perFloorKey);
 			if (perFloorData) {
 				floor.floorplanUrl = perFloorData;
 			}
 		}
 		// Legacy: single floorplan key (v2 migration)
 		if (!floorState.floors[0]!.floorplanUrl) {
-			const legacyFloorplan = localStorage.getItem(FLOORPLAN_KEY);
+			const legacyFloorplan = await store.read(FLOORPLAN_KEY);
 			if (legacyFloorplan) {
 				floorState.floors[0]!.floorplanUrl = legacyFloorplan;
 			}
@@ -590,12 +655,13 @@ export function restoreFromStorage(): boolean {
 	}
 }
 
-export function clearSavedState(): void {
-	localStorage.removeItem(STORAGE_KEY);
-	localStorage.removeItem(FLOORPLAN_KEY);
+export async function clearSavedState(): Promise<void> {
+	const store = await ensureStore();
+	await store.remove(STORAGE_KEY);
+	await store.remove(FLOORPLAN_KEY);
 	// Clear per-floor floorplan keys
 	for (const floor of floorState.floors) {
-		localStorage.removeItem(`${FLOORPLAN_KEY}:${floor.id}`);
+		await store.remove(`${FLOORPLAN_KEY}:${floor.id}`);
 	}
 	persistenceState.lastSaved = null;
 }
@@ -612,9 +678,12 @@ export function clearSavedState(): void {
 export function scheduleSave(keep = false): void {
 	if (keep && saveTimeout) return;
 	if (saveTimeout) clearTimeout(saveTimeout);
-	saveTimeout = setTimeout(saveToStorage, SAVE_DELAY);
+	// `saveToStorage` opens the store itself and reports its own failures; the debounce
+	// only has to decide *when*.
+	saveTimeout = setTimeout(() => void saveToStorage(), SAVE_DELAY);
 }
 
-export function hasSavedState(): boolean {
-	return localStorage.getItem(STORAGE_KEY) !== null;
+export async function hasSavedState(): Promise<boolean> {
+	const store = await ensureStore();
+	return (await store.read(STORAGE_KEY)) !== null;
 }

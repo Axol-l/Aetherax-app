@@ -656,7 +656,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	onMount(() => {
-		restoreFromStorage();
+		// Asynchronous since the project moved to a store seam: this opens it, carries any
+		// record that only exists in localStorage into it, and loads the project. The
+		// canvas draws the empty plan until it lands, which is what it did before.
+		void restoreFromStorage();
 		window.addEventListener('keydown', handleKeyDown);
 		window.addEventListener('keyup', handleKeyUp);
 		engine = new CanvasEngine(canvasEl);

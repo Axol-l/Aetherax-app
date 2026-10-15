@@ -73,7 +73,10 @@
 		floorState.currentFloorId = newFloorId;
 
 		clearHistory();
-		clearSavedState();
+		// Clearing reaches the store, which is asynchronous now. Fired rather than awaited
+		// on purpose: the new project is already in state, and the next save overwrites
+		// whatever the clear has not removed yet.
+		void clearSavedState();
 
 		open = false;
 		onconfirm?.();
