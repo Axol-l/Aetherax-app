@@ -46,12 +46,17 @@
 		}
 	}
 
-	async function handleSaveProject() {
-		await downloadJson();
-		// The file lands in the browser's download folder — in the desktop app, silently.
-		// Say what happened and where the work also is, so "Save Project" is not a button
-		// that appears to do nothing.
-		appState.savedNotice = t('Project exported as a file — the app also saves automatically');
+	/**
+	 * Say that a file left the app.
+	 *
+	 * Every export here hands the user a file and nothing else: in the desktop window it
+	 * lands in the download folder, which is somewhere they cannot see, so "Export as PNG"
+	 * looked like a button that did nothing. One helper for all of them, so PNG, PDF and
+	 * the project file cannot drift apart again — PNG and PDF were exactly that drift.
+	 */
+	let savedNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+	function announce(message: string): void {
+		appState.savedNotice = message;
 		if (savedNoticeTimer) clearTimeout(savedNoticeTimer);
 		savedNoticeTimer = setTimeout(() => {
 			appState.savedNotice = null;
@@ -59,7 +64,10 @@
 		}, 3500);
 	}
 
-	let savedNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+	async function handleSaveProject() {
+		await downloadJson();
+		announce(t('Project exported as a JSON file'));
+	}
 
 	function handleOpenClick() {
 		importError = null;
@@ -85,12 +93,14 @@
 		const engine = canvasEngineRef.engine;
 		if (!engine) return;
 		await exportPng(engine, { scale: 2, includeGrid: false });
+		announce(t('Exported as a PNG file'));
 	}
 
 	async function handleExportPdf() {
 		const engine = canvasEngineRef.engine;
 		if (!engine) return;
 		await exportPdf(engine);
+		announce(t('Exported as a PDF file'));
 	}
 
 	const fileMenuItems = $derived([

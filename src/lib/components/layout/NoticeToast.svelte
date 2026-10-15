@@ -43,7 +43,7 @@
 
 {#if saved}
 	<div class="notice saved" class:stacked={text !== null} role="status" aria-live="polite">
-		<Icon name="check" size={15} />
+		<Icon name="check" size={13} />
 		<p>{saved}</p>
 	</div>
 {/if}
@@ -80,6 +80,19 @@
 	.notice.saved {
 		color: var(--color-success, #4ade80);
 		border-left-color: var(--color-success, #4ade80);
+		/* One short line, not a wrapped paragraph of prose: centred against the tick
+		   rather than hung from the top of a tall box. */
+		align-items: center;
+	}
+
+	/*
+	 * ...and at the standard secondary size, not the smallest one. The warning notices are
+	 * multi-line prose where the small size is right; a confirmation at 11 px next to a
+	 * 15 px icon read as a different, and slightly broken, piece of UI.
+	 */
+	.notice.saved p {
+		font-size: var(--text-sm);
+		line-height: 1.4;
 	}
 
 	/* Above the warning when both are up, so neither hides the other. */

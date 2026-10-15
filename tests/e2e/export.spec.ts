@@ -38,7 +38,7 @@ test.describe('Export', () => {
 		expect(download.suggestedFilename()).toContain('.aetherax.json');
 		// ...and that the app said so: the file goes to the download folder, which in the
 		// desktop window is somewhere the user cannot see.
-		await expect(page.getByText('Project exported as a file', { exact: false })).toBeVisible();
+		await expect(page.getByText('Project exported as a JSON file')).toBeVisible();
 	});
 
 	test('Ctrl+S saves to the app store and says so', async ({ page }) => {
