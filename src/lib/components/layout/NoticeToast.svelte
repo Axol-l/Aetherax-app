@@ -23,12 +23,22 @@
 	const text = $derived(
 		appState.storageNotice ?? appState.placementNotice ?? appState.outsideNotice
 	);
+	/**
+	 * The save acknowledgment, which is not a warning: it gets a tick rather than the
+	 * warning triangle, so "saved" never reads as "something is wrong".
+	 */
+	const saved = $derived(text === null ? appState.savedNotice : null);
 </script>
 
 {#if text}
 	<div class="notice" role="status" aria-live="polite">
 		<Icon name="warning" size={15} />
 		<p>{text}</p>
+	</div>
+{:else if saved}
+	<div class="notice saved" role="status" aria-live="polite">
+		<Icon name="check" size={15} />
+		<p>{saved}</p>
 	</div>
 {/if}
 
@@ -58,5 +68,11 @@
 		line-height: 1.55;
 		/* The message carries names of access points, so it can be long. */
 		color: var(--text-primary);
+	}
+
+	/* A save is good news: the icon and the edge say so before the words are read. */
+	.notice.saved {
+		color: var(--color-success, #4ade80);
+		border-left-color: var(--color-success, #4ade80);
 	}
 </style>

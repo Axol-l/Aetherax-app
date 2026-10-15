@@ -61,7 +61,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	} from '$state/solver.svelte.js';
 	import { updateCoverage, optimizerState, floorCoverage, apsOutsideInterior } from '$state/optimizer.svelte.js';
 	import { hitTest } from '$canvas/hit-test.js';
-	import { restoreFromStorage } from '$state/persistence.svelte.js';
+	import { restoreFromStorage, saveNow } from '$state/persistence.svelte.js';
 	import { importFloorplanFile } from '$canvas/import-floorplan.js';
 	import { labelWallBlobs, relabelBlob, labelRooms, fillRegion, encodeMaterialMask, decodeMaterialMask } from '$canvas/region-labels.js';
 	import type { RegionLabels } from '$canvas/region-labels.js';
@@ -597,6 +597,15 @@ import { wallState } from '$state/wall-state.svelte.js';
 			// Same reasoning: a mode that owns the canvas has to be escapable without
 			// reaching for the sidebar.
 			setApPlaceMode(false);
+			return;
+		}
+
+		if (mod && (e.key === 's' || e.key === 'S')) {
+			// The browser's own save dialog has nothing to do with a project: intercept it,
+			// write the project to the app's store, and answer visibly. Autosave is silent
+			// by design, but a key the user pressed has to say something.
+			e.preventDefault();
+			void saveNow();
 			return;
 		}
 

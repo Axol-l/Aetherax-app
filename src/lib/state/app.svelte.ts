@@ -34,6 +34,14 @@ export const appState = $state({
 	 */
 	storageNotice: null as string | null,
 	/**
+	 * The acknowledgment of a save the user asked for, briefly.
+	 *
+	 * Autosave is silent by design — the work is saved two seconds after an edit and the
+	 * status bar carries the timestamp — but a save the user *asked* for has to answer, or
+	 * the shortcut and the menu item both look broken. Cleared by `saveNow`'s own timer.
+	 */
+	savedNotice: null as string | null,
+	/**
 	 * The standing warning about access points that sit outside the building, if any.
 	 *
 	 * Kept in a slot of its own rather than sharing `placementNotice`, because the two

@@ -675,6 +675,31 @@ export async function clearSavedState(): Promise<void> {
  * it — each used to write state and never save it, so what landed on disk was whatever the
  * optimiser had scheduled two seconds earlier, computed for the *previous* positions.
  */
+/**
+ * Save now, because the user asked — and say so.
+ *
+ * The debounced `scheduleSave` is right for an edit and wrong for a keystroke or a menu
+ * click: the user is watching for an answer, and a save that happens two seconds later in
+ * silence reads as a button that does nothing. This writes immediately, cancels the
+ * pending timer so the same write does not happen twice, and shows the acknowledgment for
+ * a moment.
+ */
+export async function saveNow(): Promise<void> {
+	if (saveTimeout) {
+		clearTimeout(saveTimeout);
+		saveTimeout = null;
+	}
+	await saveToStorage();
+	appState.savedNotice = t('Project saved');
+	if (savedNoticeTimer) clearTimeout(savedNoticeTimer);
+	savedNoticeTimer = setTimeout(() => {
+		appState.savedNotice = null;
+		savedNoticeTimer = null;
+	}, 2500);
+}
+
+let savedNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+
 export function scheduleSave(keep = false): void {
 	if (keep && saveTimeout) return;
 	if (saveTimeout) clearTimeout(saveTimeout);

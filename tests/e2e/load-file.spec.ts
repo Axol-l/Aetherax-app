@@ -106,7 +106,7 @@ test('a saved project round-trips through File → Save and Open', async ({ page
 
 	await page.getByRole('button', { name: 'File' }).click();
 	const download = page.waitForEvent('download', { timeout: 15_000 });
-	await page.getByText('Save Project', { exact: true }).click();
+	await page.getByText('Export Project File...', { exact: true }).click();
 	const file = await download;
 	// The download's own path is what the import is given back: no Node globals in the
 	// spec, and it is closer to what a user does than re-reading the bytes.

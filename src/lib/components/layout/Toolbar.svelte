@@ -48,7 +48,18 @@
 
 	async function handleSaveProject() {
 		await downloadJson();
+		// The file lands in the browser's download folder — in the desktop app, silently.
+		// Say what happened and where the work also is, so "Save Project" is not a button
+		// that appears to do nothing.
+		appState.savedNotice = t('Project exported as a file — the app also saves automatically');
+		if (savedNoticeTimer) clearTimeout(savedNoticeTimer);
+		savedNoticeTimer = setTimeout(() => {
+			appState.savedNotice = null;
+			savedNoticeTimer = null;
+		}, 3500);
 	}
+
+	let savedNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 
 	function handleOpenClick() {
 		importError = null;
@@ -85,7 +96,9 @@
 	const fileMenuItems = $derived([
 		{ label: t('New Project'), action: () => { newProjectOpen = true; }, shortcut: '' },
 		{ label: t('Open Project...'), action: handleOpenClick, shortcut: '' },
-		{ label: t('Save Project'), action: handleSaveProject, shortcut: '' },
+		// "Save" is Ctrl+S, which writes to the app's own store and answers visibly. This
+		// item hands the user a file, which is a different thing, so it says which.
+		{ label: t('Export Project File...'), action: handleSaveProject, shortcut: '' },
 		{ separator: true, label: '', action: () => {} },
 		{ label: t('Export as PNG'), action: handleExportPng, shortcut: '' },
 		{ label: t('Export as PDF'), action: handleExportPdf, shortcut: '' }
