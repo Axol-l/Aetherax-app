@@ -180,16 +180,26 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 	}
 
 	/*
-	 * What the plan was measured *with*, on the right-hand side of the cover.
+	 * What the plan was measured *with*.
 	 *
-	 * A report that lists access points and a coverage figure but not the band, the
-	 * channel width or the path-loss scenario cannot be checked by anyone: the same plan
-	 * scores differently on 2.4 GHz than on 6 GHz, and differently again on an office
-	 * scenario than on a home one. These are the inputs a reader needs to reproduce the
-	 * numbers, so they go on the cover rather than in a footnote — and the client height
-	 * is there for the same reason, since every coverage figure is measured at it.
+	 * A report that lists access points and a coverage figure but not the band, the channel
+	 * width or the path-loss scenario cannot be checked by anyone: the same plan scores
+	 * differently on 2.4 GHz than on 6 GHz. These are the inputs a reader needs to
+	 * reproduce the numbers, and the client height is one of them because every coverage
+	 * figure is measured at it.
+	 *
+	 * Laid out below the headline rather than beside it: a long project name in the 28 pt
+	 * title runs into a right-hand column, and a report whose own cover has two blocks
+	 * fighting for the same space is the first thing a reader notices.
 	 */
 	{
+		y += 8;
+		doc.setFontSize(9);
+		doc.setFont('helvetica', 'bold');
+		doc.setTextColor(...GRAY);
+		doc.text('PLAN PARAMETERS', margin, y);
+		y += 6;
+
 		const params: Array<[string, string]> = [
 			['Band', bandLabels[apState.band] ?? String(apState.band)],
 			['Channel width', `${apState.channelWidth} MHz`],
@@ -198,21 +208,20 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 			['Path loss', projectMeta.pathLossScenario.replace(/-/g, ' ')],
 			['Units', floorplanState.unitSystem === 'imperial' ? 'Imperial (ft)' : 'Metric (m)']
 		];
-		const colX = pageWidth / 2 + 10;
-		let py = 60;
-		doc.setFontSize(8);
-		doc.setFont('helvetica', 'bold');
-		doc.setTextColor(...GRAY);
-		doc.text('PLAN PARAMETERS', colX, py - 6);
-		doc.setFont('helvetica', 'normal');
-		doc.setTextColor(...DARK);
-		for (const [label, value] of params) {
+		// Two columns of three: six rows would push the cover's own notes off the page on a
+		// short layout, and a row of pairs reads faster than a stack of six.
+		doc.setFontSize(8.5);
+		for (let i = 0; i < params.length; i++) {
+			const [label, value] = params[i]!;
+			const colX = margin + (i % 2 === 0 ? 2 : contentWidth / 2);
+			const rowY = y + Math.floor(i / 2) * 5.5;
+			doc.setFont('helvetica', 'normal');
 			doc.setTextColor(...GRAY);
-			doc.text(label, colX, py);
+			doc.text(label, colX, rowY);
 			doc.setTextColor(...DARK);
-			doc.text(value, colX + 38, py);
-			py += 5.5;
+			doc.text(value, colX + 34, rowY);
 		}
+		y += Math.ceil(params.length / 2) * 5.5;
 	}
 
 	drawFooter(doc, pageWidth, pageHeight, margin);
@@ -223,12 +232,14 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 	const layoutImgY = 28;
 	const layoutMaxH = pageHeight - layoutImgY - margin - 5;
 
-	// A stacked view is one picture of the whole building, not one per floor: capture it
-	// once as an overview page, then put the floor pages back into single view so each
-	// of them still shows its own storey. Without this the report carried the same stack
-	// image on every floor page and never showed a floor on its own.
+	// A multi-floor view is one picture of the whole building, not one per floor: capture it
+	// once as an overview page, then put the floor pages back into single view so each of
+	// them still shows its own storey. **Both** multi-floor modes need this, not just the
+	// stacked one — the tiled sheet was being captured on every floor page, so a report
+	// with six floors carried the same six-tile picture six times and never showed a floor
+	// on its own.
 	const originalView = appState.floorView;
-	if (originalView === 'stacked') {
+	if (originalView !== 'single') {
 		if (fitCanvasToContent(engine, true)) await waitForRender();
 		const stacked = captureCanvas(engine);
 		const aspect = stacked.width / stacked.height;
@@ -308,8 +319,8 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 		await waitForRender();
 	}
 	// And the view the user was looking at.
-	if (originalView === 'stacked') {
-		appState.floorView = 'stacked';
+	if (originalView !== 'single') {
+		appState.floorView = originalView;
 		engine.markDirty();
 		await waitForRender();
 	}

@@ -227,19 +227,6 @@
 			})}
 		</span>
 
-		<!--
-			Reset and the escape hatch stay outside the fold. Neither is detail: one undoes
-			the user's own reclassifications, the other gives up on the vector read
-			entirely, and both are things a reader reaches for while looking at the counts.
-		-->
-		{#if review.overrides.size > 0}
-			<button class="link" onclick={reset} disabled={busy}>{t('Reset')}</button>
-		{/if}
-
-		<button class="link" data-action="raster-detect" onclick={usePixels} disabled={busy}>
-			{t('Read walls from pixels instead')}
-		</button>
-
 		{#if expanded}
 			<span class="meta">
 				{t('{count} fixtures and labels left out of the mask', { count: review.summary.ignored })}
@@ -257,11 +244,15 @@
 					bulk of the block and the rare reason to open it at all.
 				-->
 				<button class="review-sub toggle" aria-expanded={showRows} onclick={() => (showRows = !showRows)}>
+					<span class="toggle-label">
+						{t('Check the openings and anything unclassified')}
+						{#if rows.length > shown.length}
+							<span class="meta">
+								· {t('showing {shown} of {total}', { shown: shown.length, total: rows.length })}
+							</span>
+						{/if}
+					</span>
 					<Icon name="chevron-down" size={11} class={showRows ? 'chev open' : 'chev'} />
-					{t('Check the openings and anything unclassified')}
-					{#if rows.length > shown.length}
-						· {t('showing {shown} of {total}', { shown: shown.length, total: rows.length })}
-					{/if}
 				</button>
 				{#if showRows}
 					<ul class="rows">
@@ -299,6 +290,22 @@
 				<span class="error">{t('That change left no walls at all — undo it or re-detect.')}</span>
 			{/if}
 		{/if}
+
+		<!--
+			The actions, in a row at the foot of the block rather than stacked under the
+			counts as bare underlined text: as two full-width links on their own lines they
+			read as headings for the sections below them. They stay outside the fold because
+			neither is detail — one undoes the user's own reclassifications, the other gives
+			up on the vector read entirely.
+		-->
+		<div class="review-actions">
+			{#if review.overrides.size > 0}
+				<button class="link" onclick={reset} disabled={busy}>{t('Reset')}</button>
+			{/if}
+			<button class="link" data-action="raster-detect" onclick={usePixels} disabled={busy}>
+				{t('Read walls from pixels instead')}
+			</button>
+		</div>
 	</div>
 {/if}
 
@@ -388,9 +395,11 @@
 	}
 
 	button.toggle {
-		display: inline-flex;
+		display: flex;
 		align-items: center;
-		gap: var(--space-1);
+		justify-content: space-between;
+		gap: var(--space-2);
+		width: 100%;
 		padding: 0;
 		font: inherit;
 		color: inherit;
@@ -398,6 +407,26 @@
 		background: none;
 		border: 0;
 		cursor: pointer;
+	}
+
+	.toggle-label {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	/*
+	 * The two actions, side by side and separated, instead of stacked full-width links.
+	 * Stacked they read as headings — the eye takes an underlined line starting at the
+	 * margin for a section title, and there were two of them directly under the counts.
+	 */
+	.review-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-3);
+		margin-top: var(--space-2);
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--border-subtle);
 	}
 
 	button.toggle:hover,
