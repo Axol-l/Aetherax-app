@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeBuildingInterior, fillEnclosedHoles } from './morphology.js';
+import { computeBuildingInterior, fillParallelGaps } from './morphology.js';
 
 /**
  * The mask's edge is not a wall.
@@ -172,45 +172,52 @@ describe('computeBuildingInterior', () => {
 	});
 });
 
-describe('fillEnclosedHoles', () => {
+describe('fillParallelGaps', () => {
 	/**
-	 * A box outline with a hollow centre, standing in for a window stroked as two edges.
-	 * Filling must stop at the outline: a closing pass was tried first and grew the band
-	 * past the wall it sits in.
+	 * Two long parallel lines with a gap between them, which is how a window is drawn.
+	 * Both earlier attempts fail on exactly this shape: a 2-D closing thickens the band,
+	 * and filling the outline's interior does nothing because the ends are open.
 	 */
-	function outline(w = 20, h = 10, inset = 2) {
+	function band(gap: number, length = 40) {
+		const w = length;
+		const h = gap + 6;
 		const mask = new Uint8Array(w * h);
-		for (let y = inset; y < h - inset; y++) {
-			for (let x = inset; x < w - inset; x++) {
-				const edge = y === inset || y === h - inset - 1 || x === inset || x === w - inset - 1;
-				if (edge) mask[y * w + x] = 1;
-			}
+		for (let x = 0; x < w; x++) {
+			mask[2 * w + x] = 1;
+			mask[(2 + gap + 1) * w + x] = 1;
 		}
-		return { mask, w, h };
+		return { mask, w, h, gap };
 	}
 
-	it('fills the interior and leaves the outline exactly where it was', () => {
-		const { mask, w, h } = outline();
-		const filled = fillEnclosedHoles(mask, w, h);
-		expect(filled[5 * w + 10]).toBe(1);
-		expect(filled[2 * w + 2]).toBe(1);
-		// Nothing outside the outline grew: the row above it is still background.
-		expect(filled[1 * w + 10]).toBe(0);
-		expect(filled[2 * w + 1]).toBe(0);
+	it('bridges the gap and leaves both lines where they were', () => {
+		const { mask, w, h, gap } = band(8);
+		const filled = fillParallelGaps(mask, w, h, 6);
+		expect(filled[(2 + 1 + Math.floor(gap / 2)) * w + 20]).toBe(1);
+		expect(filled[2 * w + 20]).toBe(1);
+		expect(filled[(2 + gap + 1) * w + 20]).toBe(1);
+		// The band did not grow: the rows outside the strokes are still background.
+		expect(filled[1 * w + 20]).toBe(0);
+		expect(filled[(2 + gap + 2) * w + 20]).toBe(0);
 	});
 
-	it('does not fill a gap that reaches the border', () => {
-		// A "C" shape: its interior is open to the outside, so there is no hole to fill.
-		const w = 12;
-		const h = 8;
+	it('leaves a gap wider than the radius alone', () => {
+		const { mask, w, h, gap } = band(30);
+		const filled = fillParallelGaps(mask, w, h, 6);
+		expect(filled[(2 + 1 + Math.floor(gap / 2)) * w + 20]).toBe(0);
+	});
+
+	it('fills a vertical band the same way', () => {
+		const w = 20;
+		const h = 20;
 		const mask = new Uint8Array(w * h);
-		for (let x = 2; x < 10; x++) {
-			mask[2 * w + x] = 1;
-			mask[5 * w + x] = 1;
+		for (let y = 2; y < 18; y++) {
+			mask[y * w + 5] = 1;
+			mask[y * w + 11] = 1;
 		}
-		for (let y = 2; y <= 5; y++) mask[y * w + 2] = 1;
-		const filled = fillEnclosedHoles(mask, w, h);
-		expect(filled[3 * w + 6]).toBe(0);
+		const filled = fillParallelGaps(mask, w, h, 6);
+		expect(filled[10 * w + 8]).toBe(1);
+		expect(filled[10 * w + 4]).toBe(0);
+		expect(filled[10 * w + 12]).toBe(0);
 	});
 });
 

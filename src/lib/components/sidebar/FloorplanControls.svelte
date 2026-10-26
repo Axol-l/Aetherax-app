@@ -400,9 +400,14 @@
 		if (!url || detecting) return;
 		detecting = true;
 		try {
-			const detection = forceRaster
-				? await detectFloorplanMasks(url, FLOORPLAN_TARGET_WIDTH, { forceRaster: true })
-				: await detectFloorplanMasks(url, FLOORPLAN_TARGET_WIDTH);
+			const detection = await detectFloorplanMasks(url, FLOORPLAN_TARGET_WIDTH, {
+				forceRaster,
+				// Which reader to use is a property of the *file*, not of the blob URL it is
+				// displayed from. Re-detecting a vector plan used to fall through to the
+				// pixel detector whenever the underlay had become a raster, which is the
+				// difference between importing an SVG and pressing this button on it.
+				assumeVector: !forceRaster && floorplanState.sourceIsVector
+			});
 			if (detection.wallMask) {
 				wallState.wallMask = anchorToUnderlay(detection.wallMask);
 				wallState.materialMask = detection.materialMask

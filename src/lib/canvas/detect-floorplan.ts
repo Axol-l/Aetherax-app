@@ -86,10 +86,24 @@ export async function detectFloorplanMasks(
 	options: {
 		forceRaster?: boolean;
 		overrides?: ReadonlyMap<number, ElementRole>;
+		/**
+		 * The plan is known to be a vector drawing, whatever the fetched bytes look like.
+		 *
+		 * Sniffing the content is right on import, where the file's own data is at hand,
+		 * and unreliable on a *re-detect*: the underlay is a session blob URL by then, and
+		 * a vector plan may have been handed to the image path on the way in, so its bytes
+		 * are a PNG of a drawing that is still a drawing. `floorplanState.sourceIsVector`
+		 * records what the file actually was, and this is how that record reaches here.
+		 *
+		 * A claim that turns out to be wrong is not a trap: the vector reader throws, the
+		 * raster path takes over and `rasterReason` says why.
+		 */
+		assumeVector?: boolean;
 	} = {}
 ): Promise<FloorplanDetection> {
 	const markup = await fetchText(url);
-	const isSvgMarkup = markup.trim().startsWith('<') && markup.includes('<svg');
+	const isSvgMarkup =
+		options.assumeVector ?? (markup.trim().startsWith('<') && markup.includes('<svg'));
 	let reason: RasterReason = 'not-vector';
 	if (isSvgMarkup) {
 		reason = options.forceRaster ? 'forced' : 'no-walls-found';

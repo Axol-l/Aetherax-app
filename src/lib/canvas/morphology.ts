@@ -292,50 +292,54 @@ export function computeBuildingInterior(
 }
 
 /**
- * Fill the holes a shape encloses, without touching the shape.
+ * Fill the gap between two parallel strokes, without moving either of them.
  *
- * A window band in an architectural drawing is usually stroked as two edges, so its
- * raster holds an outline and the space *between the lines* reads as wall. Filling that
- * interior is what turns a glass outline into a glass band.
+ * A window band in an architectural drawing is two lines. The raster of the "window" role
+ * therefore holds two lines and nothing between them, and the RF model charges the wall's
+ * material in the middle of the window.
  *
- * A morphological closing was tried first and it makes the band **thicker than the wall**:
- * dilating two facing strokes by r grows each of them outward as well as inward, and the
- * erosion that follows cannot tell which side was the hole, so the result extends past the
- * outer edge. Filling only the background that cannot reach the raster's border touches
- * nothing but the interior, whatever the gap's width.
+ * Two earlier attempts are worth recording, because both fail on a real plan:
+ *
+ * - A 2-D closing (dilate then erode) grows the band outward as well as inward, so the
+ *   window ends up **thicker than the wall it sits in**.
+ * - Filling the outline's enclosed interior works only when the band is *closed*. Real
+ *   windows run the length of a facade, so the gap is open at both ends, the flood fill
+ *   gets in and nothing is filled — the drawn result is a sandwich, glass on two edges.
+ *
+ * So the closing is done **one axis at a time**: a 1-D closing along y bridges the gap
+ * between two horizontal lines and leaves their y positions untouched, which is exactly
+ * the thickness that must not change; the same along x handles a vertical band. Neither
+ * pass touches its perpendicular extent, so nothing grows.
  */
-export function fillEnclosedHoles(mask: Uint8Array, w: number, h: number): Uint8Array {
-	const out = new Uint8Array(mask);
-	const n = w * h;
-	const seen = new Uint8Array(n);
-	const queue = new Int32Array(n);
-	let head = 0;
-	let tail = 0;
-	const push = (i: number) => {
-		if (seen[i] || mask[i]) return;
-		seen[i] = 1;
-		queue[tail++] = i;
+export function fillParallelGaps(mask: Uint8Array, w: number, h: number, radius: number): Uint8Array {
+	if (radius <= 0) return new Uint8Array(mask);
+	const maxGap = radius * 2;
+	/*
+	 * A span fill rather than a dilate-then-erode: walk each line and, wherever two ink
+	 * pixels are at most `maxGap` apart, make the background between them ink. It needs no
+	 * margin around the shape — a facade window often sits a few pixels from the raster's
+	 * edge, where a morphological closing has nothing to erode against and loses the fill —
+	 * and it can only ever turn a 0 into a 1 *inside* a gap, so the band cannot grow.
+	 */
+	const along = (input: Uint8Array, axis: 'x' | 'y'): Uint8Array => {
+		const out = new Uint8Array(input);
+		const lineLength = axis === 'x' ? w : h;
+		const lineCount = axis === 'x' ? h : w;
+		const indexOf = (line: number, at: number) => (axis === 'x' ? line * w + at : at * w + line);
+		for (let line = 0; line < lineCount; line++) {
+			let lastInk = -1;
+			for (let at = 0; at < lineLength; at++) {
+				if (!input[indexOf(line, at)]) continue;
+				if (lastInk >= 0 && at - lastInk - 1 <= maxGap) {
+					for (let p = lastInk + 1; p < at; p++) out[indexOf(line, p)] = 1;
+				}
+				lastInk = at;
+			}
+		}
+		return out;
 	};
-	// Seed from the border: everything reachable from it is *outside* the shape.
-	for (let x = 0; x < w; x++) {
-		push(x);
-		push((h - 1) * w + x);
-	}
-	for (let y = 0; y < h; y++) {
-		push(y * w);
-		push(y * w + w - 1);
-	}
-	while (head < tail) {
-		const i = queue[head++]!;
-		const x = i % w;
-		const y = (i / w) | 0;
-		if (x > 0) push(i - 1);
-		if (x < w - 1) push(i + 1);
-		if (y > 0) push(i - w);
-		if (y < h - 1) push(i + w);
-	}
-	for (let i = 0; i < n; i++) if (!mask[i] && !seen[i]) out[i] = 1;
-	return out;
+	// y first: most bands run across a facade. Then x, for the ones that run up it.
+	return along(along(mask, 'y'), 'x');
 }
 
 /**

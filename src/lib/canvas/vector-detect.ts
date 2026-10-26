@@ -31,7 +31,7 @@
  */
 
 import { WALL_MATERIALS, type WallMaterialId } from './materials.js';
-import { fillEnclosedHoles } from './morphology.js';
+import { fillParallelGaps } from './morphology.js';
 import type { WallMaskData } from '$state/wall-state.svelte.js';
 import {
 	classifyVectorElements,
@@ -43,6 +43,16 @@ import {
 } from './vector-elements.js';
 /** The material a window is painted with. */
 export const WINDOW_MATERIAL: WallMaterialId = 2; // Glass
+
+/**
+ * How wide a gap between a window's two strokes the fill bridges, in mask pixels.
+ *
+ * The gap is the wall's thickness at the working resolution — a 200 mm wall on a plan
+ * rasterised at ~50 px/m is about 10 px — so 6 covers it with room for a thick facade and
+ * stays well under a narrow room. Too small and the sandwich remains; too large and two
+ * windows across a thin room would merge.
+ */
+const WINDOW_FILL_RADIUS = 6;
 
 /** The material a door is painted with. */
 export const DOOR_MATERIAL: WallMaterialId = 7; // Door
@@ -211,19 +221,19 @@ export async function detectVectorFloorplan(
 			const rendered = await renderRolePass(markup, role, roles, width, height, contentBox);
 			const pixels = await alphaToBuffer(rendered, width, height);
 			/*
-			 * A window is a **band**, and a drawing usually strokes its two edges rather
-			 * than filling it. Rasterising the strokes alone gives a glass *outline* with
-			 * the wall's own drywall still showing between the lines — so the panel says
-			 * "window" and the RF model charges a wall, which is the wrong physics on the
-			 * one boundary that matters most for coverage.
+			 * A window is a **band**, and a drawing strokes its two edges rather than
+			 * filling it. Rasterising the strokes alone gives a glass *outline* with the
+			 * wall's own drywall still showing between the lines — so the panel says
+			 * "window" and the RF model charges a wall, on the one boundary that matters
+			 * most for coverage.
 			 *
-			 * Filling the band's enclosed interior is what fixes that, and only the
-			 * interior: a closing pass was tried first and made the window thicker than the
-			 * wall it sits in, because it grows each stroke outward as well as inward. See
-			 * `fillEnclosedHoles`. Doors are left alone — a leaf and its swing arc are not
+			 * `fillParallelGaps` bridges the two strokes one axis at a time, which is the
+			 * only version of this that does not also thicken the band (see its comment for
+			 * the two that did). Doors are left alone — a leaf and its swing arc are not
 			 * solid, and filling those would paint the quarter circle as glass.
 			 */
-			const solid = role === 'window' ? fillEnclosedHoles(pixels, width, height) : pixels;
+			const solid =
+				role === 'window' ? fillParallelGaps(pixels, width, height, WINDOW_FILL_RADIUS) : pixels;
 			buffers.push({ material, pixels: solid });
 		}
 
