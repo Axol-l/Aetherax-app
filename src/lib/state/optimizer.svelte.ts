@@ -184,6 +184,43 @@ let cachedSamplePixelIdx: number[] | null = null;
  */
 let densityCache: Awaited<ReturnType<typeof buildDensityMap>> | null = null;
 let densityCacheKey = '';
+/** The key currently being built off the critical path, so a second request does not start it twice. */
+let densityBuilding: string | null = null;
+
+/**
+ * Build a floor's density map without blocking the figure the user is watching.
+ *
+ * Yields to the event loop first — the caller has just finished a pass and a re-render is
+ * queued — then builds, stores against its key, and re-runs the coverage so the number
+ * ends up weighted. Recursion is safe: the re-run finds the cache warm and does not
+ * schedule another build.
+ */
+function buildDensityInBackground(
+	key: string,
+	width: number,
+	height: number,
+	floor: Floor
+): void {
+	if (densityBuilding === key) return;
+	densityBuilding = key;
+	setTimeout(() => {
+		void (async () => {
+			try {
+				const built = await buildDensityMap(width, height, floor);
+				// The floor or its mask may have changed while this ran; only keep a result
+				// that still describes what the key says.
+				densityCache = built;
+				densityCacheKey = key;
+				await updateCoverage();
+			} catch {
+				// A failed density build leaves the uniform figure standing, which is a
+				// slightly less precise number rather than a broken one.
+			} finally {
+				if (densityBuilding === key) densityBuilding = null;
+			}
+		})();
+	}, 0);
+}
 /** Decoded per-pixel wall material ids for the cached mask, or null if none. */
 let cachedMaterialData: Uint8Array | null = null;
 
@@ -288,18 +325,21 @@ export async function updateCoverage(): Promise<void> {
 	};
 
 	/*
-	 * The density map, cached rather than rebuilt.
+	 * The density map, cached rather than rebuilt — and built in the background the first
+	 * time a floor is measured.
 	 *
-	 * `buildDensityMap` is a whole-mask pass — the interior, the room labels and a weight
-	 * for every pixel — and it used to be called on every coverage update on the theory
-	 * that it was cheap. On a million-pixel plan it is the bulk of a pass that takes about
-	 * a second, and the pass re-runs whenever an access point moves, so dragging one across
-	 * a six-storey plan re-labelled every room on every mouse move.
+	 * `buildDensityMap` is a whole-mask pass: the interior, the room labels and a weight for
+	 * every pixel. It used to run inside every coverage update on the theory that it was
+	 * cheap; on a million-pixel plan it is the bulk of a pass that takes about a second, and
+	 * the pass re-runs whenever an access point moves. Caching it made a drag cost 4 ms
+	 * instead of a second, but the *first* pass over a floor still paid for it, which is the
+	 * stall felt when a five-storey plan is opened with the heatmap on.
 	 *
-	 * The key is exactly what the map reads: the floor, the mask's raster, the room-type
-	 * mask and the room overrides. An edit to any of them invalidates it, and nothing else
-	 * does — so a drag, a power change or a band change reuses the map they cannot have
-	 * changed.
+	 * So the first pass measures with uniform weights — which every consumer already
+	 * supports, `densityResult` is allowed to be null — and the map is built afterwards,
+	 * off the critical path, re-running the figure once so nothing is left silently
+	 * unweighted. The key is exactly what the map reads: floor, raster, room types and the
+	 * room overrides.
 	 */
 	const densityFloor = currentFloor();
 	const densityKey = [
@@ -310,9 +350,9 @@ export async function updateCoverage(): Promise<void> {
 		JSON.stringify(densityFloor.roomDensityOverrides ?? {}),
 		JSON.stringify(densityFloor.roomCustomLabels ?? {})
 	].join('|');
-	if (densityKey !== densityCacheKey || !densityCache) {
-		densityCache = await buildDensityMap(width, height, densityFloor);
-		densityCacheKey = densityKey;
+	if (densityKey !== densityCacheKey) {
+		if (densityCache) densityCache = null;
+		buildDensityInBackground(densityKey, width, height, densityFloor);
 	}
 	const densityResult = densityCache;
 	const baseline = densityResult

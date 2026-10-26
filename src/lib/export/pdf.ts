@@ -71,6 +71,34 @@ function drawFooter(doc: jsPDF, pageWidth: number, pageHeight: number, margin: n
 	doc.setTextColor(...DARK);
 }
 
+/**
+ * Wait until the canvas really shows what the report is about to photograph.
+ *
+ * The export switches the view and the floor, then captures the canvas after a fixed
+ * 400 ms. That is enough in a browser and not always enough in the desktop webview: the
+ * floor page then carried the tiled sheet — six tiles where one storey should be — which
+ * is exactly the report the user came back with after the first fix. A delay is a guess;
+ * the layers that decide what is drawn are not.
+ *
+ * Polls for the state the capture needs, and gives up after three seconds so a render that
+ * never happens cannot hang the export. A stale page is still better than no report.
+ */
+async function waitForView(
+	engine: CanvasEngine,
+	single: boolean,
+	floorId?: string
+): Promise<void> {
+	const deadline = performance.now() + 3000;
+	for (;;) {
+		const tiles = engine.layers.find((layer) => layer.id === 'floor-tiles');
+		const viewOk = single ? !tiles?.visible : !!tiles?.visible;
+		const floorOk = !floorId || floorState.currentFloorId === floorId;
+		if (viewOk && floorOk) return;
+		if (performance.now() > deadline) return;
+		await new Promise((resolve) => setTimeout(resolve, 50));
+	}
+}
+
 export async function exportPdf(engine: CanvasEngine): Promise<void> {
 	const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 	const pageWidth = doc.internal.pageSize.getWidth();
@@ -276,6 +304,8 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 			engine.markDirty();
 			await waitForRender();
 		}
+		// ...and do not photograph until the canvas agrees it is showing this floor alone.
+		await waitForView(engine, true, floor.id);
 
 		doc.addPage();
 		drawHeader(doc, pageWidth, margin);

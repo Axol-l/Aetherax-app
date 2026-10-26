@@ -31,7 +31,7 @@
  */
 
 import { WALL_MATERIALS, type WallMaterialId } from './materials.js';
-import { dilateMask, erodeMask } from './morphology.js';
+import { fillEnclosedHoles } from './morphology.js';
 import type { WallMaskData } from '$state/wall-state.svelte.js';
 import {
 	classifyVectorElements,
@@ -43,15 +43,6 @@ import {
 } from './vector-elements.js';
 /** The material a window is painted with. */
 export const WINDOW_MATERIAL: WallMaterialId = 2; // Glass
-
-/**
- * How far a window's outline is closed, in mask pixels.
- *
- * A window band is a few pixels wide at working resolution, so two is enough to bridge
- * its interior and small enough not to merge two windows that stand apart. See the
- * closing pass where the role buffers are built.
- */
-const WINDOW_CLOSE_RADIUS = 2;
 
 /** The material a door is painted with. */
 export const DOOR_MATERIAL: WallMaterialId = 7; // Door
@@ -226,15 +217,13 @@ export async function detectVectorFloorplan(
 			 * "window" and the RF model charges a wall, which is the wrong physics on the
 			 * one boundary that matters most for coverage.
 			 *
-			 * A closing pass fills the band: the gap between two parallel lines is only a
-			 * few pixels, so dilating and eroding by two closes it and leaves the outline
-			 * where it was. Windows only — a door's swing arc and leaf are *not* solid, and
-			 * filling those would paint the quarter-circle of the opening as glass.
+			 * Filling the band's enclosed interior is what fixes that, and only the
+			 * interior: a closing pass was tried first and made the window thicker than the
+			 * wall it sits in, because it grows each stroke outward as well as inward. See
+			 * `fillEnclosedHoles`. Doors are left alone — a leaf and its swing arc are not
+			 * solid, and filling those would paint the quarter circle as glass.
 			 */
-			const solid =
-				role === 'window'
-					? erodeMask(dilateMask(pixels, width, height, WINDOW_CLOSE_RADIUS), width, height, WINDOW_CLOSE_RADIUS)
-					: pixels;
+			const solid = role === 'window' ? fillEnclosedHoles(pixels, width, height) : pixels;
 			buffers.push({ material, pixels: solid });
 		}
 

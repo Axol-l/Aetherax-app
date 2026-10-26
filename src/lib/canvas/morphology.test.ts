@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { computeBuildingInterior } from './morphology.js';
+import { computeBuildingInterior, fillEnclosedHoles } from './morphology.js';
 
 /**
  * The mask's edge is not a wall.
@@ -169,6 +169,48 @@ describe('computeBuildingInterior', () => {
 			minDilateR: 4
 		});
 		expect(interior[100 * w + 150]).toBe(1);
+	});
+});
+
+describe('fillEnclosedHoles', () => {
+	/**
+	 * A box outline with a hollow centre, standing in for a window stroked as two edges.
+	 * Filling must stop at the outline: a closing pass was tried first and grew the band
+	 * past the wall it sits in.
+	 */
+	function outline(w = 20, h = 10, inset = 2) {
+		const mask = new Uint8Array(w * h);
+		for (let y = inset; y < h - inset; y++) {
+			for (let x = inset; x < w - inset; x++) {
+				const edge = y === inset || y === h - inset - 1 || x === inset || x === w - inset - 1;
+				if (edge) mask[y * w + x] = 1;
+			}
+		}
+		return { mask, w, h };
+	}
+
+	it('fills the interior and leaves the outline exactly where it was', () => {
+		const { mask, w, h } = outline();
+		const filled = fillEnclosedHoles(mask, w, h);
+		expect(filled[5 * w + 10]).toBe(1);
+		expect(filled[2 * w + 2]).toBe(1);
+		// Nothing outside the outline grew: the row above it is still background.
+		expect(filled[1 * w + 10]).toBe(0);
+		expect(filled[2 * w + 1]).toBe(0);
+	});
+
+	it('does not fill a gap that reaches the border', () => {
+		// A "C" shape: its interior is open to the outside, so there is no hole to fill.
+		const w = 12;
+		const h = 8;
+		const mask = new Uint8Array(w * h);
+		for (let x = 2; x < 10; x++) {
+			mask[2 * w + x] = 1;
+			mask[5 * w + x] = 1;
+		}
+		for (let y = 2; y <= 5; y++) mask[y * w + 2] = 1;
+		const filled = fillEnclosedHoles(mask, w, h);
+		expect(filled[3 * w + 6]).toBe(0);
 	});
 });
 

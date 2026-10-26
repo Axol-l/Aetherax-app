@@ -292,6 +292,53 @@ export function computeBuildingInterior(
 }
 
 /**
+ * Fill the holes a shape encloses, without touching the shape.
+ *
+ * A window band in an architectural drawing is usually stroked as two edges, so its
+ * raster holds an outline and the space *between the lines* reads as wall. Filling that
+ * interior is what turns a glass outline into a glass band.
+ *
+ * A morphological closing was tried first and it makes the band **thicker than the wall**:
+ * dilating two facing strokes by r grows each of them outward as well as inward, and the
+ * erosion that follows cannot tell which side was the hole, so the result extends past the
+ * outer edge. Filling only the background that cannot reach the raster's border touches
+ * nothing but the interior, whatever the gap's width.
+ */
+export function fillEnclosedHoles(mask: Uint8Array, w: number, h: number): Uint8Array {
+	const out = new Uint8Array(mask);
+	const n = w * h;
+	const seen = new Uint8Array(n);
+	const queue = new Int32Array(n);
+	let head = 0;
+	let tail = 0;
+	const push = (i: number) => {
+		if (seen[i] || mask[i]) return;
+		seen[i] = 1;
+		queue[tail++] = i;
+	};
+	// Seed from the border: everything reachable from it is *outside* the shape.
+	for (let x = 0; x < w; x++) {
+		push(x);
+		push((h - 1) * w + x);
+	}
+	for (let y = 0; y < h; y++) {
+		push(y * w);
+		push(y * w + w - 1);
+	}
+	while (head < tail) {
+		const i = queue[head++]!;
+		const x = i % w;
+		const y = (i / w) | 0;
+		if (x > 0) push(i - 1);
+		if (x < w - 1) push(i + 1);
+		if (y > 0) push(i - w);
+		if (y < h - 1) push(i + w);
+	}
+	for (let i = 0; i < n; i++) if (!mask[i] && !seen[i]) out[i] = 1;
+	return out;
+}
+
+/**
  * Remove every enclosed region whose largest inscribed circle is under `minRadius`.
  *
  * Two passes: a distance transform of the walls gives each interior pixel its clearance
