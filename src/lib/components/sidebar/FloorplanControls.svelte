@@ -653,86 +653,6 @@
 			<button class="floor-pill add" onclick={handleAddFloor} aria-label={t('Add floor')}>+</button>
 		</div>
 	</div>
-	{#if floorState.floors.length > 1}
-		<div class="floor-props">
-			<div class="prop-row">
-				<span class="prop-label">{t('Ceiling height')}</span>
-				<input
-					type="number"
-					class="prop-input"
-					value={displayLength(currentFloor().ceilingHeight, lengthDisplayUnit).value}
-					min={ceilingHints.min} max={ceilingHints.max} step={ceilingHints.step}
-					onchange={(e) => { pushState(); currentFloor().ceilingHeight = unitToMetres(Number((e.target as HTMLInputElement).value), lengthDisplayUnit); scheduleSave(); }}
-				/>
-				<span class="prop-unit">{lengthDisplayUnit}</span>
-			</div>
-			<div class="prop-row">
-				<span class="prop-label">{t('Floor thickness')}</span>
-				<input
-					type="number"
-					class="prop-input"
-					value={displayLength(currentFloor().floorThickness, lengthDisplayUnit).value}
-					min={thicknessHints.min} max={thicknessHints.max} step={thicknessHints.step}
-					onchange={(e) => { pushState(); currentFloor().floorThickness = unitToMetres(Number((e.target as HTMLInputElement).value), lengthDisplayUnit); scheduleSave(); }}
-				/>
-				<span class="prop-unit">{lengthDisplayUnit}</span>
-			</div>
-			<div class="prop-row">
-				<span class="prop-label">{t('Floor material')}</span>
-				<Select
-					value={String(currentFloor().floorMaterial)}
-					options={FLOOR_MATERIALS.map(m => ({ value: String(m.id), label: m.name }))}
-					onchange={(v) => { pushState(); currentFloor().floorMaterial = Number(v) as any; scheduleSave(); }}
-				/>
-			</div>
-			<!--
-				Alignment. Two floors only line up if their plans happen to share a
-				margin; these shift the whole floor, so a floor that was drawn or
-				auto-detected off-position can be brought onto the one below. Hidden on
-				the bottom floor and in the tiled overview, where there is no floor
-				below to align to and no canvas drag to give the mode — see `canAlign`.
-			-->
-			{#if canAlign}
-				<div class="prop-row">
-					<span class="prop-label">{t('Align X')}</span>
-					<input
-						type="number"
-						class="prop-input"
-						value={alignDisplay(currentFloor().floorplanOffsetX)}
-						step="0.1"
-						title={t('Shift this floor sideways to line it up with the floor below. Moves the plan, the walls and the APs together.')}
-						onchange={(e) => applyAlign('x', Number((e.target as HTMLInputElement).value))}
-					/>
-					<span class="prop-unit">{lengthDisplayUnit}</span>
-				</div>
-				<div class="prop-row">
-					<span class="prop-label">{t('Align Y')}</span>
-					<input
-						type="number"
-						class="prop-input"
-						value={alignDisplay(currentFloor().floorplanOffsetY)}
-						step="0.1"
-						title={t('Shift this floor to line it up with the floor below. Moves the plan, the walls and the APs together.')}
-						onchange={(e) => applyAlign('y', Number((e.target as HTMLInputElement).value))}
-					/>
-					<span class="prop-unit">{lengthDisplayUnit}</span>
-				</div>
-				<div class="prop-row align-row">
-					<span
-						class="prop-label"
-						title={t('Drag on the canvas to move this floor onto the one below. Moves the plan, the walls and the APs together.')}
-					>{t('Align')}</span>
-					<Button
-						size="sm"
-						variant={appState.floorAlignMode ? 'primary' : 'secondary'}
-						onclick={() => setFloorAlignMode(!appState.floorAlignMode)}
-					>
-						{appState.floorAlignMode ? t('Drag on canvas…') : t('Drag to align')}
-					</Button>
-				</div>
-			{/if}
-		</div>
-	{/if}
 
 	{#if floorplanState.importNotice}
 		<!-- A dropped file this app cannot read. Said out loud, because a silent no-op on
@@ -869,6 +789,93 @@
 				</div>
 			{/if}
 
+		</div>
+	{/if}
+
+	<!--
+		Floor properties, after the steps they belong to: the ceiling and the slab are what
+		the propagation model charges, and the alignment rows are meaningless until there is a
+		plan to line them up. So they follow the import and the calibration, in the order the
+		work is done — import, calibrate, align, then place access points and optimise.
+	-->
+	{#if floorState.floors.length > 1}
+		<div class="floor-props">
+			<div class="prop-row">
+				<span class="prop-label">{t('Ceiling height')}</span>
+				<input
+					type="number"
+					class="prop-input"
+					value={displayLength(currentFloor().ceilingHeight, lengthDisplayUnit).value}
+					min={ceilingHints.min} max={ceilingHints.max} step={ceilingHints.step}
+					onchange={(e) => { pushState(); currentFloor().ceilingHeight = unitToMetres(Number((e.target as HTMLInputElement).value), lengthDisplayUnit); scheduleSave(); }}
+				/>
+				<span class="prop-unit">{lengthDisplayUnit}</span>
+			</div>
+			<div class="prop-row">
+				<span class="prop-label">{t('Floor thickness')}</span>
+				<input
+					type="number"
+					class="prop-input"
+					value={displayLength(currentFloor().floorThickness, lengthDisplayUnit).value}
+					min={thicknessHints.min} max={thicknessHints.max} step={thicknessHints.step}
+					onchange={(e) => { pushState(); currentFloor().floorThickness = unitToMetres(Number((e.target as HTMLInputElement).value), lengthDisplayUnit); scheduleSave(); }}
+				/>
+				<span class="prop-unit">{lengthDisplayUnit}</span>
+			</div>
+			<div class="prop-row">
+				<span class="prop-label">{t('Floor material')}</span>
+				<Select
+					value={String(currentFloor().floorMaterial)}
+					options={FLOOR_MATERIALS.map(m => ({ value: String(m.id), label: m.name }))}
+					onchange={(v) => { pushState(); currentFloor().floorMaterial = Number(v) as any; scheduleSave(); }}
+				/>
+			</div>
+			<!--
+				Alignment. Two floors only line up if their plans happen to share a
+				margin; these shift the whole floor, so a floor that was drawn or
+				auto-detected off-position can be brought onto the one below. Hidden on
+				the bottom floor and in the tiled overview, where there is no floor
+				below to align to and no canvas drag to give the mode — see `canAlign`.
+			-->
+			{#if canAlign}
+				<div class="prop-row">
+					<span class="prop-label">{t('Align X')}</span>
+					<input
+						type="number"
+						class="prop-input"
+						value={alignDisplay(currentFloor().floorplanOffsetX)}
+						step="0.1"
+						title={t('Shift this floor sideways to line it up with the floor below. Moves the plan, the walls and the APs together.')}
+						onchange={(e) => applyAlign('x', Number((e.target as HTMLInputElement).value))}
+					/>
+					<span class="prop-unit">{lengthDisplayUnit}</span>
+				</div>
+				<div class="prop-row">
+					<span class="prop-label">{t('Align Y')}</span>
+					<input
+						type="number"
+						class="prop-input"
+						value={alignDisplay(currentFloor().floorplanOffsetY)}
+						step="0.1"
+						title={t('Shift this floor to line it up with the floor below. Moves the plan, the walls and the APs together.')}
+						onchange={(e) => applyAlign('y', Number((e.target as HTMLInputElement).value))}
+					/>
+					<span class="prop-unit">{lengthDisplayUnit}</span>
+				</div>
+				<div class="prop-row align-row">
+					<span
+						class="prop-label"
+						title={t('Drag on the canvas to move this floor onto the one below. Moves the plan, the walls and the APs together.')}
+					>{t('Align')}</span>
+					<Button
+						size="sm"
+						variant={appState.floorAlignMode ? 'primary' : 'secondary'}
+						onclick={() => setFloorAlignMode(!appState.floorAlignMode)}
+					>
+						{appState.floorAlignMode ? t('Drag on canvas…') : t('Drag to align')}
+					</Button>
+				</div>
+			{/if}
 		</div>
 	{/if}
 

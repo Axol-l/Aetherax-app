@@ -32,20 +32,6 @@
 				</button>
 			{/each}
 		</div>
-		<!--
-			Pinned above the panel content rather than living inside ApList: the APs
-			panel swaps ApList out for ApEditor as soon as an AP is selected, which
-			used to take the coverage readout with it — exactly when you are editing
-			an AP's power and most want to watch it.
-		-->
-		<CoveragePanel />
-		<!--
-			Placement advice sits directly under the coverage readout it is derived
-			from, and outside the panel content for the same reason CoveragePanel is:
-			it is about the plan as a whole, not about whichever tab is open. It
-			renders nothing until a run has produced something to advise on.
-		-->
-		<ApAdvicePanel />
 		<div class="panel-content">
 			{#if appState.sidebarPanel === 'floorplan'}
 				<div class="scroll-panel"><FloorplanControls /></div>
@@ -57,6 +43,25 @@
 				{/if}
 			{/if}
 		</div>
+		<!--
+			The reading order below is the order the work is done in: import the plan, say
+			what its area is, line the floors up — then place access points and, last, run
+			the optimiser over them.
+
+			Coverage and the optimiser used to be pinned *above* the panel content, which put
+			"Optimize all floors" on screen before the floorplan had been imported at all:
+			the primary action for step five was the first thing in the panel, and the step
+			one control was somewhere below the fold. They sit under the content now, which
+			also means they stay visible while the steps above them scroll — they are the
+			last thing reached and the thing a run is watched from.
+
+			Both are outside the panel content rather than inside a tab, for the reason they
+			always were: the APs tab swaps ApList for ApEditor when an AP is selected, and
+			that must not take the coverage readout, the placement mode or the optimiser with
+			it.
+		-->
+		<CoveragePanel />
+		<ApAdvicePanel />
 	</aside>
 {/if}
 
