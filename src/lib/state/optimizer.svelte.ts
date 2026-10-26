@@ -178,6 +178,12 @@ let cachedMaskUrl: string | null = null;
 let cachedMask: DecodedWallMask | null = null;
 let cachedSamples: Array<{ x: number; y: number }> | null = null;
 let cachedSamplePixelIdx: number[] | null = null;
+/**
+ * The density map and the inputs it was built from. See the use site for why this is
+ * cached; the key is what makes the cache safe.
+ */
+let densityCache: Awaited<ReturnType<typeof buildDensityMap>> | null = null;
+let densityCacheKey = '';
 /** Decoded per-pixel wall material ids for the cached mask, or null if none. */
 let cachedMaterialData: Uint8Array | null = null;
 
@@ -221,7 +227,16 @@ async function ensureCoverageCache(): Promise<boolean> {
 		if (interior[i]) interiorPixels.push(i);
 	}
 
-	const sampleCount = Math.min(200, interiorPixels.length);
+	/*
+	 * How many points the live coverage figure is sampled at.
+	 *
+	 * Two hundred was chosen when a plan had one or two access points; on a six-storey
+	 * building every sample is scored against every unit in it, and the pass took about a
+	 * second. A hundred and forty is a proportion to within a couple of percentage points —
+	 * the figure is a live readout and the optimiser scores on its own larger sample set in
+	 * the worker — for 30 % less work per run.
+	 */
+	const sampleCount = Math.min(140, interiorPixels.length);
 	const step = interiorPixels.length / sampleCount;
 	cachedSamples = [];
 	cachedSamplePixelIdx = [];
@@ -272,8 +287,34 @@ export async function updateCoverage(): Promise<void> {
 		return t;
 	};
 
-	// Build density weights fresh each call (cheap, handles override changes)
-	const densityResult = await buildDensityMap(width, height, currentFloor());
+	/*
+	 * The density map, cached rather than rebuilt.
+	 *
+	 * `buildDensityMap` is a whole-mask pass — the interior, the room labels and a weight
+	 * for every pixel — and it used to be called on every coverage update on the theory
+	 * that it was cheap. On a million-pixel plan it is the bulk of a pass that takes about
+	 * a second, and the pass re-runs whenever an access point moves, so dragging one across
+	 * a six-storey plan re-labelled every room on every mouse move.
+	 *
+	 * The key is exactly what the map reads: the floor, the mask's raster, the room-type
+	 * mask and the room overrides. An edit to any of them invalidates it, and nothing else
+	 * does — so a drag, a power change or a band change reuses the map they cannot have
+	 * changed.
+	 */
+	const densityFloor = currentFloor();
+	const densityKey = [
+		densityFloor.id,
+		`${width}x${height}`,
+		cachedMaskUrl ?? '',
+		wallState.roomTypeMask?.dataUrl ?? '',
+		JSON.stringify(densityFloor.roomDensityOverrides ?? {}),
+		JSON.stringify(densityFloor.roomCustomLabels ?? {})
+	].join('|');
+	if (densityKey !== densityCacheKey || !densityCache) {
+		densityCache = await buildDensityMap(width, height, densityFloor);
+		densityCacheKey = densityKey;
+	}
+	const densityResult = densityCache;
 	const baseline = densityResult
 		? densityResult.medianDensity > 0
 			? densityResult.medianDensity
@@ -405,6 +446,19 @@ export async function updateCoverage(): Promise<void> {
 			const dy = sample.y - (ap.y - oy);
 			const vertical = ap.verticalGapWu;
 			const horiz = Math.sqrt(dx * dx + dy * dy);
+			/*
+			 * Distance before anything else, and on the **best case**: the furthest a source
+			 * could reach at all, with no slab in the way and no wall on the path.
+			 *
+			 * On a five-storey plan every sample used to pay for every access point in the
+			 * building — the slab waiver, the cross-floor segment split and a wall march —
+			 * including the units five floors away that cannot contribute anything. This
+			 * test is a subtraction and two multiplications, and it discards those before
+			 * the expensive part. It can only ever be conservative: the reach it compares
+			 * against is the ceiling for zero loss, so a source that fails here cannot pass
+			 * the real test further down.
+			 */
+			if (horiz > coverageHorizontalReach(ap.interferenceRadius, 0, 0)) continue;
 			// Cross-floor paths are 3D, matching the heatmap.
 			const dist = vertical > 0 ? Math.hypot(horiz, vertical) : horiz;
 			// Same dB-domain kernel as the optimiser worker. `coverageReach` is the
