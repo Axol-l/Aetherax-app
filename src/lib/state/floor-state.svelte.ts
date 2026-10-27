@@ -61,6 +61,14 @@ export interface Floor {
 	 * enclose cavities that are not rooms. See `state/planning-area.ts`.
 	 */
 	planningArea?: Array<{ x: number; y: number }> | null;
+	/**
+	 * Notes pinned to this floor: a sentence about the plan that the drawing cannot say.
+	 *
+	 * Per floor because a note is about a place on a storey — "the lift lobby has a steel
+	 * door" is meaningless on the floor above. World coordinates, so they pan and zoom with
+	 * the plan, and they are persisted with the project.
+	 */
+	notes?: Array<{ id: string; x: number; y: number; text: string }>;
 }
 
 function createDefaultFloor(id?: string, name?: string): Floor {

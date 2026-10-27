@@ -585,6 +585,33 @@
 		return Math.abs(twiceArea) / 2 / (wupm * wupm);
 	}
 
+	/** The note being edited, on the floor on screen. */
+	const selectedNote = $derived.by(() => {
+		const id = appState.noteSelectedId;
+		if (!id) return null;
+		return (currentFloor()?.notes ?? []).find((note) => note.id === id) ?? null;
+	});
+
+	function updateSelectedNote(text: string): void {
+		const floor = currentFloor();
+		const id = appState.noteSelectedId;
+		if (!floor || !id) return;
+		const note = (floor.notes ?? []).find((n) => n.id === id);
+		if (!note) return;
+		note.text = text;
+		scheduleSave();
+	}
+
+	function deleteSelectedNote(): void {
+		const floor = currentFloor();
+		const id = appState.noteSelectedId;
+		if (!floor || !id) return;
+		pushState();
+		floor.notes = (floor.notes ?? []).filter((note) => note.id !== id);
+		appState.noteSelectedId = null;
+		scheduleSave();
+	}
+
 	/** Back to the inferred interior. */
 	function clearPlanningArea() {
 		const floor = currentFloor();
@@ -1114,6 +1141,50 @@
 						{#if currentFloor()?.planningArea}
 							<button class="skip-link" onclick={clearPlanningArea}>{t('Use the detected area')}</button>
 						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<!--
+				Notes: pins with a sentence attached.
+
+				Half of what decides where an access point goes never made it into the CAD file
+				— the lift lobby's steel door, the rack that will be installed next month. A pin
+				holds that next to the place it is about, and the layer switch can take them off
+				the plan for a screenshot or a print.
+			-->
+			<div class="planning-area notes-block">
+				<div class="planning-head">
+					<span class="planning-title">
+						<Icon name="tag" size={13} />
+						{t('Notes')}
+					</span>
+					<span class="planning-state">{t('{count} on this floor', { count: (currentFloor()?.notes ?? []).length })}</span>
+				</div>
+
+				{#if appState.noteMode}
+					<p class="planning-hint">{t('Click on the plan to place a note. Escape cancels.')}</p>
+					<div class="planning-actions">
+						<button class="skip-link" onclick={() => (appState.noteMode = false)}>{t('Cancel')}</button>
+					</div>
+				{:else if selectedNote}
+					<textarea
+						class="note-input"
+						rows="3"
+						placeholder={t('What should a reader know about this spot?')}
+						value={selectedNote.text}
+						oninput={(e) => updateSelectedNote((e.target as HTMLTextAreaElement).value)}
+					></textarea>
+					<div class="planning-actions">
+						<Button variant="secondary" size="sm" onclick={deleteSelectedNote}>{t('Delete note')}</Button>
+						<button class="skip-link" onclick={() => (appState.noteSelectedId = null)}>{t('Done')}</button>
+					</div>
+				{:else}
+					<div class="planning-actions">
+						<Button variant="secondary" size="sm" onclick={() => (appState.noteMode = true)}>
+							<Icon name="tag" size={14} />
+							{t('Add note')}
+						</Button>
 					</div>
 				{/if}
 			</div>

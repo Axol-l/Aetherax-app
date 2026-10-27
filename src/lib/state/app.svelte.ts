@@ -55,6 +55,20 @@ export const appState = $state({
 	showGrid: true,
 	showLabels: true,
 	showHeatmap: false,
+	/** Notes left on the plan: pins anyone can read, in the layer switch like any other. */
+	showNotes: true,
+	/**
+	 * Note editing: a click on the plan drops a note.
+	 *
+	 * A mode rather than a modifier key, because the canvas already uses ctrl/cmd for
+	 * selection and alt for panning, and because leaving it on by accident would litter a
+	 * plan with notes.
+	 */
+	noteMode: false,
+	/** The note under the pointer, for the hover bubble. */
+	noteHoverId: null as string | null,
+	/** The note being edited, if any. */
+	noteSelectedId: null as string | null,
 	showFloorplan: true,
 	showAPs: true,
 	showWalls: true,

@@ -28,6 +28,7 @@
 		{ key: 'showRoomLabels', label: 'Room labels', singleViewOnly: true },
 		{ key: 'showFloorBelow', label: 'Floor below', singleViewOnly: true },
 		{ key: 'showLabels', label: 'Labels', singleViewOnly: true },
+		{ key: 'showNotes', label: 'Notes', singleViewOnly: true },
 		{ key: 'showGrid', label: 'Grid', singleViewOnly: true }
 	] as const;
 

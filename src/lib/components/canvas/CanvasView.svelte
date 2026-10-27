@@ -21,6 +21,7 @@
 	import { ReviewHighlightLayer } from '$canvas/renderers/review-highlight.js';
 	import { CalibrationLineLayer } from '$canvas/renderers/calibration-line.js';
 	import { PlanningAreaLayer } from '$canvas/renderers/planning-area.js';
+	import { NotesLayer, noteAtPoint, NOTE_HIT_PX } from '$canvas/renderers/notes.js';
 	import { forgetInterior } from '$state/ap-interior.js';
 	import { ShapePreviewLayer } from '$canvas/renderers/shape-preview.js';
 	import { ReferenceFloorLayer } from '$canvas/renderers/reference-floor.js';
@@ -554,6 +555,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let reviewHighlightLayer: ReviewHighlightLayer;
 	let calibrationLineLayer: CalibrationLineLayer;
 	let planningAreaLayer: PlanningAreaLayer;
+	let notesLayer: NotesLayer;
 	/** Pointer position while drawing the planning area; drives the rubber band. */
 	let planningCursor = $state<{ x: number; y: number } | null>(null);
 	let shapePreviewLayer: ShapePreviewLayer;
@@ -755,6 +757,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.addLayer(calibrationLineLayer);
 		planningAreaLayer = new PlanningAreaLayer();
 		engine.addLayer(planningAreaLayer);
+		notesLayer = new NotesLayer();
+		engine.addLayer(notesLayer);
 		engine.addLayer(shapePreviewLayer);
 
 		// Create interaction handlers
@@ -2473,6 +2477,32 @@ import { wallState } from '$state/wall-state.svelte.js';
 			orbitMoved = false;
 			return;
 		}
+		// A note pin is a small target and it sits above everything: it takes the click before
+		// the selection logic, whether or not note mode is on, because clicking a pin to read
+		// it is the obvious gesture.
+		{
+			const world = engine.camera.screenToWorld({
+				x: e.clientX - engine.canvas.getBoundingClientRect().left,
+				y: e.clientY - engine.canvas.getBoundingClientRect().top
+			});
+			if (appState.noteMode) {
+				addNoteAt(world);
+				engine.markDirty();
+				e.preventDefault();
+				return;
+			}
+			const hit = appState.showNotes
+				? noteAtPoint(currentNotes(), world, noteToleranceWorld())
+				: null;
+			if (hit) {
+				appState.noteSelectedId = hit.id;
+				engine.markDirty();
+				e.preventDefault();
+				return;
+			}
+			// A click on the plan itself drops the note selection, like every other selection.
+			if (appState.noteSelectedId) appState.noteSelectedId = null;
+		}
 		// Drawing the planning area intercepts the primary click: each click is a corner of
 		// the loop the user is stating, and nothing else uses that gesture while it is on.
 		if (appState.planningDrawMode) {
@@ -2545,6 +2575,46 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	/**
+	 * The notes on this floor, and which is hovered or selected.
+	 *
+	 * Drawn above everything: a note is an annotation about the plan, and an annotation under
+	 * the thing it annotates is unreadable. Visibility follows the layer switch, and the
+	 * hover/selection state lives in app state rather than here so the sidebar editor can
+	 * see it.
+	 */
+	$effect(() => {
+		if (!notesLayer) return;
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		notesLayer.visible = appState.showNotes && appState.floorView === 'single';
+		notesLayer.notes = floor?.notes ?? [];
+		notesLayer.hoverId = appState.noteHoverId;
+		notesLayer.selectedId = appState.noteSelectedId;
+		engine.markDirty();
+	});
+
+	/** Notes are per floor; the ones the pointer can hit are the current floor's. */
+	function currentNotes() {
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		return floor?.notes ?? [];
+	}
+
+	/** Screen pixels → world tolerance for the pin hit test. */
+	function noteToleranceWorld(): number {
+		return NOTE_HIT_PX / (engine?.camera.state.zoom ?? 1);
+	}
+
+	function addNoteAt(world: { x: number; y: number }): void {
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		if (!floor) return;
+		pushState();
+		const note = { id: crypto.randomUUID(), x: world.x, y: world.y, text: '' };
+		floor.notes = [...(floor.notes ?? []), note];
+		appState.noteSelectedId = note.id;
+		appState.noteMode = false;
+		scheduleSave();
+	}
+
+	/**
 	 * Close the planning area from the canvas: Enter, a double-click, or the sidebar button.
 	 *
 	 * A double-click arrives after its two clicks have already added their corners, so the
@@ -2581,6 +2651,21 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	function handlePointerMove(e: PointerEvent) {
 		if (!engine) return;
+		// Hovering a note pin shows its text, in every mode: reading a note is never the
+		// gesture the current mode is about.
+		if (appState.showNotes && appState.floorView === 'single') {
+			const rect = engine.canvas.getBoundingClientRect();
+			const world = engine.camera.screenToWorld({
+				x: e.clientX - rect.left,
+				y: e.clientY - rect.top
+			});
+			const hovered = noteAtPoint(currentNotes(), world, noteToleranceWorld());
+			if ((hovered?.id ?? null) !== appState.noteHoverId) {
+				appState.noteHoverId = hovered?.id ?? null;
+				engine.markDirty();
+			}
+		}
+		if (appState.noteMode) return;
 		// While drawing the planning area the pointer drives the rubber band: the next edge
 		// and the closing edge are previewed, so the shape can be judged before it is closed.
 		if (appState.planningDrawMode) {
