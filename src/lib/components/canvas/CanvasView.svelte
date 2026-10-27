@@ -567,6 +567,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let vectorWallsLayer: VectorWallsLayer;
 	/** Pointer position while drawing a wall, for the rubber band. */
 	let vectorCursor = $state<{ x: number; y: number } | null>(null);
+	/** The endpoint that click would snap to, ringed while the pointer is near it. */
+	let vectorSnap = $state<{ x: number; y: number } | null>(null);
 	/** Pointer position while drawing the planning area; drives the rubber band. */
 	let planningCursor = $state<{ x: number; y: number } | null>(null);
 	let shapePreviewLayer: ShapePreviewLayer;
@@ -2665,6 +2667,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		vectorWallsLayer.selectedId = appState.wallVectorSelected;
 		vectorWallsLayer.draft = appState.wallVectorDraft;
 		vectorWallsLayer.cursor = appState.wallVectorMode ? vectorCursor : null;
+		vectorWallsLayer.snapTarget = appState.wallVectorMode ? vectorSnap : null;
+		vectorWallsLayer.wupm = getEffectiveWupm();
 		engine.markDirty();
 	});
 
@@ -2813,6 +2817,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 				x: e.clientX - rect.left,
 				y: e.clientY - rect.top
 			});
+			// Where the click would land, so the ring can say "this will meet that wall".
+			const snapped = snapToEndpoint(vectorCursor, currentWalls(), snapToleranceWorld());
+			vectorSnap = snapped.x !== vectorCursor.x || snapped.y !== vectorCursor.y ? snapped : null;
 			engine.markDirty();
 			return;
 		}
