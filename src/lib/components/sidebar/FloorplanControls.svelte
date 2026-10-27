@@ -568,6 +568,19 @@
 		scheduleSave();
 	}
 
+	/** The area of the loop being drawn, in square metres, from the current calibration. */
+	const draftAreaSqm = $derived.by(() => {
+		const points = appState.planningDraft;
+		if (points.length < 3) return 0;
+		let twiceArea = 0;
+		for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
+			twiceArea += points[j]!.x * points[i]!.y - points[i]!.x * points[j]!.y;
+		}
+		const wupm = getEffectiveWupm();
+		if (!wupm) return 0;
+		return Math.abs(twiceArea) / 2 / (wupm * wupm);
+	});
+
 	/** Back to the inferred interior. */
 	function clearPlanningArea() {
 		const floor = currentFloor();
@@ -1050,7 +1063,7 @@
 					<span class="planning-hint">
 						{appState.planningDraft.length < 3
 							? t('Click the corners of this floor (at least three), then press Enter.')
-							: t('{count} corners — the next click continues the loop; press Enter to close it.', { count: appState.planningDraft.length })}
+							: t('{count} corners · {area} m² — press Enter to close, Backspace to undo the last corner.', { count: appState.planningDraft.length, area: draftAreaSqm.toFixed(1) })}
 					</span>
 					<div class="planning-actions">
 						<Button
@@ -1061,6 +1074,13 @@
 						>
 							{t('Close area')}
 						</Button>
+						<button
+							class="skip-link"
+							disabled={appState.planningDraft.length === 0}
+							onclick={() => (appState.planningDraft = appState.planningDraft.slice(0, -1))}
+						>
+							{t('Undo corner')}
+						</button>
 						<button class="skip-link" onclick={() => setPlanningDrawMode(false)}>{t('Cancel')}</button>
 					</div>
 				{:else}

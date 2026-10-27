@@ -20,6 +20,15 @@ export class PlanningAreaLayer implements Layer {
 	area: Array<{ x: number; y: number }> | null = null;
 	/** The loop being drawn, before it is committed. */
 	draft: Array<{ x: number; y: number }> = [];
+	/**
+	 * Where the pointer is while drawing, in world coordinates.
+	 *
+	 * The rubber band from the last corner to the cursor is what makes this a drawing tool
+	 * rather than a click-counter: with it the next edge is visible before it is committed,
+	 * and the closing edge is previewed too, so the shape can be judged as a room and not as
+	 * a list of points.
+	 */
+	cursor: { x: number; y: number } | null = null;
 
 	render(rc: RenderContext): void {
 		const hasArea = this.area && this.area.length >= 3;
@@ -48,12 +57,38 @@ export class PlanningAreaLayer implements Layer {
 		}
 
 		if (this.draft.length > 0) {
+			const last = this.draft[this.draft.length - 1]!;
+			const target = this.cursor ?? last;
+
+			// The committed edges.
 			ctx.beginPath();
 			ctx.moveTo(this.draft[0]!.x, this.draft[0]!.y);
 			for (let i = 1; i < this.draft.length; i++) ctx.lineTo(this.draft[i]!.x, this.draft[i]!.y);
 			ctx.strokeStyle = 'rgba(0, 220, 220, 0.95)';
 			ctx.lineWidth = 2 / zoom;
 			ctx.stroke();
+
+			// The edge being drawn, and the one that would close the loop.
+			if (this.cursor && this.draft.length >= 2) {
+				ctx.beginPath();
+				ctx.moveTo(last.x, last.y);
+				ctx.lineTo(target.x, target.y);
+				ctx.lineTo(this.draft[0]!.x, this.draft[0]!.y);
+				ctx.strokeStyle = 'rgba(0, 220, 220, 0.45)';
+				ctx.lineWidth = 1.5 / zoom;
+				ctx.setLineDash([6 / zoom, 5 / zoom]);
+				ctx.stroke();
+				ctx.setLineDash([]);
+			} else if (this.cursor) {
+				ctx.beginPath();
+				ctx.moveTo(last.x, last.y);
+				ctx.lineTo(target.x, target.y);
+				ctx.strokeStyle = 'rgba(0, 220, 220, 0.45)';
+				ctx.lineWidth = 1.5 / zoom;
+				ctx.setLineDash([6 / zoom, 5 / zoom]);
+				ctx.stroke();
+				ctx.setLineDash([]);
+			}
 
 			for (const point of this.draft) {
 				ctx.beginPath();

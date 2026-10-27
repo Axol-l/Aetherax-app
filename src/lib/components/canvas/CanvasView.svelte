@@ -21,6 +21,7 @@
 	import { ReviewHighlightLayer } from '$canvas/renderers/review-highlight.js';
 	import { CalibrationLineLayer } from '$canvas/renderers/calibration-line.js';
 	import { PlanningAreaLayer } from '$canvas/renderers/planning-area.js';
+	import { forgetInterior } from '$state/ap-interior.js';
 	import { ShapePreviewLayer } from '$canvas/renderers/shape-preview.js';
 	import { ReferenceFloorLayer } from '$canvas/renderers/reference-floor.js';
 	import { FloorTilesLayer } from '$canvas/renderers/floor-tiles.js';
@@ -553,6 +554,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let reviewHighlightLayer: ReviewHighlightLayer;
 	let calibrationLineLayer: CalibrationLineLayer;
 	let planningAreaLayer: PlanningAreaLayer;
+	/** Pointer position while drawing the planning area; drives the rubber band. */
+	let planningCursor = $state<{ x: number; y: number } | null>(null);
 	let shapePreviewLayer: ShapePreviewLayer;
 	let referenceFloorLayer: ReferenceFloorLayer;
 	let floorTilesLayer: FloorTilesLayer;
@@ -591,6 +594,21 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// pointer movement in between, so forward it to the handler directly.
 		if (!isInput && e.key === 'Shift' && wallEditHandler) {
 			wallEditHandler.setShift(true);
+		}
+
+		if (!isInput && appState.planningDrawMode && e.key === 'Enter') {
+			commitPlanningDraft();
+			return;
+		}
+
+		if (!isInput && appState.planningDrawMode && (e.key === 'Backspace' || e.key === 'Delete')) {
+			// Before the AP delete below: in this mode Backspace means "that corner was
+			// wrong", which is the correction the user reaches for most often.
+			e.preventDefault();
+			if (appState.planningDraft.length > 0) {
+				appState.planningDraft = appState.planningDraft.slice(0, -1);
+			}
+			return;
 		}
 
 		if (!isInput && e.key === 'Escape' && appState.planningDrawMode) {
@@ -980,6 +998,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		planningAreaLayer.area = visible ? (floor?.planningArea ?? null) : null;
 		planningAreaLayer.draft = visible ? appState.planningDraft : [];
+		planningAreaLayer.cursor = appState.planningDrawMode ? planningCursor : null;
 		engine.markDirty();
 	});
 
@@ -2525,8 +2544,54 @@ import { wallState } from '$state/wall-state.svelte.js';
 		processPointerDown(e);
 	}
 
+	/**
+	 * Close the planning area from the canvas: Enter, a double-click, or the sidebar button.
+	 *
+	 * A double-click arrives after its two clicks have already added their corners, so the
+	 * duplicate is dropped before closing — otherwise every double-clicked loop ends with a
+	 * zero-length edge, which the geometry tolerates and the user does not expect.
+	 */
+	function commitPlanningDraft(): void {
+		const draft = appState.planningDraft;
+		if (draft.length < 3) return;
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		if (!floor) return;
+		pushState();
+		floor.planningArea = draft.map((point) => ({ x: point.x, y: point.y }));
+		setPlanningDrawMode(false);
+		planningCursor = null;
+		forgetInterior(floor.id);
+		scheduleSave();
+	}
+
+	function handleCanvasDoubleClick(event: MouseEvent): void {
+		if (!appState.planningDrawMode) return;
+		const draft = appState.planningDraft;
+		// The two clicks of the double-click are already corners; the second is the duplicate.
+		if (draft.length >= 2) {
+			const last = draft[draft.length - 1]!;
+			const previous = draft[draft.length - 2]!;
+			if (Math.hypot(last.x - previous.x, last.y - previous.y) < 1) {
+				appState.planningDraft = draft.slice(0, -1);
+			}
+		}
+		commitPlanningDraft();
+		event.preventDefault();
+	}
+
 	function handlePointerMove(e: PointerEvent) {
 		if (!engine) return;
+		// While drawing the planning area the pointer drives the rubber band: the next edge
+		// and the closing edge are previewed, so the shape can be judged before it is closed.
+		if (appState.planningDrawMode) {
+			const rect = engine.canvas.getBoundingClientRect();
+			planningCursor = engine.camera.screenToWorld({
+				x: e.clientX - rect.left,
+				y: e.clientY - rect.top
+			});
+			engine.markDirty();
+			return;
+		}
 		if (e.pointerType === 'touch') return;
 		// Which slab is under the pointer, in the stacked overview. Read-only and
 		// cheap: the layout is a few floors of arithmetic, and only a *change* marks
@@ -2714,6 +2779,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		aria-label={t('Channel planning canvas')}
 		onpointerdown={handlePointerDown}
 		onpointermove={handlePointerMove}
+		ondblclick={handleCanvasDoubleClick}
+		class:drawing-area={appState.planningDrawMode}
 		onpointerup={handlePointerUp}
 		onpointerleave={() => {
 			brushCursorVisible = false;
@@ -2821,6 +2888,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 	canvas {
 		display: block;
 		touch-action: none;
+	}
+
+	/* Drawing a polygon: the cursor has to say that a click places a corner. */
+	canvas.drawing-area {
+		cursor: crosshair;
 	}
 
 	.empty-hint {
