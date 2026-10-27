@@ -16,6 +16,8 @@ import { computeBuildingInterior } from '$canvas/morphology.js';
 import { isVoidRoomType } from '$canvas/room-types.js';
 import { getFloorMask } from './floor-mask.js';
 import { minRoomRadiusWu } from './room-domain.js';
+import { isUsablePlanningArea, pointInPlanningArea } from './planning-area.js';
+import { floorState } from './floor-state.svelte.js';
 
 interface CachedInterior {
 	/** Identity of the mask this was computed from, so a re-detected plan invalidates it. */
@@ -72,6 +74,18 @@ async function interiorFor(floorId: string): Promise<CachedInterior | null> {
  * the guard is about walls the app knows about, not about refusing to work.
  */
 export async function isInsideInterior(floorId: string, x: number, y: number): Promise<boolean> {
+	/*
+	 * A drawn planning area is the authority, and it is checked first.
+	 *
+	 * The inferred interior is a guess about a drawing: a room with a wide opening reads as
+	 * "outside" (which is how an AP standing in the middle of an office was reported as
+	 * outside the building) and a wall cavity reads as inside. When the user has said where
+	 * the floor is, that answer is used instead — this is the same reason survey tools make
+	 * you draw the area by hand.
+	 */
+	const planned = floorState.floors.find((f) => f.id === floorId)?.planningArea;
+	if (isUsablePlanningArea(planned)) return pointInPlanningArea({ x, y }, planned);
+
 	const entry = await interiorFor(floorId);
 	if (!entry) return true;
 	const ix = Math.round(x - entry.originX);

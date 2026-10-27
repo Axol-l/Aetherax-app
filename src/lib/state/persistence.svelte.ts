@@ -357,7 +357,11 @@ async function saveToStorage(): Promise<void> {
 				materialMask: f.materialMask ? JSON.parse(JSON.stringify(f.materialMask)) : null,
 				roomTypeMask: f.roomTypeMask ? JSON.parse(JSON.stringify(f.roomTypeMask)) : null,
 				roomDensityOverrides: f.roomDensityOverrides ?? {},
-				roomCustomLabels: f.roomCustomLabels ?? {}
+				roomCustomLabels: f.roomCustomLabels ?? {},
+				// The drawn planning area is part of the project: it is the user's statement
+				// about where the floor is, and re-drawing it after every reload would make
+				// the feature useless.
+				planningArea: f.planningArea ? JSON.parse(JSON.stringify(f.planningArea)) : null
 			})),
 			aps: JSON.parse(JSON.stringify(apState.aps))
 		};
@@ -595,7 +599,8 @@ export async function restoreFromStorage(): Promise<boolean> {
 					}
 				: null,
 			roomDensityOverrides: (f as any).roomDensityOverrides ?? {},
-			roomCustomLabels: (f as any).roomCustomLabels ?? {}
+			roomCustomLabels: (f as any).roomCustomLabels ?? {},
+			planningArea: Array.isArray((f as any).planningArea) ? (f as any).planningArea : null
 		}));
 		floorState.currentFloorId = floorState.floors[0]!.id;
 

@@ -51,6 +51,16 @@ export interface Floor {
 	roomDensityOverrides: Record<string, number>;
 	/** Per-region custom labels: regionId → label string (shown on canvas instead of type shortName). */
 	roomCustomLabels: Record<string, string>;
+	/**
+	 * The area the user says this floor occupies, as a polygon in world coordinates.
+	 *
+	 * Null means "not drawn": the app then infers the interior from the walls, which is right
+	 * for a clean plan and costs nothing. Drawn means the polygon is the authority for
+	 * inside/outside — warnings, placement and (from the optimiser's side) the domain — which
+	 * is the only reliable answer for a plan whose outline has wide openings, or whose walls
+	 * enclose cavities that are not rooms. See `state/planning-area.ts`.
+	 */
+	planningArea?: Array<{ x: number; y: number }> | null;
 }
 
 function createDefaultFloor(id?: string, name?: string): Floor {
@@ -73,7 +83,8 @@ function createDefaultFloor(id?: string, name?: string): Floor {
 		materialMask: null,
 		roomTypeMask: null,
 		roomDensityOverrides: {},
-		roomCustomLabels: {}
+		roomCustomLabels: {},
+		planningArea: null
 	};
 }
 

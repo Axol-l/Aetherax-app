@@ -68,6 +68,15 @@ export const appState = $state({
 	floorAlignMode: false,
 	/** Picking two points on the plan to calibrate the scale from a measured line. */
 	calibrateMode: false,
+	/**
+	 * Drawing the planning area: a click adds a vertex, Enter closes it.
+	 *
+	 * A mode like the others, and exclusive with them, because it owns the bare-canvas
+	 * click. The draft lives here rather than in the canvas so the sidebar can show what is
+	 * being drawn and offer to finish it.
+	 */
+	planningDrawMode: false,
+	planningDraft: [] as Array<{ x: number; y: number }>,
 	/** The clicks collected so far while calibrating, in world coordinates. */
 	calibrationPoints: [] as Array<{ x: number; y: number }>,
 	/**
@@ -188,4 +197,26 @@ export function setCalibrateMode(on: boolean): void {
 export function addCalibrationPoint(point: { x: number; y: number }): void {
 	if (appState.calibrationPoints.length >= 2) appState.calibrationPoints = [point];
 	else appState.calibrationPoints = [...appState.calibrationPoints, point];
+}
+
+/**
+ * Drawing the planning area, one click per corner.
+ *
+ * Exclusive with the other modes for the same reason they are exclusive with each other:
+ * they all own the bare-canvas click, and two of them armed at once means one click does two
+ * things. Leaving the mode throws the draft away — an abandoned loop is not a decision.
+ */
+export function setPlanningDrawMode(on: boolean): void {
+	if (appState.planningDrawMode === on) return;
+	appState.planningDrawMode = on;
+	appState.planningDraft = [];
+	if (on) {
+		setApPlaceMode(false);
+		setFloorAlignMode(false);
+		setCalibrateMode(false);
+	}
+}
+
+export function addPlanningPoint(point: { x: number; y: number }): void {
+	appState.planningDraft = [...appState.planningDraft, point];
 }

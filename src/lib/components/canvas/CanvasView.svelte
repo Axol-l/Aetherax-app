@@ -20,6 +20,7 @@
 	import { SelectionRectLayer } from '$canvas/renderers/selection-rect.js';
 	import { ReviewHighlightLayer } from '$canvas/renderers/review-highlight.js';
 	import { CalibrationLineLayer } from '$canvas/renderers/calibration-line.js';
+	import { PlanningAreaLayer } from '$canvas/renderers/planning-area.js';
 	import { ShapePreviewLayer } from '$canvas/renderers/shape-preview.js';
 	import { ReferenceFloorLayer } from '$canvas/renderers/reference-floor.js';
 	import { FloorTilesLayer } from '$canvas/renderers/floor-tiles.js';
@@ -49,7 +50,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 		setFloorAlignMode,
 		setApPlaceMode,
 		setCalibrateMode,
+		setPlanningDrawMode,
 		addCalibrationPoint,
+		addPlanningPoint,
 		STACK_YAW_LIMIT_DEG,
 		STACK_MIN_PITCH_DEG,
 		STACK_MAX_PITCH_DEG
@@ -549,6 +552,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let selectionRectLayer: SelectionRectLayer;
 	let reviewHighlightLayer: ReviewHighlightLayer;
 	let calibrationLineLayer: CalibrationLineLayer;
+	let planningAreaLayer: PlanningAreaLayer;
 	let shapePreviewLayer: ShapePreviewLayer;
 	let referenceFloorLayer: ReferenceFloorLayer;
 	let floorTilesLayer: FloorTilesLayer;
@@ -587,6 +591,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// pointer movement in between, so forward it to the handler directly.
 		if (!isInput && e.key === 'Shift' && wallEditHandler) {
 			wallEditHandler.setShift(true);
+		}
+
+		if (!isInput && e.key === 'Escape' && appState.planningDrawMode) {
+			// Abandoning the loop: an unfinished outline is not a statement about the floor.
+			setPlanningDrawMode(false);
+			return;
 		}
 
 		if (!isInput && e.key === 'Escape' && appState.calibrateMode) {
@@ -725,6 +735,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// The measured calibration line, over the plan it measures.
 		calibrationLineLayer = new CalibrationLineLayer();
 		engine.addLayer(calibrationLineLayer);
+		planningAreaLayer = new PlanningAreaLayer();
+		engine.addLayer(planningAreaLayer);
 		engine.addLayer(shapePreviewLayer);
 
 		// Create interaction handlers
@@ -953,6 +965,21 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const visible = appState.floorView === 'single';
 		calibrationLineLayer.a = visible && points[0] ? points[0] : null;
 		calibrationLineLayer.b = visible && points[1] ? points[1] : null;
+		engine.markDirty();
+	});
+
+	/**
+	 * The planning area: the committed polygon and the loop being drawn.
+	 *
+	 * Single-floor view only, like the other plan annotations: the polygon is one floor's
+	 * coordinates and the overviews draw every storey at once.
+	 */
+	$effect(() => {
+		if (!planningAreaLayer) return;
+		const visible = appState.floorView === 'single';
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		planningAreaLayer.area = visible ? (floor?.planningArea ?? null) : null;
+		planningAreaLayer.draft = visible ? appState.planningDraft : [];
 		engine.markDirty();
 	});
 
@@ -2425,6 +2452,18 @@ import { wallState } from '$state/wall-state.svelte.js';
 			orbitYaw = appState.stackYaw;
 			orbitPitch = appState.stackPitch;
 			orbitMoved = false;
+			return;
+		}
+		// Drawing the planning area intercepts the primary click: each click is a corner of
+		// the loop the user is stating, and nothing else uses that gesture while it is on.
+		if (appState.planningDrawMode) {
+			const world = engine.camera.screenToWorld({
+				x: e.clientX - engine.canvas.getBoundingClientRect().left,
+				y: e.clientY - engine.canvas.getBoundingClientRect().top
+			});
+			addPlanningPoint({ x: world.x, y: world.y });
+			engine.markDirty();
+			e.preventDefault();
 			return;
 		}
 		// Calibrating by measurement intercepts the primary click, before placement and

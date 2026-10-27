@@ -15,7 +15,9 @@
 	import Select from '$components/shared/Select.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
 	import { setCalibrateMode } from '$state/app.svelte';
+	import { setPlanningDrawMode } from '$state/app.svelte';
 	import { wupmFromSegment } from '$state/calibrate.js';
+	import { forgetInterior } from '$state/ap-interior.js';
 
 	let confirmOpen = $state(false);
 	let confirmMessage = $state('');
@@ -548,6 +550,34 @@
 		setCalibrateMode(false);
 	}
 
+	/**
+	 * Close the loop being drawn and make it this floor's planning area.
+	 *
+	 * Three corners is the minimum a polygon can have; the button is disabled below that, and
+	 * this refuses again so a keyboard Enter cannot commit a line.
+	 */
+	function commitPlanningArea() {
+		const draft = appState.planningDraft;
+		if (draft.length < 3) return;
+		const floor = currentFloor();
+		if (!floor) return;
+		pushState();
+		floor.planningArea = draft.map((point) => ({ x: point.x, y: point.y }));
+		setPlanningDrawMode(false);
+		forgetInterior(floor.id);
+		scheduleSave();
+	}
+
+	/** Back to the inferred interior. */
+	function clearPlanningArea() {
+		const floor = currentFloor();
+		if (!floor) return;
+		pushState();
+		floor.planningArea = null;
+		forgetInterior(floor.id);
+		scheduleSave();
+	}
+
 	function applyCalibration() {
 		// The field is in whatever unit the toolbar selects; the model is metric.
 		const realAreaSqm = areaInputSqm();
@@ -1003,6 +1033,46 @@
 				</Button>
 				{#if !wallState.wallMask}
 					<span class="wall-hint">{t('Detect walls from the floorplan, or import one first')}</span>
+				{/if}
+			</div>
+
+			<!--
+				The planning area: where this floor actually is.
+
+				Everything about "inside" is otherwise inferred from the walls, which is right
+				for a clean plan and wrong for one whose outline has a wide opening — a room
+				then reads as outside the building, and an access point standing in the middle
+				of it gets reported as outside. Drawing the area says it outright, and once it
+				exists it is what the warnings, the placement guard and the optimiser use.
+			-->
+			<div class="planning-area">
+				{#if appState.planningDrawMode}
+					<span class="planning-hint">
+						{appState.planningDraft.length < 3
+							? t('Click the corners of this floor (at least three), then press Enter.')
+							: t('{count} corners — the next click continues the loop; press Enter to close it.', { count: appState.planningDraft.length })}
+					</span>
+					<div class="planning-actions">
+						<Button
+							variant="primary"
+							size="sm"
+							disabled={appState.planningDraft.length < 3}
+							onclick={commitPlanningArea}
+						>
+							{t('Close area')}
+						</Button>
+						<button class="skip-link" onclick={() => setPlanningDrawMode(false)}>{t('Cancel')}</button>
+					</div>
+				{:else}
+					<div class="planning-actions">
+						<Button variant="secondary" size="sm" onclick={() => setPlanningDrawMode(true)}>
+							<Icon name="pencil" size={14} />
+							{currentFloor()?.planningArea ? t('Redraw planning area') : t('Draw planning area')}
+						</Button>
+						{#if currentFloor()?.planningArea}
+							<button class="skip-link" onclick={clearPlanningArea}>{t('Use the detected area')}</button>
+						{/if}
+					</div>
 				{/if}
 			</div>
 		{/if}
