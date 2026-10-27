@@ -569,8 +569,12 @@
 	}
 
 	/** The area of the loop being drawn, in square metres, from the current calibration. */
-	const draftAreaSqm = $derived.by(() => {
-		const points = appState.planningDraft;
+	const draftAreaSqm = $derived.by(() => draftAreaOf(appState.planningDraft));
+
+	/** The same figure for the committed area, so the header can state it. */
+	const committedAreaSqm = $derived.by(() => draftAreaOf(currentFloor()?.planningArea ?? []));
+
+	function draftAreaOf(points: Array<{ x: number; y: number }>): number {
 		if (points.length < 3) return 0;
 		let twiceArea = 0;
 		for (let i = 0, j = points.length - 1; i < points.length; j = i++) {
@@ -579,7 +583,7 @@
 		const wupm = getEffectiveWupm();
 		if (!wupm) return 0;
 		return Math.abs(twiceArea) / 2 / (wupm * wupm);
-	});
+	}
 
 	/** Back to the inferred interior. */
 	function clearPlanningArea() {
@@ -1059,12 +1063,30 @@
 				exists it is what the warnings, the placement guard and the optimiser use.
 			-->
 			<div class="planning-area">
-				{#if appState.planningDrawMode}
-					<span class="planning-hint">
-						{appState.planningDraft.length < 3
-							? t('Click the corners of this floor (at least three), then press Enter.')
-							: t('{count} corners · {area} m² — press Enter to close, Backspace to undo the last corner.', { count: appState.planningDraft.length, area: draftAreaSqm.toFixed(1) })}
+				<div class="planning-head">
+					<span class="planning-title">
+						<Icon name="crosshair" size={13} />
+						{t('Planning area')}
 					</span>
+					{#if appState.planningDrawMode}
+						<span class="planning-state drawing">{t('Drawing')}</span>
+					{:else if currentFloor()?.planningArea}
+						<span class="planning-state drawn">
+							{t('{count} corners · {area} m²', { count: currentFloor()!.planningArea!.length, area: committedAreaSqm.toFixed(1) })}
+						</span>
+					{:else}
+						<span class="planning-state">{t('Auto-detected')}</span>
+					{/if}
+				</div>
+
+				{#if appState.planningDrawMode}
+					<p class="planning-hint">
+						{#if appState.planningDraft.length < 3}
+							{t('Click the corners of this floor (at least three), then press Enter.')}
+						{:else}
+							{t('{count} corners · {area} m² — press Enter to close, Backspace to undo the last corner.', { count: appState.planningDraft.length, area: draftAreaSqm.toFixed(1) })}
+						{/if}
+					</p>
 					<div class="planning-actions">
 						<Button
 							variant="primary"
@@ -1439,6 +1461,71 @@
 	/* The two calibration routes side by side: state an area, or measure a line. */
 	.calibration-alternatives {
 		display: flex;
+		gap: var(--space-3);
+		flex-wrap: wrap;
+	}
+
+	/*
+	 * The planning area block.
+	 *
+	 * It had no styling at all at first — a title-less run of hint text and buttons, which is
+	 * why it read as raw markup next to the panels around it. A bordered card, a title row
+	 * that names the thing and states its status, then the guidance and the actions: the same
+	 * shape as the vector-read panel above it, so the sidebar has one way of saying "here is
+	 * a thing, here is what state it is in, here is what you can do".
+	 */
+	.planning-area {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: var(--space-2) var(--space-3);
+		background: var(--bg-elevated);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+	}
+
+	.planning-head {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-2);
+	}
+
+	.planning-title {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--text-xs);
+		font-weight: 500;
+		color: var(--text-secondary);
+	}
+
+	/* State: quiet when automatic, the accent when the user's own area is in force. */
+	.planning-state {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+		white-space: nowrap;
+	}
+
+	.planning-state.drawn {
+		color: var(--accent-primary);
+	}
+
+	.planning-state.drawing {
+		color: var(--color-warning, #ffb800);
+	}
+
+	.planning-hint {
+		margin: 0;
+		font-size: var(--text-xs);
+		line-height: 1.5;
+		color: var(--text-secondary);
+	}
+
+	.planning-actions {
+		display: flex;
+		align-items: center;
 		gap: var(--space-3);
 		flex-wrap: wrap;
 	}

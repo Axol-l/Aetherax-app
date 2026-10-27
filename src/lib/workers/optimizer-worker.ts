@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 
 import { computeBuildingInterior } from '../canvas/morphology.js';
+import { clipInteriorToPlanningArea } from '../state/planning-area.js';
 import { isVoidRoomType } from '../canvas/room-types.js';
 import {
 	COVERAGE_MARGIN_DB,
@@ -330,6 +331,15 @@ interface OptimizeMessage {
 	 * calibration of its own.
 	 */
 	minRoomRadiusWu?: number;
+	/**
+	 * The planning area in mask coordinates, when the user has drawn one.
+	 *
+	 * The placement domain is clipped to it below the void exclusion — the same rule the
+	 * app's own guard applies, on the same shape — so "draw where the floor is" reaches the
+	 * optimiser instead of only silencing the warnings. Omitted means not drawn, which is
+	 * the inferred-interior path every plan used before the polygon existed.
+	 */
+	planningArea?: Array<{ x: number; y: number }> | null;
 	/**
 	 * The protocol version the message was built against. See `optimizer-protocol.ts`.
 	 *
@@ -2032,6 +2042,19 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 		for (let i = 0; i < w * h; i++) {
 			if (interior[i] && isVoidRoomType(roomTypeMask[i]!)) interior[i] = 0;
 		}
+	}
+
+	/*
+	 * The user's own statement about where the floor is, when they have made one.
+	 *
+	 * The same clip the app's "is this point inside?" guard applies — the polygon arrives in
+	 * mask coordinates, so the worker does not need to know about origins or calibration.
+	 * Without it, drawing the area would silence the warnings while the optimiser kept
+	 * placing access points in the part of the drawing the user had excluded.
+	 */
+	const planningArea = msg.planningArea;
+	if (planningArea && planningArea.length >= 3) {
+		clipInteriorToPlanningArea(interior, w, h, 0, 0, planningArea);
 	}
 
 	if (cancelled) {

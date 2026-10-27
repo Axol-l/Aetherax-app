@@ -275,6 +275,14 @@ export class OptimizerBridge {
 			 */
 			minRoomRadiusWu?: number;
 			/**
+			 * The planning area in mask coordinates, when the user has drawn one.
+			 *
+			 * The worker clips its placement domain to this, exactly as the app's own guard
+			 * does, so the optimiser and the warnings answer "inside" from the same shape
+			 * instead of from two independent guesses about the drawing.
+			 */
+			planningArea?: Array<{ x: number; y: number }> | null;
+			/**
 			 * ε-constraint (F3): the covered share the result must reach, as a 0-1
 			 * fraction. Zero is no constraint.
 			 */
@@ -356,6 +364,7 @@ export class OptimizerBridge {
 				localVerticalDrop: options?.localVerticalDrop ?? 0,
 				wallBandWu: options?.wallBandWu,
 				minRoomRadiusWu: options?.minRoomRadiusWu,
+				planningArea: options?.planningArea ?? null,
 				// The payload shape this bridge builds. See `optimizer-protocol.ts`: the
 				// worker checks it when present, so a bundle left in a browser cache while
 				// the app around it moved on fails loudly instead of scoring a different

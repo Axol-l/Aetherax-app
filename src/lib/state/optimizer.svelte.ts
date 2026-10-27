@@ -45,6 +45,7 @@ import { projectMeta } from './project-meta.svelte.js';
 import { wallState } from './wall-state.svelte.js';
 import { WALL_BAND_M, wallSnapForFloor } from './wall-snap.js';
 import { minRoomRadiusWu } from './room-domain.js';
+import { clipInteriorToPlanningArea, isUsablePlanningArea } from './planning-area.js';
 import { OPTIMIZER_PAYLOAD_VERSION, type ApInput } from '../workers/optimizer-protocol.js';
 import { apState } from '$state/ap-state.svelte.js';
 
@@ -258,6 +259,25 @@ async function ensureCoverageCache(): Promise<boolean> {
 		trimWallAdjacent: true,
 		minRegionRadius: minRoomRadiusWu()
 	});
+
+	/*
+	 * And, if the user has drawn one, the planning area — the same authority the "is this
+	 * point inside?" guard uses. Without this the coverage figure would still be measured
+	 * over the inferred interior, so a plan whose outline has a wide opening would report
+	 * coverage for floor the user has explicitly excluded, and the optimiser would be scored
+	 * on a bigger area than the one being planned.
+	 */
+	const currentFloorForArea = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+	if (isUsablePlanningArea(currentFloorForArea?.planningArea)) {
+		clipInteriorToPlanningArea(
+			interior,
+			mask.width,
+			mask.height,
+			mask.originX ?? 0,
+			mask.originY ?? 0,
+			currentFloorForArea!.planningArea!
+		);
+	}
 
 	const interiorPixels: number[] = [];
 	for (let i = 0; i < mask.width * mask.height; i++) {
@@ -1358,6 +1378,18 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 				// app's own "is this point inside?" guard. See `room-domain.ts` — a domain
 				// the two do not share is how an optimised AP ends up in a wall cavity.
 				minRoomRadiusWu: minRoomRadiusWu(),
+				/*
+				 * The planning area, in the mask's own coordinates, when the user has drawn
+				 * one. The worker clips its placement domain to it — the same clip the app's
+				 * guard applies — so "draw the floor" reaches the optimiser as well as the
+				 * warnings, and the two cannot disagree about where the floor is.
+				 */
+				planningArea: isUsablePlanningArea(floor.planningArea)
+					? floor.planningArea!.map((point) => ({
+							x: point.x - originX,
+							y: point.y - originY
+						}))
+					: null,
 				// F3's ε-constraint. Zero means no constraint, which is the objective every
 				// figure recorded before it was measured on. The per-floor switch changes who
 				// the requirement is about, not how it is enforced: this block scores one
