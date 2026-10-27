@@ -1390,6 +1390,19 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 							y: point.y - originY
 						}))
 					: null,
+				// The user's own materials, so the worker charges their figures rather than the
+				// built-in fallback for an id it has never seen.
+				customMaterials: projectMeta.customMaterials.map((material) => ({
+					id: material.id,
+					name: material.name,
+					dbPerMeter: {
+						'2.4ghz': material.dbPerCrossing / Math.max(0.01, material.thicknessM),
+						'5ghz': material.dbPerCrossing / Math.max(0.01, material.thicknessM),
+						'6ghz': material.dbPerCrossing / Math.max(0.01, material.thicknessM)
+					},
+					typicalThickness: material.thicknessM,
+					color: material.color
+				})),
 				// F3's ε-constraint. Zero means no constraint, which is the objective every
 				// figure recorded before it was measured on. The per-floor switch changes who
 				// the requirement is about, not how it is enforced: this block scores one

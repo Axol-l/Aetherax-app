@@ -144,13 +144,39 @@ export function isVirtualMaterial(id: WallMaterialId): boolean {
 /** Default band used wherever a call site has no per-AP band available. */
 export const DEFAULT_BAND: Band = '5ghz';
 
+/**
+ * Materials the user added, in the shape this module's lookups already speak.
+ *
+ * A registry rather than a parameter on every function: the table is consulted from the
+ * renderer, the solver, the optimiser's main thread and the worker, and threading a list
+ * through all four is how one of them ends up not knowing about the user's material and
+ * charging the built-in fallback instead. Whoever owns the project's materials registers
+ * them once — on mount and whenever they change — and every lookup here sees them.
+ *
+ * Nothing persists here; the list lives in the project (`projectMeta.customMaterials`) and
+ * is handed over in the worker's payload, so the two realms agree.
+ */
+let customMaterials: WallMaterial[] = [];
+
+export function registerCustomMaterials(materials: readonly WallMaterial[]): void {
+	customMaterials = [...materials];
+}
+
+/** Built-ins plus the registry, which is what every lookup and picker should use. */
+export function wallMaterialTable(): WallMaterial[] {
+	return customMaterials.length === 0
+		? [...(WALL_MATERIALS as readonly WallMaterial[])]
+		: [...(WALL_MATERIALS as readonly WallMaterial[]), ...customMaterials];
+}
+
 export function getMaterial(id: WallMaterialId): WallMaterial {
-	return WALL_MATERIALS[id] ?? WALL_MATERIALS[0]!;
+	const found = wallMaterialTable().find((material) => material.id === id);
+	return found ?? WALL_MATERIALS[0]!;
 }
 
 /** Flat dB for one typical crossing at the given band: dbPerMeter * typicalThickness. */
 export function getFlatAttenuation(id: WallMaterialId, band: Band = DEFAULT_BAND): number {
-	const m = WALL_MATERIALS[id];
+	const m = WALL_MATERIALS[id] ?? customMaterials.find((material) => material.id === id);
 	return m ? m.dbPerMeter[band] * m.typicalThickness : 3;
 }
 
@@ -165,7 +191,17 @@ export function getFlatAttenuation(id: WallMaterialId, band: Band = DEFAULT_BAND
  * convention. See the march's doc comment in `rf/propagation.ts` for the measurements.
  */
 export function getMaterialDbTable(band: Band = DEFAULT_BAND): number[] {
-	return WALL_MATERIALS.map((m) => m.dbPerMeter[band] * m.typicalThickness);
+	const table = wallMaterialTable();
+	const out: number[] = [];
+	// Indexed by id, so a custom material's row lands where a painted mask pixel points —
+	// gaps are zeros, which is also what an unknown id should cost.
+	for (const material of table) {
+		if (material.id >= 0 && material.id < 256) {
+			out[material.id] = material.dbPerMeter[band] * material.typicalThickness;
+		}
+	}
+	for (let i = 0; i < out.length; i++) if (out[i] === undefined) out[i] = 0;
+	return out;
 }
 
 export function getMaterialByName(name: string): WallMaterial | undefined {

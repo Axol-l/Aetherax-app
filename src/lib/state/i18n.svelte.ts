@@ -48,6 +48,8 @@ const zh: Record<string, string> = {
 	'Auto-detected': '自动识别',
 	'{count} corners · {area} m²': '{count} 个角点 · {area} m²',
 	Notes: '标注',
+	'Custom material': '自定义材质',
+	Add: '添加',
 	'{count} on this floor': '本层 {count} 条',
 	'Click on the plan to place a note. Escape cancels.': '点击图上位置放置标注，Esc 取消。',
 	'What should a reader know about this spot?': '这个位置有什么需要读者知道的？',

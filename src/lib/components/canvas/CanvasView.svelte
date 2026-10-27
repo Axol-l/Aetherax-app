@@ -73,7 +73,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import { importFloorplanFile } from '$canvas/import-floorplan.js';
 	import { labelWallBlobs, relabelBlob, labelRooms, fillRegion, encodeMaterialMask, decodeMaterialMask } from '$canvas/region-labels.js';
 	import type { RegionLabels } from '$canvas/region-labels.js';
-	import { WALL_MATERIALS, type WallMaterialId } from '$canvas/materials.js';
+	import { WALL_MATERIALS, registerCustomMaterials, type WallMaterialId } from '$canvas/materials.js';
 	import {
 		floorState,
 		currentFloor,
@@ -2573,6 +2573,31 @@ import { wallState } from '$state/wall-state.svelte.js';
 		}
 		processPointerDown(e);
 	}
+
+	/**
+	 * Register the project's custom wall materials with the material table.
+	 *
+	 * One place hands the user's materials to the lookups the renderer, the march and the
+	 * solver use — and the same list travels in the optimiser's payload so the worker
+	 * registers its own copy. Without this a wall painted with a custom material would be
+	 * charged the built-in fallback figure.
+	 */
+	$effect(() => {
+		registerCustomMaterials(
+			projectMeta.customMaterials.map((material) => ({
+				id: material.id as WallMaterialId,
+				name: material.name,
+				dbPerMeter: {
+					'2.4ghz': material.dbPerCrossing / Math.max(0.01, material.thicknessM),
+					'5ghz': material.dbPerCrossing / Math.max(0.01, material.thicknessM),
+					'6ghz': material.dbPerCrossing / Math.max(0.01, material.thicknessM)
+				},
+				typicalThickness: material.thicknessM,
+				color: material.color
+			}))
+		);
+		engine.markDirty();
+	});
 
 	/**
 	 * The notes on this floor, and which is hovered or selected.

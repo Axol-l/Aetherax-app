@@ -101,6 +101,17 @@ interface SavedStateV2 {
 	coverageFloorEveryFloor?: boolean;
 	/** ITU-R P.1238 environment the distance term assumes. Default: closed plan. */
 	pathLossScenario?: PathLossScenario;
+	/**
+	 * Wall materials the user added. Absent on projects saved before materials were
+	 * customisable, which reads as none.
+	 */
+	customMaterials?: Array<{
+		id: number;
+		name: string;
+		dbPerCrossing: number;
+		thicknessM: number;
+		color: [number, number, number];
+	}>;
 	wallMask?: {
 		dataUrl: string;
 		width: number;
@@ -208,6 +219,17 @@ interface SavedStateV3 {
 	coverageFloorEveryFloor?: boolean;
 	/** ITU-R P.1238 environment the distance term assumes. Default: closed plan. */
 	pathLossScenario?: PathLossScenario;
+	/**
+	 * Wall materials the user added. Absent on projects saved before materials were
+	 * customisable, which reads as none.
+	 */
+	customMaterials?: Array<{
+		id: number;
+		name: string;
+		dbPerCrossing: number;
+		thicknessM: number;
+		color: [number, number, number];
+	}>;
 	/**
 	 * Ignored, and no longer written.
 	 *
@@ -330,6 +352,9 @@ async function saveToStorage(): Promise<void> {
 			coverageFloorPct: projectMeta.coverageFloorPct,
 			coverageFloorEveryFloor: projectMeta.coverageFloorEveryFloor,
 			pathLossScenario: projectMeta.pathLossScenario,
+			// The user's own wall materials: part of how this plan was planned, so they travel
+			// with the project rather than with the machine.
+			customMaterials: JSON.parse(JSON.stringify(projectMeta.customMaterials)),
 			// Only floors that still exist: a deleted floor's figure would otherwise come
 			// back as a phantom in the building mean.
 			floorCoverage: Object.fromEntries(
@@ -550,6 +575,11 @@ export async function restoreFromStorage(): Promise<boolean> {
 		projectMeta.coverageFloorPct = data.coverageFloorPct ?? 0;
 		projectMeta.coverageFloorEveryFloor = data.coverageFloorEveryFloor ?? false;
 		projectMeta.pathLossScenario = data.pathLossScenario ?? DEFAULT_PATH_LOSS_SCENARIO;
+		// Restored before the floors, so a wall painted with one of these is read back with
+		// the material it was painted with.
+		projectMeta.customMaterials = Array.isArray((data as any).customMaterials)
+			? (data as any).customMaterials
+			: [];
 		floorCoverageState.clear();
 		for (const [id, entry] of Object.entries(data.floorCoverage ?? {})) {
 			if (!data.floors.some((f) => f.id === id)) continue;

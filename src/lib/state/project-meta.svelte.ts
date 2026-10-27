@@ -109,5 +109,17 @@ export const projectMeta = $state({
 	 * Changing it moves association ranges, AP radii, coverage and every reported
 	 * figure, so it is saved with the project and printed with every run.
 	 */
-	pathLossScenario: DEFAULT_PATH_LOSS_SCENARIO as PathLossScenario
+	pathLossScenario: DEFAULT_PATH_LOSS_SCENARIO as PathLossScenario,
+	/**
+	 * Wall materials the user added: a lead-lined door, a warehouse shelf, a glazed screen
+	 * with a datasheet figure. Stored with the project, because a material is part of how
+	 * this plan was planned rather than a preference of whoever drew it.
+	 */
+	customMaterials: [] as Array<{
+		id: number;
+		name: string;
+		dbPerCrossing: number;
+		thicknessM: number;
+		color: [number, number, number];
+	}>
 });

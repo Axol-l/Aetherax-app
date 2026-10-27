@@ -43,6 +43,7 @@ import { makeOverlapLookup } from '../rf/channel-overlap.js';
 import {
 	getMaterialDbTable,
 	isVirtualMaterial,
+	registerCustomMaterials,
 	type WallMaterialId
 } from '../canvas/materials.js';
 import {
@@ -340,6 +341,20 @@ interface OptimizeMessage {
 	 * the inferred-interior path every plan used before the polygon existed.
 	 */
 	planningArea?: Array<{ x: number; y: number }> | null;
+	/**
+	 * The user's custom wall materials.
+	 *
+	 * Registered at the start of every run — the worker is long-lived and serves whatever
+	 * project is loaded — so a wall painted with one of them is charged the figure the user
+	 * typed instead of the built-in fallback.
+	 */
+	customMaterials?: Array<{
+		id: number;
+		name: string;
+		dbPerMeter: Record<string, number>;
+		typicalThickness: number;
+		color: [number, number, number];
+	}>;
 	/**
 	 * The protocol version the message was built against. See `optimizer-protocol.ts`.
 	 *
@@ -2013,6 +2028,18 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 	// One coefficient per run, selected before anything is evaluated: every propagation
 	// function in this realm reads it. See `setPathLossScenario`.
 	setPathLossScenario(msg.pathLossScenario ?? DEFAULT_PATH_LOSS_SCENARIO);
+
+	// The user's materials, before anything is scored: the wall march reads the table through
+	// `getMaterialDbTable`, and a custom id would otherwise fall back to the built-in figure.
+	registerCustomMaterials(
+		(msg.customMaterials ?? []).map((material) => ({
+			id: material.id as WallMaterialId,
+			name: material.name,
+			dbPerMeter: material.dbPerMeter as Record<Band, number>,
+			typicalThickness: material.typicalThickness,
+			color: material.color
+		}))
+	);
 
 	// maxDim 400 matches the resolution the real-time coverage cache and the
 	// canvas use. At 200 the interior boundary was quantised twice as coarsely

@@ -283,6 +283,20 @@ export class OptimizerBridge {
 			 */
 			planningArea?: Array<{ x: number; y: number }> | null;
 			/**
+			 * The user's custom wall materials, in the table's own shape.
+			 *
+			 * The worker registers them before it scores anything, so a wall painted with one
+			 * costs the figure the user typed rather than the built-in fallback. Sent every
+			 * run rather than cached, because the same worker instance serves several projects.
+			 */
+			customMaterials?: Array<{
+				id: number;
+				name: string;
+				dbPerMeter: Record<string, number>;
+				typicalThickness: number;
+				color: [number, number, number];
+			}>;
+			/**
 			 * ε-constraint (F3): the covered share the result must reach, as a 0-1
 			 * fraction. Zero is no constraint.
 			 */
@@ -365,6 +379,7 @@ export class OptimizerBridge {
 				wallBandWu: options?.wallBandWu,
 				minRoomRadiusWu: options?.minRoomRadiusWu,
 				planningArea: options?.planningArea ?? null,
+				customMaterials: options?.customMaterials ?? [],
 				// The payload shape this bridge builds. See `optimizer-protocol.ts`: the
 				// worker checks it when present, so a bundle left in a browser cache while
 				// the app around it moved on fails loudly instead of scoring a different
