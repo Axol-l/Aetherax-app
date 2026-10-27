@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { getFlatAttenuation, type WallMaterialId } from '$canvas/materials.js';
 	import CanvasPopup from './CanvasPopup.svelte';
+	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
 	import { projectMeta } from '$state/project-meta.svelte';
 	import { nextCustomMaterialId, allWallMaterials, CUSTOM_MATERIAL_ID_BASE } from '$state/custom-materials.js';
@@ -118,8 +119,10 @@
 					class="custom-delete"
 					title={t('Delete material')}
 					aria-label={t('Delete material')}
-					onclick={() => removeCustom(mat.id)}>×</button
+					onclick={() => removeCustom(mat.id)}
 				>
+					<Icon name="trash" size={12} />
+				</button>
 			{/if}
 		</div>
 	{/each}
@@ -208,6 +211,43 @@
 
 	.mat-name {
 		flex: 1;
+	}
+
+	/* A row and its delete affordance on one line: the × used to sit under the row in a
+	   browser-default button box, which looked like a bug rather than a control. */
+	.material-line {
+		display: flex;
+		align-items: center;
+		gap: 2px;
+	}
+
+	.material-line .material-row {
+		flex: 1 1 auto;
+		min-width: 0;
+	}
+
+	.custom-delete {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		padding: 0;
+		color: var(--text-tertiary);
+		background: none;
+		border: none;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		opacity: 0.55;
+	}
+
+	.material-line:hover .custom-delete {
+		opacity: 1;
+	}
+
+	.custom-delete:hover {
+		color: var(--color-warning, #ffb800);
+		background: var(--bg-surface);
 	}
 
 	.mat-db {
