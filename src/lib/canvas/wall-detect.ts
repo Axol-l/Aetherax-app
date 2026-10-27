@@ -1,5 +1,5 @@
 import { createWorker, type Worker } from 'tesseract.js';
-import { computeBuildingInterior } from './morphology.js';
+import { computeBuildingInterior, dilateMask, erodeMask } from './morphology.js';
 
 export interface WallMask {
 	dataUrl: string;
@@ -152,11 +152,27 @@ export async function detectWalls(
 		if (flippedPixels < wallPixels) binary = flipped;
 	}
 
-	// Step 3: Remove small disconnected blobs (noise, dots, thin text remnants)
+	// Step 3: Fill the cavity inside a drawn wall.
+	//
+	// A wall on a printed plan is usually two strokes with a hatch or a lighter fill
+	// between them, and the threshold keeps the strokes: what comes out is a **hollow**
+	// outline — two thin lines with floor-coloured paper between them. The mask then looks
+	// like a thin frame, and the interior test sees the inner stroke as an outer wall.
+	//
+	// A morphological close bridges a gap up to twice the radius, so it fills the cavity
+	// between a wall's two strokes and leaves a room (hundreds of pixels across) untouched.
+	// The radius scales with the sheet, and is capped both ways: too small leaves wide
+	// poché hollow, too large starts eating narrow corridors.
+	const closeRadius = Math.max(2, Math.min(6, Math.round(Math.min(w, h) * 0.004)));
+	// `oob: 'solid'`: a wall that runs off the sheet edge is still a wall, so the erosion
+	// must not shave the border ring off it.
+	binary = erodeMask(dilateMask(binary, w, h, closeRadius), w, h, closeRadius, 'solid');
+
+	// Step 4: Remove small disconnected blobs (noise, dots, thin text remnants)
 	const minBlobPx = Math.max(30, Math.round(w * h * 0.0003));
 	filterSmallBlobs(binary, w, h, minBlobPx);
 
-	// Step 4: Remove blobs outside the building exterior
+	// Step 5: Remove blobs outside the building exterior
 	removeExteriorBlobs(binary, w, h);
 
 	let wallCount = 0;

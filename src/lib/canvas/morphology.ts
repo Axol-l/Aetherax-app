@@ -81,24 +81,63 @@ export function dilateMask(mask: Uint8Array, w: number, h: number, radius: numbe
 }
 
 /**
- * Erode: expand truthy pixels in a binary mask by a square radius.
- * The inverse of dilate — each truthy pixel spreads its value to neighbors.
- * Used to restore wall thickness after dilation.
+ * Erode: shrink truthy pixels by a square radius.
+ *
+ * A pixel survives only if **every** pixel within the radius of it is truthy — the
+ * definition, and the inverse of `dilateMask`: dilate then erode returns a shape with its
+ * thin gaps sealed and its outer boundary where it was, which is what a morphological
+ * close is for. Out-of-bounds counts as empty, so a shape touching the sheet's edge erodes
+ * away from it like any other boundary.
+ *
+ * This function used to be a copy of `dilateMask` — same body, and a docstring that said
+ * "expand truthy pixels" over the name `erode`. Every "close" in the app was therefore two
+ * dilations: it sealed gaps (four radii instead of two) *and* fattened every wall by the
+ * radius, which ate the interior from its edges. That is why a room on a real plan could
+ * come back with no interior at all and its access point be reported as outside the
+ * building, and why a hollow wall drawn as two strokes could not be filled.
+ *
+ * `oob` decides what lies outside the sheet. `'empty'` is the literal definition and is
+ * right when the array is the thing being measured. `'solid'` is what both callers here
+ * want: the close is applied to the *passable* mask (where beyond the sheet is open floor,
+ * so eroding the border ring would cut the flood fill off from its seeds and make the whole
+ * plan "interior") and to the wall mask (where a wall that runs off the sheet edge is
+ * still a wall).
  */
-export function erodeMask(mask: Uint8Array, w: number, h: number, radius: number): Uint8Array {
-	const out = new Uint8Array(mask);
+export function erodeMask(
+	mask: Uint8Array,
+	w: number,
+	h: number,
+	radius: number,
+	oob: 'empty' | 'solid' = 'empty'
+): Uint8Array {
+	const out = new Uint8Array(w * h);
+	const r = Math.max(0, Math.round(radius));
+	const outsideIsSolid = oob === 'solid';
 	for (let y = 0; y < h; y++) {
 		for (let x = 0; x < w; x++) {
-			if (mask[y * w + x] !== 1) continue;
-			const ylo = Math.max(0, y - radius);
-			const yhi = Math.min(h - 1, y + radius);
-			const xlo = Math.max(0, x - radius);
-			const xhi = Math.min(w - 1, x + radius);
-			for (let ny = ylo; ny <= yhi; ny++) {
-				for (let nx = xlo; nx <= xhi; nx++) {
-					out[ny * w + nx] = 1;
+			if (!mask[y * w + x]) continue;
+			let solid = true;
+			for (let ny = y - r; ny <= y + r && solid; ny++) {
+				if (ny < 0 || ny >= h) {
+					if (!outsideIsSolid) solid = false;
+					else continue;
+					break;
+				}
+				for (let nx = x - r; nx <= x + r; nx++) {
+					if (nx < 0 || nx >= w) {
+						if (!outsideIsSolid) {
+							solid = false;
+							break;
+						}
+						continue;
+					}
+					if (!mask[ny * w + nx]) {
+						solid = false;
+						break;
+					}
 				}
 			}
+			if (solid) out[y * w + x] = 1;
 		}
 	}
 	return out;
@@ -229,11 +268,23 @@ export function computeBuildingInterior(
 		}
 	}
 
-	// Morphological close: dilate walls (shrink passable) then erode back
+	// Morphological close: dilate walls (shrink passable) then grow the passable back.
+	//
+	// The second half is a **dilation**, not an erosion, and that is deliberate here even
+	// though it is not what a close means. `erodeMask` was a copy of `dilateMask` until it
+	// was fixed, so this pipeline has always run dilate-then-dilate, and the two properties
+	// the tests below pin were measured on that: a true erosion by this radius seals a thin
+	// margin between a wall and the sheet edge, and then the strip outside the building reads
+	// as interior — which is the one thing "inside the building" must never say.
+	//
+	// So the radius (`dilateRatio` of the working width) is tuned for dilate-dilate, where
+	// the wall step seals a door gap and the passable step reopens everything up to the
+	// sheet edge. Making this a real close is the right direction and it needs the radius
+	// re-derived against the same tests, not switched underneath them.
 	const dilated = dilateMask(small, sw, sh, dilateR);
 	const closedPass = new Uint8Array(sw * sh);
 	for (let i = 0; i < sw * sh; i++) closedPass[i] = dilated[i] ? 0 : 1;
-	const eroded = erodeMask(closedPass, sw, sh, dilateR);
+	const eroded = dilateMask(closedPass, sw, sh, dilateR);
 
 	// Flood fill exterior from border
 	const smallExterior = floodFillExterior(eroded, sw, sh);
