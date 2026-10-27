@@ -14,6 +14,8 @@
 	import { FLOOR_MATERIALS } from '$canvas/floor-materials.js';
 	import Select from '$components/shared/Select.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
+	import { setCalibrateMode } from '$state/app.svelte';
+	import { wupmFromSegment } from '$state/calibrate.js';
 
 	let confirmOpen = $state(false);
 	let confirmMessage = $state('');
@@ -173,6 +175,9 @@
 	 * parsed number round-tripped through the display formatter would eat the dot.
 	 */
 	let areaInput = $state('');
+	/** The stated real length of the line the user measured, in the toolbar's unit. */
+	let measureInput = $state('');
+	let measureError = $state<string | null>(null);
 	let areaInputUnit = $state<AreaUnit>(areaUnitFor(floorplanState.unitSystem));
 
 	/**
@@ -478,23 +483,17 @@
 		if (window.innerWidth < 768) appState.sidebarOpen = false;
 	}
 
-	function applyCalibration() {
-		// The field is in whatever unit the toolbar selects; the model is metric.
-		const realAreaSqm = areaInputSqm();
-		if (!realAreaSqm) return;
-
-		// Use detected area if available, otherwise compute from wall mask bounding box
-		let worldArea = detectedWorldArea;
-		if (!worldArea && wallState.wallMask) {
-			const { width, height } = wallState.wallMask;
-			// Use the mask dimensions as the world area (pixels squared)
-			worldArea = width * height;
-		}
-		if (!worldArea) return;
-
-		const worldUnitsPerMeter = Math.sqrt(worldArea / realAreaSqm);
+	/**
+	 * Apply a scale to the whole project, keeping the AP radii real.
+	 *
+	 * Shared by the two ways of calibrating — the stated area and the measured line — so a
+	 * recalibration rescales the interference radii the same way whichever route produced
+	 * the number. One scale for the whole project: every floor is drawn at the same scale
+	 * in a real building, and a per-floor calibration would make two storeys disagree
+	 * about how big a metre is.
+	 */
+	function applyScale(worldUnitsPerMeter: number): void {
 		const oldCalibration = floorplanState.calibration;
-		// One scale for the whole project, so every floor is calibrated at once.
 		setProjectCalibration({ worldUnitsPerMeter });
 		floorplanState.calibration = { worldUnitsPerMeter };
 
@@ -516,6 +515,54 @@
 
 		calibrationDone = true;
 		scheduleSave();
+	}
+
+	/**
+	 * Calibrate from the line the user measured on the plan.
+	 *
+	 * Both ends are world coordinates, which are mask pixels, so the length of the segment
+	 * is already a pixel count; dividing by the stated metres gives the scale directly.
+	 * The area route has to trust the detected outline, and this one does not — which is
+	 * the reason it exists.
+	 */
+	function applyMeasuredCalibration() {
+		const [a, b] = appState.calibrationPoints;
+		if (!a || !b) return;
+		const typed = parseFloat(measureInput);
+		if (!Number.isFinite(typed) || typed <= 0) return;
+		const metres = unitToMetres(typed, lengthDisplayUnit);
+		const wupm = wupmFromSegment({ a, b }, metres);
+		if (!wupm) {
+			measureError = t('That line has no length — click two different points.');
+			return;
+		}
+		pushState();
+		measureError = null;
+		applyScale(wupm);
+		measureInput = '';
+		setCalibrateMode(false);
+	}
+
+	function cancelMeasuredCalibration() {
+		measureError = null;
+		setCalibrateMode(false);
+	}
+
+	function applyCalibration() {
+		// The field is in whatever unit the toolbar selects; the model is metric.
+		const realAreaSqm = areaInputSqm();
+		if (!realAreaSqm) return;
+
+		// Use detected area if available, otherwise compute from wall mask bounding box
+		let worldArea = detectedWorldArea;
+		if (!worldArea && wallState.wallMask) {
+			const { width, height } = wallState.wallMask;
+			// Use the mask dimensions as the world area (pixels squared)
+			worldArea = width * height;
+		}
+		if (!worldArea) return;
+
+		applyScale(Math.sqrt(worldArea / realAreaSqm));
 	}
 
 	function skipCalibration() {
@@ -759,38 +806,91 @@
 				</div>
 			{:else if (detectedWorldArea || wallState.wallMask) && !calibrationDone}
 				<div class="calibration-section">
-					<span class="calibration-label">{t('What is the total area of the floorplan?')}</span>
-					<div class="calibration-input-row">
-						<input
-							type="number"
-							class="area-input"
-							placeholder={t('e.g. 200')}
-							bind:value={areaInput}
-							onkeydown={handleAreaKeydown}
-							min="1"
-							step="any"
-						/>
+					{#if appState.calibrateMode}
 						<!--
-							The unit is a readout, not a control: it follows the
-							toolbar's ft/m button and converts what is already typed.
-							A button here would be a second, independent answer to
-							"which units is this project in" — and the one place it
-							would disagree with the toolbar is the field that sets the
-							scale of everything else.
+							Measuring instead of stating an area.
+
+							The area route divides the stated area into the outline the detector
+							found, so it is only as good as that outline and says nothing about
+							whether the drawing is square. This asks for something the user can
+							read off the plan itself — click the two ends of a wall they know the
+							length of — which also works when the outline is open or the plan is a
+							detail of one room.
 						-->
-						<span
-							class="unit-toggle"
-							title={t('Set by the ft/m switch in the toolbar, which converts what is already typed.')}
-							>{areaUnit}</span
-						>
-						<button class="apply-btn" onclick={applyCalibration}>{t('Apply')}</button>
-					</div>
-					<button class="skip-link" onclick={skipCalibration}>{t('Skip')}</button>
+						<span class="calibration-label">{t('Click the two ends of a distance you know')}</span>
+						<span class="measure-hint">
+							{appState.calibrationPoints.length === 0
+								? t('First point: click on the plan.')
+								: appState.calibrationPoints.length === 1
+									? t('Second point: click the other end.')
+									: t('Now type the real length of that line.')}
+						</span>
+						{#if appState.calibrationPoints.length >= 2}
+							<div class="calibration-input-row">
+								<input
+									type="number"
+									class="area-input"
+									placeholder={t('e.g. 12')}
+									bind:value={measureInput}
+									onkeydown={(e) => { if (e.key === 'Enter') applyMeasuredCalibration(); }}
+									min="0.1"
+									step="any"
+								/>
+								<span
+									class="unit-toggle"
+									title={t('Set by the ft/m switch in the toolbar.')}>{lengthDisplayUnit}</span
+								>
+								<button class="apply-btn" onclick={applyMeasuredCalibration}>{t('Apply')}</button>
+							</div>
+							{#if measureError}
+								<span class="measure-error">{measureError}</span>
+							{/if}
+						{/if}
+						<button class="skip-link" onclick={cancelMeasuredCalibration}>{t('Cancel')}</button>
+					{:else}
+						<span class="calibration-label">{t('What is the total area of the floorplan?')}</span>
+						<div class="calibration-input-row">
+							<input
+								type="number"
+								class="area-input"
+								placeholder={t('e.g. 200')}
+								bind:value={areaInput}
+								onkeydown={handleAreaKeydown}
+								min="1"
+								step="any"
+							/>
+							<!--
+								The unit is a readout, not a control: it follows the
+								toolbar's ft/m button and converts what is already typed.
+								A button here would be a second, independent answer to
+								"which units is this project in" — and the one place it
+								would disagree with the toolbar is the field that sets the
+								scale of everything else.
+							-->
+							<span
+								class="unit-toggle"
+								title={t('Set by the ft/m switch in the toolbar, which converts what is already typed.')}
+								>{areaUnit}</span
+							>
+							<button class="apply-btn" onclick={applyCalibration}>{t('Apply')}</button>
+						</div>
+						<div class="calibration-alternatives">
+							<button class="skip-link" onclick={skipCalibration}>{t('Skip')}</button>
+							<button class="skip-link" onclick={() => { measureError = null; setCalibrateMode(true); }}>
+								{t('or measure a distance on the plan')}
+							</button>
+						</div>
+					{/if}
 				</div>
 			{:else if scaleDisplay}
 				<div class="calibration-section">
 					<span class="calibration-confirmed">{t('Scale:')} {scaleDisplay}</span>
-					<button class="skip-link" onclick={() => { calibrationDone = false; }}>{t('Recalibrate')}</button>
+					<div class="calibration-alternatives">
+						<button class="skip-link" onclick={() => { calibrationDone = false; }}>{t('Recalibrate')}</button>
+						<button class="skip-link" onclick={() => { measureError = null; setCalibrateMode(true); }}>
+							{t('or measure a distance instead')}
+						</button>
+					</div>
 				</div>
 			{/if}
 
@@ -1244,6 +1344,23 @@
 
 	.apply-btn:hover {
 		opacity: 0.9;
+	}
+
+	/* The two calibration routes side by side: state an area, or measure a line. */
+	.calibration-alternatives {
+		display: flex;
+		gap: var(--space-3);
+		flex-wrap: wrap;
+	}
+
+	.measure-hint {
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+	}
+
+	.measure-error {
+		font-size: var(--text-xs);
+		color: var(--color-warning, #ffb800);
 	}
 
 	.apply-btn:focus-visible {

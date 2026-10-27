@@ -19,6 +19,7 @@
 	import { SelectHandler } from '$canvas/interactions/select.js';
 	import { SelectionRectLayer } from '$canvas/renderers/selection-rect.js';
 	import { ReviewHighlightLayer } from '$canvas/renderers/review-highlight.js';
+	import { CalibrationLineLayer } from '$canvas/renderers/calibration-line.js';
 	import { ShapePreviewLayer } from '$canvas/renderers/shape-preview.js';
 	import { ReferenceFloorLayer } from '$canvas/renderers/reference-floor.js';
 	import { FloorTilesLayer } from '$canvas/renderers/floor-tiles.js';
@@ -47,6 +48,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		appState,
 		setFloorAlignMode,
 		setApPlaceMode,
+		setCalibrateMode,
+		addCalibrationPoint,
 		STACK_YAW_LIMIT_DEG,
 		STACK_MIN_PITCH_DEG,
 		STACK_MAX_PITCH_DEG
@@ -545,6 +548,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let heatmapLayer: HeatmapLayer;
 	let selectionRectLayer: SelectionRectLayer;
 	let reviewHighlightLayer: ReviewHighlightLayer;
+	let calibrationLineLayer: CalibrationLineLayer;
 	let shapePreviewLayer: ShapePreviewLayer;
 	let referenceFloorLayer: ReferenceFloorLayer;
 	let floorTilesLayer: FloorTilesLayer;
@@ -583,6 +587,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// pointer movement in between, so forward it to the handler directly.
 		if (!isInput && e.key === 'Shift' && wallEditHandler) {
 			wallEditHandler.setShift(true);
+		}
+
+		if (!isInput && e.key === 'Escape' && appState.calibrateMode) {
+			// The measured line belongs to the mode, so leaving the mode drops it; the
+			// sidebar keeps the typed distance but not a line to apply it to.
+			setCalibrateMode(false);
+			return;
 		}
 
 		if (!isInput && e.key === 'Escape' && appState.floorAlignMode) {
@@ -711,6 +722,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// Above everything, including the shape preview: it answers a question about the
 		// mask underneath it and has to stay legible while the user edits walls.
 		engine.addLayer(reviewHighlightLayer);
+		// The measured calibration line, over the plan it measures.
+		calibrationLineLayer = new CalibrationLineLayer();
+		engine.addLayer(calibrationLineLayer);
 		engine.addLayer(shapePreviewLayer);
 
 		// Create interaction handlers
@@ -924,6 +938,21 @@ import { wallState } from '$state/wall-state.svelte.js';
 		if (!reviewHighlightLayer) return;
 		reviewHighlightLayer.box =
 			appState.floorView === 'single' ? canvasState.reviewHighlight : null;
+		engine.markDirty();
+	});
+
+	/**
+	 * The calibration points, as the line they describe.
+	 *
+	 * Only in the single-floor view: the points are world coordinates on the floor being
+	 * calibrated, and the overviews draw every storey at once.
+	 */
+	$effect(() => {
+		if (!calibrationLineLayer) return;
+		const points = appState.calibrationPoints;
+		const visible = appState.floorView === 'single';
+		calibrationLineLayer.a = visible && points[0] ? points[0] : null;
+		calibrationLineLayer.b = visible && points[1] ? points[1] : null;
 		engine.markDirty();
 	});
 
@@ -2396,6 +2425,19 @@ import { wallState } from '$state/wall-state.svelte.js';
 			orbitYaw = appState.stackYaw;
 			orbitPitch = appState.stackPitch;
 			orbitMoved = false;
+			return;
+		}
+		// Calibrating by measurement intercepts the primary click, before placement and
+		// before selection: while the mode is on, a click is a point of the measured line
+		// and nothing else.
+		if (appState.calibrateMode) {
+			const world = engine.camera.screenToWorld({
+				x: e.clientX - engine.canvas.getBoundingClientRect().left,
+				y: e.clientY - engine.canvas.getBoundingClientRect().top
+			});
+			addCalibrationPoint({ x: world.x, y: world.y });
+			engine.markDirty();
+			e.preventDefault();
 			return;
 		}
 		// Align mode intercepts the primary pointer. PanZoomHandler only pans on

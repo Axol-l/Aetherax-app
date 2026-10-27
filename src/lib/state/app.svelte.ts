@@ -66,6 +66,10 @@ export const appState = $state({
 	 * selecting. Used to bring one floor onto another.
 	 */
 	floorAlignMode: false,
+	/** Picking two points on the plan to calibrate the scale from a measured line. */
+	calibrateMode: false,
+	/** The clicks collected so far while calibrating, in world coordinates. */
+	calibrationPoints: [] as Array<{ x: number; y: number }>,
 	/**
 	 * A click on empty canvas adds an access point.
 	 *
@@ -150,4 +154,38 @@ export function setApPlaceMode(on: boolean): void {
 	if (appState.apPlaceMode === on) return;
 	appState.apPlaceMode = on;
 	if (on) setFloorAlignMode(false);
+}
+
+/**
+ * Calibrating by measuring a line on the plan.
+ *
+ * The area route asks for the floorplan's total area and divides it into the outline the
+ * detector found, which is only as good as that outline. Measuring asks something the user
+ * can read off the drawing — this wall is twelve metres — and works on a plan whose
+ * outline is open or which is a detail of one room.
+ *
+ * The mode owns the same bare-canvas click that placement mode does, so it is exclusive
+ * with both other modes; the points live here rather than in the panel because the canvas
+ * is what collects them and the panel is what consumes them.
+ */
+export function setCalibrateMode(on: boolean): void {
+	if (appState.calibrateMode === on) return;
+	appState.calibrateMode = on;
+	appState.calibrationPoints = [];
+	if (on) {
+		setApPlaceMode(false);
+		setFloorAlignMode(false);
+	}
+}
+
+/**
+ * Record a click while calibrating: the first point, then the second.
+ *
+ * A third click starts over rather than being ignored — the user's second point is
+ * usually the one they got wrong, and having to leave the mode to correct it is worse than
+ * losing the first point.
+ */
+export function addCalibrationPoint(point: { x: number; y: number }): void {
+	if (appState.calibrationPoints.length >= 2) appState.calibrationPoints = [point];
+	else appState.calibrationPoints = [...appState.calibrationPoints, point];
 }
