@@ -3,7 +3,7 @@
 	import CanvasPopup from './CanvasPopup.svelte';
 	import { t } from '$state/i18n.svelte';
 	import { projectMeta } from '$state/project-meta.svelte';
-	import { nextCustomMaterialId, allWallMaterials } from '$state/custom-materials.js';
+	import { nextCustomMaterialId, allWallMaterials, CUSTOM_MATERIAL_ID_BASE } from '$state/custom-materials.js';
 	import { scheduleSave } from '$state/persistence.svelte.js';
 
 	let {
@@ -75,51 +75,88 @@
 		customName = '';
 		handleSelect(id as WallMaterialId);
 	}
+
+	/**
+	 * Delete one of the user's materials.
+	 *
+	 * Walls already painted with it stay painted and keep a real figure: the table answers an
+	 * id it no longer knows with the plain-drywall cost, rather than with nothing, so a
+	 * deletion cannot quietly make part of a plan transparent.
+	 */
+	function removeCustom(id: number) {
+		projectMeta.customMaterials = projectMeta.customMaterials.filter(
+			(material) => material.id !== id
+		);
+		scheduleSave();
+	}
 </script>
 
 <CanvasPopup {x} {y} {maxY} {onclose} minWidth={150} maxWidth={180}>
 	{#each materials as mat (mat.id)}
 		{@const db = Number(getFlatAttenuation(mat.id).toFixed(1))}
-		<button
-			class="material-row"
-			class:active={mat.id === currentMaterial}
-			onclick={() => handleSelect(mat.id)}
-		>
-			<span
-				class="swatch"
-				style="background: rgb({mat.color[0]},{mat.color[1]},{mat.color[2]})"
-			></span>
-			<span class="mat-name">{t(mat.name)}</span>
-			<span class="mat-db">{db} dB</span>
-		</button>
+		{@const custom = mat.id >= CUSTOM_MATERIAL_ID_BASE}
+		<div class="material-line">
+			<button
+				class="material-row"
+				class:active={mat.id === currentMaterial}
+				onclick={() => handleSelect(mat.id)}
+			>
+				<span
+					class="swatch"
+					style="background: rgb({mat.color[0]},{mat.color[1]},{mat.color[2]})"
+				></span>
+				<span class="mat-name">{t(mat.name)}</span>
+				<span class="mat-db">{db} dB</span>
+			</button>
+			{#if custom}
+				<!--
+					Deleting one of the user's own. Walls painted with it are left painted: the
+					material table answers an id it no longer knows with the plain-drywall figure,
+					so those walls keep a real attenuation instead of becoming transparent.
+				-->
+				<button
+					class="custom-delete"
+					title={t('Delete material')}
+					aria-label={t('Delete material')}
+					onclick={() => removeCustom(mat.id)}>×</button
+				>
+			{/if}
+		</div>
 	{/each}
 
 	{#if customOpen}
 		<!--
-			A material the table does not have. Asked for the figure a datasheet states — the
-			loss of one crossing at a stated thickness — because that is what a user can look
-			up; the per-metre figure the model charges is derived from it.
+			A material the table does not have. Two labelled fields rather than two bare boxes:
+			"4" and "0.045" mean nothing without knowing that one is decibels and the other is
+			metres, and the placeholder disappears the moment the field is filled.
 		-->
 		<div class="custom-form">
-			<input class="custom-input" placeholder={t('Name')} bind:value={customName} />
-			<div class="custom-row">
+			<label class="custom-field">
+				<span class="custom-label">{t('Name')}</span>
+				<input class="custom-input" placeholder={t('e.g. Lead-lined door')} bind:value={customName} />
+			</label>
+			<label class="custom-field">
+				<span class="custom-label">{t('Loss per crossing')}</span>
 				<input
-					class="custom-input small"
+					class="custom-input"
 					type="number"
 					step="0.1"
 					min="0"
-					placeholder="dB"
 					bind:value={customDb}
 				/>
+				<span class="custom-unit">dB</span>
+			</label>
+			<label class="custom-field">
+				<span class="custom-label">{t('Thickness')}</span>
 				<input
-					class="custom-input small"
+					class="custom-input"
 					type="number"
 					step="0.01"
 					min="0.01"
-					placeholder="m"
 					bind:value={customThickness}
 				/>
-			</div>
+				<span class="custom-unit">m</span>
+			</label>
 			<div class="custom-actions">
 				<button class="custom-add" onclick={addCustom}>{t('Add')}</button>
 				<button class="custom-cancel" onclick={() => (customOpen = false)}>{t('Cancel')}</button>
@@ -188,9 +225,22 @@
 		border-top: 1px solid var(--border-subtle);
 	}
 
-	.custom-row {
+	.custom-field {
 		display: flex;
+		align-items: center;
 		gap: var(--space-1);
+	}
+
+	.custom-label {
+		flex: 0 0 44%;
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+	}
+
+	.custom-unit {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
 	}
 
 	.custom-input {
@@ -202,10 +252,6 @@
 		background: var(--bg-surface);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-sm);
-	}
-
-	.custom-input.small {
-		flex: 0 0 46%;
 	}
 
 	.custom-actions {

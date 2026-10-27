@@ -1,6 +1,8 @@
 <script lang="ts">
 	import { appState } from '$state/app.svelte';
-	import { WALL_MATERIALS, type WallMaterialId } from '$canvas/materials.js';
+	import { getMaterial, isVirtualMaterial, type WallMaterialId } from '$canvas/materials.js';
+	import { projectMeta } from '$state/project-meta.svelte';
+	import { allWallMaterials } from '$state/custom-materials.js';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
 
@@ -15,7 +17,18 @@
 		onclear: () => void;
 	} = $props();
 
-	const mat = $derived(WALL_MATERIALS[activeMaterial] ?? WALL_MATERIALS[0]!);
+	/**
+	 * The materials the paint tool offers: the built-in table plus whatever the user added.
+	 *
+	 * This used to read `WALL_MATERIALS` directly, which is why a custom material could be
+	 * created in the popup and then never appear in the toolbar — the two lists had drifted
+	 * apart the moment one of them learned about customs.
+	 */
+	const materials = $derived(allWallMaterials(projectMeta.customMaterials));
+
+	const mat = $derived(getMaterial(activeMaterial));
+
+	void isVirtualMaterial;
 
 	function setMode(mode: 'erase' | 'draw' | 'line' | 'rect' | 'arc' | 'material') {
 		appState.wallEditMode = mode;
@@ -106,7 +119,7 @@
 	     row belongs to every mode except erase. -->
 	{#if appState.wallEditMode && appState.wallEditMode !== 'erase'}
 		<div class="row-bottom">
-			{#each WALL_MATERIALS as m}
+			{#each materials as m (m.id)}
 				<button
 					class="mat-chip"
 					class:active={activeMaterial === m.id}

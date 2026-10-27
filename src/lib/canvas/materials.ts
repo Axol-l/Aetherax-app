@@ -193,14 +193,16 @@ export function getFlatAttenuation(id: WallMaterialId, band: Band = DEFAULT_BAND
 export function getMaterialDbTable(band: Band = DEFAULT_BAND): number[] {
 	const table = wallMaterialTable();
 	const out: number[] = [];
-	// Indexed by id, so a custom material's row lands where a painted mask pixel points —
-	// gaps are zeros, which is also what an unknown id should cost.
+	// Indexed by id, so a custom material's row lands where a painted mask pixel points.
+	// An id nothing answers for costs what a plain drywall wall costs, not zero: a deleted
+	// material must not make the walls painted with it transparent.
+	const fallback = WALL_MATERIALS[0]!.dbPerMeter[band] * WALL_MATERIALS[0]!.typicalThickness;
 	for (const material of table) {
 		if (material.id >= 0 && material.id < 256) {
 			out[material.id] = material.dbPerMeter[band] * material.typicalThickness;
 		}
 	}
-	for (let i = 0; i < out.length; i++) if (out[i] === undefined) out[i] = 0;
+	for (let i = 0; i < out.length; i++) if (out[i] === undefined) out[i] = fallback;
 	return out;
 }
 
