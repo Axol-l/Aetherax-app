@@ -9,6 +9,8 @@
 	import { floorplanState } from '$state/floorplan-state.svelte';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
+	import { rampCss } from '$canvas/heatmap-ramp.js';
+	import { projectMeta } from '$state/project-meta.svelte';
 
 	let collapsed = $state(typeof window !== 'undefined' && window.innerWidth <= 768);
 
@@ -33,13 +35,24 @@
 		layers.filter((l) => !l.singleViewOnly || appState.floorView === 'single')
 	);
 
-	const legendItems = [
-		{ color: 'rgb(40, 150, 40)', label: 'Excellent' },
-		{ color: 'rgb(100, 180, 80)', label: 'Good' },
-		{ color: 'rgb(210, 190, 30)', label: 'Fair' },
-		{ color: 'rgb(220, 120, 20)', label: 'Poor' },
-		{ color: 'rgb(180, 40, 40)', label: 'Dead' }
-	];
+	/**
+	 * The scale, as the map paints it — in dBm.
+	 *
+	 * Five words ("Excellent … Dead") said how the map felt; the numbers say what it means,
+	 * and a planner reads a survey in dBm. The bar runs from the project's own floor to
+	 * 0 dBm, which is the range the heatmap maps onto the ramp, and each cell is the ramp's
+	 * colour at that position — so the legend cannot drift from the map it describes.
+	 *
+	 * The grey cell at the left is the part the map does not paint at all: below the floor
+	 * there is nothing to show, which is exactly the information "no usable signal" carries.
+	 */
+	const floorDb = $derived(projectMeta.heatmapRssiFloor ?? -85);
+	const legendCells = $derived(
+		Array.from({ length: 24 }, (_, i) => rampCss(i / 23))
+	);
+	const legendTicks = $derived(
+		[0, 0.25, 0.5, 0.75, 1].map((r) => ({ key: r, label: Math.round(floorDb + r * (0 - floorDb)) }))
+	);
 
 	function toggleLayer(key: typeof layers[number]['key']) {
 		appState[key] = !appState[key];
@@ -160,12 +173,23 @@
 			{#if appState.showHeatmap}
 				<div class="legend-divider"></div>
 				<div class="legend">
-					{#each legendItems as item}
-						<div class="legend-row">
-							<span class="legend-swatch" style:background={item.color}></span>
-							<span class="legend-label">{t(item.label)}</span>
-						</div>
-					{/each}
+					<div class="scale-head">
+						<span>{t('Signal strength')}</span>
+						<span class="scale-unit">dBm</span>
+					</div>
+					<div class="scale-bar" role="img" aria-label={t('Signal strength scale in dBm')}>
+						<span
+							class="scale-cell dead"
+							title={t('Below the floor: no usable signal')}></span>
+						{#each legendCells as color, i (i)}
+							<span class="scale-cell" style:background={color}></span>
+						{/each}
+					</div>
+					<div class="scale-ticks">
+						{#each legendTicks as tick (tick.key)}
+							<span>{tick.label}</span>
+						{/each}
+					</div>
 				</div>
 			{/if}
 		</div>
@@ -301,22 +325,55 @@
 		padding: 0 var(--space-1);
 	}
 
-	.legend-row {
+	/*
+	 * The scale bar: a head with the unit, a stepped ramp, and the numbers under it. The
+	 * cells are separated by a hairline rather than blended into a gradient — the same reason
+	 * a printed scale has ticks, it lets the eye read a value off the map instead of only
+	 * ordering two colours.
+	 */
+	.scale-head {
 		display: flex;
-		align-items: center;
-		gap: var(--space-2);
-		height: 18px;
-	}
-
-	.legend-swatch {
-		width: 10px;
-		height: 10px;
-		border-radius: 2px;
-		flex-shrink: 0;
-	}
-
-	.legend-label {
-		color: var(--text-secondary);
+		justify-content: space-between;
+		align-items: baseline;
 		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		margin-bottom: var(--space-1);
+	}
+
+	.scale-unit {
+		font-family: var(--font-mono);
+		color: var(--text-tertiary);
+	}
+
+	.scale-bar {
+		display: flex;
+		gap: 1px;
+		height: 11px;
+		border-radius: 2px;
+		overflow: hidden;
+	}
+
+	.scale-cell {
+		flex: 1 1 0;
+		min-width: 0;
+	}
+
+	/* Below the floor the map paints nothing, so the legend shows nothing to paint. */
+	.scale-cell.dead {
+		flex: 0 0 6%;
+		background: repeating-linear-gradient(
+			45deg,
+			var(--bg-elevated) 0 3px,
+			var(--border-subtle) 3px 4px
+		);
+	}
+
+	.scale-ticks {
+		display: flex;
+		justify-content: space-between;
+		margin-top: 3px;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
 	}
 </style>
