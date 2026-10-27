@@ -389,7 +389,10 @@ async function saveToStorage(): Promise<void> {
 				planningArea: f.planningArea ? JSON.parse(JSON.stringify(f.planningArea)) : null,
 				// Notes are part of the plan's meaning, not its presentation: what the
 				// drawing cannot say about a place on a floor.
-				notes: f.notes ? JSON.parse(JSON.stringify(f.notes)) : []
+				notes: f.notes ? JSON.parse(JSON.stringify(f.notes)) : [],
+				// The vector walls, alongside the raster mask they will eventually replace.
+				walls: f.walls ? JSON.parse(JSON.stringify(f.walls)) : [],
+				columns: f.columns ? JSON.parse(JSON.stringify(f.columns)) : []
 			})),
 			aps: JSON.parse(JSON.stringify(apState.aps))
 		};
@@ -634,7 +637,9 @@ export async function restoreFromStorage(): Promise<boolean> {
 			roomDensityOverrides: (f as any).roomDensityOverrides ?? {},
 			roomCustomLabels: (f as any).roomCustomLabels ?? {},
 			planningArea: Array.isArray((f as any).planningArea) ? (f as any).planningArea : null,
-			notes: Array.isArray((f as any).notes) ? (f as any).notes : []
+			notes: Array.isArray((f as any).notes) ? (f as any).notes : [],
+			walls: Array.isArray((f as any).walls) ? (f as any).walls : [],
+			columns: Array.isArray((f as any).columns) ? (f as any).columns : []
 		}));
 		floorState.currentFloorId = floorState.floors[0]!.id;
 

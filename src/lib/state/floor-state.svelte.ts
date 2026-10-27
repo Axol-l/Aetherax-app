@@ -69,6 +69,24 @@ export interface Floor {
 	 * the plan, and they are persisted with the project.
 	 */
 	notes?: Array<{ id: string; x: number; y: number; text: string }>;
+	/**
+	 * Walls as line segments: the model the app is moving to (see `state/vector-walls.ts`).
+	 *
+	 * Stored beside the raster mask rather than instead of it, because the propagation still
+	 * reads the mask while this is being drawn and compared. Once the ray march works off
+	 * these, the mask becomes a cache derived from them.
+	 */
+	walls?: Array<{
+		id: string;
+		ax: number;
+		ay: number;
+		bx: number;
+		by: number;
+		material: number;
+		heightM?: number;
+	}>;
+	/** Columns: load-bearing obstructions a line cannot express. */
+	columns?: Array<{ id: string; x: number; y: number; radiusM: number; material: number }>;
 }
 
 function createDefaultFloor(id?: string, name?: string): Floor {

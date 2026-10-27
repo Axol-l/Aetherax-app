@@ -612,6 +612,15 @@
 		scheduleSave();
 	}
 
+	function clearVectorWalls(): void {
+		const floor = currentFloor();
+		if (!floor) return;
+		pushState();
+		floor.walls = [];
+		appState.wallVectorSelected = null;
+		scheduleSave();
+	}
+
 	/** Back to the inferred interior. */
 	function clearPlanningArea() {
 		const floor = currentFloor();
@@ -1140,6 +1149,46 @@
 						</Button>
 						{#if currentFloor()?.planningArea}
 							<button class="skip-link" onclick={clearPlanningArea}>{t('Use the detected area')}</button>
+						{/if}
+					</div>
+				{/if}
+			</div>
+
+			<!--
+				Walls as line segments.
+
+				The raster brush paints a band of pixels and everything downstream has to infer
+				what that band means; a segment says it. This is the drawing half only — the
+				propagation still reads the mask, so nothing about coverage or the optimiser
+				changes while the two exist side by side.
+			-->
+			<div class="planning-area">
+				<div class="planning-head">
+					<span class="planning-title">
+						<Icon name="arc" size={13} />
+						{t('Vector walls')}
+					</span>
+					<span class="planning-state">{t('{count} drawn', { count: (currentFloor()?.walls ?? []).length })}</span>
+				</div>
+				{#if appState.wallVectorMode}
+					<p class="planning-hint">
+						{appState.wallVectorDraft
+							? t('Click the far end. Hold Shift to keep it straight, Escape to cancel.')
+							: t('Click the start of a wall. Ends snap to walls already drawn.')}
+					</p>
+					<div class="planning-actions">
+						<button class="skip-link" onclick={() => { appState.wallVectorMode = false; appState.wallVectorDraft = null; }}>
+							{t('Done')}
+						</button>
+					</div>
+				{:else}
+					<div class="planning-actions">
+						<Button variant="secondary" size="sm" onclick={() => (appState.wallVectorMode = true)}>
+							<Icon name="pencil" size={14} />
+							{t('Draw wall')}
+						</Button>
+						{#if (currentFloor()?.walls ?? []).length > 0}
+							<button class="skip-link" onclick={clearVectorWalls}>{t('Clear walls')}</button>
 						{/if}
 					</div>
 				{/if}

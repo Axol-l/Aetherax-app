@@ -58,6 +58,17 @@ export const appState = $state({
 	/** Notes left on the plan: pins anyone can read, in the layer switch like any other. */
 	showNotes: true,
 	/**
+	 * Drawing walls as line segments.
+	 *
+	 * Its own mode, next to the raster brush, because the two are different models of the
+	 * same thing and a plan should be drawn in one of them at a time. The first click of a
+	 * wall lands in `wallVectorDraft`; the second commits the segment.
+	 */
+	wallVectorMode: false,
+	wallVectorDraft: null as { x: number; y: number } | null,
+	/** The segment under the pointer or the one just drawn, for the delete key. */
+	wallVectorSelected: null as string | null,
+	/**
 	 * Note editing: a click on the plan drops a note.
 	 *
 	 * A mode rather than a modifier key, because the canvas already uses ctrl/cmd for

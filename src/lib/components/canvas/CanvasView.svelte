@@ -22,6 +22,14 @@
 	import { CalibrationLineLayer } from '$canvas/renderers/calibration-line.js';
 	import { PlanningAreaLayer } from '$canvas/renderers/planning-area.js';
 	import { NotesLayer, noteAtPoint, NOTE_HIT_PX } from '$canvas/renderers/notes.js';
+	import { VectorWallsLayer } from '$canvas/renderers/vector-walls.js';
+	import {
+		snapToEndpoint,
+		lockToAxis,
+		wallNearPoint,
+		isDegenerate,
+		type VectorWall
+	} from '$state/vector-walls.js';
 	import { forgetInterior } from '$state/ap-interior.js';
 	import { ShapePreviewLayer } from '$canvas/renderers/shape-preview.js';
 	import { ReferenceFloorLayer } from '$canvas/renderers/reference-floor.js';
@@ -556,6 +564,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let calibrationLineLayer: CalibrationLineLayer;
 	let planningAreaLayer: PlanningAreaLayer;
 	let notesLayer: NotesLayer;
+	let vectorWallsLayer: VectorWallsLayer;
+	/** Pointer position while drawing a wall, for the rubber band. */
+	let vectorCursor = $state<{ x: number; y: number } | null>(null);
 	/** Pointer position while drawing the planning area; drives the rubber band. */
 	let planningCursor = $state<{ x: number; y: number } | null>(null);
 	let shapePreviewLayer: ShapePreviewLayer;
@@ -596,6 +607,32 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// pointer movement in between, so forward it to the handler directly.
 		if (!isInput && e.key === 'Shift' && wallEditHandler) {
 			wallEditHandler.setShift(true);
+		}
+
+		if (!isInput && appState.wallVectorMode && e.key === 'Escape') {
+			appState.wallVectorDraft = null;
+			appState.wallVectorMode = false;
+			vectorCursor = null;
+			return;
+		}
+
+		if (
+			!isInput &&
+			appState.wallVectorSelected &&
+			(e.key === 'Delete' || e.key === 'Backspace')
+		) {
+			// A selected segment is a selected object: the same key that deletes an access
+			// point deletes it, and it must be consumed before the AP branch below.
+			const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+			if (floor?.walls?.some((wall) => wall.id === appState.wallVectorSelected)) {
+				e.preventDefault();
+				pushState();
+				floor.walls = floor.walls.filter((wall) => wall.id !== appState.wallVectorSelected);
+				appState.wallVectorSelected = null;
+				scheduleSave();
+				engine.markDirty();
+				return;
+			}
 		}
 
 		if (!isInput && appState.planningDrawMode && e.key === 'Enter') {
@@ -759,6 +796,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.addLayer(planningAreaLayer);
 		notesLayer = new NotesLayer();
 		engine.addLayer(notesLayer);
+		vectorWallsLayer = new VectorWallsLayer();
+		engine.addLayer(vectorWallsLayer);
 		engine.addLayer(shapePreviewLayer);
 
 		// Create interaction handlers
@@ -2477,6 +2516,18 @@ import { wallState } from '$state/wall-state.svelte.js';
 			orbitMoved = false;
 			return;
 		}
+		// Drawing vector walls: the first click starts a segment, the second commits it.
+		if (appState.wallVectorMode) {
+			const rect = engine.canvas.getBoundingClientRect();
+			const world = engine.camera.screenToWorld({
+				x: e.clientX - rect.left,
+				y: e.clientY - rect.top
+			});
+			handleVectorWallClick(world, e.shiftKey);
+			engine.markDirty();
+			e.preventDefault();
+			return;
+		}
 		// A note pin is a small target and it sits above everything: it takes the click before
 		// the selection logic, whether or not note mode is on, because clicking a pin to read
 		// it is the obvious gesture.
@@ -2600,6 +2651,72 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	/**
+	 * The vector walls of the floor on screen, the one being drawn and the selected one.
+	 *
+	 * They are drawn over the raster mask rather than instead of it: during the migration the
+	 * mask is still what the propagation reads, so a plan drawn this way has to be visible
+	 * against the walls the app is actually using.
+	 */
+	$effect(() => {
+		if (!vectorWallsLayer) return;
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		vectorWallsLayer.visible = appState.floorView === 'single';
+		vectorWallsLayer.walls = (floor?.walls ?? []) as VectorWall[];
+		vectorWallsLayer.selectedId = appState.wallVectorSelected;
+		vectorWallsLayer.draft = appState.wallVectorDraft;
+		vectorWallsLayer.cursor = appState.wallVectorMode ? vectorCursor : null;
+		engine.markDirty();
+	});
+
+	/** Walls on the floor on screen, in the shapes the geometry helpers expect. */
+	function currentWalls(): VectorWall[] {
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		return (floor?.walls ?? []) as VectorWall[];
+	}
+
+	/** A snap tolerance that stays the same size on screen as the plan is zoomed. */
+	function snapToleranceWorld(): number {
+		return 12 / (engine?.camera.state.zoom ?? 1);
+	}
+
+	/**
+	 * One click of the wall tool: the first picks a start, the second commits a segment.
+	 *
+	 * Both ends snap to an existing endpoint first and lock to an axis second — a plan grows
+	 * by continuing walls, so meeting the last one exactly matters more than hitting the
+	 * pixel the pointer was on.
+	 */
+	function handleVectorWallClick(world: { x: number; y: number }, shiftKey: boolean): void {
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		if (!floor) return;
+		const walls = currentWalls();
+		const tolerance = snapToleranceWorld();
+		const snapped = snapToEndpoint(world, walls, tolerance);
+
+		if (!appState.wallVectorDraft) {
+			appState.wallVectorDraft = snapped;
+			return;
+		}
+
+		const from = appState.wallVectorDraft;
+		const to = shiftKey ? lockToAxis(from, snapped) : snapped;
+		const wall: VectorWall = {
+			id: crypto.randomUUID(),
+			ax: from.x,
+			ay: from.y,
+			bx: to.x,
+			by: to.y,
+			material: wallState.wallMaterial as WallMaterialId
+		};
+		appState.wallVectorDraft = null;
+		if (isDegenerate(wall)) return;
+		pushState();
+		floor.walls = [...walls, wall];
+		appState.wallVectorSelected = wall.id;
+		scheduleSave();
+	}
+
+	/**
 	 * The notes on this floor, and which is hovered or selected.
 	 *
 	 * Drawn above everything: a note is an annotation about the plan, and an annotation under
@@ -2689,6 +2806,15 @@ import { wallState } from '$state/wall-state.svelte.js';
 				appState.noteHoverId = hovered?.id ?? null;
 				engine.markDirty();
 			}
+		}
+		if (appState.wallVectorMode) {
+			const rect = engine.canvas.getBoundingClientRect();
+			vectorCursor = engine.camera.screenToWorld({
+				x: e.clientX - rect.left,
+				y: e.clientY - rect.top
+			});
+			engine.markDirty();
+			return;
 		}
 		if (appState.noteMode) return;
 		// While drawing the planning area the pointer drives the rubber band: the next edge
