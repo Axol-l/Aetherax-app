@@ -1,25 +1,21 @@
 <script lang="ts">
 	import { wallState } from '$state/wall-state.svelte';
 	import { canvasEngineRef, canvasState } from '$state/canvas.svelte';
-	import { persistenceState } from '$state/persistence.svelte';
 	import { appState, type FloorView } from '$state/app.svelte';
 	import { fitCanvasToContent } from '$canvas/fit.js';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
 
-
-	let showSaved = $state(false);
-	let fadeTimer: ReturnType<typeof setTimeout> | null = null;
-
-	$effect(() => {
-		if (persistenceState.lastSaved) {
-			showSaved = true;
-			if (fadeTimer) clearTimeout(fadeTimer);
-			fadeTimer = setTimeout(() => {
-				showSaved = false;
-			}, 2000);
-		}
-	});
+	/**
+	 * Nothing here reports autosaves.
+	 *
+	 * The bar used to flash "Saved" two seconds after every edit, on the theory that the user
+	 * likes to know. What it actually reported was the *autosave timer*: move an access point,
+	 * "Saved"; scroll, "Saved" — noise that reads as the app doing expensive work (and every
+	 * one of those writes serialises the masks). Autosave is silent by design; a save the user
+	 * asked for (Ctrl+S, an export) answers in the corner notice, which is where an answer to
+	 * a key press belongs.
+	 */
 
 	function handleFit() {
 		const engine = canvasEngineRef.engine;
@@ -115,11 +111,7 @@
 			</button>
 		</div>
 	</div>
-	<div class="status-right">
-		{#if showSaved}
-			<span class="saved-indicator">{t('Saved')}</span>
-		{/if}
-	</div>
+	<div class="status-right"></div>
 </footer>
 
 <style>
@@ -210,12 +202,5 @@
 	.view-btn:focus-visible {
 		outline: 2px solid var(--accent-primary);
 		outline-offset: 1px;
-	}
-
-.saved-indicator {
-		font-size: var(--text-xs);
-		font-family: var(--font-mono);
-		color: var(--color-success);
-		opacity: 0.6;
 	}
 </style>
