@@ -49,6 +49,10 @@ import { minRoomRadiusWu } from './room-domain.js';
 import { clipInteriorToPlanningArea, isUsablePlanningArea } from './planning-area.js';
 import { OPTIMIZER_PAYLOAD_VERSION, type ApInput } from '../workers/optimizer-protocol.js';
 import { apState } from '$state/ap-state.svelte.js';
+import { canvasState } from '$state/canvas.svelte.js';
+
+/** The pass a drag deferred; see `updateCoverage`. */
+let coverageAfterDrag: ReturnType<typeof setTimeout> | null = null;
 
 const bridge = new OptimizerBridge();
 
@@ -309,6 +313,23 @@ async function ensureCoverageCache(): Promise<boolean> {
 
 /** Compute real-time coverage score from current AP positions */
 export async function updateCoverage(): Promise<void> {
+	/*
+	 * Not while an access point is being dragged.
+	 *
+	 * A pass samples the floor against every AP and marches walls for each pair — on a real
+	 * plan that is tens of milliseconds to a second. The drag is already finished by then,
+	 * so the figure was both late and expensive: it landed as a stall in the middle of the
+	 * gesture. The move handler schedules the trailing pass (`canvasState.isDragging` goes
+	 * false on pointer-up), so the number is still right the moment the drag ends.
+	 */
+	if (canvasState.isDragging) {
+		if (coverageAfterDrag) clearTimeout(coverageAfterDrag);
+		coverageAfterDrag = setTimeout(() => {
+			coverageAfterDrag = null;
+			if (!canvasState.isDragging) void updateCoverage();
+		}, 300);
+		return;
+	}
 	if (apState.aps.length === 0 || !wallState.wallMask) {
 		optimizerState.coverage = 0;
 		return;

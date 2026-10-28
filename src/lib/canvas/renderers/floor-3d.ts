@@ -41,6 +41,14 @@ interface Face {
 /** How much of the wall's colour survives in shadow, so a corner is visible. */
 const SHADE_MIN = 0.45;
 
+/**
+ * The band a wall occupies on the plan, in world units.
+ *
+ * The same figure `wall-raster.ts` paints and the vector layer strokes with, so the 3D
+ * extrusion and the plan agree about how thick a wall is.
+ */
+const WALL_BAND_WU = 6;
+
 export class Floor3DLayer implements Layer {
 	id = 'floor3d';
 	visible = false;
@@ -305,17 +313,56 @@ export class Floor3DLayer implements Layer {
 			const [r, g, b] = material.color;
 			const midX = (wall.ax + wall.bx) / 2 - pivot.x;
 			const midY = (wall.ay + wall.by) / 2 - pivot.y;
+			const depth = sinYaw * midX + cosYaw * midY;
+			/*
+			 * The wall has the thickness the plan draws it with.
+			 *
+			 * A zero-width extrusion reads as a sheet of paper standing on the floor, and it
+			 * disagreed with the 2D view, where a wall is a band `WALL_BAND_WU` wide. The box
+			 * is built from the same band: two long faces, two end caps and the top, which is
+			 * also what gives a corner its visible edge.
+			 */
+			const half = WALL_BAND_WU / 2;
+			const a1 = { x: wall.ax + nx * half, y: wall.ay + ny * half };
+			const a2 = { x: wall.ax - nx * half, y: wall.ay - ny * half };
+			const b1 = { x: wall.bx + nx * half, y: wall.by + ny * half };
+			const b2 = { x: wall.bx - nx * half, y: wall.by - ny * half };
+			const fill = (tone: number) =>
+				`rgba(${Math.round(r * tone)},${Math.round(g * tone)},${Math.round(b * tone)},0.94)`;
+			const quad = (
+				p1: { x: number; y: number },
+				p2: { x: number; y: number },
+				tone: number,
+				order: number
+			): Face => ({
+				points: [
+					projectPoint(view, p1.x, p1.y, 0, pivot),
+					projectPoint(view, p2.x, p2.y, 0, pivot),
+					projectPoint(view, p2.x, p2.y, top, pivot),
+					projectPoint(view, p1.x, p1.y, top, pivot)
+				],
+				depth: depth + order,
+				fill: fill(tone),
+				stroke: 'rgba(0,0,0,0.35)'
+			});
+			faces.push(
+				quad(a1, b1, shade, 0.02),
+				quad(b2, a2, shade, 0.02),
+				quad(a2, a1, shade * 0.85, 0.01),
+				quad(b1, b2, shade * 0.85, 0.01)
+			);
+			// The top face, so the wall reads as solid from above and its thickness shows at a
+			// corner.
 			faces.push({
 				points: [
-					projectPoint(view, wall.ax, wall.ay, 0, pivot),
-					projectPoint(view, wall.bx, wall.by, 0, pivot),
-					projectPoint(view, wall.bx, wall.by, top, pivot),
-					projectPoint(view, wall.ax, wall.ay, top, pivot)
+					projectPoint(view, a1.x, a1.y, top, pivot),
+					projectPoint(view, b1.x, b1.y, top, pivot),
+					projectPoint(view, b2.x, b2.y, top, pivot),
+					projectPoint(view, a2.x, a2.y, top, pivot)
 				],
-				// Screen y before the pitch is the depth ordering of a parallel projection.
-				depth: sinYaw * midX + cosYaw * midY,
-				fill: `rgba(${Math.round(r * shade)},${Math.round(g * shade)},${Math.round(b * shade)},0.92)`,
-				stroke: 'rgba(0,0,0,0.35)'
+				depth: depth + 0.03,
+				fill: fill(Math.min(1, shade + 0.15)),
+				stroke: 'rgba(0,0,0,0.25)'
 			});
 		}
 		return faces;
