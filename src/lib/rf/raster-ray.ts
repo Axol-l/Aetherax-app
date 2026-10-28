@@ -13,16 +13,20 @@ import { getFlatAttenuation, type WallMaterialId } from '../canvas/materials.js'
 import type { Band } from '@aetherax/channels';
 
 /**
- * Wall loss along a ray, measured by walking the material mask.
+ * Wall loss along a ray, measured by walking the drawn grid.
  *
- * `material` is the per-pixel material id from the mask (0 where nothing was painted), and
- * `originX/originY` map world coordinates onto it. Each *transition* into a band of a
- * material costs that material's figure once, which is how the drawn band becomes one
- * crossing rather than a loss per pixel.
+ * `wall` decides what is wall and `material` decides what it costs, and the two are separate
+ * on purpose: **material id 0 is Drywall**, and an unpainted pixel is also 0, so the id alone
+ * cannot tell a drywall wall from empty floor. Gating on the wall mask is what makes the
+ * distinction, and `defaultMaterial` is the material an unpainted wall pixel gets.
+ *
+ * Each *transition* into a run of wall costs that wall's figure once, which is how a drawn
+ * band becomes one crossing rather than a loss per pixel.
  */
 export function rasterRayLossDb(
 	from: { x: number; y: number },
 	to: { x: number; y: number },
+	wall: Uint8Array | null,
 	material: Uint8Array | null,
 	width: number,
 	height: number,
@@ -31,7 +35,7 @@ export function rasterRayLossDb(
 	band: Band,
 	defaultMaterial: WallMaterialId
 ): number {
-	if (!material || width <= 0 || height <= 0) return 0;
+	if (!wall || width <= 0 || height <= 0) return 0;
 	const dx = to.x - from.x;
 	const dy = to.y - from.y;
 	const length = Math.hypot(dx, dy);
@@ -39,7 +43,7 @@ export function rasterRayLossDb(
 
 	// Half a pixel steps: fine enough that a one-pixel band cannot be stepped over.
 	const steps = Math.max(1, Math.ceil(length * 2));
-	let previous = -1;
+	let inside = false;
 	let total = 0;
 
 	for (let i = 0; i <= steps; i++) {
@@ -47,15 +51,20 @@ export function rasterRayLossDb(
 		const px = Math.round(from.x + dx * t - originX);
 		const py = Math.round(from.y + dy * t - originY);
 		if (px < 0 || py < 0 || px >= width || py >= height) {
-			previous = -1;
+			inside = false;
 			continue;
 		}
-		const id = material[py * width + px] ?? 0;
-		if (id === previous) continue;
-		previous = id;
-		// The mask's zero is "nothing painted", which costs nothing; a painted pixel costs
-		// its material figure, and a virtual partition's figure is zero.
-		if (id === 0) continue;
+		const index = py * width + px;
+		if (!wall[index]) {
+			inside = false;
+			continue;
+		}
+		// Still in the same band: no new crossing.
+		if (inside) continue;
+		inside = true;
+		// Zero in the material map means "not painted", so the floor's default applies —
+		// which for a drywall wall is drywall, and for a concrete floor is concrete.
+		const id = (material?.[index] ?? 0) || defaultMaterial;
 		total += getFlatAttenuation(id as WallMaterialId, band);
 	}
 	return total;

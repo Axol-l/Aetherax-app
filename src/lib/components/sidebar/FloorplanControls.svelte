@@ -640,7 +640,14 @@
 	 */
 	function rasteriseWalls(
 		walls: readonly { ax: number; ay: number; bx: number; by: number; material: number }[]
-	): { material: Uint8Array; width: number; height: number; originX: number; originY: number } | null {
+	): {
+		wall: Uint8Array;
+		material: Uint8Array;
+		width: number;
+		height: number;
+		originX: number;
+		originY: number;
+	} | null {
 		if (walls.length === 0) return null;
 		let minX = Infinity;
 		let minY = Infinity;
@@ -661,6 +668,9 @@
 		// of a million pixels to compare a handful of rays.
 		if (width * height > 4_000_000) return null;
 		const material = new Uint8Array(width * height);
+		// Occupancy as well as id: id 0 is Drywall, which is also what an unpainted pixel
+		// reads as, so the id alone cannot say whether there is a wall there.
+		const occupied = new Uint8Array(width * height);
 		const radius = 3;
 		for (const wall of walls) {
 			const length = Math.hypot(wall.bx - wall.ax, wall.by - wall.ay);
@@ -675,11 +685,12 @@
 						const y = cy + dy;
 						if (x < 0 || y < 0 || x >= width || y >= height) continue;
 						material[y * width + x] = wall.material;
+						occupied[y * width + x] = 1;
 					}
 				}
 			}
 		}
-		return { material, width, height, originX, originY };
+		return { wall: occupied, material, width, height, originX, originY };
 	}
 
 	/**
@@ -728,6 +739,7 @@
 				rasterRayLossDb(
 					a,
 					b,
+					decoded.wallData,
 					decoded.materialMap,
 					decoded.width,
 					decoded.height,
@@ -750,6 +762,7 @@
 						rasterRayLossDb(
 							a,
 							b,
+							synthetic.wall,
 							synthetic.material,
 							synthetic.width,
 							synthetic.height,
