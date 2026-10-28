@@ -13,6 +13,7 @@
  * event handler without ordering surprises.
  */
 import { computeBuildingInterior } from '$canvas/morphology.js';
+import { maskSignature } from '$canvas/mask-registry.js';
 import { isVoidRoomType } from '$canvas/room-types.js';
 import { getFloorMask } from './floor-mask.js';
 import { minRoomRadiusWu } from './room-domain.js';
@@ -36,7 +37,16 @@ async function interiorFor(floorId: string): Promise<CachedInterior | null> {
 	const decoded = await getFloorMask(floorId);
 	if (!decoded) return null;
 	const cached = cache.get(floorId);
-	if (cached && cached.key === decoded.sourceKey) return cached;
+	/*
+	 * Keyed on the mask *object*, not on `sourceKey`.
+	 *
+	 * The live mask reports the constant key `'live'` — it is handed over mid-edit, when its
+	 * pixels are still changing — so a cache keyed on it never invalidated, and the interior
+	 * (and with it the "outside the building" warning) kept answering from the geometry of
+	 * whenever it was first computed. Deriving a mask from the drawn walls hit exactly that.
+	 */
+	const maskKey = maskSignature(decoded);
+	if (cached && cached.key === maskKey) return cached;
 
 	const { interior } = computeBuildingInterior(decoded.wallData, decoded.width, decoded.height, {
 		// The optimiser's own options, verbatim: a different domain here would mean an AP
@@ -56,7 +66,7 @@ async function interiorFor(floorId: string): Promise<CachedInterior | null> {
 	}
 
 	const entry: CachedInterior = {
-		key: decoded.sourceKey,
+		key: maskKey,
 		width: decoded.width,
 		height: decoded.height,
 		originX: decoded.originX,

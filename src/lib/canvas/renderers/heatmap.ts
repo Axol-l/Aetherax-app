@@ -60,6 +60,7 @@ import {
 } from '../../rf/propagation.js';
 import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../rf/antenna.js';
 import { rampColorAt } from '../heatmap-ramp.js';
+import { maskSignature } from '../mask-registry.js';
 import { antennaProfileFor } from '$state/ap-state.svelte.js';
 
 /**
@@ -355,6 +356,11 @@ export class HeatmapLayer implements Layer {
 				.join('|') +
 			`|floor:${this.rssiFloor}|t:${this.isDragging ? 'c' : 'f'}` +
 			`|wm:${this.wallMask?.width ?? 0}x${this.wallMask?.height ?? 0}:${this.wallMask?.originX ?? 0},${this.wallMask?.originY ?? 0}` +
+			// The mask *objects*, not only their geometry: replacing a floor's mask with one of
+			// the same size — deriving it from the drawn walls, or undoing an edit — otherwise
+			// left every cached field showing the previous geometry, which reads as a redraw
+			// that never happened.
+			`|wms:${maskSignature(this.wallMask)}:${maskSignature(this.materialMap)}` +
 			`|mat:${this.defaultMaterial}|mv:${this.materialVersion}|wupm:${this.worldUnitsPerMeter}`
 		);
 	}
