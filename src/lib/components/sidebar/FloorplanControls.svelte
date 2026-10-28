@@ -1262,6 +1262,20 @@
 								count: wallModelComparison.disagreements
 							})}
 						</p>
+						<!--
+							The inputs, not just the answer. Numbers that do not move after a redraw
+							mean the comparison is measuring the same geometry twice or measuring
+							nothing at all, and the deltas cannot say which. These can: they show what
+							each side actually charged, and over how many walls and rays.
+						-->
+						<p class="planning-hint">
+							{t('{walls} walls · {samples} rays · raster {raster} dB · vector {vector} dB', {
+								walls: (currentFloor()?.walls ?? []).length,
+								samples: wallModelComparison.samples,
+								raster: wallModelComparison.rasterMeanDb.toFixed(2),
+								vector: wallModelComparison.vectorMeanDb.toFixed(2)
+							})}
+						</p>
 					{/if}
 				{/if}
 			</div>
