@@ -22,6 +22,7 @@
 	import { compareWallModels, type WallModelComparison } from '$lib/rf/wall-model-compare.js';
 	import { rasterRayLossDb } from '$lib/rf/raster-ray.js';
 	import type { WallMaterialId } from '$canvas/materials.js';
+	import { traceWallsFromMask } from '$state/wall-trace.js';
 
 	let confirmOpen = $state(false);
 	let confirmMessage = $state('');
@@ -775,6 +776,38 @@
 			: null;
 	}
 
+	/**
+	 * Trace the painted mask into segments.
+	 *
+	 * The vector model is only usable if nobody has to redraw a building by hand, so this
+	 * reads the mask detection already produced and takes its centre lines. The traced set
+	 * covers the same walls the mask does — which is the point: switching models then does not
+	 * change the plan's coverage, and the hand-drawn segments become corrections on top.
+	 */
+	async function traceWallsFromMaskOnFloor(): Promise<void> {
+		const floor = currentFloor();
+		const decoded = floor ? await getFloorMask(floor.id) : null;
+		if (!floor || !decoded) return;
+		const traced = traceWallsFromMask(
+			decoded.wallData,
+			decoded.materialMap,
+			decoded.width,
+			decoded.height,
+			floor.wallMaterial as WallMaterialId
+		);
+		pushState();
+		floor.walls = traced.map((wall) => ({
+			id: crypto.randomUUID(),
+			ax: wall.ax + decoded.originX,
+			ay: wall.ay + decoded.originY,
+			bx: wall.bx + decoded.originX,
+			by: wall.by + decoded.originY,
+			material: wall.material
+		}));
+		appState.wallVectorSelected = null;
+		scheduleSave();
+	}
+
 	/** Back to the inferred interior. */	function clearPlanningArea() {
 		const floor = currentFloor();
 		if (!floor) return;
@@ -1342,6 +1375,11 @@
 						</Button>
 						{#if (currentFloor()?.walls ?? []).length > 0}
 							<button class="skip-link" onclick={clearVectorWalls}>{t('Clear walls')}</button>
+						{/if}
+						{#if wallState.wallMask}
+							<button class="skip-link" onclick={() => void traceWallsFromMaskOnFloor()}>
+								{t('Trace from mask')}
+							</button>
 						{/if}
 						<button class="skip-link" onclick={() => void compareWallModelsOnFloor()}>
 							{t('Compare wall models')}
