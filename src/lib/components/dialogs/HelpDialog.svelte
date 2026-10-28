@@ -69,7 +69,7 @@
 						>
 						<div class="shortcut-row"><kbd>{t('Escape')}</kbd><span>{t('Leave place or align mode')}</span></div>
 						<div class="shortcut-row"
-							><kbd>{t('Shift')}</kbd><span>{t('Constrain a shape tool: Line 45°, Rect square, Arc 15°')}</span></div
+							><kbd>{t('Shift')}</kbd><span>{t('Hold Shift to keep a new wall straight')}</span></div
 						>
 					</div>
 				</section>
@@ -89,8 +89,9 @@
 						</li>
 						<li class="mobile-only">{t('Tap a wall for its material; long-press a room for its type.')}</li>
 						<li>
-							<strong>{t('Edit Walls')}</strong> {t('— six tools (Erase, Draw, Line, Rect, Arc, Material), a brush slider and')}
-							<em>{t('Clear all')}</em>; <strong>{t('Done')}</strong> {t('leaves.')}
+							<strong>{t('Draw wall')}</strong> {t('is two clicks: the start and the end. Ends and sides snap,')}
+							<kbd>{t('Shift')}</kbd> {t('holds it straight, and')}
+							<strong>{t('Delete')}</strong> {t('removes the selected one. The mask, the interior and the coverage are derived from the walls you draw.')}
 						</li>
 						<li>
 							<strong>{t('Detect Walls')}</strong> {t('turns the imported plan into a wall mask;')}
@@ -98,7 +99,7 @@
 						</li>
 						<li>
 							<strong>{t('Add floors')}</strong> {t('in the Floorplan tab. The status bar holds zoom,')}
-							<em>{t('Fit')}</em> {t('and the single / tiled / stacked views.')}
+							<em>{t('Fit')}</em> {t('and the single / tiled / stacked / 3D views.')}
 						</li>
 						<li>
 							<strong>{t('Optimize placement')}</strong> {t('works on the floor on screen;')}

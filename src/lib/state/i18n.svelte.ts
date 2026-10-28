@@ -49,7 +49,6 @@ const zh: Record<string, string> = {
 	'{count} corners · {area} m²': '{count} 个角点 · {area} m²',
 	Notes: '标注',
 	'Custom material': '自定义材质',
-	'Vector walls': '矢量墙体',
 	'{count} drawn': '已画 {count} 段',
 	'Draw wall': '绘制墙体',
 	'Clear walls': '清空墙体',
@@ -57,11 +56,16 @@ const zh: Record<string, string> = {
 	'Click the far end. Hold Shift to keep it straight, Escape to cancel.': '点击墙的终点；按住 Shift 保持正交，Esc 取消。',
 	'Compare wall models': '对比两种墙体模型',
 	'Trace from mask': '从掩码自动提取墙线',
-	'Use walls as the mask': '用墙线作为墙体掩码',
 	'The mask, the interior and the coverage are derived from these walls. Click a wall to select it, right-click it to change its material.':
 		'墙体掩码、室内范围与覆盖率都由这些墙线推导。单击墙体可选中，右键可修改材质。',
 	'{count} walls were traced from the plan into segments, so they can be corrected one at a time.':
 		'已从图纸中提取 {count} 段墙体，可逐段修改。',
+	'is two clicks: the start and the end. Ends and sides snap,': '是两次点击：起点和终点。端点与墙身都会吸附，',
+	'holds it straight, and': '保持正交，',
+	'removes the selected one. The mask, the interior and the coverage are derived from the walls you draw.':
+		'删除选中的墙线。掩码、室内范围与覆盖率都由你画的墙线推导。',
+	'and the single / tiled / stacked / 3D views.': '以及单层 / 平铺 / 堆叠 / 三维视图。',
+	'Hold Shift to keep a new wall straight': '按住 Shift 让新墙保持正交',
 	'{walls} walls · {samples} rays · raster {raster} dB · vector {vector} dB':
 		'{walls} 段墙 · {samples} 条射线 · 栅格 {raster} dB · 矢量 {vector} dB',
 	'Same walls, both kernels: Δ {mean} dB mean · {count} disagreements':
@@ -227,7 +231,6 @@ const zh: Record<string, string> = {
 	'Draw from Scratch': '从零手绘',
 	'Detect Walls': '识别墙体',
 	'Re-detect Walls': '重新识别',
-	'Edit Walls': '编辑墙体',
 	'Add floor': '添加楼层',
 	Align: '对齐',
 	'Align X': 'X 方向',
@@ -314,23 +317,8 @@ const zh: Record<string, string> = {
 	Poor: '较差',
 	Dead: '无信号',
 	'Clear all': '全部清除',
-	'Remove every wall on this floor': '清空本层所有墙体',
-	'Brush size': '笔刷大小',
-	Erase: '擦除',
-	Draw: '手绘',
-	Line: '直线',
-	Rect: '矩形',
-	Arc: '圆弧',
-	Material: '材质',
 	Done: '完成',
-	'Drag to draw a straight wall (hold Shift to snap to 45° steps)':
-		'拖动画一段直墙（按住 Shift 吸附到 45° 步进）',
-	'Drag to draw a rectangular room outline (hold Shift for a square)':
-		'拖动画一个矩形房间轮廓（按住 Shift 画正方形）',
-	'Press at the centre and drag around it to sweep a curved wall (hold Shift to snap to 15° steps; release near the start angle for a full circle)':
-		'以起点为圆心按住并绕它拖动，扫出一段弧墙（按住 Shift 吸附到 15° 步进；松手时靠近起始角度就是一个整圆）',
 	'Channel planning canvas': '信道规划画布',
-	'Clear all walls': '清空所有墙体',
 	'Room type': '房间类型',
 	Density: '密度',
 	'Search rooms...': '搜索房间…',
@@ -353,10 +341,6 @@ const zh: Record<string, string> = {
 	Heatmap: '热力图',
 	'Remove selected APs (Backspace too)': '删除选中的 AP（Backspace 也可以）',
 	'Leave place or align mode': '退出放置 / 对齐模式',
-	'Constrain a shape tool: Line 45°, Rect square, Arc 15°':
-		'约束形状工具：直线 45°、矩形正方形、圆弧 15°',
-	'Single-letter keys are ignored while a text field has focus. Undo is off while you edit walls — one stroke is one step, so stepping back through it mid-edit would fight the tool — and the heatmap steps aside until you press Done.':
-		'焦点在输入框里时单字母键失效。编辑墙体期间撤销被关闭——一笔就是一个撤销步，编辑中途回退会和工具打架——热力图也会暂时隐藏，按 Done 才回来。',
 	'Place APs': '放置 AP',
 	'Place APs is a mode, off by default: turn it on (top of the sidebar), click the plan, Esc to leave.':
 		'「放置 AP」是一个模式，默认关闭：打开它（侧栏顶部），在图上点一下落一个，按 Esc 退出。',
@@ -364,8 +348,6 @@ const zh: Record<string, string> = {
 		'左键点墙改材质；右键点房间设置类型与密度。',
 	'Tap a wall for its material; long-press a room for its type.':
 		'点墙改材质；长按房间设置类型。',
-	'Edit Walls — six tools (Erase, Draw, Line, Rect, Arc, Material), a brush slider and Clear all; Done leaves.':
-		'「编辑墙体」有六个工具（擦除、手绘、直线、矩形、圆弧、材质），另有笔刷滑杆和「全部清除」；按 Done 退出。',
 	'Detect Walls turns the imported plan into a wall mask; Re-detect replaces it and clears every material you painted, so it asks first.':
 		'「识别墙体」把导入的图变成墙体掩码；「重新识别」会替换它并清掉你刷过的材质，所以会先问一次。',
 	'Add floors in the Floorplan tab. The status bar holds zoom, Fit and the single / tiled / stacked views.':
@@ -581,8 +563,6 @@ const zh: Record<string, string> = {
 	'to leave.': '退出。',
 	'for its material;': '查看它的材质；',
 	'for its type and density.': '查看房间类型和密度。',
-	'— six tools (Erase, Draw, Line, Rect, Arc, Material), a brush slider and': '——六种工具（擦除、绘制、直线、矩形、圆弧、材质）、一个笔刷滑块和',
-	'leaves.': '退出编辑。',
 	'turns the imported plan into a wall mask;': '把导入的平面图转成墙体掩膜；',
 	'replaces it and clears every material you painted, so it asks first.': '会替换原有掩膜并清除你涂过的所有材质，所以会先问一次。',
 	'in the Floorplan tab. The status bar holds zoom,': '在「平面图」标签页里。状态栏里有缩放、',
