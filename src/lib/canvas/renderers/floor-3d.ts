@@ -315,44 +315,38 @@ export class Floor3DLayer implements Layer {
 			const midY = (wall.ay + wall.by) / 2 - pivot.y;
 			const depth = sinYaw * midX + cosYaw * midY;
 			/*
-			 * The wall has the thickness the plan draws it with.
+			 * One visible face per wall, plus its top — not a five-sided box.
 			 *
-			 * A zero-width extrusion reads as a sheet of paper standing on the floor, and it
-			 * disagreed with the 2D view, where a wall is a band `WALL_BAND_WU` wide. The box
-			 * is built from the same band: two long faces, two end caps and the top, which is
-			 * also what gives a corner its visible edge.
+			 * The raster band is what the plan shows, so the extrusion keeps its width, but
+			 * drawing both long faces and both end caps put a stroked edge *inside* every
+			 * junction: two walls meeting at a corner each drew the cap the other one covered,
+			 * and the seams read as overlapping slabs. Culling to the face that points at the
+			 * viewer — and filling it in one tone with no stroke — makes two adjacent walls
+			 * the same colour where they meet, so the only edges left are real silhouettes.
 			 */
 			const half = WALL_BAND_WU / 2;
+			const viewerFacing = nx * sinYaw + ny * cosYaw;
 			const a1 = { x: wall.ax + nx * half, y: wall.ay + ny * half };
 			const a2 = { x: wall.ax - nx * half, y: wall.ay - ny * half };
 			const b1 = { x: wall.bx + nx * half, y: wall.by + ny * half };
 			const b2 = { x: wall.bx - nx * half, y: wall.by - ny * half };
+			const near = viewerFacing >= 0 ? { a: a1, b: b1 } : { a: a2, b: b2 };
 			const fill = (tone: number) =>
 				`rgba(${Math.round(r * tone)},${Math.round(g * tone)},${Math.round(b * tone)},0.94)`;
-			const quad = (
-				p1: { x: number; y: number },
-				p2: { x: number; y: number },
-				tone: number,
-				order: number
-			): Face => ({
+			faces.push({
 				points: [
-					projectPoint(view, p1.x, p1.y, 0, pivot),
-					projectPoint(view, p2.x, p2.y, 0, pivot),
-					projectPoint(view, p2.x, p2.y, top, pivot),
-					projectPoint(view, p1.x, p1.y, top, pivot)
+					projectPoint(view, near.a.x, near.a.y, 0, pivot),
+					projectPoint(view, near.b.x, near.b.y, 0, pivot),
+					projectPoint(view, near.b.x, near.b.y, top, pivot),
+					projectPoint(view, near.a.x, near.a.y, top, pivot)
 				],
-				depth: depth + order,
-				fill: fill(tone),
-				stroke: 'rgba(0,0,0,0.35)'
+				depth,
+				fill: fill(shade),
+				// No stroke: the fill is the silhouette, and a stroke is what drew the seams.
+				stroke: null
 			});
-			faces.push(
-				quad(a1, b1, shade, 0.02),
-				quad(b2, a2, shade, 0.02),
-				quad(a2, a1, shade * 0.85, 0.01),
-				quad(b1, b2, shade * 0.85, 0.01)
-			);
-			// The top face, so the wall reads as solid from above and its thickness shows at a
-			// corner.
+			// The top face only, outlined, so a wall reads as solid from above and a corner has
+			// an edge without every junction drawing one.
 			faces.push({
 				points: [
 					projectPoint(view, a1.x, a1.y, top, pivot),
@@ -362,7 +356,7 @@ export class Floor3DLayer implements Layer {
 				],
 				depth: depth + 0.03,
 				fill: fill(Math.min(1, shade + 0.15)),
-				stroke: 'rgba(0,0,0,0.25)'
+				stroke: 'rgba(0,0,0,0.22)'
 			});
 		}
 		return faces;

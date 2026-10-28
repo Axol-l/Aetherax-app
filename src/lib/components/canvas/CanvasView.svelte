@@ -1723,7 +1723,19 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	$effect(() => {
 		if (!wallLayer) return;
-		wallLayer.visible = appState.floorView === 'single' && appState.showWalls;
+		/*
+		 * The raster wall layer is the *derived* band, so it is only drawn when the segments
+		 * are not — a floor whose walls are still only a detected raster.
+		 *
+		 * With segments it was a second copy of the same walls under the vector layer: a
+		 * full-resolution coloured raster blitted on every frame, and the thing the user saw
+		 * as "a hand-drawn layer under the wall lines". It was also most of the cost of a
+		 * drag — the raster is a whole-plan image, the segments are a handful of strokes.
+		 */
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		const hasSegments = (floor?.walls ?? []).length > 0 || (floor?.columns ?? []).length > 0;
+		wallLayer.visible =
+			appState.floorView === 'single' && appState.showWalls && !hasSegments;
 		engine.markDirty();
 	});
 
