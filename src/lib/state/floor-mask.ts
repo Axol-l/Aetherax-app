@@ -1,5 +1,6 @@
 import { decodeMask } from '$canvas/wall-detect.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
+import { rasteriseWalls, DEFAULT_WALL_BAND } from './wall-raster.js';
 import { floorState } from './floor-state.svelte.js';
 import { wallState } from './wall-state.svelte.js';
 
@@ -85,7 +86,38 @@ export function setLiveSolverMask(
 }
 
 /**
- * Get decoded wall mask for a floor. Uses current wallState for active floor.
+ * Identity for a floor's wall segments, so the derived mask can be cached.
+ *
+ * The array is replaced on every edit (drawing, tracing, changing a material), which is
+ * the same discipline `mask-registry.ts` documents for masks: a cache keyed on the object
+ * is safe exactly as long as a change produces a new object.
+ */
+const wallsIds = new WeakMap<object, number>();
+let nextWallsId = 1;
+function wallsId(walls: object | null | undefined): number {
+	if (!walls) return 0;
+	let id = wallsIds.get(walls);
+	if (id === undefined) {
+		id = nextWallsId++;
+		wallsIds.set(walls, id);
+	}
+	return id;
+}
+
+/**
+ * Get decoded wall mask for a floor.
+ *
+ * **The segments are the model.** When a floor has vector walls, its mask is derived from
+ * them here rather than read from storage: that is the one place every consumer of a wall
+ * mask goes through — the optimiser's payload, the solver's conflict graph, a cross-floor
+ * path's source mask, the coverage samples, the interior — so deriving at this seam makes
+ * all of them vector-driven, including a floor that is not on screen and whose stored mask
+ * is therefore stale. It is also cheaper than the alternative: no PNG decode.
+ *
+ * The stored mask is still the frame. A derived mask takes the existing mask's size and
+ * origin when there is one, because samples, texels and the interior are all addressed in
+ * the plan's frame and a mask sized to the walls' bounding box puts every one of them off
+ * it.
  *
  * The cache key carries the mask's origin as well as its size. Aligning a floor
  * moves the origin without touching a single pixel, so a size-and-material key
@@ -98,6 +130,55 @@ export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | 
 	// During wall editing, use the live decoded mask (no PNG round-trip)
 	if (liveMask && floorId === floorState.currentFloorId) {
 		return liveMask;
+	}
+
+	/*
+	 * A floor whose walls are segments: derive the mask from them.
+	 *
+	 * The frame is the stored mask's when the floor has one; otherwise the segments' own
+	 * bounding box, which is the frame a plan-less floor's mask was first written in.
+	 */
+	const walls = floor?.walls ?? [];
+	if (walls.length > 0) {
+		const stored = floorId === floorState.currentFloorId ? wallState.wallMask ?? floor?.wallMask : floor?.wallMask;
+		const rtMask = floorId === floorState.currentFloorId ? wallState.roomTypeMask ?? floor?.roomTypeMask : floor?.roomTypeMask;
+		const key = `${floorId}:walls${wallsId(walls)}:${stored ? `${stored.width}x${stored.height}@${stored.originX ?? 0},${stored.originY ?? 0}` : 'own'}:rt${maskId(rtMask)}`;
+		const cached = floorMaskCache.get(floorId);
+		if (cached && cached.sourceKey === key) return cached;
+
+		const masks = rasteriseWalls(
+			walls.map((wall) => ({
+				ax: wall.ax,
+				ay: wall.ay,
+				bx: wall.bx,
+				by: wall.by,
+				material: wall.material
+			})),
+			DEFAULT_WALL_BAND,
+			8,
+			stored
+				? {
+						width: stored.width,
+						height: stored.height,
+						originX: stored.originX ?? 0,
+						originY: stored.originY ?? 0
+					}
+				: undefined
+		);
+		if (masks) {
+			const entry: DecodedFloorMask = {
+				wallData: masks.wall,
+				materialMap: masks.material,
+				roomTypeData: await decodeRoomTypes(rtMask, masks.width, masks.height),
+				width: masks.width,
+				height: masks.height,
+				originX: masks.originX,
+				originY: masks.originY,
+				sourceKey: key
+			};
+			floorMaskCache.set(floorId, entry);
+			return entry;
+		}
 	}
 
 	// For current floor, prefer wallState (always up-to-date) over floor entity (synced on switch)

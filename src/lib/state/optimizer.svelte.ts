@@ -1128,7 +1128,17 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 	};
 
 	if (apState.aps.length === 0) return nothing;
-	if (!floor?.wallMask) {
+	/*
+	 * The floor's geometry, from whichever model states it.
+	 *
+	 * A floor with drawn segments has its mask derived on the spot — the segments are the
+	 * model, and this is the one accessor the worker's payload and the solver's graph both
+	 * go through, so a floor that was never opened (and therefore has a stored mask from
+	 * before its walls were drawn, or none at all) is optimised against its *segments*.
+	 * The stored mask, when there is one, is only the frame.
+	 */
+	const hasWalls = (floor?.walls ?? []).length > 0;
+	if (!floor || (!floor.wallMask && !hasWalls)) {
 		// Only worth surfacing when it is the floor on screen; during an all-floor
 		// run a floor that has no plan is simply skipped.
 		if (floorId === floorState.currentFloorId) optimizerState.error = t('Load a floorplan first');
@@ -1136,7 +1146,14 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 	}
 
 	try {
-		const mask = floor.wallMask;
+		const decodedFloor = await getFloorMask(floorId);
+		if (!decodedFloor) return nothing;
+		const mask = {
+			width: decodedFloor.width,
+			height: decodedFloor.height,
+			originX: decodedFloor.originX,
+			originY: decodedFloor.originY
+		} as { width: number; height: number; originX: number; originY: number };
 		const curFloorId = floorId;
 
 		// The wall mask is indexed from (originX, originY) in world space, not from
@@ -1305,17 +1322,16 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 			}
 		}
 
-		// Decode mask on main thread (has canvas access) and send raw buffer
-		const decoded = await decodeMask(mask.dataUrl, mask.width, mask.height);
+		/*
+		 * The mask itself, already decoded: `getFloorMask` either derived it from the
+		 * segments or decoded the stored PNG, so there is no second decode here — and the
+		 * geometry the worker receives is the same one every other consumer reads.
+		 */
+		const decoded = { data: decodedFloor.wallData, width: decodedFloor.width, height: decodedFloor.height };
 
-		// Material-aware wall loss: decode the per-pixel material mask when it
-		// matches this floor's wall mask, and let the worker apply each material's
-		// own per-crossing attenuation for the band.
-		let materialMask: Uint8Array | null = null;
-		const matMask = floor.materialMask;
-		if (matMask && matMask.width === mask.width && matMask.height === mask.height) {
-			materialMask = await decodeMaterialMask(matMask.dataUrl, matMask.width, matMask.height);
-		}
+		// Material-aware wall loss: the per-pixel material map on this floor's own grid,
+		// so the worker applies each material's per-crossing attenuation for the band.
+		const materialMask = decodedFloor.materialMap;
 
 		// Graph request: hand the worker the same payload a run would get and take
 		// back the conflict graph, so the solver colours exactly what the objective
