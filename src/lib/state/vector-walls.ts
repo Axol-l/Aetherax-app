@@ -30,9 +30,17 @@ export interface VectorWall {
 
 export interface VectorColumn {
 	id: string;
-	x: number;
-	y: number;
-	radiusM: number;
+	/**
+	 * A rectangle for a pier, a circle for a round column. Both are obstructions: a pillar
+	 * casts the same shadow a wall does, so they are rasterised into the mask the
+	 * propagation reads rather than being a drawing of one.
+	 */
+	shape: 'rect' | 'circle';
+	/** Opposite corners of the rectangle; for a circle, `a` is the centre and `b` a rim point. */
+	ax: number;
+	ay: number;
+	bx: number;
+	by: number;
 	material: WallMaterialId;
 }
 
@@ -184,4 +192,48 @@ export function wallNearPoint(
 /** Drop walls shorter than a pixel or two: a double-click through the same spot makes one. */
 export function isDegenerate(wall: VectorWall, minLength = 2): boolean {
 	return wallLength(wall) < minLength;
+}
+
+/** A column's bounding box, in world units. */
+export function columnBox(column: VectorColumn): {
+	x0: number;
+	y0: number;
+	x1: number;
+	y1: number;
+	width: number;
+	height: number;
+} {
+	const x0 = Math.min(column.ax, column.bx);
+	const x1 = Math.max(column.ax, column.bx);
+	const y0 = Math.min(column.ay, column.by);
+	const y1 = Math.max(column.ay, column.by);
+	return { x0, y0, x1, y1, width: x1 - x0, height: y1 - y0 };
+}
+
+/** A column too small to obstruct anything: a click without a drag makes one. */
+export function isDegenerateColumn(column: VectorColumn, minSize = 2): boolean {
+	if (column.shape === 'circle') {
+		return Math.hypot(column.bx - column.ax, column.by - column.ay) < minSize;
+	}
+	const { width, height } = columnBox(column);
+	return width < minSize && height < minSize;
+}
+
+/** The column under a point, or null. Circles test their radius, rectangles their box. */
+export function columnAtPoint(
+	columns: readonly VectorColumn[],
+	point: Point
+): VectorColumn | null {
+	// Last drawn wins, which is what the user just placed when two overlap.
+	for (let i = columns.length - 1; i >= 0; i--) {
+		const column = columns[i]!;
+		if (column.shape === 'circle') {
+			const radius = Math.hypot(column.bx - column.ax, column.by - column.ay);
+			if (Math.hypot(point.x - column.ax, point.y - column.ay) <= radius) return column;
+			continue;
+		}
+		const { x0, y0, x1, y1 } = columnBox(column);
+		if (point.x >= x0 && point.x <= x1 && point.y >= y0 && point.y <= y1) return column;
+	}
+	return null;
 }

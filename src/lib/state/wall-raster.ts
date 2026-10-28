@@ -20,6 +20,16 @@ export interface RasterWall {
 	material: number;
 }
 
+/** A column as the rasteriser takes it: a footprint and a material. */
+export interface RasterColumn {
+	shape: 'rect' | 'circle';
+	ax: number;
+	ay: number;
+	bx: number;
+	by: number;
+	material: number;
+}
+
 export interface RasterisedMasks {
 	wall: Uint8Array;
 	material: Uint8Array;
@@ -41,9 +51,15 @@ export function rasteriseWalls(
 	walls: readonly RasterWall[],
 	bandWidth = 6,
 	padding = 8,
-	extent?: { width: number; height: number; originX: number; originY: number }
+	extent?: { width: number; height: number; originX: number; originY: number },
+	/**
+	 * Columns to paint as solid obstruction: a pier is a wall with no length to draw, and a
+	 * round column is one with no line at all. They are filled rather than stroked, because
+	 * what they obstruct is their footprint.
+	 */
+	columns: readonly RasterColumn[] = []
 ): RasterisedMasks | null {
-	if (walls.length === 0) return null;
+	if (walls.length === 0 && columns.length === 0) return null;
 	let minX = Infinity;
 	let minY = Infinity;
 	let maxX = -Infinity;
@@ -53,6 +69,12 @@ export function rasteriseWalls(
 		minY = Math.min(minY, wall.ay, wall.by);
 		maxX = Math.max(maxX, wall.ax, wall.bx);
 		maxY = Math.max(maxY, wall.ay, wall.by);
+	}
+	for (const column of columns) {
+		minX = Math.min(minX, column.ax, column.bx);
+		minY = Math.min(minY, column.ay, column.by);
+		maxX = Math.max(maxX, column.ax, column.bx);
+		maxY = Math.max(maxY, column.ay, column.by);
 	}
 	if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
 
@@ -93,6 +115,29 @@ export function rasteriseWalls(
 					wall[index] = 1;
 					material[index] = segment.material;
 				}
+			}
+		}
+	}
+
+	// Columns are filled, not stroked: their whole footprint is obstruction.
+	for (const column of columns) {
+		const x0 = Math.round(Math.min(column.ax, column.bx) - originX);
+		const x1 = Math.round(Math.max(column.ax, column.bx) - originX);
+		const y0 = Math.round(Math.min(column.ay, column.by) - originY);
+		const y1 = Math.round(Math.max(column.ay, column.by) - originY);
+		for (let y = Math.max(0, y0); y <= Math.min(height - 1, y1); y++) {
+			for (let x = Math.max(0, x0); x <= Math.min(width - 1, x1); x++) {
+				if (column.shape === 'circle') {
+					const cx = column.ax - originX;
+					const cy = column.ay - originY;
+					const r = Math.hypot(column.bx - column.ax, column.by - column.ay);
+					const px = x + 0.5;
+					const py = y + 0.5;
+					if ((px - cx) ** 2 + (py - cy) ** 2 > r * r) continue;
+				}
+				const index = y * width + x;
+				wall[index] = 1;
+				material[index] = column.material;
 			}
 		}
 	}

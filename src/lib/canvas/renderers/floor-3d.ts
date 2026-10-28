@@ -25,9 +25,9 @@ import {
 } from './stacked-floors.js';
 import type { FloorCardCache, FloorCardSource } from './floor-card.js';
 import { apMarkerColor } from './ap.js';
-import { getMaterial } from '../materials.js';
-import { surfaceBox, type ElevatedSurface } from '$lib/rf/surface-height.js';
-import type { VectorWall } from '$state/vector-walls.js';
+import { getMaterial, type WallMaterialId } from '../materials.js';
+import { surfaceBox, surfaceThickness, stepCount, type ElevatedSurface } from '$lib/rf/surface-height.js';
+import type { VectorColumn, VectorWall } from '$state/vector-walls.js';
 
 /** One quad to fill, projected into the drawing plane. */
 interface Face {
@@ -48,6 +48,8 @@ export class Floor3DLayer implements Layer {
 	source: FloorCardSource | null = null;
 	/** The floor's walls as segments: the geometry the extrusion is made of. */
 	walls: VectorWall[] = [];
+	/** Columns: a pier or a round pillar, extruded like a wall with no length. */
+	columns: VectorColumn[] = [];
 	/** Raised surfaces, drawn as the slabs they are. */
 	surfaces: ElevatedSurface[] = [];
 	/** Storey height, metres: what a wall without its own height is extruded to. */
@@ -182,7 +184,7 @@ export class Floor3DLayer implements Layer {
 		// Everything that stands up, painted back to front as one list: a wall behind a
 		// mezzanine has to be behind it whether it was drawn first or not.
 		const faces: Face[] = [];
-		if (this.showWalls) faces.push(...this.wallFaces(view, pivot));
+		if (this.showWalls) faces.push(...this.wallFaces(view, pivot), ...this.columnFaces(view, pivot));
 		faces.push(...this.surfaceFaces(view, pivot));
 		faces.sort((l, r) => l.depth - r.depth);
 		for (const face of faces) this.fillFace(ctx, face, zoom);
@@ -198,6 +200,65 @@ export class Floor3DLayer implements Layer {
 		ctx.fillText(src.name, anchor.x, anchor.y - 8 / zoom);
 
 		ctx.restore();
+	}
+
+	/**
+	 * Columns, as the prisms they are: a rectangle is a box, a circle an octagon.
+	 *
+	 * A pillar is a wall with no length, so it is extruded to the same height and painted the
+	 * same way — which is also how the model treats it (a filled footprint in the mask).
+	 */
+	private columnFaces(
+		view: StackCamera,
+		pivot: { x: number; y: number; z: number }
+	): Face[] {
+		const faces: Face[] = [];
+		const top = Math.max(0.1, this.ceilingHeightM) * view.wupm;
+		const cosYaw = Math.cos(view.yaw);
+		const sinYaw = Math.sin(view.yaw);
+		for (const column of this.columns) {
+			const material = getMaterial(column.material as WallMaterialId);
+			const [r, g, b] = material.color;
+			const points: Array<{ x: number; y: number }> =
+				column.shape === 'circle'
+					? Array.from({ length: 8 }, (_, i) => {
+							const angle = (i / 8) * Math.PI * 2;
+							const radius = Math.hypot(column.bx - column.ax, column.by - column.ay);
+							return {
+								x: column.ax + Math.cos(angle) * radius,
+								y: column.ay + Math.sin(angle) * radius
+							};
+						})
+					: [
+							{ x: Math.min(column.ax, column.bx), y: Math.min(column.ay, column.by) },
+							{ x: Math.max(column.ax, column.bx), y: Math.min(column.ay, column.by) },
+							{ x: Math.max(column.ax, column.bx), y: Math.max(column.ay, column.by) },
+							{ x: Math.min(column.ax, column.bx), y: Math.max(column.ay, column.by) }
+						];
+			const midX = (points.reduce((s, p) => s + p.x, 0) / points.length) - pivot.x;
+			const midY = (points.reduce((s, p) => s + p.y, 0) / points.length) - pivot.y;
+			const depth = sinYaw * midX + cosYaw * midY;
+			for (let i = 0; i < points.length; i++) {
+				const p1 = points[i]!;
+				const p2 = points[(i + 1) % points.length]!;
+				const nx = p2.y - p1.y;
+				const ny = p1.x - p2.x;
+				const facing = Math.abs(nx * sinYaw - ny * cosYaw) / Math.max(1e-6, Math.hypot(nx, ny));
+				const shade = SHADE_MIN + (1 - SHADE_MIN) * (0.4 + 0.6 * facing);
+				faces.push({
+					points: [
+						projectPoint(view, p1.x, p1.y, 0, pivot),
+						projectPoint(view, p2.x, p2.y, 0, pivot),
+						projectPoint(view, p2.x, p2.y, top, pivot),
+						projectPoint(view, p1.x, p1.y, top, pivot)
+					],
+					depth: depth + 0.001 * i,
+					fill: `rgba(${Math.round(r * shade)},${Math.round(g * shade)},${Math.round(b * shade)},0.92)`,
+					stroke: 'rgba(0,0,0,0.35)'
+				});
+			}
+		}
+		return faces;
 	}
 
 	private fillFace(ctx: CanvasRenderingContext2D, face: Face, zoom: number): void {
@@ -261,65 +322,173 @@ export class Floor3DLayer implements Layer {
 	}
 
 	/**
-	 * A raised surface as the box it is: its top at the surface height, its sides down to
-	 * the slab. A ramp's top is a sloping quad, which is exactly what its height field is.
+	 * A raised surface as the solid it is: a deck with thickness, a ramp with a sloping
+	 * top, a stair as its treads.
+	 *
+	 * The thickness is the difference between "a coloured rectangle" and "a mezzanine": a
+	 * deck has an underside, and a stair is a *flight* — drawing it as one sloping plane
+	 * would say the thing the model deliberately does not (a step function through the
+	 * sample grid). The treads are therefore drawn, at the same 0.3 m depth the panel
+	 * reports, and the model keeps its continuous equivalent.
 	 */
 	private surfaceFaces(
 		view: StackCamera,
 		pivot: { x: number; y: number; z: number }
 	): Face[] {
 		const faces: Face[] = [];
+		const TOP_FILL = 'rgba(214,150,86,0.5)';
+		const SIDE_FILL = 'rgba(150,104,58,0.62)';
+		const EDGE = 'rgba(255,214,170,0.75)';
+
 		for (const surface of this.surfaces) {
 			const { x0, y0, x1, y1 } = surfaceBox(surface);
 			if (x1 - x0 < 1 || y1 - y0 < 1) continue;
-			const low = surface.heightM * view.wupm;
-			const high = surface.topHeightM * view.wupm;
+			const low = Math.max(0, surface.heightM) * view.wupm;
+			const high = Math.max(0, surface.topHeightM) * view.wupm;
+			const thickness = Math.max(0.02, surfaceThickness(surface)) * view.wupm;
+			const base = surface.solidBase ? 0 : null;
 			const { ax, ay, bx, by } = surface;
 			const horizontal = Math.abs(bx - ax) >= Math.abs(by - ay);
 			const forward = horizontal ? bx >= ax : by >= ay;
-			// The height at each of the four corners, from which end of the run it is on.
-			const zAt = (x: number, y: number): number => {
-				const t = horizontal
-					? (x - x0) / (x1 - x0)
-					: (y - y0) / (y1 - y0);
-				return low + (high - low) * (forward ? t : 1 - t);
+			const runFrac = (x: number, y: number): number => {
+				const t = horizontal ? (x - x0) / (x1 - x0) : (y - y0) / (y1 - y0);
+				return Math.min(1, Math.max(0, forward ? t : 1 - t));
 			};
+			const heightAt = (x: number, y: number): number => low + (high - low) * runFrac(x, y);
+
+			const midX = (x0 + x1) / 2 - pivot.x;
+			const midY = (y0 + y1) / 2 - pivot.y;
+			const depth = Math.cos(view.yaw) * midY + Math.sin(view.yaw) * midX;
+			const quad = (
+				points: Array<{ x: number; y: number; z: number }>,
+				fill: string,
+				order: number
+			): Face => ({
+				points: points.map((p) => projectPoint(view, p.x, p.y, p.z, pivot)),
+				depth: depth + order,
+				fill,
+				stroke: EDGE
+			});
 			const corners = [
 				{ x: x0, y: y0 },
 				{ x: x1, y: y0 },
 				{ x: x1, y: y1 },
 				{ x: x0, y: y1 }
 			];
-			const top = corners.map((corner) =>
-				projectPoint(view, corner.x, corner.y, Math.max(0, zAt(corner.x, corner.y)), pivot)
-			);
-			const midX = (x0 + x1) / 2 - pivot.x;
-			const midY = (y0 + y1) / 2 - pivot.y;
-			const depth = Math.cos(view.yaw) * midY + Math.sin(view.yaw) * midX;
-			// The top of the box, then the four sides down to the slab. The sides are what
-			// make it a raised surface rather than a tinted rectangle.
-			faces.push({
-				points: top,
-				depth: depth + 0.01,
-				fill: 'rgba(214,150,86,0.42)',
-				stroke: 'rgba(255,214,170,0.8)'
+
+			const isStair = surface.kind === 'stair' && high - low > 1;
+			if (isStair) {
+				/*
+				 * Treads along the run, each as its own small slab plus a riser: a flight
+				 * reads as a staircase from either side, and the 0.3 m tread depth it is
+				 * drawn with is the same one the panel reports. The model keeps its
+				 * continuous height field — a step function through the sample grid would
+				 * make coverage jump at every tread edge.
+				 */
+				const steps = stepCount(surface);
+				const across = horizontal
+					? [
+							{ x: x0, y: y0 },
+							{ x: x0, y: y1 }
+						]
+					: [
+							{ x: x0, y: y0 },
+							{ x: x1, y: y0 }
+						];
+				const at = (t: number, side: { x: number; y: number }) =>
+					horizontal
+						? { x: x0 + (x1 - x0) * (forward ? t : 1 - t), y: side.y }
+						: { x: side.x, y: y0 + (y1 - y0) * (forward ? t : 1 - t) };
+				for (let i = 0; i < steps; i++) {
+					const t0 = i / steps;
+					const t1 = (i + 1) / steps;
+					const topI = low + (high - low) * t1;
+					const prevTop = i === 0 ? low : low + (high - low) * t0;
+					const bottom = Math.max(0, topI - thickness);
+					const a0 = at(t0, across[0]!);
+					const a1 = at(t0, across[1]!);
+					const b0 = at(t1, across[0]!);
+					const b1 = at(t1, across[1]!);
+					faces.push(
+						quad(
+							[
+								{ ...a0, z: topI },
+								{ ...b0, z: topI },
+								{ ...b1, z: topI },
+								{ ...a1, z: topI }
+							],
+							TOP_FILL,
+							0.02 + t1
+						)
+					);
+					// The riser at the low edge of this tread, from the tread below to it.
+					faces.push(
+						quad(
+							[
+								{ ...a0, z: prevTop },
+								{ ...a1, z: prevTop },
+								{ ...a1, z: topI },
+								{ ...a0, z: topI }
+							],
+							SIDE_FILL,
+							t0
+						)
+					);
+					// Its two sides: the slab's own depth, from the tread down to its underside.
+					faces.push(
+						quad(
+							[
+								{ ...a0, z: bottom },
+								{ ...b0, z: bottom },
+								{ ...b0, z: topI },
+								{ ...a0, z: topI }
+							],
+							SIDE_FILL,
+							t0 + 0.01
+						)
+					);
+					faces.push(
+						quad(
+							[
+								{ ...b1, z: bottom },
+								{ ...a1, z: bottom },
+								{ ...a1, z: topI },
+								{ ...b1, z: topI }
+							],
+							SIDE_FILL,
+							t1 + 0.01
+						)
+					);
+				}
+				continue;
+			}
+
+			// A level deck or a ramp: one top, an underside `thickness` below it, and sides.
+			const topPoints = corners.map((corner) => ({
+				...corner,
+				z: heightAt(corner.x, corner.y)
+			}));
+			faces.push(quad(topPoints, TOP_FILL, 0.02));
+			const bottomOf = (p: { x: number; y: number; z: number }) => ({
+				x: p.x,
+				y: p.y,
+				z: base !== null ? base : Math.max(0, p.z - thickness)
 			});
-			for (let i = 0; i < corners.length; i++) {
-				const a = corners[i]!;
-				const b = corners[(i + 1) % corners.length]!;
-				const aTop = Math.max(0, zAt(a.x, a.y));
-				const bTop = Math.max(0, zAt(b.x, b.y));
-				faces.push({
-					points: [
-						projectPoint(view, a.x, a.y, 0, pivot),
-						projectPoint(view, b.x, b.y, 0, pivot),
-						projectPoint(view, b.x, b.y, bTop, pivot),
-						projectPoint(view, a.x, a.y, aTop, pivot)
-					],
-					depth,
-					fill: 'rgba(150,104,58,0.55)',
-					stroke: 'rgba(255,214,170,0.45)'
-				});
+			if (base !== null) {
+				// A solid base is a plinth: its sides start at the floor.
+				for (let i = 0; i < topPoints.length; i++) {
+					const a = topPoints[i]!;
+					const b = topPoints[(i + 1) % topPoints.length]!;
+					faces.push(quad([bottomOf(a), bottomOf(b), b, a], SIDE_FILL, 0));
+				}
+			} else {
+				for (let i = 0; i < topPoints.length; i++) {
+					const a = topPoints[i]!;
+					const b = topPoints[(i + 1) % topPoints.length]!;
+					faces.push(quad([bottomOf(a), bottomOf(b), b, a], SIDE_FILL, 0));
+				}
+				// The underside, visible only from below — which at a normal pitch is not.
+				faces.push(quad(topPoints.map(bottomOf).reverse(), SIDE_FILL, -0.01));
 			}
 		}
 		return faces;

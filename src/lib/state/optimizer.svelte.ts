@@ -2,7 +2,7 @@ import { SvelteMap } from 'svelte/reactivity';
 import { updateAp, beginMove } from './project.svelte.js';
 import { apHeightAboveFloor, apSplitFor, apVerticalOffsetTo, antennaProfileFor, getEffectiveWupm, type AccessPoint } from './ap-state.svelte.js';
 import { antennaRayLossDb } from '$lib/rf/antenna.js';
-import { surfaceHeightAt } from '$lib/rf/surface-height.js';
+import { surfaceHeightAt, deckCrossing } from '$lib/rf/surface-height.js';
 import type { Band, ChannelWidth } from '@aetherax/channels';
 import { scheduleSave } from './persistence.svelte.js';
 import { t } from './i18n.svelte.js';
@@ -616,6 +616,15 @@ export async function updateCoverage(): Promise<void> {
 			}
 			// A void is a hole in the slab, so a ray crossing there pays no slab loss.
 			dbLoss += slabLoss;
+			// A deck between this AP and a client standing on it: a path from below has to
+			// pass through the slab, and that is what the surface's attenuation is for.
+			const deck = deckCrossing(
+				surfaces,
+				sample.x + ox,
+				sample.y + oy,
+				vertical / surfaceWupm
+			);
+			if (deck) dbLoss += deck.lossDb;
 			// The antenna's cuts, from the geometry of this ray: an AP ten metres away
 			// on the same floor is near the peak of an upright omni, one almost
 			// overhead is in the weak part of its doughnut — and a wall-mounted unit
@@ -1445,7 +1454,9 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 					bx: surface.bx - originX,
 					by: surface.by - originY,
 					heightM: surface.heightM,
-					topHeightM: surface.topHeightM
+					topHeightM: surface.topHeightM,
+					thicknessM: surface.thicknessM,
+					attenuationDb: surface.attenuationDb
 				})),
 				// The user's own materials, so the worker charges their figures rather than the
 				// built-in fallback for an id it has never seen.

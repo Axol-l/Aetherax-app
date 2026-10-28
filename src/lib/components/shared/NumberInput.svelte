@@ -20,19 +20,39 @@
 		return Math.min(max, Math.max(min, n));
 	}
 
+	/**
+	 * The value rounded to the precision its step implies.
+	 *
+	 * `0.6 + 0.1` is `0.7000000000000001` in binary floating point, and the stepper showed
+	 * that to the user: a height that reads "0.7000000000000001 m" looks broken even though
+	 * the model is fine. A step of 0.1 means tenths, so the answer is kept to tenths — one
+	 * place for 0.1, two for 0.05, none for 1.
+	 */
+	function roundToStep(n: number): number {
+		if (!Number.isFinite(n)) return n;
+		const stepText = String(step);
+		const decimals = stepText.includes('.') ? Math.min(3, stepText.split('.')[1]!.length) : 0;
+		const factor = 10 ** decimals;
+		return Math.round(n * factor) / factor;
+	}
+
+	function set(next: number): void {
+		value = roundToStep(clamp(next));
+	}
+
 	function decrement() {
-		value = clamp(value - step);
+		set(value - step);
 	}
 
 	function increment() {
-		value = clamp(value + step);
+		set(value + step);
 	}
 
 	function handleInput(e: Event) {
 		const target = e.target as HTMLInputElement;
 		const parsed = Number(target.value);
 		if (!Number.isNaN(parsed)) {
-			value = clamp(parsed);
+			set(parsed);
 		}
 	}
 </script>

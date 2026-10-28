@@ -139,10 +139,13 @@ export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | 
 	 * bounding box, which is the frame a plan-less floor's mask was first written in.
 	 */
 	const walls = floor?.walls ?? [];
-	if (walls.length > 0) {
+	const columns = floor?.columns ?? [];
+	if (walls.length > 0 || columns.length > 0) {
 		const stored = floorId === floorState.currentFloorId ? wallState.wallMask ?? floor?.wallMask : floor?.wallMask;
 		const rtMask = floorId === floorState.currentFloorId ? wallState.roomTypeMask ?? floor?.roomTypeMask : floor?.roomTypeMask;
-		const key = `${floorId}:walls${wallsId(walls)}:${stored ? `${stored.width}x${stored.height}@${stored.originX ?? 0},${stored.originY ?? 0}` : 'own'}:rt${maskId(rtMask)}`;
+		// An empty list is not an identity: `floor.columns ?? []` is a new array on every
+		// call, so keying on it would miss the cache forever.
+		const key = `${floorId}:walls${wallsId(walls)}:cols${columns.length > 0 ? wallsId(columns) : 0}:${stored ? `${stored.width}x${stored.height}@${stored.originX ?? 0},${stored.originY ?? 0}` : 'own'}:rt${maskId(rtMask)}`;
 		const cached = floorMaskCache.get(floorId);
 		if (cached && cached.sourceKey === key) return cached;
 
@@ -163,7 +166,15 @@ export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | 
 						originX: stored.originX ?? 0,
 						originY: stored.originY ?? 0
 					}
-				: undefined
+				: undefined,
+			columns.map((column) => ({
+				shape: column.shape,
+				ax: column.ax,
+				ay: column.ay,
+				bx: column.bx,
+				by: column.by,
+				material: column.material
+			}))
 		);
 		if (masks) {
 			const entry: DecodedFloorMask = {

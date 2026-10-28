@@ -124,7 +124,7 @@ test('the heatmap stays drawn while a wall is added', async ({ page }) => {
 	const box = (await canvas.boundingBox())!;
 	await canvas.click({ position: { x: box.width * 0.55, y: box.height * 0.3 } });
 	await canvas.click({ position: { x: box.width * 0.55, y: box.height * 0.7 } });
-	await page.getByRole('button', { name: 'Done' }).click();
+	await page.getByRole('toolbar', { name: 'Wall tools' }).getByRole('button', { name: 'Done' }).click();
 	await page.waitForTimeout(2500);
 
 	const after = await colouredPixels(page);

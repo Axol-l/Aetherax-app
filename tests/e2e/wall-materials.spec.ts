@@ -24,7 +24,8 @@ async function drawWall(page: Page): Promise<void> {
 	const y = Math.round(box.height * 0.5);
 	await canvas.click({ position: { x: 300, y } });
 	await canvas.click({ position: { x: 620, y } });
-	await page.getByRole('button', { name: 'Done' }).click();
+	// The wall tool's own Done lives in its floating toolbar.
+	await page.getByRole('toolbar', { name: 'Wall tools' }).getByRole('button', { name: 'Done' }).click();
 	await page.waitForTimeout(400);
 }
 

@@ -20,7 +20,7 @@ import {
 	type PathLossScenario
 } from '../rf/propagation.js';
 import { crossFloorSegments, slabLossFactor, type SlabCrossing } from '../rf/cross-floor.js';
-import { surfaceHeightAt } from '../rf/surface-height.js';
+import { deckCrossing, surfaceHeightAt, type SurfaceRect } from '../rf/surface-height.js';
 import {
 	antennaLossDb,
 	antennaProfileForMount,
@@ -357,6 +357,8 @@ interface OptimizeMessage {
 		by: number;
 		heightM: number;
 		topHeightM: number;
+		thicknessM?: number;
+		attenuationDb?: number;
 	}>;
 	/**
 	 * The user's custom wall materials.
@@ -870,6 +872,19 @@ function buildFixedPaths(
 	});
 }
 
+/**
+ * The loss a deck costs a path that crosses it.
+ *
+ * Shared by every evaluator for the same reason `sampleLift` is: one rule, so the fast
+ * pass, the exact pass and the polishing pass cannot disagree about a mezzanine. The gap is
+ * in world units and the deck's thickness is in metres, hence the scale.
+ */
+function deckLossAt(ctx: EvalContext, x: number, y: number, gapWu: number): number {
+	if (ctx.surfaces.length === 0) return 0;
+	const crossing = deckCrossing(ctx.surfaces, x, y, gapWu / (ctx.wupm || 1));
+	return crossing ? crossing.lossDb : 0;
+}
+
 function evaluateCoverage(
 	positions: Position[],
 	caches: Map<Band, WallCache>,
@@ -948,9 +963,11 @@ function evaluateCoverage(
 			}
 			const row = apRows[a]![s]!;
 			// Same-floor, but not flat: the AP's own mounting height is part of the
-			// distance, and its antenna's cuts are part of the loss.
+			// distance, and its antenna's cuts are part of the loss. A deck between the
+			// two is charged here, on the same rule as the heatmap and the live figure.
+			const deckLoss = deckLossAt(ctx, samples[s]!.x, samples[s]!.y, gap);
 			const wide =
-				sourceMargin(dist, ap.radius, row, gap, -softness) -
+				sourceMargin(dist, ap.radius, row + deckLoss, gap, -softness) -
 				antennaRayLossDb(profile, gap, dx, dy);
 			allMargins[base + k++] = wide > 0 ? wide : -Infinity;
 			if (wide > best) best = wide;
@@ -973,8 +990,13 @@ function evaluateCoverage(
 			// standing higher than that.
 			const fixedGap = fap.verticalGap - (ctx.sampleLift?.[s] ?? 0);
 			const wide =
-				sourceMargin(dist, fap.interferenceRadius, loss, fixedGap, -softness) -
-				antennaRayLossDb(ctx.fixedProfiles[f]!, fixedGap, dx, dy);
+				sourceMargin(
+					dist,
+					fap.interferenceRadius,
+					loss + deckLossAt(ctx, samples[s]!.x, samples[s]!.y, fixedGap),
+					fixedGap,
+					-softness
+				) - antennaRayLossDb(ctx.fixedProfiles[f]!, fixedGap, dx, dy);
 			allMargins[base + k++] = wide > 0 ? wide : -Infinity;
 			if (wide > best) best = wide;
 		}
@@ -1203,6 +1225,16 @@ interface EvalContext {
 	 * stair climbs between the two. See `rf/surface-height.ts`.
 	 */
 	sampleLift: Float64Array | null;
+	/**
+	 * The raised surfaces themselves, for the deck test.
+	 *
+	 * `sampleLift` says how high the client is; this says whether the path from a source
+	 * below had to pass through a deck to reach it (and what that costs). Kept as geometry
+	 * because the answer depends on the *source's* height as well as the sample's.
+	 */
+	surfaces: SurfaceRect[];
+	/** World units per metre, for the deck's thickness against a gap in world units. */
+	wupm: number;
 	/**
 	 * Each placed access point's vertical antenna cut, index-aligned with
 	 * `positions` and `apGaps`. See `ApInput.beamwidthDeg`.
@@ -1524,8 +1556,13 @@ function fillMargins(positions: Position[], ctx: EvalContext): MarginField {
 			// purpose: it can only remove margin, so a source that cannot reach without
 			// it cannot reach with it either, and the horizon stays conservative.
 			const margin =
-				sourceMargin(dist, ap.radius, loss, gap, -horizon) -
-				antennaRayLossDb(apProfiles[ai]!, gap, dx, dy);
+				sourceMargin(
+					dist,
+					ap.radius,
+					loss + deckLossAt(ctx, sample.x, sample.y, gap),
+					gap,
+					-horizon
+				) - antennaRayLossDb(apProfiles[ai]!, gap, dx, dy);
 			allMargins[base + k] = margin > 0 ? margin : -Infinity;
 			ccaMargins[base + k] = margin > -CCA_BELOW_THRESHOLD_DB ? margin : -Infinity;
 			k++;
@@ -1576,8 +1613,13 @@ function fillMargins(positions: Position[], ctx: EvalContext): MarginField {
 			}
 			const loss = fixedLossFor(fap, sample.x, sample.y) + slabLoss;
 			const margin =
-				sourceMargin(dist, fap.interferenceRadius, loss, fixedGap, -horizon) -
-				antennaRayLossDb(ctx.fixedProfiles[fi]!, fixedGap, dx, dy);
+				sourceMargin(
+					dist,
+					fap.interferenceRadius,
+					loss + deckLossAt(ctx, sample.x, sample.y, fixedGap),
+					fixedGap,
+					-horizon
+				) - antennaRayLossDb(ctx.fixedProfiles[fi]!, fixedGap, dx, dy);
 			allMargins[base + k] = margin > 0 ? margin : -Infinity;
 			ccaMargins[base + k] = margin > -CCA_BELOW_THRESHOLD_DB ? margin : -Infinity;
 			k++;
@@ -2370,6 +2412,8 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 		sourceBands,
 		apGaps,
 		sampleLift,
+		surfaces: msg.surfaces ?? [],
+		wupm: msg.worldUnitsPerMeter ?? 1,
 		apProfiles,
 		fixedProfiles,
 		overlap,
@@ -2565,7 +2609,7 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 					sourceMargin(
 						dist,
 						positions[a]!.radius,
-						iterApRows[a]![s]!,
+						iterApRows[a]![s]! + deckLossAt(ctx, samples[s]!.x, samples[s]!.y, gap),
 						gap,
 						-ctx.coverageSoftnessDb
 					) -
@@ -2593,7 +2637,7 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 					sourceMargin(
 						dist,
 						fap.interferenceRadius,
-						wallDb + slabDb,
+						wallDb + slabDb + deckLossAt(ctx, samples[s]!.x, samples[s]!.y, fap.verticalGap - lift),
 						fap.verticalGap - lift,
 						-ctx.coverageSoftnessDb
 					) -

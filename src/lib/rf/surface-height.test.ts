@@ -1,19 +1,23 @@
 /**
  * The raised-surface height field: what a platform, a stair and a ramp are worth.
  *
- * The numbers here are the vertical gap a client two metres up a mezzanine actually
- * has, so the tests are about the geometry rather than about arithmetic: a level
- * surface is level, the run climbs the way it was drawn, and two overlapping surfaces
- * do not add up to a third.
+ * The numbers here are the vertical gap a client two metres up a mezzanine actually has, so
+ * the tests are about the geometry rather than about arithmetic: a level surface is level,
+ * the run climbs the way it was drawn, two overlapping surfaces do not add up to a third,
+ * and a source below a deck is shielded by it.
  */
 import { describe, expect, it } from 'vitest';
 import {
+	deckCrossing,
 	heightOf,
 	isDegenerateSurface,
 	runFraction,
+	stepCount,
 	surfaceContains,
 	surfaceCorners,
 	surfaceHeightAt,
+	surfaceThickness,
+	STEP_DEPTH_M,
 	type ElevatedSurface
 } from './surface-height.js';
 
@@ -89,5 +93,45 @@ describe('a raised surface', () => {
 		expect(surfaceContains(reversed, 50, 25)).toBe(true);
 		expect(surfaceCorners(reversed)[0]).toEqual({ x: 0, y: 0 });
 		expect(surfaceCorners(reversed)[2]).toEqual({ x: 100, y: 50 });
+	});
+});
+
+describe('the deck of a raised surface', () => {
+	it('has a thickness and a default loss', () => {
+		const platform = surface();
+		expect(surfaceThickness(platform)).toBeCloseTo(0.2);
+		expect(surfaceThickness({ ...platform, thicknessM: 0.4 })).toBeCloseTo(0.4);
+		expect(surfaceThickness({ ...platform, thicknessM: -1 })).toBe(0);
+	});
+
+	it('shields a client standing on it from a source below its underside', () => {
+		const deck = surface({ heightM: 2, topHeightM: 2, thicknessM: 0.2, attenuationDb: 15 });
+		// An AP 0.5 m below the client's feet is under the deck's underside (2 − 0.2 = 1.8).
+		const crossing = deckCrossing([deck], 50, 25, -0.5);
+		expect(crossing?.lossDb).toBe(15);
+		// An AP just under the client's feet, but inside the deck's own thickness: the path
+		// never leaves the deck, so nothing is charged.
+		expect(deckCrossing([deck], 50, 25, -0.1)).toBeNull();
+		// And a source above the deck is not shielded at all.
+		expect(deckCrossing([deck], 50, 25, 1)).toBeNull();
+		// Off the deck there is nothing to cross.
+		expect(deckCrossing([deck], 150, 25, -3)).toBeNull();
+		// A deck with no loss is not a crossing worth reporting.
+		expect(deckCrossing([surface({ attenuationDb: 0 })], 50, 25, -3)).toBeNull();
+	});
+
+	it('uses the highest deck when two overlap, because that is the one walked on', () => {
+		const low = surface({ id: 'low', heightM: 1, topHeightM: 1, attenuationDb: 5 });
+		const high = surface({ id: 'high', ax: 10, ay: 0, bx: 90, by: 50, heightM: 2, topHeightM: 2, attenuationDb: 20 });
+		expect(deckCrossing([low, high], 50, 25, -1.5)?.lossDb).toBe(20);
+		expect(deckCrossing([low, high], 5, 25, -1.5)?.lossDb).toBe(5);
+	});
+
+	it('counts a stair from its rise and the tread depth', () => {
+		const stair = surface({ kind: 'stair', heightM: 0, topHeightM: 3 });
+		expect(stepCount(stair)).toBe(10);
+		expect(stepCount(stair, 0.5)).toBe(6);
+		expect(stepCount(surface({ kind: 'stair', heightM: 2, topHeightM: 2 }))).toBe(1);
+		expect(STEP_DEPTH_M).toBeCloseTo(0.3);
 	});
 });

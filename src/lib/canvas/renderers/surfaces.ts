@@ -45,6 +45,17 @@ export class SurfacesLayer implements Layer {
 		const { ctx, camera } = rc;
 		const zoom = camera.state.zoom || 1;
 		ctx.save();
+		/*
+		 * Into world space first, like every other layer that draws on the plan.
+		 *
+		 * Without this the shapes are drawn at raw world coordinates in *screen* pixels:
+		 * they stay put when the plan is panned, do not grow with the zoom, and the label —
+		 * sized `11 / zoom` for a screen-constant 11 px — grows as the plan is zoomed in.
+		 * The draft cursor is the same bug seen while drawing: the rectangle follows the
+		 * pan, not the pointer.
+		 */
+		const [m0, m1, m2, m3, m4, m5] = camera.getTransform();
+		ctx.transform(m0, m1, m2, m3, m4, m5);
 
 		for (const surface of this.surfaces) {
 			this.drawSurface(ctx, surface, zoom, surface.id === this.selectedId);

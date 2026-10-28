@@ -20,6 +20,8 @@ async function savedFloor(page: Page): Promise<{
 		by: number;
 		heightM: number;
 		topHeightM: number;
+		attenuationDb?: number;
+		thicknessM?: number;
 	}>;
 }> {
 	return page.evaluate(() => {
@@ -36,7 +38,12 @@ async function drawSurface(page: Page): Promise<void> {
 	const box = (await canvas.boundingBox())!;
 	await canvas.click({ position: { x: box.width * 0.35, y: box.height * 0.3 } });
 	await canvas.click({ position: { x: box.width * 0.65, y: box.height * 0.6 } });
-	await page.getByRole('button', { name: 'Done' }).click();
+	// The surface tool's own Done, inside its card.
+	await page
+		.locator('.planning-area')
+		.filter({ hasText: 'Raised surfaces' })
+		.getByRole('button', { name: 'Done' })
+		.click();
 	await page.waitForTimeout(400);
 }
 
@@ -53,7 +60,8 @@ test.describe('Raised surfaces', () => {
 		 */
 		await page.getByRole('button', { name: 'Draw from Scratch' }).click();
 		await page.waitForTimeout(300);
-		await page.getByRole('button', { name: 'Done' }).click();
+		// The wall tool has its own Done in the toolbar now; this one leaves that tool.
+		await page.getByRole('toolbar', { name: 'Wall tools' }).getByRole('button', { name: 'Done' }).click();
 		await page.waitForTimeout(300);
 	});
 
@@ -76,13 +84,15 @@ test.describe('Raised surfaces', () => {
 		await expect(page.getByText('1 raised')).toBeVisible();
 	});
 
-	test('a stair carries a rise, and the card grows the second height', async ({ page }) => {
+	test('a stair carries a rise, and the card derives its steps', async ({ page }) => {
 		await page.getByRole('button', { name: 'Stair', exact: true }).click();
-		// The rise starts above the low end, so a stair drawn now already climbs.
-		const high = page.locator('.surface-field', { hasText: 'High end' });
-		await expect(high).toBeVisible();
-		await high.locator('input').fill('3.5');
-		await high.locator('input').blur();
+		// The rise is a parameter like any other now, and the step count follows from it.
+		const upper = page.locator('.param-row', { hasText: 'Upper height' });
+		await expect(upper).toBeVisible();
+		await upper.locator('input').fill('3.5');
+		await upper.locator('input').blur();
+		// 1.5 m of rise at the standard 0.3 m tread is five steps.
+		await expect(page.locator('.param-row', { hasText: 'N of steps' })).toContainText('5');
 
 		await drawSurface(page);
 
@@ -94,6 +104,10 @@ test.describe('Raised surfaces', () => {
 		expect(surface.kind).toBe('stair');
 		expect(surface.heightM).toBeCloseTo(2);
 		expect(surface.topHeightM).toBeCloseTo(3.5);
+		// The deck's own parameters travel with it: they are what the 3D view and the
+		// attenuation test read.
+		expect(surface.attenuationDb).toBeCloseTo(15);
+		expect(surface.thicknessM).toBeCloseTo(0.2);
 	});
 
 	test('a selected surface is removed with Delete', async ({ page }) => {

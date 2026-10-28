@@ -86,7 +86,16 @@ export interface Floor {
 		heightM?: number;
 	}>;
 	/** Columns: load-bearing obstructions a line cannot express. */
-	columns?: Array<{ id: string; x: number; y: number; radiusM: number; material: number }>;
+	columns?: Array<{
+		id: string;
+		shape: 'rect' | 'circle';
+		/** Opposite corners; for a circle, `a` is the centre and `b` a rim point. */
+		ax: number;
+		ay: number;
+		bx: number;
+		by: number;
+		material: number;
+	}>;
 	/**
 	 * Raised walking surfaces: a mezzanine, a stair, a ramp.
 	 *

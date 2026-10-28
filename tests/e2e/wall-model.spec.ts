@@ -255,13 +255,56 @@ test.describe('Walls as segments', () => {
 		await canvas.click({ position: { x: box.width * 0.4, y: box.height * 0.4 } });
 		await canvas.click({ position: { x: box.width * 0.6, y: box.height * 0.4 } });
 		await page.waitForTimeout(500);
-		await page.getByRole('button', { name: 'Done' }).click();
+		await page.getByRole('toolbar', { name: 'Wall tools' }).getByRole('button', { name: 'Done' }).click();
 
 		await expect.poll(
 			async () => (await saved(page)).floors[0]?.walls?.length ?? 0,
 			{ timeout: 20_000 }
 		).toBe(1);
 		expect(await savedWallPixels(page)).toBeGreaterThan(0);
+	});
+
+	test('the wall toolbar draws a circle column as an obstruction', async ({ page }) => {
+		await page.goto('/');
+		await page.waitForSelector('canvas');
+		await page.getByRole('tab', { name: 'Floorplan' }).click();
+		await page.getByRole('button', { name: 'Draw from Scratch' }).click();
+		await page.waitForTimeout(300);
+
+		// The toolbar is the tool's own control: shape, material and Done, over the canvas.
+		const toolbar = page.getByRole('toolbar', { name: 'Wall tools' });
+		await expect(toolbar).toBeVisible();
+		await toolbar.getByRole('button', { name: 'Circle' }).click();
+
+		const canvas = page.locator('canvas');
+		const box = (await canvas.boundingBox())!;
+		const cx = box.width * 0.5;
+		const cy = box.height * 0.5;
+		await canvas.click({ position: { x: cx, y: cy } });
+		await canvas.click({ position: { x: cx + 80, y: cy } });
+		await page.waitForTimeout(500);
+		await toolbar.getByRole('button', { name: 'Done' }).click();
+
+		// A column is an obstruction, not a decoration: it is in the saved geometry and in
+		// the mask every kernel reads.
+		await expect
+			.poll(
+				async () =>
+					(
+						(await saved(page)).floors[0] as { columns?: Array<{ shape: string }> }
+					)?.columns?.[0]?.shape,
+				{ timeout: 20_000 }
+			)
+			.toBe('circle');
+		await expect.poll(() => savedWallPixels(page), { timeout: 20_000 }).toBeGreaterThan(20);
+
+		// And Delete removes it, like every other selected object.
+		await page.keyboard.press('Delete');
+		await expect.poll(
+			async () =>
+				((await saved(page)).floors[0] as { columns?: unknown[] })?.columns?.length ?? 0,
+			{ timeout: 20_000 }
+		).toBe(0);
 	});
 
 	test('right-clicking a segment changes that wall\'s material', async ({ page }) => {
@@ -276,7 +319,7 @@ test.describe('Walls as segments', () => {
 		const y = box.height * 0.5;
 		await canvas.click({ position: { x: 300, y } });
 		await canvas.click({ position: { x: 600, y } });
-		await page.getByRole('button', { name: 'Done' }).click();
+		await page.getByRole('toolbar', { name: 'Wall tools' }).getByRole('button', { name: 'Done' }).click();
 		await page.waitForTimeout(400);
 
 		// The midpoint of the two clicks is on the segment by construction, so this does

@@ -59,7 +59,7 @@ import {
 	type AttenField
 } from '../../rf/propagation.js';
 import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../rf/antenna.js';
-import { surfaceHeightAt, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
+import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
 import { rampColorAt } from '../heatmap-ramp.js';
 import { maskSignature } from '../mask-registry.js';
 import { antennaProfileFor } from '$state/ap-state.svelte.js';
@@ -595,6 +595,14 @@ export class HeatmapLayer implements Layer {
 					 * applied without the other.
 					 */
 					level -= antennaRayLossDb(apProfiles[i]!, gap, dx, dy);
+
+					// A deck between the AP and a client standing on it: the path from below
+					// has to pass through the slab, and that is what the surface's own
+					// attenuation figure is for.
+					if (surfaces.length > 0) {
+						const deck = deckCrossing(surfaces, wx, wy, gap / surfaceScale);
+						if (deck) level -= deck.lossDb;
+					}
 
 					// Wall attenuation (precomputed field, O(1) lookup).
 					const field = fields[i];

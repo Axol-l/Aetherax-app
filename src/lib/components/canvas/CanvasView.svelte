@@ -30,7 +30,10 @@
 		lockToAxis,
 		wallNearPoint,
 		isDegenerate,
-		type VectorWall
+		isDegenerateColumn,
+		columnAtPoint,
+		type VectorWall,
+		type VectorColumn
 	} from '$state/vector-walls.js';
 	import {
 		rasteriseWalls as rasteriseWallsToMasks,
@@ -107,6 +110,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import { ROOM_TYPES } from '$canvas/room-types.js';
 	import LayerPanel from '$components/canvas/LayerPanel.svelte';
 	import WallMaterialPopup from '$components/canvas/WallMaterialPopup.svelte';
+	import WallToolbar from '$components/canvas/WallToolbar.svelte';
 	import RoomTypePopup from '$components/canvas/RoomTypePopup.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
 	import { t, i18nState } from '$state/i18n.svelte';
@@ -305,6 +309,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		if (!floor) return;
 		const walls = floor.walls ?? [];
+		const columns = floor.columns ?? [];
 		const frame = wallState.wallMask;
 		const extent = frame
 			? {
@@ -314,11 +319,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 					originY: frame.originY
 				}
 			: undefined;
-		// The last wall was deleted. The mask has to be emptied with it — otherwise every
-		// consumer keeps measuring walls that no longer exist — but the *frame* stays, so
-		// the room labels and the plan's coordinate system do not move.
+		// The last obstruction was deleted. The mask has to be emptied with it — otherwise
+		// every consumer keeps measuring walls that no longer exist — but the *frame* stays,
+		// so the room labels and the plan's coordinate system do not move.
 		const masks =
-			walls.length === 0
+			walls.length === 0 && columns.length === 0
 				? frame
 					? emptyWallMasks(extent!)
 					: null
@@ -332,7 +337,15 @@ import { wallState } from '$state/wall-state.svelte.js';
 						})),
 						DEFAULT_WALL_BAND,
 						8,
-						extent
+						extent,
+						columns.map((column) => ({
+							shape: column.shape,
+							ax: column.ax,
+							ay: column.ay,
+							bx: column.bx,
+							by: column.by,
+							material: column.material
+						}))
 					);
 		if (!masks) return;
 		publishWallRaster({
@@ -377,6 +390,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		blobId?: number;
 		/** The drawn segment it was opened on, when it was one. */
 		wallId?: string;
+		/** Opened from the wall toolbar: the choice sets the material for what is drawn next. */
+		tool?: boolean;
 	} | null>(null);
 	let cachedWallLabels: ReturnType<typeof labelWallBlobs> | null = null;
 	let cachedMaterialData: Uint8Array | null = null;
@@ -542,6 +557,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 	async function handleMaterialSelect(newMaterial: WallMaterialId) {
 		if (!wallPopup) return;
 		/*
+		 * The choice came from the wall toolbar: it is the material the *next* wall or column
+		 * is drawn in, not a change to anything that exists. The sidebar's wall card shows the
+		 * same value, because `wallState.wallMaterial` is what both read.
+		 */
+		if (wallPopup.tool) {
+			wallState.wallMaterial = newMaterial;
+			scheduleSave();
+			return;
+		}
+		/*
 		 * A drawn segment: the material is a property of *the wall*, not of the pixels
 		 * under it. Writing it here and re-deriving the mask is what keeps the two
 		 * models from drifting — the segment stays the truth and the mask follows.
@@ -653,25 +678,38 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const mod = e.metaKey || e.ctrlKey;
 
 		if (!isInput && appState.wallVectorMode && e.key === 'Escape') {
-			appState.wallVectorDraft = null;
-			appState.wallVectorMode = false;
-			vectorCursor = null;
+			stopWallMode();
 			return;
 		}
 
 		if (
 			!isInput &&
-			appState.wallVectorSelected &&
+			(appState.wallVectorSelected || appState.wallColumnSelected) &&
 			(e.key === 'Delete' || e.key === 'Backspace')
 		) {
-			// A selected segment is a selected object: the same key that deletes an access
-			// point deletes it, and it must be consumed before the AP branch below.
+			// A selected segment or column is a selected object: the same key that deletes an
+			// access point deletes it, and it must be consumed before the AP branch below.
 			const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-			if (floor?.walls?.some((wall) => wall.id === appState.wallVectorSelected)) {
+			const wallSelected =
+				!!appState.wallVectorSelected &&
+				!!floor?.walls?.some((wall) => wall.id === appState.wallVectorSelected);
+			const columnSelected =
+				!!appState.wallColumnSelected &&
+				!!floor?.columns?.some((column) => column.id === appState.wallColumnSelected);
+			if (wallSelected || columnSelected) {
 				e.preventDefault();
 				pushState();
-				floor.walls = floor.walls.filter((wall) => wall.id !== appState.wallVectorSelected);
-				appState.wallVectorSelected = null;
+				if (wallSelected) {
+					floor!.walls = (floor!.walls ?? []).filter(
+						(wall) => wall.id !== appState.wallVectorSelected
+					);
+					appState.wallVectorSelected = null;
+				} else {
+					floor!.columns = (floor!.columns ?? []).filter(
+						(column) => column.id !== appState.wallColumnSelected
+					);
+					appState.wallColumnSelected = null;
+				}
 				scheduleSave();
 				engine.markDirty();
 				return;
@@ -1960,6 +1998,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const view3dFloor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		floor3DLayer.source = sources.find((s) => s.id === floorState.currentFloorId) ?? null;
 		floor3DLayer.walls = (view3dFloor?.walls ?? []) as VectorWall[];
+		floor3DLayer.columns = (view3dFloor?.columns ?? []) as VectorColumn[];
 		floor3DLayer.surfaces = view3dFloor?.surfaces ?? [];
 		floor3DLayer.ceilingHeightM = view3dFloor?.ceilingHeight ?? 3;
 		floor3DLayer.planOpacity = floorplanState.floorplanScale;
@@ -2460,14 +2499,28 @@ import { wallState } from '$state/wall-state.svelte.js';
 				const wall = wallNearPoint(world, walls, 12 / (engine.camera.state.zoom || 1));
 				if (wall) {
 					appState.wallVectorSelected = wall.id;
+					appState.wallColumnSelected = null;
 					pendingPlace = false;
 					pendingPan = false;
 					engine.markDirty();
 					return;
 				}
 			}
-			if (appState.wallVectorSelected) {
+			if ((floor?.columns ?? []).length > 0) {
+				const world = engine.camera.screenToWorld(screenPoint);
+				const column = columnAtPoint((floor?.columns ?? []) as VectorColumn[], world);
+				if (column) {
+					appState.wallColumnSelected = column.id;
+					appState.wallVectorSelected = null;
+					pendingPlace = false;
+					pendingPan = false;
+					engine.markDirty();
+					return;
+				}
+			}
+			if (appState.wallVectorSelected || appState.wallColumnSelected) {
 				appState.wallVectorSelected = null;
+				appState.wallColumnSelected = null;
 				engine.markDirty();
 			}
 			if (appState.surfaceSelected) {
@@ -2564,8 +2617,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			return;
 		}
 		// Drawing vector walls: the first click starts a segment, the second commits it.
-		if (appState.wallVectorMode) {
-			const rect = engine.canvas.getBoundingClientRect();
+		if (appState.wallVectorMode) {			const rect = engine.canvas.getBoundingClientRect();
 			const world = engine.camera.screenToWorld({
 				x: e.clientX - rect.left,
 				y: e.clientY - rect.top
@@ -2693,8 +2745,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		vectorWallsLayer.visible = appState.floorView === 'single';
 		vectorWallsLayer.walls = (floor?.walls ?? []) as VectorWall[];
+		vectorWallsLayer.columns = (floor?.columns ?? []) as VectorColumn[];
 		vectorWallsLayer.selectedId = appState.wallVectorSelected;
+		vectorWallsLayer.selectedColumnId = appState.wallColumnSelected;
 		vectorWallsLayer.draft = appState.wallVectorDraft;
+		vectorWallsLayer.columnDraft = appState.columnDraft;
 		vectorWallsLayer.cursor = appState.wallVectorMode ? vectorCursor : null;
 		vectorWallsLayer.snapTarget = appState.wallVectorMode ? vectorSnap : null;
 		vectorWallsLayer.wupm = getEffectiveWupm();
@@ -2715,15 +2770,21 @@ import { wallState } from '$state/wall-state.svelte.js';
 	$effect(() => {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		if (!floor) return;
-		const signature = (floor?.walls ?? [])
+		const wallsSig = (floor?.walls ?? [])
 			.map((wall) => `${wall.ax},${wall.ay},${wall.bx},${wall.by},${wall.material}`)
 			.join(';');
+		// Columns are obstructions in the same mask, so they re-derive it too.
+		const colsSig = (floor?.columns ?? [])
+			.map((column) => `${column.shape},${column.ax},${column.ay},${column.bx},${column.by},${column.material}`)
+			.join(';');
+		const signature = `${wallsSig}|${colsSig}`;
 		const sameFloor = lastWallsKey.floorId === floor.id;
-		const hadWalls = sameFloor && lastWallsKey.signature !== '';
+		// `|` is what two empty lists make: a floor with nothing drawn is not a change.
+		const hadWalls = sameFloor && lastWallsKey.signature !== '|';
 		lastWallsKey = { floorId: floor.id, signature };
 		// Nothing drawn and nothing was: the floor's mask is whatever detection produced,
 		// and it must be left alone.
-		if (!signature && !hadWalls) return;
+		if (signature === '|' && !hadWalls) return;
 		if (wallsSyncTimer) clearTimeout(wallsSyncTimer);
 		wallsSyncTimer = setTimeout(() => {
 			wallsSyncTimer = null;
@@ -2787,7 +2848,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 			topHeightM:
 				appState.surfaceKind === 'platform'
 					? Math.max(0, appState.surfaceHeightM)
-					: Math.max(0, appState.surfaceTopHeightM)
+					: Math.max(0, appState.surfaceTopHeightM),
+			attenuationDb: Math.max(0, appState.surfaceAttenuationDb),
+			thicknessM: Math.max(0, appState.surfaceThicknessM),
+			solidBase: appState.surfaceSolidBase
 		};
 		if (isDegenerateSurface(surface)) return;
 		pushState();
@@ -2804,16 +2868,43 @@ import { wallState } from '$state/wall-state.svelte.js';
 		return 12 / (engine?.camera.state.zoom ?? 1);
 	}
 
+	/** Leave the wall tool, dropping whatever was half drawn. */
+	function stopWallMode(): void {
+		appState.wallVectorMode = false;
+		appState.wallVectorDraft = null;
+		appState.columnDraft = null;
+		vectorCursor = null;
+		vectorSnap = null;
+		engine?.markDirty();
+	}
+
+	/** The material button in the wall toolbar: choose what the next shape is drawn in. */
+	function openToolbarMaterial(event: MouseEvent): void {
+		const rect = engine?.canvas.getBoundingClientRect();
+		wallPopup = {
+			x: event.clientX - (rect?.left ?? 0),
+			// Under the toolbar rather than over it.
+			y: event.clientY - (rect?.top ?? 0) + 18,
+			material: wallState.wallMaterial,
+			tool: true
+		};
+	}
+
 	/**
-	 * One click of the wall tool: the first picks a start, the second commits a segment.
+	 * One click of the wall tool.
 	 *
-	 * Both ends snap to an existing endpoint first and lock to an axis second — a plan grows
-	 * by continuing walls, so meeting the last one exactly matters more than hitting the
-	 * pixel the pointer was on.
+	 * A line is two clicks — start, end — snapping to walls first so a plan grows watertight.
+	 * A pier or a column is also two clicks, its opposite corners, because that is the same
+	 * gesture for a shape you size rather than trace; a circle uses the first click as its
+	 * centre and the second as a point on its rim.
 	 */
 	function handleVectorWallClick(world: { x: number; y: number }, shiftKey: boolean): void {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		if (!floor) return;
+		if (appState.wallTool !== 'line') {
+			commitColumnClick(floor, world);
+			return;
+		}
 		const walls = currentWalls();
 		const tolerance = snapToleranceWorld();
 		// Ends *and* sides: a partition running into the middle of a wall is the commonest
@@ -2841,6 +2932,35 @@ import { wallState } from '$state/wall-state.svelte.js';
 		pushState();
 		floor.walls = [...walls, wall];
 		appState.wallVectorSelected = wall.id;
+		scheduleSave();
+	}
+
+	/** The second click of a pier or a column: commits it in the current material. */
+	function commitColumnClick(
+		floor: (typeof floorState.floors)[number],
+		world: { x: number; y: number }
+	): void {
+		const shape = appState.wallTool === 'rect' ? 'rect' : 'circle';
+		if (!appState.columnDraft) {
+			appState.columnDraft = { shape, ax: world.x, ay: world.y, bx: world.x, by: world.y };
+			return;
+		}
+		const draft = appState.columnDraft;
+		appState.columnDraft = null;
+		const column: VectorColumn = {
+			id: crypto.randomUUID(),
+			shape: draft.shape,
+			ax: draft.ax,
+			ay: draft.ay,
+			bx: world.x,
+			by: world.y,
+			material: wallState.wallMaterial as WallMaterialId
+		};
+		if (isDegenerateColumn(column)) return;
+		pushState();
+		floor.columns = [...(floor.columns ?? []), column];
+		appState.wallColumnSelected = column.id;
+		appState.wallVectorSelected = null;
 		scheduleSave();
 	}
 
@@ -2941,12 +3061,24 @@ import { wallState } from '$state/wall-state.svelte.js';
 				x: e.clientX - rect.left,
 				y: e.clientY - rect.top
 			});
-			// Where the click would land, so the ring can say "this will meet that wall".
-			const snapped = snapToWalls(vectorCursor, currentWalls(), snapToleranceWorld());
-			vectorSnap =
-				snapped.point.x !== vectorCursor.x || snapped.point.y !== vectorCursor.y
-					? snapped.point
-					: null;
+			if (appState.wallTool === 'line') {
+				// Where the click would land, so the ring can say "this will meet that wall".
+				const snapped = snapToWalls(vectorCursor, currentWalls(), snapToleranceWorld());
+				vectorSnap =
+					snapped.point.x !== vectorCursor.x || snapped.point.y !== vectorCursor.y
+						? snapped.point
+						: null;
+			} else {
+				vectorSnap = null;
+				// The pier or column follows the pointer from the first click, like a wall.
+				if (appState.columnDraft) {
+					appState.columnDraft = {
+						...appState.columnDraft,
+						bx: vectorCursor.x,
+						by: vectorCursor.y
+					};
+				}
+			}
 			engine.markDirty();
 			return;
 		}
@@ -3172,6 +3304,15 @@ import { wallState } from '$state/wall-state.svelte.js';
 		ontouchcancel={handleTouchEnd}
 	></canvas>
 	<LayerPanel />
+	{#if appState.wallVectorMode}
+		<WallToolbar
+			tool={appState.wallTool}
+			material={wallState.wallMaterial}
+			ontool={(tool) => (appState.wallTool = tool)}
+			onmaterial={openToolbarMaterial}
+			ondone={stopWallMode}
+		/>
+	{/if}
 	<!--
 		Floor stepping in the 3D view. The sidebar's floor pills are still there, but in this
 		view the storeys are a place you are looking *at*, not a list you are picking from,

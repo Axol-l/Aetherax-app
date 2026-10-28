@@ -136,6 +136,7 @@
 	import { appState, setFloorAlignMode, notifyWalls, setSurfaceMode } from '$state/app.svelte.js';
 	import { updateCoverage } from '$state/optimizer.svelte.js';
 	import type { SurfaceKind } from '$lib/rf/surface-height.js';
+	import { stepCount } from '$lib/rf/surface-height.js';
 	import NumberInput from '$components/shared/NumberInput.svelte';
 	import { detectBoundary, polygonArea } from '$canvas/boundary-detect.js';
 	import { encodeMask } from '$canvas/wall-detect.js';
@@ -649,6 +650,21 @@
 		}
 	}
 
+	/** The step count a stair drawn now would get, from its rise at the standard tread. */
+	const previewStepCount = $derived(
+		stepCount({
+			ax: 0,
+			ay: 0,
+			bx: 0,
+			by: 0,
+			heightM: appState.surfaceHeightM,
+			topHeightM:
+				appState.surfaceKind === 'platform'
+					? appState.surfaceHeightM
+					: appState.surfaceTopHeightM
+		})
+	);
+
 	function clearSurfaces(): void {
 		const floor = currentFloor();
 		if (!floor) return;
@@ -657,156 +673,6 @@
 		appState.surfaceSelected = null;
 		void updateCoverage();
 		scheduleSave();
-	}
-
-	/**
-	 * Rasterise the drawn walls into a material mask, so the two kernels can be compared on
-	 * the *same* geometry.
-	 *
-	 * The comparison against the floor's own mask measures coverage as much as it measures
-	 * agreement: twenty-two hand-drawn segments cannot stand in for every wall in a detected
-	 * plan, so the raster side legitimately charges more. Painting the segments into a mask
-	 * removes that variable — both sides then see exactly the same walls, and any difference
-	 * left is the two algorithms disagreeing rather than the drawing being incomplete.
-	 *
-	 * The band is six units wide, the same stroke the vector layer draws and the smallest
-	 * brush the raster tool offers.
-	 */
-	function rasteriseWalls(
-		walls: readonly { ax: number; ay: number; bx: number; by: number; material: number }[]
-	): {
-		wall: Uint8Array;
-		material: Uint8Array;
-		width: number;
-		height: number;
-		originX: number;
-		originY: number;
-	} | null {
-		if (walls.length === 0) return null;
-		let minX = Infinity;
-		let minY = Infinity;
-		let maxX = -Infinity;
-		let maxY = -Infinity;
-		for (const wall of walls) {
-			minX = Math.min(minX, wall.ax, wall.bx);
-			minY = Math.min(minY, wall.ay, wall.by);
-			maxX = Math.max(maxX, wall.ax, wall.bx);
-			maxY = Math.max(maxY, wall.ay, wall.by);
-		}
-		const pad = 6;
-		const originX = Math.floor(minX) - pad;
-		const originY = Math.floor(minY) - pad;
-		const width = Math.max(1, Math.ceil(maxX - originX) + pad);
-		const height = Math.max(1, Math.ceil(maxY - originY) + pad);
-		// A cap on the working size: a stray far-out segment would otherwise allocate a mask
-		// of a million pixels to compare a handful of rays.
-		if (width * height > 4_000_000) return null;
-		const material = new Uint8Array(width * height);
-		// Occupancy as well as id: id 0 is Drywall, which is also what an unpainted pixel
-		// reads as, so the id alone cannot say whether there is a wall there.
-		const occupied = new Uint8Array(width * height);
-		const radius = 3;
-		for (const wall of walls) {
-			const length = Math.hypot(wall.bx - wall.ax, wall.by - wall.ay);
-			const steps = Math.max(1, Math.ceil(length));
-			for (let i = 0; i <= steps; i++) {
-				const t = i / steps;
-				const cx = Math.round(wall.ax + (wall.bx - wall.ax) * t - originX);
-				const cy = Math.round(wall.ay + (wall.by - wall.ay) * t - originY);
-				for (let dy = -radius; dy <= radius; dy++) {
-					for (let dx = -radius; dx <= radius; dx++) {
-						const x = cx + dx;
-						const y = cy + dy;
-						if (x < 0 || y < 0 || x >= width || y >= height) continue;
-						material[y * width + x] = wall.material;
-						occupied[y * width + x] = 1;
-					}
-				}
-			}
-		}
-		return { wall: occupied, material, width, height, originX, originY };
-	}
-
-	/**
-	 * Measure the two wall models against each other on this floor.
-	 *
-	 * Two answers, because they answer different questions:
-	 *
-	 * - **on the floor's own mask**: how much geometry the drawn walls represent, which is
-	 *   what the coverage figure will change by when the vector model takes over;
-	 * - **on the drawn geometry rasterised**: whether the two kernels agree when they see the
-	 *   same walls. This one should be near zero, and if it is not, the kernel is wrong —
-	 *   which is exactly what the first number cannot tell you.
-	 */
-	let wallModelComparison = $state<WallModelComparison | null>(null);
-	let wallModelSameGeometry = $state<WallModelComparison | null>(null);
-
-	async function compareWallModelsOnFloor(): Promise<void> {
-		const floor = currentFloor();
-		const ap = apState.aps.find((candidate) => candidate.floorId === floor?.id);
-		const decoded = floor ? await getFloorMask(floor.id) : null;
-		if (!floor || !ap || !decoded) return;
-		const walls = (floor.walls ?? []).map((wall) => ({
-			ax: wall.ax,
-			ay: wall.ay,
-			bx: wall.bx,
-			by: wall.by,
-			material: wall.material as WallMaterialId
-		}));
-		const points: Array<{ x: number; y: number }> = [];
-		const stepX = Math.max(1, Math.floor(decoded.width / 24));
-		const stepY = Math.max(1, Math.floor(decoded.height / 24));
-		for (let py = 0; py < decoded.height; py += stepY) {
-			for (let px = 0; px < decoded.width; px += stepX) {
-				points.push({ x: decoded.originX + px, y: decoded.originY + py });
-			}
-		}
-		const band = apState.band;
-		const from = { x: ap.x, y: ap.y };
-
-		wallModelComparison = compareWallModels({
-			walls,
-			band,
-			from,
-			points,
-			rasterLoss: (a, b) =>
-				rasterRayLossDb(
-					a,
-					b,
-					decoded.wallData,
-					decoded.materialMap,
-					decoded.width,
-					decoded.height,
-					decoded.originX,
-					decoded.originY,
-					band,
-					floor.wallMaterial as WallMaterialId
-				)
-		});
-
-		// The same walls, seen by both kernels.
-		const synthetic = rasteriseWalls(walls);
-		wallModelSameGeometry = synthetic
-			? compareWallModels({
-					walls,
-					band,
-					from,
-					points,
-					rasterLoss: (a, b) =>
-						rasterRayLossDb(
-							a,
-							b,
-							synthetic.wall,
-							synthetic.material,
-							synthetic.width,
-							synthetic.height,
-							synthetic.originX,
-							synthetic.originY,
-							band,
-							floor.wallMaterial as WallMaterialId
-						)
-				})
-			: null;
 	}
 
 	/**
@@ -1094,15 +960,22 @@
 			</Button>
 		</div>
 	{:else}
-		<div class="loaded-controls">
-			<div class="loaded-header">
-				<span class="loaded-label">
-					<Icon name="file" size={14} />
-					{floorplanState.floorplanUrl ? t('Floorplan loaded') : t('Walls drawn')}
+		<!--
+			The plan, as a card like everything below it.
+
+			It used to be a loose header with a trash icon and an opacity slider, which read
+			as chrome rather than as a step: the sidebar's real controls are cards, and the
+			first thing in the panel was the one exception.
+		-->
+		<div class="planning-area">
+			<div class="planning-head">
+				<span class="planning-title">
+					<Icon name="file" size={13} />
+					{t('Floorplan')}
 				</span>
-				<Button variant="ghost" size="sm" onclick={removeFloorplan}>
-					<Icon name="trash" size={14} />
-				</Button>
+				<span class="planning-state">
+					{floorplanState.floorplanUrl ? t('Loaded') : t('Walls drawn')}
+				</span>
 			</div>
 			<!-- Underlay opacity for the single-floor view. The tiled overview has its
 			     own slider in the LAYERS panel, and each shows in exactly one view, so
@@ -1134,100 +1007,125 @@
 			-->
 			<WallDetectionPanel {redetectFromPixels} />
 
-			{#if detecting}
-				<div class="calibration-section">
-					<span class="calibration-status">{t('Detecting boundary...')}</span>
-				</div>
-			{:else if (detectedWorldArea || wallState.wallMask) && !calibrationDone}
-				<div class="calibration-section">
-					{#if appState.calibrateMode}
-						<!--
-							Measuring instead of stating an area.
+			<div class="planning-actions">
+				<Button variant="ghost" size="sm" onclick={removeFloorplan}>
+					<Icon name="trash" size={14} />
+					{t('Remove floorplan')}
+				</Button>
+			</div>
+		</div>
 
-							The area route divides the stated area into the outline the detector
-							found, so it is only as good as that outline and says nothing about
-							whether the drawing is square. This asks for something the user can
-							read off the plan itself — click the two ends of a wall they know the
-							length of — which also works when the outline is open or the plan is a
-							detail of one room.
-						-->
-						<span class="calibration-label">{t('Click the two ends of a distance you know')}</span>
-						<span class="measure-hint">
-							{appState.calibrationPoints.length === 0
-								? t('First point: click on the plan.')
-								: appState.calibrationPoints.length === 1
-									? t('Second point: click the other end.')
-									: t('Now type the real length of that line.')}
-						</span>
-						{#if appState.calibrationPoints.length >= 2}
-							<div class="calibration-input-row">
-								<input
-									type="number"
-									class="area-input"
-									placeholder={t('e.g. 12')}
-									bind:value={measureInput}
-									onkeydown={(e) => { if (e.key === 'Enter') applyMeasuredCalibration(); }}
-									min="0.1"
-									step="any"
-								/>
-								<span
-									class="unit-toggle"
-									title={t('Set by the ft/m switch in the toolbar.')}>{lengthDisplayUnit}</span
-								>
-								<button class="apply-btn" onclick={applyMeasuredCalibration}>{t('Apply')}</button>
-							</div>
-							{#if measureError}
-								<span class="measure-error">{measureError}</span>
-							{/if}
-						{/if}
-						<button class="skip-link" onclick={cancelMeasuredCalibration}>{t('Cancel')}</button>
-					{:else}
-						<span class="calibration-label">{t('What is the total area of the floorplan?')}</span>
+		<!--
+			Calibration: what a world unit is worth.
+
+			Also a card now, and for the same reason as the plan above — it is a step in the
+			work (import, calibrate, draw walls, place APs), not a footnote under the header.
+			The area route and the measured route are the two answers to the same question,
+			so they live together with the current scale as the card's state.
+		-->
+		<div class="planning-area">
+			<div class="planning-head">
+				<span class="planning-title">
+					<Icon name="crosshair" size={13} />
+					{t('Scale')}
+				</span>
+				<span class="planning-state">{scaleDisplay ?? t('Not set')}</span>
+			</div>
+
+			{#if detecting}
+				<span class="calibration-status">{t('Detecting boundary...')}</span>
+			{:else if (detectedWorldArea || wallState.wallMask) && !calibrationDone}
+				{#if appState.calibrateMode}
+					<!--
+						Measuring instead of stating an area.
+
+						The area route divides the stated area into the outline the detector
+						found, so it is only as good as that outline and says nothing about
+						whether the drawing is square. This asks for something the user can
+						read off the plan itself — click the two ends of a wall they know the
+						length of — which also works when the outline is open or the plan is a
+						detail of one room.
+					-->
+					<span class="calibration-label">{t('Click the two ends of a distance you know')}</span>
+					<span class="measure-hint">
+						{appState.calibrationPoints.length === 0
+							? t('First point: click on the plan.')
+							: appState.calibrationPoints.length === 1
+								? t('Second point: click the other end.')
+								: t('Now type the real length of that line.')}
+					</span>
+					{#if appState.calibrationPoints.length >= 2}
 						<div class="calibration-input-row">
 							<input
 								type="number"
 								class="area-input"
-								placeholder={t('e.g. 200')}
-								bind:value={areaInput}
-								onkeydown={handleAreaKeydown}
-								min="1"
+								placeholder={t('e.g. 12')}
+								bind:value={measureInput}
+								onkeydown={(e) => { if (e.key === 'Enter') applyMeasuredCalibration(); }}
+								min="0.1"
 								step="any"
 							/>
-							<!--
-								The unit is a readout, not a control: it follows the
-								toolbar's ft/m button and converts what is already typed.
-								A button here would be a second, independent answer to
-								"which units is this project in" — and the one place it
-								would disagree with the toolbar is the field that sets the
-								scale of everything else.
-							-->
 							<span
 								class="unit-toggle"
-								title={t('Set by the ft/m switch in the toolbar, which converts what is already typed.')}
-								>{areaUnit}</span
+								title={t('Set by the ft/m switch in the toolbar.')}>{lengthDisplayUnit}</span
 							>
-							<button class="apply-btn" onclick={applyCalibration}>{t('Apply')}</button>
+							<Button variant="primary" size="sm" onclick={applyMeasuredCalibration}>
+								{t('Apply')}
+							</Button>
 						</div>
-						<div class="calibration-alternatives">
-							<button class="skip-link" onclick={skipCalibration}>{t('Skip')}</button>
-							<button class="skip-link" onclick={() => { measureError = null; setCalibrateMode(true); }}>
-								{t('or measure a distance on the plan')}
-							</button>
-						</div>
+						{#if measureError}
+							<span class="measure-error">{measureError}</span>
+						{/if}
 					{/if}
-				</div>
-			{:else if scaleDisplay}
-				<div class="calibration-section">
-					<span class="calibration-confirmed">{t('Scale:')} {scaleDisplay}</span>
-					<div class="calibration-alternatives">
-						<button class="skip-link" onclick={() => { calibrationDone = false; }}>{t('Recalibrate')}</button>
+					<div class="planning-actions">
+						<button class="skip-link" onclick={cancelMeasuredCalibration}>{t('Cancel')}</button>
+					</div>
+				{:else}
+					<span class="calibration-label">{t('What is the total area of the floorplan?')}</span>
+					<div class="calibration-input-row">
+						<input
+							type="number"
+							class="area-input"
+							placeholder={t('e.g. 200')}
+							bind:value={areaInput}
+							onkeydown={handleAreaKeydown}
+							min="1"
+							step="any"
+						/>
+						<!--
+							The unit is a readout, not a control: it follows the
+							toolbar's ft/m button and converts what is already typed.
+							A button here would be a second, independent answer to
+							"which units is this project in" — and the one place it
+							would disagree with the toolbar is the field that sets the
+							scale of everything else.
+						-->
+						<span
+							class="unit-toggle"
+							title={t('Set by the ft/m switch in the toolbar, which converts what is already typed.')}
+							>{areaUnit}</span
+						>
+						<Button variant="primary" size="sm" onclick={applyCalibration}>
+							{t('Apply')}
+						</Button>
+					</div>
+					<div class="planning-actions">
+						<button class="skip-link" onclick={skipCalibration}>{t('Skip')}</button>
 						<button class="skip-link" onclick={() => { measureError = null; setCalibrateMode(true); }}>
-							{t('or measure a distance instead')}
+							{t('Measure a distance')}
 						</button>
 					</div>
+				{/if}
+			{:else if scaleDisplay}
+				<div class="planning-actions">
+					<button class="skip-link" onclick={() => { calibrationDone = false; }}>
+						{t('Recalibrate')}
+					</button>
+					<button class="skip-link" onclick={() => { measureError = null; setCalibrateMode(true); }}>
+						{t('Measure a distance')}
+					</button>
 				</div>
 			{/if}
-
 		</div>
 	{/if}
 
@@ -1324,16 +1222,6 @@
 		     read-only card, so pressing them there would change something the user
 		     cannot see or aim at. -->
 		{#if appState.floorView === 'single'}
-			<div class="wall-actions">
-				<Button variant="secondary" size="sm" onclick={requestWallDetection} disabled={detecting}>
-					<Icon name="sparkles" size={14} />
-					{detecting ? t('Detecting…') : wallState.wallMask ? t('Re-detect Walls') : t('Detect Walls')}
-				</Button>
-				{#if !wallState.wallMask}
-					<span class="wall-hint">{t('Detect walls from the floorplan, or import one first')}</span>
-				{/if}
-			</div>
-
 			<!--
 				The planning area: where this floor actually is.
 
@@ -1433,17 +1321,22 @@
 							<Icon name="pencil" size={14} />
 							{t('Draw wall')}
 						</Button>
+						<!--
+							Re-detecting belongs to the walls, not to the plan: it replaces the
+							wall mask (and the material painted on it), which is what this card
+							is about. It used to sit above every card as a loose row.
+						-->
+						<Button variant="ghost" size="sm" onclick={requestWallDetection} disabled={detecting}>
+							<Icon name="sparkles" size={14} />
+							{detecting
+								? t('Detecting…')
+								: wallState.wallMask
+									? t('Re-detect walls')
+									: t('Detect walls')}
+						</Button>
 						{#if (currentFloor()?.walls ?? []).length > 0}
 							<button class="skip-link" onclick={clearVectorWalls}>{t('Clear walls')}</button>
 						{/if}
-						{#if wallState.wallMask}
-							<button class="skip-link" onclick={() => void traceWallsFromMaskOnFloor()}>
-								{t('Trace from mask')}
-							</button>
-						{/if}
-						<button class="skip-link" onclick={() => void compareWallModelsOnFloor()}>
-							{t('Compare wall models')}
-						</button>
 					</div>
 					{#if (currentFloor()?.walls ?? []).length > 0}
 						<!--
@@ -1454,49 +1347,8 @@
 						<p class="planning-hint">
 							{t('The mask, the interior and the coverage are derived from these walls. Click a wall to select it, right-click it to change its material.')}
 						</p>
-					{/if}
-					{#if wallModelComparison}
-						<!--
-							The measured difference, not a claim. Mean and worst-case loss difference in
-							dB, and how many rays one model walls off while the other does not — the last
-							number is the one that matters, because a whole wall's figure is a difference
-							of geometry rather than of arithmetic.
-						-->
-						<p class="planning-hint">
-							{t('Δ {mean} dB mean · {max} dB worst · {count} rays where one model has a wall and the other does not', {
-								mean: wallModelComparison.meanAbsDb.toFixed(2),
-								max: wallModelComparison.maxAbsDb.toFixed(2),
-								count: wallModelComparison.disagreements
-							})}
-						</p>
-						<!--
-							The inputs, not just the answer. Numbers that do not move after a redraw
-							mean the comparison is measuring the same geometry twice or measuring
-							nothing at all, and the deltas cannot say which. These can: they show what
-							each side actually charged, and over how many walls and rays.
-						-->
-						<p class="planning-hint">
-							{t('{walls} walls · {samples} rays · raster {raster} dB · vector {vector} dB', {
-								walls: (currentFloor()?.walls ?? []).length,
-								samples: wallModelComparison.samples,
-								raster: wallModelComparison.rasterMeanDb.toFixed(2),
-								vector: wallModelComparison.vectorMeanDb.toFixed(2)
-							})}
-						</p>
-						{#if wallModelSameGeometry}
-							<!--
-								The same walls through both kernels: this is the number that says whether
-								the new model is correct. The one above says how much of the floor the
-								drawing represents, which is a different question and moves with the
-								drawing rather than with the code.
-							-->
-							<p class="planning-hint">
-								{t('Same walls, both kernels: Δ {mean} dB mean · {count} disagreements', {
-									mean: wallModelSameGeometry.meanAbsDb.toFixed(2),
-									count: wallModelSameGeometry.disagreements
-								})}
-							</p>
-						{/if}
+					{:else if !wallState.wallMask}
+						<span class="wall-hint">{t('Detect walls from the floorplan, or import one first')}</span>
 					{/if}
 				{/if}
 			</div>
@@ -1520,31 +1372,75 @@
 						{t('{count} raised', { count: (currentFloor()?.surfaces ?? []).length })}
 					</span>
 				</div>
-				<div class="surface-controls">
-					<div class="surface-kinds" role="group" aria-label={t('Surface kind')}>
-						{#each surfaceKinds as option (option.id)}
-							<button
-								class="surface-kind"
-								class:active={appState.surfaceKind === option.id}
-								onclick={() => chooseSurfaceKind(option.id)}
-							>
-								{option.label}
-							</button>
-						{/each}
-					</div>
-					<div class="surface-numbers">
-						<label class="surface-field">
-							<span>{appState.surfaceKind === 'platform' ? t('Height') : t('Low end')}</span>
-							<NumberInput bind:value={appState.surfaceHeightM} min={0} max={12} step={0.1} />
-						</label>
-						{#if appState.surfaceKind !== 'platform'}
-							<label class="surface-field">
-								<span>{t('High end')}</span>
-								<NumberInput bind:value={appState.surfaceTopHeightM} min={0} max={12} step={0.1} />
-							</label>
-						{/if}
-					</div>
+				<div class="surface-kinds" role="group" aria-label={t('Surface kind')}>
+					{#each surfaceKinds as option (option.id)}
+						<button
+							class="surface-kind"
+							class:active={appState.surfaceKind === option.id}
+							onclick={() => chooseSurfaceKind(option.id)}
+						>
+							{option.label}
+						</button>
+					{/each}
 				</div>
+				<!--
+					The parameters, in full-width rows. Two number fields side by side in a
+					320 px sidebar did not fit — the second one ran past the card's border —
+					and the reference tool puts every figure on its own row for the same
+					reason: a value with a unit is read once, not scanned in a grid.
+				-->
+				<label class="param-row">
+					<span class="param-label">{t('Attenuation')}</span>
+					<span class="param-control">
+						<NumberInput bind:value={appState.surfaceAttenuationDb} min={0} max={120} step={1} />
+						<span class="param-unit">dB</span>
+					</span>
+				</label>
+				<label class="param-row">
+					<span class="param-label">{t('Upper height')}</span>
+					<span class="param-control">
+						<NumberInput bind:value={appState.surfaceTopHeightM} min={0} max={12} step={0.1} />
+						<span class="param-unit">m</span>
+					</span>
+				</label>
+				<label class="param-row">
+					<span class="param-label">{t('Thickness')}</span>
+					<span class="param-control">
+						<NumberInput bind:value={appState.surfaceThicknessM} min={0} max={2} step={0.05} />
+						<span class="param-unit">m</span>
+					</span>
+				</label>
+				<label class="param-row">
+					<span class="param-label">{appState.surfaceKind === 'platform' ? t('Height') : t('Lower height')}</span>
+					<span class="param-control">
+						<NumberInput bind:value={appState.surfaceHeightM} min={0} max={12} step={0.1} />
+						<span class="param-unit">m</span>
+					</span>
+				</label>
+				{#if appState.surfaceKind === 'stair'}
+					<!--
+						Derived, not stored: a stair's run is its rectangle, so the treads follow
+						from the rise at the standard 0.3 m depth. The reference's "Auto" is the
+						same number, and a stored count could disagree with the shape.
+					-->
+					<div class="param-row readonly">
+						<span class="param-label">{t('N of steps')}</span>
+						<span class="param-value">
+							{t('Auto ({count} × 0.3 m)', { count: previewStepCount })}
+						</span>
+					</div>
+				{:else}
+					<button
+						class="param-toggle"
+						class:on={appState.surfaceSolidBase}
+						role="switch"
+						aria-checked={appState.surfaceSolidBase}
+						onclick={() => (appState.surfaceSolidBase = !appState.surfaceSolidBase)}
+					>
+						<span>{t('Solid base floor')}</span>
+						<span class="toggle-track"><span class="toggle-knob"></span></span>
+					</button>
+				{/if}
 				{#if appState.surfaceMode}
 					<p class="planning-hint">
 						{appState.surfaceDraft
@@ -1552,7 +1448,9 @@
 							: t('Click one corner of the raised area, then the other.')}
 					</p>
 					<div class="planning-actions">
-						<button class="skip-link" onclick={() => setSurfaceMode(false)}>{t('Done')}</button>
+						<Button variant="primary" size="sm" onclick={() => setSurfaceMode(false)}>
+							{t('Done')}
+						</Button>
 					</div>
 				{:else}
 					<div class="planning-actions">
@@ -1561,7 +1459,9 @@
 							{t('Draw raised area')}
 						</Button>
 						{#if (currentFloor()?.surfaces ?? []).length > 0}
-							<button class="skip-link" onclick={clearSurfaces}>{t('Clear raised areas')}</button>
+							<Button variant="ghost" size="sm" onclick={clearSurfaces}>
+								{t('Clear raised areas')}
+							</Button>
 						{/if}
 					</div>
 					{#if (currentFloor()?.surfaces ?? []).length > 0}
@@ -1834,26 +1734,6 @@
 		outline-offset: 1px;
 	}
 
-	.loaded-controls {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
-	}
-
-	.loaded-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	.loaded-label {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		font-size: var(--text-sm);
-		color: var(--text-secondary);
-	}
-
 	.opacity-row {
 		display: flex;
 		align-items: center;
@@ -1877,14 +1757,6 @@
 		color: var(--text-tertiary);
 		min-width: 36px;
 		text-align: right;
-	}
-
-	.calibration-section {		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		margin-top: var(--space-2);
-		padding-top: var(--space-2);
-		border-top: 1px solid var(--border-subtle);
 	}
 
 	.calibration-status {
@@ -1937,30 +1809,6 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		white-space: nowrap;
-	}
-
-	.apply-btn {
-		height: 28px;
-		padding: 0 var(--space-2);
-		background: var(--accent-primary);
-		border: none;
-		border-radius: var(--radius-md);
-		color: var(--text-on-accent, #fff);
-		font-size: var(--text-xs);
-		font-weight: 500;
-		cursor: pointer;
-		white-space: nowrap;
-	}
-
-	.apply-btn:hover {
-		opacity: 0.9;
-	}
-
-	/* The two calibration routes side by side: state an area, or measure a line. */
-	.calibration-alternatives {
-		display: flex;
-		gap: var(--space-3);
-		flex-wrap: wrap;
 	}
 
 	/*
@@ -2028,23 +1876,18 @@
 		flex-wrap: wrap;
 	}
 
-	/* Raised surfaces: a segmented kind switch and the one or two heights it needs. */
-	.surface-controls {
-		display: flex;
-		align-items: flex-end;
-		gap: var(--space-2);
-		flex-wrap: wrap;
-	}
-
+	/* Raised surfaces: a segmented kind switch and one row per parameter. */
 	.surface-kinds {
-		display: inline-flex;
+		display: flex;
+		width: 100%;
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-sm);
 		overflow: hidden;
 	}
 
 	.surface-kind {
-		padding: 3px var(--space-2);
+		flex: 1;
+		padding: 5px 0;
 		font-size: var(--text-xs);
 		color: var(--text-secondary);
 		background: transparent;
@@ -2066,18 +1909,101 @@
 		color: #0b0d12;
 	}
 
-	.surface-numbers {
+	.param-row {
 		display: flex;
-		align-items: flex-end;
+		align-items: center;
+		justify-content: space-between;
 		gap: var(--space-2);
+		min-height: 26px;
 	}
 
-	.surface-field {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
+	.param-label {
 		font-size: var(--text-xs);
 		color: var(--text-secondary);
+		white-space: nowrap;
+	}
+
+	.param-control {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		flex: none;
+		min-width: 0;
+	}
+
+	/*
+	 * The stepper is a whole control (minus, field, plus), and at its natural width it ran
+	 * past the card's right edge. Given the row a fixed budget it fits beside the label
+	 * even in a 320 px sidebar, and the unit stays on the line.
+	 */
+	.param-control :global(.number-input) {
+		width: 104px;
+		flex: none;
+	}
+
+	.param-control :global(.number-input input) {
+		width: 100%;
+		min-width: 0;
+		text-align: right;
+	}
+
+	.param-unit {
+		width: 18px;
+		font-size: var(--text-xs);
+		color: var(--text-tertiary, var(--text-secondary));
+	}
+
+	.param-value {
+		font-size: var(--text-xs);
+		color: var(--text-primary);
+	}
+
+	.param-row.readonly .param-label {
+		color: var(--text-secondary);
+	}
+
+	.param-toggle {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		width: 100%;
+		padding: 4px 0;
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		background: transparent;
+		border: none;
+		cursor: pointer;
+	}
+
+	.toggle-track {
+		position: relative;
+		width: 28px;
+		height: 16px;
+		border-radius: 8px;
+		background: var(--bg-surface);
+		border: 1px solid var(--border-default);
+		flex: none;
+	}
+
+	.toggle-knob {
+		position: absolute;
+		top: 2px;
+		left: 2px;
+		width: 10px;
+		height: 10px;
+		border-radius: 50%;
+		background: var(--text-secondary);
+		transition: transform var(--transition-fast), background var(--transition-fast);
+	}
+
+	.param-toggle.on .toggle-knob {
+		transform: translateX(12px);
+		background: var(--accent-primary);
+	}
+
+	.param-toggle.on {
+		color: var(--text-primary);
 	}
 
 	.measure-hint {
@@ -2090,48 +2016,43 @@
 		color: var(--color-warning, #ffb800);
 	}
 
-	.apply-btn:focus-visible {
-		outline: 2px solid var(--accent-primary);
-		outline-offset: 1px;
-	}
-
+	/*
+	 * The quiet actions: secondary, but still buttons.
+	 *
+	 * They used to be underlined text, which read as a link and — with four of them in a row
+	 * — as a paragraph of links rather than as the controls of the card they sit in. A
+	 * bordered chip is the smallest thing that still says "press me", and it lines up with
+	 * the `Button`s beside it because it shares their height and radius.
+	 */
 	.skip-link {
-		background: none;
-		border: none;
-		color: var(--text-tertiary);
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-1);
+		padding: 3px var(--space-2);
+		min-height: 24px;
 		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		background: transparent;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-sm);
 		cursor: pointer;
-		padding: 0;
-		text-decoration: underline;
-		align-self: flex-start;
+		text-decoration: none;
 	}
 
-	.skip-link:hover {
-		color: var(--text-secondary);
+	.skip-link:hover:not(:disabled) {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.skip-link:disabled {
+		opacity: 0.45;
+		cursor: default;
 	}
 
 	.skip-link:focus-visible {
 		outline: 2px solid var(--accent-primary);
 		outline-offset: 1px;
-	}
-
-	.calibration-confirmed {
-		font-size: var(--text-xs);
-		color: var(--color-success, #4ade80);
-		font-family: var(--font-mono);
-	}
-
-	.wall-actions {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
-		margin-top: var(--space-2);
-		padding-top: var(--space-2);
-		border-top: 1px solid var(--border-subtle);
-	}
-
-	.wall-actions :global(.btn) {
-		width: 100%;
 	}
 
 	.wall-hint {

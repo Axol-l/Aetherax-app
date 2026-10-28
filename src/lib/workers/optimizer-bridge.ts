@@ -298,6 +298,8 @@ export class OptimizerBridge {
 				by: number;
 				heightM: number;
 				topHeightM: number;
+				thicknessM?: number;
+				attenuationDb?: number;
 			}>;
 			/**
 			 * The user's custom wall materials, in the table's own shape.

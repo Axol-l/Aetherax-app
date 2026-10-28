@@ -1,6 +1,6 @@
 import type { Layer, RenderContext } from '../types.js';
-import type { VectorWall } from '../../state/vector-walls.js';
-import { getMaterial } from '../materials.js';
+import type { VectorColumn, VectorWall } from '../../state/vector-walls.js';
+import { getMaterial, type WallMaterialId } from '../materials.js';
 
 /**
  * Walls drawn as line segments, over the plan.
@@ -19,9 +19,19 @@ export class VectorWallsLayer implements Layer {
 	visible = true;
 
 	walls: readonly VectorWall[] = [];
+	/**
+	 * Columns: a pier or a round pillar. Filled in their material's colour, because what
+	 * they obstruct is their footprint rather than a line.
+	 */
+	columns: readonly VectorColumn[] = [];
 	selectedId: string | null = null;
+	/** The selected column, when a column is what is selected. */
+	selectedColumnId: string | null = null;
 	/** The first click of the wall being drawn, and where the pointer is now. */
 	draft: { x: number; y: number } | null = null;
+	/** The rectangle or circle being drawn, as two opposite corners (a circle's centre + rim). */
+	columnDraft: { shape: 'rect' | 'circle'; ax: number; ay: number; bx: number; by: number } | null =
+		null;
 	cursor: { x: number; y: number } | null = null;
 	/**
 	 * The endpoint the next click will snap to, if any.
@@ -35,7 +45,8 @@ export class VectorWallsLayer implements Layer {
 	wupm = 1;
 
 	render(rc: RenderContext): void {
-		if (this.walls.length === 0 && !this.draft) return;
+		if (this.walls.length === 0 && this.columns.length === 0 && !this.draft && !this.columnDraft)
+			return;
 		const { ctx, camera } = rc;
 		const [m0, m1, m2, m3, m4, m5] = camera.getTransform();
 		ctx.transform(m0, m1, m2, m3, m4, m5);
@@ -105,6 +116,38 @@ export class VectorWallsLayer implements Layer {
 			}
 		}
 
+		// Columns, under the segments: a wall that meets a pier should be drawn over it.
+		for (const column of this.columns) {
+			this.drawColumn(
+				ctx,
+				column.shape,
+				column.ax,
+				column.ay,
+				column.bx,
+				column.by,
+				column.material,
+				column.id === this.selectedColumnId,
+				stroke,
+				zoom,
+				false
+			);
+		}
+		if (this.columnDraft) {
+			this.drawColumn(
+				ctx,
+				this.columnDraft.shape,
+				this.columnDraft.ax,
+				this.columnDraft.ay,
+				this.columnDraft.bx,
+				this.columnDraft.by,
+				0,
+				false,
+				stroke,
+				zoom,
+				true
+			);
+		}
+
 		if (this.draft) {
 			const end = this.cursor ?? this.draft;
 			ctx.beginPath();
@@ -130,5 +173,43 @@ export class VectorWallsLayer implements Layer {
 			ctx.lineWidth = Math.max(1 / zoom, stroke * 0.25);
 			ctx.stroke();
 		}
+	}
+
+	/**
+	 * One column: a filled rectangle or circle in its material's colour.
+	 *
+	 * The draft is drawn with the same green as a wall being drawn, dashed, so an
+	 * uncommitted shape cannot be mistaken for an obstruction the model already has.
+	 */
+	private drawColumn(
+		ctx: CanvasRenderingContext2D,
+		shape: 'rect' | 'circle',
+		ax: number,
+		ay: number,
+		bx: number,
+		by: number,
+		material: number,
+		selected: boolean,
+		stroke: number,
+		zoom: number,
+		isDraft: boolean
+	): void {
+		const colour = getMaterial(material as WallMaterialId).color;
+		ctx.beginPath();
+		if (shape === 'circle') {
+			const radius = Math.hypot(bx - ax, by - ay);
+			ctx.arc(ax, ay, Math.max(radius, 0.5), 0, Math.PI * 2);
+		} else {
+			ctx.rect(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay));
+		}
+		ctx.fillStyle = isDraft ? 'rgba(74, 222, 128, 0.22)' : `rgba(${colour[0]}, ${colour[1]}, ${colour[2]}, ${selected ? 0.55 : 0.4})`;
+		ctx.fill();
+		ctx.strokeStyle = isDraft
+			? 'rgba(74, 222, 128, 0.95)'
+			: `rgba(${colour[0]}, ${colour[1]}, ${colour[2]}, ${selected ? 1 : 0.9})`;
+		ctx.lineWidth = selected ? stroke * 0.6 : stroke * 0.4;
+		ctx.setLineDash(isDraft ? [6 / zoom, 4 / zoom] : []);
+		ctx.stroke();
+		ctx.setLineDash([]);
 	}
 }

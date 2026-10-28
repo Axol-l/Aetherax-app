@@ -66,6 +66,18 @@ export const appState = $state({
 	 * wall lands in `wallVectorDraft`; the second commits the segment.
 	 */
 	wallVectorMode: false,
+	/**
+	 * Which shape the wall tool draws: a line, a rectangular pier, or a round column.
+	 *
+	 * One mode with three tools rather than three modes: they share the gesture (two clicks),
+	 * the material, and the layer, so switching between them must not drop the wall tool —
+	 * a plan is drawn by alternating partition walls and the piers that break them.
+	 */
+	wallTool: 'line' as 'line' | 'rect' | 'circle',
+	/** The pier or column being drawn, as two opposite corners. */
+	columnDraft: null as { shape: 'rect' | 'circle'; ax: number; ay: number; bx: number; by: number } | null,
+	/** The column under the pointer or just drawn, for the delete key. */
+	wallColumnSelected: null as string | null,
 	wallVectorDraft: null as { x: number; y: number } | null,
 	/** The segment under the pointer or the one just drawn, for the delete key. */
 	wallVectorSelected: null as string | null,
@@ -125,6 +137,12 @@ export const appState = $state({
 	surfaceHeightM: 2,
 	/** Height at the high end, metres. A platform keeps this equal to `surfaceHeightM`. */
 	surfaceTopHeightM: 2,
+	/** Loss through the deck, dB: what a path from below pays for crossing it. */
+	surfaceAttenuationDb: 15,
+	/** The deck's own thickness, metres. 3D, and whether a path passes *through* it. */
+	surfaceThicknessM: 0.2,
+	/** Whether the volume under the deck is filled to the floor, in the 3D view. */
+	surfaceSolidBase: false,
 	/** The surface under the pointer or just drawn, for the delete key. */
 	surfaceSelected: null as string | null,
 	/** The clicks collected so far while calibrating, in world coordinates. */
