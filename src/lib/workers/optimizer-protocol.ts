@@ -22,7 +22,7 @@ import type { AccessPoint } from '../state/ap-state.svelte.js';
  * development a cached worker can outlive the code that calls it. A mismatch is then
  * loud (`assertApPayload`) rather than a silently different model.
  */
-export const OPTIMIZER_PAYLOAD_VERSION = 2;
+export const OPTIMIZER_PAYLOAD_VERSION = 3;
 
 /**
  * The state fields the search has to be told about.

@@ -1,5 +1,7 @@
+import type { SurfaceKind } from '$lib/rf/surface-height.js';
+
 export type SidebarPanel = 'floorplan' | 'aps';
-export type FloorView = 'single' | 'tiled' | 'stacked';
+export type FloorView = 'single' | 'tiled' | 'stacked' | 'floor3d';
 
 /**
  * Limits of the stacked view's angles, in degrees.
@@ -108,6 +110,23 @@ export const appState = $state({
 	 */
 	planningDrawMode: false,
 	planningDraft: [] as Array<{ x: number; y: number }>,
+	/**
+	 * Drawing a raised surface: a mezzanine, a stair, a ramp.
+	 *
+	 * Two clicks, like a wall and unlike the planning area: a surface is a rectangle, and
+	 * the height belongs to the end of it rather than to each corner. The kind and the two
+	 * heights live here too, so the sidebar's controls and the canvas preview cannot
+	 * disagree about what is about to be drawn.
+	 */
+	surfaceMode: false,
+	surfaceDraft: null as { ax: number; ay: number; bx: number; by: number } | null,
+	surfaceKind: 'platform' as SurfaceKind,
+	/** Height of the walking surface at the low end, metres above the floor's own. */
+	surfaceHeightM: 2,
+	/** Height at the high end, metres. A platform keeps this equal to `surfaceHeightM`. */
+	surfaceTopHeightM: 2,
+	/** The surface under the pointer or just drawn, for the delete key. */
+	surfaceSelected: null as string | null,
 	/** The clicks collected so far while calibrating, in world coordinates. */
 	calibrationPoints: [] as Array<{ x: number; y: number }>,
 	/**
@@ -247,6 +266,26 @@ export function setPlanningDrawMode(on: boolean): void {
 
 export function addPlanningPoint(point: { x: number; y: number }): void {
 	appState.planningDraft = [...appState.planningDraft, point];
+}
+
+/**
+ * Drawing a raised surface.
+ *
+ * Exclusive with the other modes that own a bare-canvas click, for the same reason they
+ * are exclusive with each other: two of them armed at once means one click does two
+ * things. Leaving the mode drops a half-drawn rectangle rather than keeping it — an
+ * unfinished shape is not a statement about the floor.
+ */
+export function setSurfaceMode(on: boolean): void {
+	if (appState.surfaceMode === on) return;
+	appState.surfaceMode = on;
+	appState.surfaceDraft = null;
+	if (on) {
+		setApPlaceMode(false);
+		setFloorAlignMode(false);
+		setCalibrateMode(false);
+		setPlanningDrawMode(false);
+	}
 }
 
 /**

@@ -59,6 +59,7 @@ import {
 	type AttenField
 } from '../../rf/propagation.js';
 import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../rf/antenna.js';
+import { surfaceHeightAt, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
 import { rampColorAt } from '../heatmap-ramp.js';
 import { maskSignature } from '../mask-registry.js';
 import { antennaProfileFor } from '$state/ap-state.svelte.js';
@@ -154,6 +155,15 @@ export interface HeatmapInput {
 	rssiFloor: number;
 	/** Identity of `wallMask` for the attenuation-field cache. See `maskTag`. */
 	maskTag?: string;
+	/**
+	 * Raised walking surfaces on this floor: a mezzanine, a stair, a ramp.
+	 *
+	 * The level a client receives depends on the vertical gap to the AP, and a client
+	 * two metres up a mezzanine is two metres closer to a ceiling-mounted one. Each
+	 * texel reads this field, so a raised area is coloured as the raised place it is
+	 * rather than as the slab underneath it.
+	 */
+	surfaces?: ElevatableSurface[];
 }
 
 export class HeatmapLayer implements Layer {
@@ -171,6 +181,8 @@ export class HeatmapLayer implements Layer {
 	materialMap: Uint8Array | null = null;
 	materialVersion = 0;
 	defaultMaterial: WallMaterialId = 0;
+	/** Raised walking surfaces on the floor this image is for. See `HeatmapInput`. */
+	surfaces: ElevatableSurface[] = [];
 	isDragging = false;
 	/**
 	 * A wall mask is on its way for the floor now showing.
@@ -266,6 +278,7 @@ export class HeatmapLayer implements Layer {
 		const savedRssiFloor = this.rssiFloor;
 		const savedDragging = this.isDragging;
 		const savedMaskTag = this.maskTag;
+		const savedSurfaces = this.surfaces;
 
 		try {
 			this.aps = input.aps;
@@ -277,6 +290,7 @@ export class HeatmapLayer implements Layer {
 			// Which floor's walls these are, so the field cache cannot hand this
 			// floor's APs another floor's attenuation. See `maskTag`.
 			this.maskTag = input.maskTag ?? '';
+			this.surfaces = input.surfaces ?? [];
 			// Full resolution: a tile is a still comparison, never a drag.
 			this.isDragging = false;
 			return this.generateWorld();
@@ -289,6 +303,7 @@ export class HeatmapLayer implements Layer {
 			this.rssiFloor = savedRssiFloor;
 			this.isDragging = savedDragging;
 			this.maskTag = savedMaskTag;
+			this.surfaces = savedSurfaces;
 		}
 	}
 
@@ -361,7 +376,12 @@ export class HeatmapLayer implements Layer {
 			// left every cached field showing the previous geometry, which reads as a redraw
 			// that never happened.
 			`|wms:${maskSignature(this.wallMask)}:${maskSignature(this.materialMap)}` +
-			`|mat:${this.defaultMaterial}|mv:${this.materialVersion}|wupm:${this.worldUnitsPerMeter}`
+			`|mat:${this.defaultMaterial}|mv:${this.materialVersion}|wupm:${this.worldUnitsPerMeter}` +
+			// Raised surfaces move the client, not the AP: the same plan with a mezzanine
+			// added is a different picture.
+			`|surf:${this.surfaces
+				.map((s) => `${s.kind}:${s.ax},${s.ay},${s.bx},${s.by}:${s.heightM}/${s.topHeightM}`)
+				.join(';')}`
 		);
 	}
 
@@ -382,7 +402,6 @@ export class HeatmapLayer implements Layer {
 		if (!this.wallMask && this.maskPending) return null;
 
 		const wupm = this.worldUnitsPerMeter;
-		const wupmSq = wupm * wupm;
 		const metersPerWorldUnit = wupm > 0 ? 1 / wupm : 0;
 		const fast = this.isDragging;
 
@@ -414,8 +433,7 @@ export class HeatmapLayer implements Layer {
 		}
 
 		// Per-AP cross-floor parameters
-		const vertOffSq = new Float64Array(n); // vertical offset² in world units²
-		/** The same offset in world units, for the antenna's elevation angle. */
+		/** The vertical offset in world units, for the antenna's elevation angle. */
 		const vertWu = new Float64Array(n);
 		/** Each AP's vertical antenna pattern. See `rf/antenna.ts`. */
 		const apProfiles: AntennaProfile[] = [];
@@ -449,7 +467,6 @@ export class HeatmapLayer implements Layer {
 			apX[i] = ap.x;
 			apY[i] = ap.y;
 			const vo = ap.verticalOffset ?? 0;
-			vertOffSq[i] = vo * vo * wupmSq;
 			vertWu[i] = vo * wupm;
 			// The antenna's vertical cut. It is a function of the ray's elevation, which
 			// is per texel, so only the profile is resolved here.
@@ -531,6 +548,10 @@ export class HeatmapLayer implements Layer {
 		const cctx = canvas.getContext('2d')!;
 		const imgData = cctx.createImageData(cols, rows);
 		const u32 = new Uint32Array(imgData.data.buffer);
+		// The raised-surface field, in the units this loop works in. Resolved once so the
+		// inner loop is a multiply and a lookup rather than a conversion per texel.
+		const surfaces = this.surfaces;
+		const surfaceScale = this.worldUnitsPerMeter;
 
 		for (let ty = 0; ty < rows; ty++) {
 			const wy = y0 + (ty + 0.5) * texel;
@@ -539,6 +560,14 @@ export class HeatmapLayer implements Layer {
 			for (let tx = 0; tx < cols; tx++) {
 				const wx = x0 + (tx + 0.5) * texel;
 
+				/*
+				 * How high the client is here, in world units. Zero on the floor; a
+				 * mezzanine's height over one; interpolated across a stair or a ramp. Only
+				 * computed when the floor has any, so a flat plan pays nothing for the
+				 * feature.
+				 */
+				const liftWu = surfaces.length > 0 ? surfaceHeightAt(surfaces, wx, wy) * surfaceScale : 0;
+
 				// Strongest received level at this texel, in dBm. Every term is
 				// already in dB so they simply add; there is no conversion to a
 				// linear power ratio anywhere in this loop.
@@ -546,7 +575,10 @@ export class HeatmapLayer implements Layer {
 				for (let i = 0; i < n; i++) {
 					const dx = wx - apX[i]!;
 					const dy = wy - apY[i]!;
-					const dWu = Math.sqrt(dx * dx + dy * dy + vertOffSq[i]!);
+					// The AP–client gap, less what the client stands on. Signed: a client
+					// up a mezzanine can be above a desk-mounted AP.
+					const gap = vertWu[i]! - liftWu;
+					const dWu = Math.sqrt(dx * dx + dy * dy + gap * gap);
 					// Start from this AP's 1 m level and subtract the excess path
 					// loss. relativePathLossDb clamps distances below 1 m, where the
 					// log-distance model is not valid.
@@ -562,7 +594,7 @@ export class HeatmapLayer implements Layer {
 					 * whose pattern has a front and a back; one call, so neither can be
 					 * applied without the other.
 					 */
-					level -= antennaRayLossDb(apProfiles[i]!, vertWu[i]!, dx, dy);
+					level -= antennaRayLossDb(apProfiles[i]!, gap, dx, dy);
 
 					// Wall attenuation (precomputed field, O(1) lookup).
 					const field = fields[i];

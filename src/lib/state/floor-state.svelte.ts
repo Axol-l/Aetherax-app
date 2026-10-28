@@ -2,6 +2,7 @@ import type { FloorMaterialId } from '$canvas/floor-materials.js';
 import type { WallMaterialId } from '$canvas/materials.js';
 import { FLOOR_MATERIALS } from '$canvas/floor-materials.js';
 import { crossFloorSplit } from '$lib/rf/cross-floor.js';
+import type { ElevatedSurface } from '$lib/rf/surface-height.js';
 import type { Band } from '@aetherax/channels';
 
 export interface Floor {
@@ -70,11 +71,10 @@ export interface Floor {
 	 */
 	notes?: Array<{ id: string; x: number; y: number; text: string }>;
 	/**
-	 * Walls as line segments: the model the app is moving to (see `state/vector-walls.ts`).
+	 * Walls as line segments — the model (see `state/vector-walls.ts`).
 	 *
-	 * Stored beside the raster mask rather than instead of it, because the propagation still
-	 * reads the mask while this is being drawn and compared. Once the ray march works off
-	 * these, the mask becomes a cache derived from them.
+	 * The raster mask is derived from these, so they are the floor's geometry: drawing,
+	 * moving or deleting a segment re-rasterises the mask everything else reads.
 	 */
 	walls?: Array<{
 		id: string;
@@ -87,6 +87,14 @@ export interface Floor {
 	}>;
 	/** Columns: load-bearing obstructions a line cannot express. */
 	columns?: Array<{ id: string; x: number; y: number; radiusM: number; material: number }>;
+	/**
+	 * Raised walking surfaces: a mezzanine, a stair, a ramp.
+	 *
+	 * A plan is flat and the model used to be too — every client stood on the floor. This
+	 * is the height above that floor, which is what the client's vertical gap to an AP is
+	 * made of. See `rf/surface-height.ts` for the geometry and the reasons.
+	 */
+	surfaces?: ElevatedSurface[];
 }
 
 function createDefaultFloor(id?: string, name?: string): Floor {
@@ -110,7 +118,8 @@ function createDefaultFloor(id?: string, name?: string): Floor {
 		roomTypeMask: null,
 		roomDensityOverrides: {},
 		roomCustomLabels: {},
-		planningArea: null
+		planningArea: null,
+		surfaces: []
 	};
 }
 

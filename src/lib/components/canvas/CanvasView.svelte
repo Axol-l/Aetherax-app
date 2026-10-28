@@ -20,6 +20,8 @@
 	import { ReviewHighlightLayer } from '$canvas/renderers/review-highlight.js';
 	import { CalibrationLineLayer } from '$canvas/renderers/calibration-line.js';
 	import { PlanningAreaLayer } from '$canvas/renderers/planning-area.js';
+	import { SurfacesLayer, surfaceAtPoint, surfaceEdgeNear } from '$canvas/renderers/surfaces.js';
+	import { isDegenerateSurface } from '$lib/rf/surface-height.js';
 	import { NotesLayer, noteAtPoint, NOTE_HIT_PX } from '$canvas/renderers/notes.js';
 	import { VectorWallsLayer } from '$canvas/renderers/vector-walls.js';
 	import {
@@ -39,6 +41,7 @@
 	import { ReferenceFloorLayer } from '$canvas/renderers/reference-floor.js';
 	import { FloorTilesLayer } from '$canvas/renderers/floor-tiles.js';
 	import { StackedFloorsLayer, MAX_PITCH } from '$canvas/renderers/stacked-floors.js';
+	import { Floor3DLayer } from '$canvas/renderers/floor-3d.js';
 	import { FloorCardCache } from '$canvas/renderers/floor-card.js';
 	import { DragHandler, type WallProbe } from '$canvas/interactions/drag.js';
 	import { PlaceHandler } from '$canvas/interactions/place.js';
@@ -65,6 +68,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		setApPlaceMode,
 		setCalibrateMode,
 		setPlanningDrawMode,
+		setSurfaceMode,
 		addCalibrationPoint,
 		addPlanningPoint,
 		STACK_YAW_LIMIT_DEG,
@@ -80,6 +84,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	} from '$state/solver.svelte.js';
 	import { updateCoverage, optimizerState, floorCoverage, apsOutsideInterior } from '$state/optimizer.svelte.js';
 	import { hitTest } from '$canvas/hit-test.js';
+	import { fitCanvasToContent } from '$canvas/fit.js';
 	import { restoreFromStorage, saveNow } from '$state/persistence.svelte.js';
 	import { importFloorplanFile } from '$canvas/import-floorplan.js';
 	import { labelWallBlobs, relabelBlob, labelRooms, fillRegion, encodeMaterialMask, decodeMaterialMask } from '$canvas/region-labels.js';
@@ -598,6 +603,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let reviewHighlightLayer: ReviewHighlightLayer;
 	let calibrationLineLayer: CalibrationLineLayer;
 	let planningAreaLayer: PlanningAreaLayer;
+	let surfacesLayer: SurfacesLayer;
 	let notesLayer: NotesLayer;
 	let vectorWallsLayer: VectorWallsLayer;
 	/** Pointer position while drawing a wall, for the rubber band. */
@@ -609,6 +615,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let referenceFloorLayer: ReferenceFloorLayer;
 	let floorTilesLayer: FloorTilesLayer;
 	let stackedFloorsLayer: StackedFloorsLayer;
+	let floor3DLayer: Floor3DLayer;
 	/**
 	 * Decoded images and per-floor coverage, held once for both overview views.
 	 *
@@ -632,7 +639,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let apLayer: ApLayer;
 	let wallLayer: WallLayer;
 	let autoSolveTimeout: ReturnType<typeof setTimeout> | null = null;
-	let showEmptyHint = $derived(apState.aps.length === 0 && !floorplanState.floorplanUrl);
+	let showEmptyHint = $derived(
+		// Only in the view where the hint's advice can be acted on: the overviews are
+		// read-only, and a "drop a floorplan here" over a 3D model is noise.
+		appState.floorView === 'single' &&
+			apState.aps.length === 0 &&
+			!floorplanState.floorplanUrl
+	);
 
 	function handleKeyDown(e: KeyboardEvent) {
 		const target = e.target as HTMLElement;
@@ -684,6 +697,29 @@ import { wallState } from '$state/wall-state.svelte.js';
 			// Abandoning the loop: an unfinished outline is not a statement about the floor.
 			setPlanningDrawMode(false);
 			return;
+		}
+
+		if (!isInput && e.key === 'Escape' && appState.surfaceMode) {
+			// A half-drawn rectangle is not a surface; leaving the mode drops it.
+			setSurfaceMode(false);
+			return;
+		}
+
+		if (!isInput && appState.surfaceSelected && (e.key === 'Delete' || e.key === 'Backspace')) {
+			// A selected surface is a selected object, like a wall and like an AP.
+			const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+			if (floor?.surfaces?.some((surface) => surface.id === appState.surfaceSelected)) {
+				e.preventDefault();
+				pushState();
+				floor.surfaces = (floor.surfaces ?? []).filter(
+					(surface) => surface.id !== appState.surfaceSelected
+				);
+				appState.surfaceSelected = null;
+				void updateCoverage();
+				engine?.markDirty();
+				scheduleSave();
+				return;
+			}
 		}
 
 		if (!isInput && e.key === 'Escape' && appState.calibrateMode) {
@@ -766,6 +802,28 @@ import { wallState } from '$state/wall-state.svelte.js';
 		return i > 0 ? sorted[i - 1]! : null;
 	}
 
+	/**
+	 * Move one storey up or down, from the 3D view's arrows.
+	 *
+	 * By level rather than by array position: the array is kept in level order, but the
+	 * arrows say "the floor above" and a reordered array must not turn them into "the next
+	 * one". A step past the end is a no-op rather than a clamp, so the arrows do not
+	 * silently stop responding at the top of a building.
+	 */
+	function stepFloor(direction: 1 | -1): void {
+		const sorted = [...floorState.floors].sort((a, b) => a.level - b.level);
+		const index = sorted.findIndex((f) => f.id === floorState.currentFloorId);
+		if (index < 0) return;
+		const target = sorted[index + direction];
+		if (!target) return;
+		switchFloor(target.id);
+		// Frame the storey that just came into view; its plan may be a different size.
+		requestAnimationFrame(() => {
+			if (engine) fitCanvasToContent(engine);
+			engine?.markDirty();
+		});
+	}
+
 	onMount(() => {
 		// Asynchronous since the project moved to a store seam: this opens it, carries any
 		// record that only exists in localStorage into it, and loads the project. The
@@ -791,6 +849,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		floorTilesLayer.onLoad = () => engine?.markDirty();
 		stackedFloorsLayer = new StackedFloorsLayer(floorCards);
 		stackedFloorsLayer.onLoad = () => engine?.markDirty();
+		floor3DLayer = new Floor3DLayer(floorCards);
 
 		// Add layers in draw order: floorplan, grid, heatmap, walls, room labels, APs, selection rect
 		engine.addLayer(floorplanLayer);
@@ -814,10 +873,17 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.addLayer(calibrationLineLayer);
 		planningAreaLayer = new PlanningAreaLayer();
 		engine.addLayer(planningAreaLayer);
+		// Above the heatmap, under the walls and the labels: a raised area is a property
+		// of the floor, and it has to be visible over the coverage it changes.
+		surfacesLayer = new SurfacesLayer();
+		engine.addLayer(surfacesLayer);
 		notesLayer = new NotesLayer();
 		engine.addLayer(notesLayer);
 		vectorWallsLayer = new VectorWallsLayer();
 		engine.addLayer(vectorWallsLayer);
+		// The 3D view draws the whole floor itself, so it goes on top: when it is visible
+		// every layer beneath it has already switched itself off.
+		engine.addLayer(floor3DLayer);
 
 		// Create interaction handlers
 		panZoom = new PanZoomHandler(engine);
@@ -1356,6 +1422,20 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
+	/**
+	 * Raised surfaces of the floor on screen, for the heatmap's height field.
+	 *
+	 * Its own effect rather than part of the decode: a surface can be drawn or edited
+	 * without the walls changing at all, and the layer's cache key carries them, so the
+	 * image is rebuilt on the next frame rather than on the next decode.
+	 */
+	$effect(() => {
+		if (!heatmapLayer) return;
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		heatmapLayer.surfaces = floor?.surfaces ?? [];
+		engine.markDirty();
+	});
+
 	// Coarser wall grid while dragging, for responsiveness
 	$effect(() => {
 		if (!heatmapLayer) return;
@@ -1811,7 +1891,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	// cannot show stale geometry. The layout is recomputed inside the layer on
 	// each render for the same reason.
 	$effect(() => {
-		if (!floorTilesLayer || !stackedFloorsLayer || !engine) return;
+		if (!floorTilesLayer || !stackedFloorsLayer || !engine || !floor3DLayer) return;
 		// Both overviews are read-only layouts of the same cards, so they share the
 		// layer toggles, the underlay alpha and the source list; only one is visible
 		// at a time.
@@ -1819,6 +1899,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const stacked = appState.floorView === 'stacked';
 		floorTilesLayer.visible = appState.floorView === 'tiled';
 		stackedFloorsLayer.visible = stacked;
+		floor3DLayer.visible = appState.floorView === 'floor3d';
 		if (!overview) return;
 		// One opacity value for the whole app. It lives on `floorplanScale`, which
 		// the single-floor view already used for it, and the cards borrow the
@@ -1870,15 +1951,33 @@ import { wallState } from '$state/wall-state.svelte.js';
 		}
 		floorTilesLayer.setFloors(sources, floorState.currentFloorId);
 		stackedFloorsLayer.setFloors(sources, floorState.currentFloorId, getEffectiveWupm());
+		/*
+		 * The 3D view is one floor, so it takes its card source and the geometry that floor
+		 * stands up: its wall segments and its raised surfaces. The camera is the same
+		 * object the stacked view uses, so a viewpoint chosen in one is the viewpoint in
+		 * the other — switching between them does not throw the user's orientation away.
+		 */
+		const view3dFloor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		floor3DLayer.source = sources.find((s) => s.id === floorState.currentFloorId) ?? null;
+		floor3DLayer.walls = (view3dFloor?.walls ?? []) as VectorWall[];
+		floor3DLayer.surfaces = view3dFloor?.surfaces ?? [];
+		floor3DLayer.ceilingHeightM = view3dFloor?.ceilingHeight ?? 3;
+		floor3DLayer.planOpacity = floorplanState.floorplanScale;
+		floor3DLayer.showPlan = appState.showFloorplan;
+		floor3DLayer.showWalls = appState.showWalls;
+		floor3DLayer.showAPs = appState.showAPs;
+		floor3DLayer.showHeatmap = appState.showHeatmap;
 		// Where the stack is being looked at from. Handed over here so the layer has
 		// no opinion about where the sliders live; the camera object is replaced
 		// rather than mutated so the layer cannot be left half-updated.
-		stackedFloorsLayer.camera = {
+		const stackCamera = {
 			yaw: (appState.stackYaw * Math.PI) / 180,
 			pitch: Math.min((appState.stackPitch * Math.PI) / 180, MAX_PITCH),
 			spacing: appState.stackSpread,
 			wupm: getEffectiveWupm()
 		};
+		stackedFloorsLayer.camera = stackCamera;
+		floor3DLayer.camera = stackCamera;
 		// Focusing hides floors, and a hidden slab must not stay clickable — the
 		// filter runs in the layout the hit test reads, so the hover has to be
 		// dropped with it rather than left pointing at a floor that is gone.
@@ -2016,7 +2115,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 			// Which floor's walls these are: the attenuation-field cache is keyed on
 			// position and radius, so without this a tile inherits whichever floor's
 			// field was built first for that cell.
-			maskTag: `floor:${floor.id}`
+			maskTag: `floor:${floor.id}`,
+			// A mezzanine on that floor changes the picture even though nothing moved.
+			surfaces: floor.surfaces ?? []
 		});
 	}
 
@@ -2335,6 +2436,25 @@ import { wallState } from '$state/wall-state.svelte.js';
 			// this the only way to reach a wall was to have just drawn it.
 			const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 			const walls = (floor?.walls ?? []) as VectorWall[];
+			// A surface edge first: the outline is the only part of a mezzanine that is
+			// unambiguous, and the canvas inside it stays free for placing access points.
+			if (floor?.surfaces?.length) {
+				const world = engine.camera.screenToWorld(screenPoint);
+				const surface = surfaceEdgeNear(
+					floor.surfaces,
+					world.x,
+					world.y,
+					10 / (engine.camera.state.zoom || 1)
+				);
+				if (surface) {
+					appState.surfaceSelected = surface.id;
+					appState.wallVectorSelected = null;
+					pendingPlace = false;
+					pendingPan = false;
+					engine.markDirty();
+					return;
+				}
+			}
 			if (walls.length > 0) {
 				const world = engine.camera.screenToWorld(screenPoint);
 				const wall = wallNearPoint(world, walls, 12 / (engine.camera.state.zoom || 1));
@@ -2348,6 +2468,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 			}
 			if (appState.wallVectorSelected) {
 				appState.wallVectorSelected = null;
+				engine.markDirty();
+			}
+			if (appState.surfaceSelected) {
+				appState.surfaceSelected = null;
 				engine.markDirty();
 			}
 			// A click on empty canvas adds an AP only in placement mode; otherwise it is
@@ -2489,6 +2613,19 @@ import { wallState } from '$state/wall-state.svelte.js';
 			e.preventDefault();
 			return;
 		}
+		// Drawing a raised surface: two clicks, opposite corners. The first states where it
+		// starts and the second commits it, exactly like a wall — the two gestures that
+		// shape the model should feel the same.
+		if (appState.surfaceMode) {
+			const world = engine.camera.screenToWorld({
+				x: e.clientX - engine.canvas.getBoundingClientRect().left,
+				y: e.clientY - engine.canvas.getBoundingClientRect().top
+			});
+			commitSurfaceClick(world);
+			engine.markDirty();
+			e.preventDefault();
+			return;
+		}
 		// Calibrating by measurement intercepts the primary click, before placement and
 		// before selection: while the mode is on, a click is a point of the measured line
 		// and nothing else.
@@ -2598,6 +2735,68 @@ import { wallState } from '$state/wall-state.svelte.js';
 	function currentWalls(): VectorWall[] {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		return (floor?.walls ?? []) as VectorWall[];
+	}
+
+	/**
+	 * The raised surfaces of the floor on screen.
+	 *
+	 * Drawn from the floor, not from a copy: the height field the model reads and the
+	 * rectangle on the canvas have to be the same object, or a surface can be moved in the
+	 * picture and stay where it was in the maths.
+	 */
+	$effect(() => {
+		if (!surfacesLayer) return;
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		surfacesLayer.visible = appState.floorView === 'single';
+		surfacesLayer.surfaces = floor?.surfaces ?? [];
+		surfacesLayer.selectedId = appState.surfaceSelected;
+		surfacesLayer.draft = appState.surfaceDraft;
+		surfacesLayer.draftKind = appState.surfaceKind;
+		surfacesLayer.draftHeightM = appState.surfaceHeightM;
+		surfacesLayer.draftTopHeightM =
+			appState.surfaceKind === 'platform' ? appState.surfaceHeightM : appState.surfaceTopHeightM;
+		engine.markDirty();
+	});
+
+	/**
+	 * One click of the raised-surface tool: the first corner, then the opposite one.
+	 *
+	 * The kind and the heights come from the panel, not from the gesture: a stair and a
+	 * platform are the same rectangle, and what makes one a stair is the pair of heights on
+	 * it. A platform therefore ignores the second height rather than keeping a stale one.
+	 */
+	function commitSurfaceClick(world: { x: number; y: number }): void {
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		if (!floor) return;
+		if (!appState.surfaceDraft) {
+			appState.surfaceDraft = { ax: world.x, ay: world.y, bx: world.x, by: world.y };
+			return;
+		}
+		const draft = appState.surfaceDraft;
+		appState.surfaceDraft = null;
+		const surface = {
+			id: crypto.randomUUID(),
+			kind: appState.surfaceKind,
+			ax: draft.ax,
+			ay: draft.ay,
+			bx: world.x,
+			by: world.y,
+			heightM: Math.max(0, appState.surfaceHeightM),
+			// A level surface has one height, and saying so twice is how the two fields
+			// drift on a platform the user later changes to a ramp.
+			topHeightM:
+				appState.surfaceKind === 'platform'
+					? Math.max(0, appState.surfaceHeightM)
+					: Math.max(0, appState.surfaceTopHeightM)
+		};
+		if (isDegenerateSurface(surface)) return;
+		pushState();
+		floor.surfaces = [...(floor.surfaces ?? []), surface];
+		appState.surfaceSelected = surface.id;
+		scheduleSave();
+		// The client's height changes what is covered, so the figure is re-measured rather
+		// than left standing from the flat floor.
+		void updateCoverage();
 	}
 
 	/** A snap tolerance that stays the same size on screen as the plan is zoomed. */
@@ -2752,6 +2951,20 @@ import { wallState } from '$state/wall-state.svelte.js';
 			return;
 		}
 		if (appState.noteMode) return;
+		// Drawing a raised surface: the second corner follows the pointer, so the rectangle
+		// can be judged before the click that commits it.
+		if (appState.surfaceMode) {
+			const rect = engine.canvas.getBoundingClientRect();
+			const world = engine.camera.screenToWorld({
+				x: e.clientX - rect.left,
+				y: e.clientY - rect.top
+			});
+			if (appState.surfaceDraft) {
+				appState.surfaceDraft = { ...appState.surfaceDraft, bx: world.x, by: world.y };
+				engine.markDirty();
+			}
+			return;
+		}
 		// While drawing the planning area the pointer drives the rubber band: the next edge
 		// and the closing edge are previewed, so the shape can be judged before it is closed.
 		if (appState.planningDrawMode) {
@@ -2764,10 +2977,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 			return;
 		}
 		if (e.pointerType === 'touch') return;
-		// Which slab is under the pointer, in the stacked overview. Read-only and
-		// cheap: the layout is a few floors of arithmetic, and only a *change* marks
-		// the canvas dirty, so a moving pointer does not repaint per pixel.
-		if (appState.floorView === 'stacked' && stackedFloorsLayer) {
+		// Turning the viewpoint of an overview, and which slab is under the pointer in the
+		// stacked one. Read-only and cheap: the layout is a few floors of arithmetic, and
+		// only a *change* marks the canvas dirty, so a moving pointer does not repaint per
+		// pixel.
+		if (appState.floorView === 'stacked' || appState.floorView === 'floor3d') {
 			// While the view is being dragged there is no hovering to report: the
 			// pointer is holding the camera, not pointing at a floor.
 			if (orbitPointerId === e.pointerId) {
@@ -2775,7 +2989,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				const dy = e.clientY - orbitStartY;
 				if (!orbitMoved && Math.hypot(dx, dy) >= DRAG_THRESHOLD) {
 					orbitMoved = true;
-					stackedFloorsLayer.hoverFloorId = null;
+					if (stackedFloorsLayer) stackedFloorsLayer.hoverFloorId = null;
 					// Start accumulating from here, not from where the drag began:
 					// otherwise the threshold distance itself is applied as a turn on
 					// the first step, which reads as a small jump.
@@ -2800,15 +3014,17 @@ import { wallState } from '$state/wall-state.svelte.js';
 					return;
 				}
 			}
-			const rect = engine.canvas.getBoundingClientRect();
-			const world = engine.camera.screenToWorld({
-				x: e.clientX - rect.left,
-				y: e.clientY - rect.top
-			});
-			const hovered = stackedFloorsLayer.floorAt(world.x, world.y);
-			if (hovered !== stackedFloorsLayer.hoverFloorId) {
-				stackedFloorsLayer.hoverFloorId = hovered;
-				engine.markDirty();
+			if (appState.floorView === 'stacked' && stackedFloorsLayer) {
+				const rect = engine.canvas.getBoundingClientRect();
+				const world = engine.camera.screenToWorld({
+					x: e.clientX - rect.left,
+					y: e.clientY - rect.top
+				});
+				const hovered = stackedFloorsLayer.floorAt(world.x, world.y);
+				if (hovered !== stackedFloorsLayer.hoverFloorId) {
+					stackedFloorsLayer.hoverFloorId = hovered;
+					engine.markDirty();
+				}
 			}
 		}
 		if (alignDragging) {
@@ -2956,6 +3172,30 @@ import { wallState } from '$state/wall-state.svelte.js';
 		ontouchcancel={handleTouchEnd}
 	></canvas>
 	<LayerPanel />
+	<!--
+		Floor stepping in the 3D view. The sidebar's floor pills are still there, but in this
+		view the storeys are a place you are looking *at*, not a list you are picking from,
+		and two arrows next to the plan are the gesture that matches.
+	-->
+	{#if appState.floorView === 'floor3d'}
+		<div class="floor-nav" role="group" aria-label={t('Floor')}>
+			<button
+				class="floor-nav-btn"
+				onclick={() => stepFloor(1)}
+				aria-label={t('Floor above')}
+				title={t('Floor above')}
+			>↑</button>
+			<span class="floor-nav-name">
+				{floorState.floors.find((f) => f.id === floorState.currentFloorId)?.name ?? ''}
+			</span>
+			<button
+				class="floor-nav-btn"
+				onclick={() => stepFloor(-1)}
+				aria-label={t('Floor below')}
+				title={t('Floor below')}
+			>↓</button>
+		</div>
+	{/if}
 	{#if showEmptyHint}
 		<div class="empty-hint">
 			<p>{t('Drop a floorplan image here')}</p>
@@ -3019,6 +3259,47 @@ import { wallState } from '$state/wall-state.svelte.js';
 	/* Drawing a polygon: the cursor has to say that a click places a corner. */
 	canvas.drawing-area {
 		cursor: crosshair;
+	}
+
+	/* Floor stepping in the 3D view: a small HUD, out of the plan's way at the top. */
+	.floor-nav {
+		position: absolute;
+		top: var(--space-3, 12px);
+		left: 50%;
+		transform: translateX(-50%);
+		display: flex;
+		align-items: center;
+		gap: var(--space-2, 8px);
+		padding: 3px var(--space-2, 8px);
+		background: rgba(16, 18, 26, 0.82);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		color: var(--text-primary);
+		font-size: var(--text-xs);
+		z-index: 20;
+	}
+
+	.floor-nav-btn {
+		width: 22px;
+		height: 22px;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		background: transparent;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		color: var(--text-primary);
+		cursor: pointer;
+		line-height: 1;
+	}
+
+	.floor-nav-btn:hover {
+		background: var(--bg-hover);
+	}
+
+	.floor-nav-name {
+		min-width: 64px;
+		text-align: center;
 	}
 
 	.empty-hint {

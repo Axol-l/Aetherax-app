@@ -107,13 +107,13 @@
 				</div>
 			{/if}
 
-			<!-- Viewpoint of the stacked overview. Like the opacity row above, these
+			<!-- Viewpoint of the 3D and stacked views. Like the opacity row above, these
 			     belong to a view rather than to the plan, so they are shown only where
 			     they do something: dragging on the canvas turns the view too, and these
 			     are the same two numbers for when a precise angle is wanted. Pitch is
 			     what separates the storeys on screen (`z·sin(pitch)`), and spacing pulls
 			     them apart without touching the geometry. -->
-			{#if appState.floorView === 'stacked'}
+			{#if appState.floorView === 'stacked' || appState.floorView === 'floor3d'}
 				<div class="opacity-row">
 					<span class="layer-label">{t('Rotate')}</span>
 					<input
@@ -140,6 +140,10 @@
 					/>
 					<span class="opacity-value">{Math.round(appState.stackPitch)}&deg;</span>
 				</div>
+				<!-- The storey spacing and the isolation are properties of a *stack*: one
+				     floor pulled away from itself is not a view, and the 3D view shows the
+				     current floor at its own height. -->
+				{#if appState.floorView === 'stacked'}
 				<div class="opacity-row">
 					<span class="layer-label">{t('Spacing')}</span>
 					<input
@@ -168,6 +172,7 @@
 						</span>
 						<span class="layer-label">{t('Only this floor')}</span>
 					</button>
+				{/if}
 				{/if}
 			{/if}
 

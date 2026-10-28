@@ -133,7 +133,10 @@
 			scheduleSave();
 		});
 	}
-	import { appState, setFloorAlignMode, notifyWalls } from '$state/app.svelte.js';
+	import { appState, setFloorAlignMode, notifyWalls, setSurfaceMode } from '$state/app.svelte.js';
+	import { updateCoverage } from '$state/optimizer.svelte.js';
+	import type { SurfaceKind } from '$lib/rf/surface-height.js';
+	import NumberInput from '$components/shared/NumberInput.svelte';
 	import { detectBoundary, polygonArea } from '$canvas/boundary-detect.js';
 	import { encodeMask } from '$canvas/wall-detect.js';
 	import { detectFloorplanMasks } from '$canvas/detect-floorplan.js';
@@ -618,6 +621,41 @@
 		pushState();
 		floor.walls = [];
 		appState.wallVectorSelected = null;
+		scheduleSave();
+	}
+
+	/** The three kinds of raised surface, in the order a plan usually needs them. */
+	const surfaceKinds = $derived<Array<{ id: SurfaceKind; label: string }>>([
+		{ id: 'platform', label: t('Platform') },
+		{ id: 'stair', label: t('Stair') },
+		{ id: 'ramp', label: t('Ramp') }
+	]);
+
+	/**
+	 * Pick the kind a new surface will be.
+	 *
+	 * A platform is level by definition, so choosing it copies the low height to the high
+	 * one rather than leaving a rise the drawing does not show; choosing a stair or a ramp
+	 * leaves the pair alone, because it already means something.
+	 */
+	function chooseSurfaceKind(kind: SurfaceKind): void {
+		appState.surfaceKind = kind;
+		if (kind === 'platform') {
+			appState.surfaceTopHeightM = appState.surfaceHeightM;
+		} else if (appState.surfaceTopHeightM <= appState.surfaceHeightM) {
+			// A stair with no rise is a platform with extra controls. Start it above the low
+			// end so the first one drawn already says what it is.
+			appState.surfaceTopHeightM = appState.surfaceHeightM + 1;
+		}
+	}
+
+	function clearSurfaces(): void {
+		const floor = currentFloor();
+		if (!floor) return;
+		pushState();
+		floor.surfaces = [];
+		appState.surfaceSelected = null;
+		void updateCoverage();
 		scheduleSave();
 	}
 
@@ -1464,6 +1502,77 @@
 			</div>
 
 			<!--
+				Raised surfaces: a mezzanine, a stair, a ramp.
+
+				A plan is flat and the model used to be too. What this card states is a fact
+				the drawing cannot: the floor inside this rectangle is *not* the slab, so a
+				client there is a different distance from the ceiling — and from every AP. A
+				stair and a ramp are the same rectangle with two heights instead of one, which
+				is why the second field appears only when it means something.
+			-->
+			<div class="planning-area">
+				<div class="planning-head">
+					<span class="planning-title">
+						<Icon name="stack" size={13} />
+						{t('Raised surfaces')}
+					</span>
+					<span class="planning-state">
+						{t('{count} raised', { count: (currentFloor()?.surfaces ?? []).length })}
+					</span>
+				</div>
+				<div class="surface-controls">
+					<div class="surface-kinds" role="group" aria-label={t('Surface kind')}>
+						{#each surfaceKinds as option (option.id)}
+							<button
+								class="surface-kind"
+								class:active={appState.surfaceKind === option.id}
+								onclick={() => chooseSurfaceKind(option.id)}
+							>
+								{option.label}
+							</button>
+						{/each}
+					</div>
+					<div class="surface-numbers">
+						<label class="surface-field">
+							<span>{appState.surfaceKind === 'platform' ? t('Height') : t('Low end')}</span>
+							<NumberInput bind:value={appState.surfaceHeightM} min={0} max={12} step={0.1} />
+						</label>
+						{#if appState.surfaceKind !== 'platform'}
+							<label class="surface-field">
+								<span>{t('High end')}</span>
+								<NumberInput bind:value={appState.surfaceTopHeightM} min={0} max={12} step={0.1} />
+							</label>
+						{/if}
+					</div>
+				</div>
+				{#if appState.surfaceMode}
+					<p class="planning-hint">
+						{appState.surfaceDraft
+							? t('Click the opposite corner. Escape cancels.')
+							: t('Click one corner of the raised area, then the other.')}
+					</p>
+					<div class="planning-actions">
+						<button class="skip-link" onclick={() => setSurfaceMode(false)}>{t('Done')}</button>
+					</div>
+				{:else}
+					<div class="planning-actions">
+						<Button variant="secondary" size="sm" onclick={() => setSurfaceMode(true)}>
+							<Icon name="pencil" size={14} />
+							{t('Draw raised area')}
+						</Button>
+						{#if (currentFloor()?.surfaces ?? []).length > 0}
+							<button class="skip-link" onclick={clearSurfaces}>{t('Clear raised areas')}</button>
+						{/if}
+					</div>
+					{#if (currentFloor()?.surfaces ?? []).length > 0}
+						<p class="planning-hint">
+							{t('A client on a raised area is measured from its own floor, not the slab. Click an outline to select it; Delete removes it.')}
+						</p>
+					{/if}
+				{/if}
+			</div>
+
+			<!--
 				Notes: pins with a sentence attached.
 
 				Half of what decides where an access point goes never made it into the CAD file
@@ -1917,6 +2026,58 @@
 		align-items: center;
 		gap: var(--space-3);
 		flex-wrap: wrap;
+	}
+
+	/* Raised surfaces: a segmented kind switch and the one or two heights it needs. */
+	.surface-controls {
+		display: flex;
+		align-items: flex-end;
+		gap: var(--space-2);
+		flex-wrap: wrap;
+	}
+
+	.surface-kinds {
+		display: inline-flex;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-sm);
+		overflow: hidden;
+	}
+
+	.surface-kind {
+		padding: 3px var(--space-2);
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		background: transparent;
+		border: none;
+		cursor: pointer;
+	}
+
+	.surface-kind + .surface-kind {
+		border-left: 1px solid var(--border-subtle);
+	}
+
+	.surface-kind:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.surface-kind.active {
+		background: var(--accent-primary);
+		color: #0b0d12;
+	}
+
+	.surface-numbers {
+		display: flex;
+		align-items: flex-end;
+		gap: var(--space-2);
+	}
+
+	.surface-field {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
 	}
 
 	.measure-hint {

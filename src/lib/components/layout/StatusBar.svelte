@@ -46,6 +46,18 @@
 	function setView(v: FloorView) {
 		if (appState.floorView === v) return;
 		appState.floorView = v;
+		/*
+		 * The 3D view opens at an angle, not head-on.
+		 *
+		 * A box seen at zero yaw is a rectangle: two of its four walls are exactly edge-on
+		 * and vanish, which is correct geometry and a useless first impression — it reads as
+		 * a flat plan with a thick border. The first look is therefore oblique, and only
+		 * when the viewpoint is still the default, so an angle the user chose is never
+		 * overwritten.
+		 */
+		if (v === 'floor3d' && appState.stackYaw === 0) {
+			appState.stackYaw = 30;
+		}
 		// Frame on the next frame, not now.
 		//
 		// The overview layers are handed their floors by an effect, and `setFloors`
@@ -91,6 +103,15 @@
 				onclick={() => setView('stacked')}
 			>
 				<Icon name="stack" size={12} />
+			</button>
+			<button
+				class="view-btn"
+				class:active={appState.floorView === 'floor3d'}
+				aria-pressed={appState.floorView === 'floor3d'}
+				title={t('The current floor in 3D: walls at their real height, in their material colours. Drag to turn the view.')}
+				onclick={() => setView('floor3d')}
+			>
+				<Icon name="cube" size={12} />
 			</button>
 		</div>
 	</div>

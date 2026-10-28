@@ -283,6 +283,23 @@ export class OptimizerBridge {
 			 */
 			planningArea?: Array<{ x: number; y: number }> | null;
 			/**
+			 * Raised walking surfaces on this floor, in **mask coordinates**.
+			 *
+			 * The client's height above the slab is what its vertical gap to an AP is made
+			 * of, so a mezzanine is a different set of margins from the floor underneath
+			 * it. Sent as geometry rather than as a per-sample height array because the
+			 * worker builds its own sample grid — the heights have to follow *that* grid,
+			 * and only the worker knows where its samples are. See `rf/surface-height.ts`.
+			 */
+			surfaces?: Array<{
+				ax: number;
+				ay: number;
+				bx: number;
+				by: number;
+				heightM: number;
+				topHeightM: number;
+			}>;
+			/**
 			 * The user's custom wall materials, in the table's own shape.
 			 *
 			 * The worker registers them before it scores anything, so a wall painted with one
@@ -379,6 +396,7 @@ export class OptimizerBridge {
 				wallBandWu: options?.wallBandWu,
 				minRoomRadiusWu: options?.minRoomRadiusWu,
 				planningArea: options?.planningArea ?? null,
+				surfaces: options?.surfaces ?? [],
 				customMaterials: options?.customMaterials ?? [],
 				// The payload shape this bridge builds. See `optimizer-protocol.ts`: the
 				// worker checks it when present, so a bundle left in a browser cache while

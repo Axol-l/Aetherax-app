@@ -2,6 +2,7 @@ import { SvelteMap } from 'svelte/reactivity';
 import { updateAp, beginMove } from './project.svelte.js';
 import { apHeightAboveFloor, apSplitFor, apVerticalOffsetTo, antennaProfileFor, getEffectiveWupm, type AccessPoint } from './ap-state.svelte.js';
 import { antennaRayLossDb } from '$lib/rf/antenna.js';
+import { surfaceHeightAt } from '$lib/rf/surface-height.js';
 import type { Band, ChannelWidth } from '@aetherax/channels';
 import { scheduleSave } from './persistence.svelte.js';
 import { t } from './i18n.svelte.js';
@@ -498,13 +499,27 @@ export async function updateCoverage(): Promise<void> {
 	let coveredWeight = 0;
 	let totalWeight = 0;
 
+	/*
+	 * How high the client stands at each sample: a mezzanine's desks are two metres
+	 * closer to a ceiling-mounted AP than the floor's are, and a stair climbs between
+	 * the two. The field is in metres, the gap below is in world units, so the scale
+	 * converts it once here rather than at every use.
+	 */
+	const surfaces = currentFloor().surfaces ?? [];
+	const surfaceWupm = getEffectiveWupm();
+	const sampleHeightWu = cachedSamples.map(
+		(sample) => surfaceHeightAt(surfaces, sample.x + ox, sample.y + oy) * surfaceWupm
+	);
+
 	for (let i = 0; i < cachedSamples.length; i++) {
 		const sample = cachedSamples[i]!;
 		let bestMargin = -Infinity;
 		for (const ap of allAps) {
 			const dx = sample.x - (ap.x - ox);
 			const dy = sample.y - (ap.y - oy);
-			const vertical = ap.verticalGapWu;
+			// The AP–client gap, less whatever the client is standing on. Signed: a
+			// client two metres up a mezzanine can be *above* a desk-mounted AP.
+			const vertical = ap.verticalGapWu - (sampleHeightWu[i] ?? 0);
 			const horiz = Math.sqrt(dx * dx + dy * dy);
 			/*
 			 * Distance before anything else, and on the **best case**: the furthest a source
@@ -519,8 +534,9 @@ export async function updateCoverage(): Promise<void> {
 			 * the real test further down.
 			 */
 			if (horiz > coverageHorizontalReach(ap.interferenceRadius, 0, 0)) continue;
-			// Cross-floor paths are 3D, matching the heatmap.
-			const dist = vertical > 0 ? Math.hypot(horiz, vertical) : horiz;
+			// Cross-floor paths are 3D, matching the heatmap. The gap is signed once a
+			// client can be above the floor, and a distance is its magnitude.
+			const dist = vertical !== 0 ? Math.hypot(horiz, vertical) : horiz;
 			// Same dB-domain kernel as the optimiser worker. `coverageReach` is the
 			// 3D distance at which the margin runs out, so the horizontal test has to
 			// give up whatever the vertical gap already consumed.
@@ -1326,6 +1342,17 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 					regulatoryDomain: apState.regulatoryDomain,
 					coverageSoftnessDb: projectMeta.coverageSoftnessDb,
 					pathLossScenario: projectMeta.pathLossScenario,
+					// The graph the solver colours is built from the same margins the run
+					// will score, so the geometry a client's height depends on belongs here
+					// too — otherwise the two disagree exactly where a mezzanine is.
+					surfaces: (floor.surfaces ?? []).map((surface) => ({
+						ax: surface.ax - originX,
+						ay: surface.ay - originY,
+						bx: surface.bx - originX,
+						by: surface.by - originY,
+						heightM: surface.heightM,
+						topHeightM: surface.topHeightM
+					})),
 					graphOnly: true
 				}
 			);
@@ -1390,6 +1417,20 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 							y: point.y - originY
 						}))
 					: null,
+				/*
+				 * Raised surfaces, in the same mask frame as the planning area. The worker
+				 * reads the client's height at each of its own samples from this, because
+				 * a mezzanine changes a sample's vertical gap to every AP and it builds the
+				 * sample grid itself.
+				 */
+				surfaces: (floor.surfaces ?? []).map((surface) => ({
+					ax: surface.ax - originX,
+					ay: surface.ay - originY,
+					bx: surface.bx - originX,
+					by: surface.by - originY,
+					heightM: surface.heightM,
+					topHeightM: surface.topHeightM
+				})),
 				// The user's own materials, so the worker charges their figures rather than the
 				// built-in fallback for an id it has never seen.
 				customMaterials: projectMeta.customMaterials.map((material) => ({

@@ -26,7 +26,12 @@ export function fitCanvasToContent(engine: CanvasEngine, includeAps = false): bo
 	const rect = engine.canvas.getBoundingClientRect();
 
 	if (appState.floorView !== 'single') {
-		const id = appState.floorView === 'stacked' ? 'stacked-floors' : 'floor-tiles';
+		const id =
+			appState.floorView === 'stacked'
+				? 'stacked-floors'
+				: appState.floorView === 'floor3d'
+					? 'floor3d'
+					: 'floor-tiles';
 		const overview = engine.layers.find((l) => l.id === id) as
 			| { contentBounds?: () => Array<{ x: number; y: number }> }
 			| undefined;

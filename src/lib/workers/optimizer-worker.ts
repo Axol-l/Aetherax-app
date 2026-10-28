@@ -20,6 +20,7 @@ import {
 	type PathLossScenario
 } from '../rf/propagation.js';
 import { crossFloorSegments, slabLossFactor, type SlabCrossing } from '../rf/cross-floor.js';
+import { surfaceHeightAt } from '../rf/surface-height.js';
 import {
 	antennaLossDb,
 	antennaProfileForMount,
@@ -341,6 +342,22 @@ interface OptimizeMessage {
 	 * the inferred-interior path every plan used before the polygon existed.
 	 */
 	planningArea?: Array<{ x: number; y: number }> | null;
+	/**
+	 * Raised walking surfaces on this floor, in mask coordinates.
+	 *
+	 * A mezzanine's client is closer to a ceiling-mounted AP than the floor's is, and a
+	 * stair climbs between the two, so the vertical gap is per *sample* as well as per
+	 * AP. Geometry rather than per-sample heights because the worker builds its own
+	 * sample grid. See `rf/surface-height.ts`.
+	 */
+	surfaces?: Array<{
+		ax: number;
+		ay: number;
+		bx: number;
+		by: number;
+		heightM: number;
+		topHeightM: number;
+	}>;
 	/**
 	 * The user's custom wall materials.
 	 *
@@ -914,7 +931,9 @@ function evaluateCoverage(
 			const dx = samples[s]!.x - ap.x;
 			const dy = samples[s]!.y - ap.y;
 			const dist = Math.sqrt(dx * dx + dy * dy);
-			const gap = ctx.apGaps[a] ?? 0;
+			// The AP's mounting gap less what the client stands on. Signed, and a
+			// magnitude where a distance is wanted — see `sampleLift`.
+			const gap = (ctx.apGaps[a] ?? 0) - (ctx.sampleLift?.[s] ?? 0);
 			const profile = apProfiles[a]!;
 			/*
 			 * Past the utility horizon there is no margin to record: the row's own
@@ -950,9 +969,12 @@ function evaluateCoverage(
 			const slabDb =
 				path?.slabFactor != null ? fixedSlabDb[f]! * path.slabFactor[s]! : fixedSlabDb[f]!;
 			const loss = wallDb + slabDb;
+			// A fixed AP's gap is measured to this floor's floor; the client may be
+			// standing higher than that.
+			const fixedGap = fap.verticalGap - (ctx.sampleLift?.[s] ?? 0);
 			const wide =
-				sourceMargin(dist, fap.interferenceRadius, loss, fap.verticalGap, -softness) -
-				antennaRayLossDb(ctx.fixedProfiles[f]!, fap.verticalGap, dx, dy);
+				sourceMargin(dist, fap.interferenceRadius, loss, fixedGap, -softness) -
+				antennaRayLossDb(ctx.fixedProfiles[f]!, fixedGap, dx, dy);
 			allMargins[base + k++] = wide > 0 ? wide : -Infinity;
 			if (wide > best) best = wide;
 		}
@@ -1171,6 +1193,16 @@ interface EvalContext {
 	 * leaves mounting heights off. See `ApInput.verticalGap`.
 	 */
 	apGaps: Float64Array;
+	/**
+	 * How high the client stands at each sample, world units, index-aligned with
+	 * `samples`. Null when the floor has no raised surfaces, so a flat plan pays
+	 * nothing for the feature.
+	 *
+	 * This is the half of the gap that belongs to the *sample* rather than to the AP: a
+	 * mezzanine's client is closer to a ceiling-mounted unit than the floor's is, and a
+	 * stair climbs between the two. See `rf/surface-height.ts`.
+	 */
+	sampleLift: Float64Array | null;
 	/**
 	 * Each placed access point's vertical antenna cut, index-aligned with
 	 * `positions` and `apGaps`. See `ApInput.beamwidthDeg`.
@@ -1463,9 +1495,11 @@ function fillMargins(positions: Position[], ctx: EvalContext): MarginField {
 		// interference input (`best > 0 ? best : -Infinity`).
 		let best = -Infinity;
 		let k = 0;
+		// What the client is standing on, in world units. Zero without raised surfaces.
+		const lift = ctx.sampleLift?.[si] ?? 0;
 		for (let ai = 0; ai < positions.length; ai++) {
 			const ap = positions[ai]!;
-			const gap = ctx.apGaps[ai] ?? 0;
+			const gap = (ctx.apGaps[ai] ?? 0) - lift;
 			const dx = sample.x - ap.x;
 			const dy = sample.y - ap.y;
 			const dist = Math.sqrt(dx * dx + dy * dy);
@@ -1519,13 +1553,16 @@ function fillMargins(positions: Position[], ctx: EvalContext): MarginField {
 				// only the shares whose own slab is a hole.
 				slabLoss = slabDb * slabLossFactor(slabs, fap.x, fap.y, sample.x, sample.y);
 			}
+			// A fixed AP's gap is measured to this floor's floor; the client may be
+			// standing higher than that.
+			const fixedGap = fap.verticalGap - lift;
 			if (
 				!(slabDb < Infinity) ||
 				dist >=
 					sourceHorizonToward(
 						fap.interferenceRadius,
 						slabLoss,
-						fap.verticalGap,
+						fixedGap,
 						horizon,
 						ctx.fixedProfiles[fi]!,
 						dx,
@@ -1539,8 +1576,8 @@ function fillMargins(positions: Position[], ctx: EvalContext): MarginField {
 			}
 			const loss = fixedLossFor(fap, sample.x, sample.y) + slabLoss;
 			const margin =
-				sourceMargin(dist, fap.interferenceRadius, loss, fap.verticalGap, -horizon) -
-				antennaRayLossDb(ctx.fixedProfiles[fi]!, fap.verticalGap, dx, dy);
+				sourceMargin(dist, fap.interferenceRadius, loss, fixedGap, -horizon) -
+				antennaRayLossDb(ctx.fixedProfiles[fi]!, fixedGap, dx, dy);
 			allMargins[base + k] = margin > 0 ? margin : -Infinity;
 			ccaMargins[base + k] = margin > -CCA_BELOW_THRESHOLD_DB ? margin : -Infinity;
 			k++;
@@ -2252,6 +2289,21 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 		for (let i = 0; i < sampleDensity.length; i++) sampleDensity[i] = 1;
 	}
 
+	/*
+	 * How high the client stands at each sample.
+	 *
+	 * The surfaces arrive in the mask's own coordinates — the same frame the samples are
+	 * in — so the field is read directly and converted once: the height is metres, every
+	 * gap below is world units. Null on a floor with no raised surface, which is the case
+	 * that has to cost nothing.
+	 */
+	const sampleLift =
+		(msg.surfaces?.length ?? 0) > 0
+			? Float64Array.from(samples, (sample) =>
+					surfaceHeightAt(msg.surfaces!, sample.x, sample.y) * (msg.worldUnitsPerMeter ?? 1)
+				)
+			: null;
+
 	// Built once, after the sample set is final, and handed to every evaluator.
 	// Constructing it here is what makes it impossible for one call site to be
 	// scored with a different model than another.
@@ -2317,6 +2369,7 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 		sourceAllowed,
 		sourceBands,
 		apGaps,
+		sampleLift,
 		apProfiles,
 		fixedProfiles,
 		overlap,
@@ -2502,19 +2555,21 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 			// Best margin, as in the evaluators: the seeding weights samples by their
 			// deficit, and that has to be the same deficit the objective sees.
 			let bestMargin = -Infinity;
+			const lift = ctx.sampleLift?.[s] ?? 0;
 			for (let a = 0; a < numAps; a++) {
 				const dx = samples[s]!.x - positions[a]!.x;
 				const dy = samples[s]!.y - positions[a]!.y;
 				const dist = Math.sqrt(dx * dx + dy * dy);
+				const gap = (ctx.apGaps[a] ?? 0) - lift;
 				const margin =
 					sourceMargin(
 						dist,
 						positions[a]!.radius,
 						iterApRows[a]![s]!,
-						ctx.apGaps[a] ?? 0,
+						gap,
 						-ctx.coverageSoftnessDb
 					) -
-					antennaRayLossDb(iterApProfiles[a]!, ctx.apGaps[a] ?? 0, dx, dy);
+					antennaRayLossDb(iterApProfiles[a]!, gap, dx, dy);
 				if (margin > bestMargin) {
 					bestMargin = margin;
 					bestAp = a;
@@ -2539,10 +2594,10 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 						dist,
 						fap.interferenceRadius,
 						wallDb + slabDb,
-						fap.verticalGap,
+						fap.verticalGap - lift,
 						-ctx.coverageSoftnessDb
 					) -
-					antennaRayLossDb(ctx.fixedProfiles[f]!, fap.verticalGap, dx, dy);
+					antennaRayLossDb(ctx.fixedProfiles[f]!, fap.verticalGap - lift, dx, dy);
 				if (margin > bestMargin) bestMargin = margin;
 			}
 			const deficit = 1.0 - coverageUtilityAboveThreshold(bestMargin, ctx.coverageSoftnessDb);

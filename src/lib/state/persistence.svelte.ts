@@ -390,9 +390,12 @@ async function saveToStorage(): Promise<void> {
 				// Notes are part of the plan's meaning, not its presentation: what the
 				// drawing cannot say about a place on a floor.
 				notes: f.notes ? JSON.parse(JSON.stringify(f.notes)) : [],
-				// The vector walls, alongside the raster mask they will eventually replace.
+				// The vector walls: the geometry the mask is derived from.
 				walls: f.walls ? JSON.parse(JSON.stringify(f.walls)) : [],
-				columns: f.columns ? JSON.parse(JSON.stringify(f.columns)) : []
+				columns: f.columns ? JSON.parse(JSON.stringify(f.columns)) : [],
+				// Raised surfaces are geometry, not presentation: a reload that lost them
+				// would silently change every client's vertical gap.
+				surfaces: f.surfaces ? JSON.parse(JSON.stringify(f.surfaces)) : []
 			})),
 			aps: JSON.parse(JSON.stringify(apState.aps))
 		};
@@ -639,7 +642,8 @@ export async function restoreFromStorage(): Promise<boolean> {
 			planningArea: Array.isArray((f as any).planningArea) ? (f as any).planningArea : null,
 			notes: Array.isArray((f as any).notes) ? (f as any).notes : [],
 			walls: Array.isArray((f as any).walls) ? (f as any).walls : [],
-			columns: Array.isArray((f as any).columns) ? (f as any).columns : []
+			columns: Array.isArray((f as any).columns) ? (f as any).columns : [],
+			surfaces: Array.isArray((f as any).surfaces) ? (f as any).surfaces : []
 		}));
 		floorState.currentFloorId = floorState.floors[0]!.id;
 
