@@ -549,6 +549,7 @@ export async function updateCoverage(): Promise<void> {
 	 */
 	const surfaces = currentFloor().surfaces ?? [];
 	const surfaceWupm = getEffectiveWupm();
+	const coverageStarted = performance.now();
 	const sampleHeightWu = cachedSamples.map(
 		(sample) => surfaceHeightAt(surfaces, sample.x + ox, sample.y + oy) * surfaceWupm
 	);
@@ -682,6 +683,11 @@ export async function updateCoverage(): Promise<void> {
 	}
 
 	optimizerState.coverage = totalWeight > 0 ? Math.round((coveredWeight / totalWeight) * 100) : 0;
+	// Timed: this pass is the app's heaviest main-thread work, and the only way to decide
+	// whether it needs a worker is to know what it costs on a real plan.
+	console.info(
+		`[coverage] ${cachedSamples.length} samples × ${apState.aps.length} APs in ${Math.round(performance.now() - coverageStarted)} ms`
+	);
 
 	// Cache per-floor coverage (weighted by sample count as area proxy)
 	floorCoverage.set(curFloorId, {

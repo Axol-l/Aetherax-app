@@ -354,10 +354,12 @@ export async function runSolver(): Promise<void> {
 
 	solverState.isRunning = true;
 	solverState.error = null;
+	const started = performance.now();
 
 	try {
 		const graph = await buildSerializedGraph();
 		const fixedAssignments = getFixedAssignments();
+		console.info(`[solve] graph built in ${Math.round(performance.now() - started)} ms`);
 
 		// Solve each band independently — different bands don't interfere
 		const bands = new Set(apState.aps.map((ap) => ap.band));
@@ -489,6 +491,7 @@ export async function runSolver(): Promise<void> {
 		// user's own edit has already scheduled.
 		scheduleSave(true);
 		computeThroughput();
+		console.info(`[solve] done in ${Math.round(performance.now() - started)} ms`);
 	} catch (err) {
 		solverState.error = err instanceof Error ? err.message : 'Solver failed';
 	} finally {
