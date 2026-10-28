@@ -2287,7 +2287,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 			return;
 		}
 		autoSolveTimeout = setTimeout(() => {
-			runSolver();
+			/*
+			 * On an idle frame: the solve builds its conflict graph on the main thread
+			 * (measured at 344–512 ms before the graph was cached), and the debounce alone
+			 * still landed it on a frame the user was about to need.
+			 */
+			if (typeof requestIdleCallback === 'function') {
+				requestIdleCallback(() => runSolver(), { timeout: 2000 });
+			} else {
+				runSolver();
+			}
 		}, 1200);
 	});
 

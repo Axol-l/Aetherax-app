@@ -27,6 +27,34 @@ type Algorithm = 'greedy' | 'dsatur' | 'welsh-powell' | 'backtracking';
 
 const bridge = new SolverBridge();
 
+/**
+ * The last conflict graph and the geometry it was built from.
+ *
+ * See `buildSerializedGraph`: building the graph runs the optimiser's margin pass and costs
+ * hundreds of milliseconds, so an unchanged plan must not pay for it twice.
+ */
+let lastGraph: { signature: string; graph: Awaited<ReturnType<typeof buildGraphUncached>> } | null =
+	null;
+
+/** Everything the conflict graph is a function of, as a string. */
+function graphSignature(): string {
+	const aps = apState.aps
+		.map(
+			(ap) =>
+				`${ap.id}:${Math.round(ap.x)}:${Math.round(ap.y)}:${ap.floorId}:${ap.band}:${ap.interferenceRadius}:${ap.channelWidth}:${ap.mount ?? ''}:${ap.mountHeightM}:${ap.facingDeg ?? ''}`
+		)
+		.join('|');
+	const walls = floorState.floors
+		.map(
+			(floor) =>
+				`${floor.id}:${(floor.walls ?? [])
+					.map((w) => `${Math.round(w.ax)},${Math.round(w.ay)},${Math.round(w.bx)},${Math.round(w.by)},${w.heightM ?? 0},${w.material}`)
+					.join(';')}`
+		)
+		.join('|');
+	return `${aps}##${walls}##${wallState.wallMaterial}##${projectMeta.clientHeight}`;
+}
+
 /** Attenuated signal between AP pairs: "apIdA:apIdB" → signal (0-1). */
 export const edgeSignals = new Map<string, number>();
 
@@ -155,6 +183,22 @@ function getWallLoss(
  * no interior is still a plan with APs on it.
  */
 async function buildSerializedGraph() {
+	/*
+	 * The graph is a function of the plan, so it is cached against the plan.
+	 *
+	 * Building it means running the optimiser's own margin pass over a fine sample grid —
+	 * measured at 344–512 ms on a two-AP floor — and an auto-solve is scheduled on every
+	 * change of the key. When nothing about the geometry changed, rebuilding it produced the
+	 * same adjacency for half a second of blocked main thread. See `graphSignature`.
+	 */
+	const signature = graphSignature();
+	if (lastGraph && lastGraph.signature === signature) return lastGraph.graph;
+	const graph = await buildGraphUncached();
+	lastGraph = { signature, graph };
+	return graph;
+}
+
+async function buildGraphUncached() {
 	prepareSortedFloors();
 	edgeSignals.clear();
 	const aps = getApPositions();
