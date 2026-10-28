@@ -46,7 +46,7 @@ import { projectMeta } from './project-meta.svelte.js';
 import { wallState } from './wall-state.svelte.js';
 import { WALL_BAND_M, wallSnapForFloor } from './wall-snap.js';
 import { minRoomRadiusWu } from './room-domain.js';
-import { clipInteriorToPlanningArea, isUsablePlanningArea } from './planning-area.js';
+import { clipInteriorToPlanningArea, isUsablePlanningArea, pointInPlanningArea } from './planning-area.js';
 import { OPTIMIZER_PAYLOAD_VERSION, type ApInput } from '../workers/optimizer-protocol.js';
 import { apState } from '$state/ap-state.svelte.js';
 import { canvasState } from '$state/canvas.svelte.js';
@@ -161,8 +161,21 @@ export const floorCoverage = new SvelteMap<string, { coverage: number; samples: 
 export async function apsOutsideInterior(): Promise<string[]> {
 	if (projectMeta.allowOutsideRooms) return [];
 	const outside: string[] = [];
+	/*
+	 * The drawn planning area decides, when there is one.
+	 *
+	 * It is the user's own statement of where the floor is, so a point outside it is outside
+	 * the floor by definition — no inference about whether a doorway means "outside", no
+	 * morphology, nothing to argue with. Without one the detected interior is still the only
+	 * answer there is, and that is where the walls' sealing applies.
+	 */
+	const planned = currentFloor().planningArea;
+	const hasPlan = isUsablePlanningArea(planned);
 	for (const ap of apState.aps) {
-		if (!(await isInsideInterior(ap.floorId, ap.x, ap.y))) outside.push(ap.name);
+		const inside = hasPlan
+			? pointInPlanningArea({ x: ap.x, y: ap.y }, planned!)
+			: await isInsideInterior(ap.floorId, ap.x, ap.y);
+		if (!inside) outside.push(ap.name);
 	}
 	return outside;
 }

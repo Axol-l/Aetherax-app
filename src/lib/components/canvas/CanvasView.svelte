@@ -3044,26 +3044,42 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		if (!floor) return;
 		pushState();
-		floor.planningArea = draft.map((point) => ({ x: point.x, y: point.y }));
+		/*
+		 * Re-fetched after the history snapshot, because `pushState` restores the previous
+		 * state before recording the new one: the `floor` captured above can be a detached
+		 * object by the time this writes, and the area then lands on a floor nobody is
+		 * looking at — which is why the card kept saying "Auto-detected" after drawing one.
+		 */
+		const target = floorState.floors.find((f) => f.id === floor.id);
+		if (!target) return;
+		target.planningArea = draft.map((point) => ({ x: point.x, y: point.y }));
 		setPlanningDrawMode(false);
 		planningCursor = null;
-		forgetInterior(floor.id);
+		forgetInterior(target.id);
 		scheduleSave();
 	}
 
+	/**
+	 * A double-click on the same spot closes the loop — and nothing else does.
+	 *
+	 * It used to commit on *every* double-click, which made the gesture unusable: two quick
+	 * corners are a double-click, and so is a click near the first corner, so the area
+	 * closed itself while it was still being drawn. Now the last two corners have to be the
+	 * same place (a real double-click on the spot) before it closes; otherwise the click
+	 * that arrived is just another corner, and Enter or the sidebar closes the loop.
+	 */
 	function handleCanvasDoubleClick(event: MouseEvent): void {
 		if (!appState.planningDrawMode) return;
-		const draft = appState.planningDraft;
-		// The two clicks of the double-click are already corners; the second is the duplicate.
-		if (draft.length >= 2) {
-			const last = draft[draft.length - 1]!;
-			const previous = draft[draft.length - 2]!;
-			if (Math.hypot(last.x - previous.x, last.y - previous.y) < 1) {
-				appState.planningDraft = draft.slice(0, -1);
-			}
-		}
-		commitPlanningDraft();
 		event.preventDefault();
+		const draft = appState.planningDraft;
+		if (draft.length < 4) return;
+		const last = draft[draft.length - 1]!;
+		const previous = draft[draft.length - 2]!;
+		const tolerance = 4 / (engine?.camera.state.zoom ?? 1);
+		if (Math.hypot(last.x - previous.x, last.y - previous.y) > tolerance) return;
+		// The two clicks of the double-click are both corners; the second is the duplicate.
+		appState.planningDraft = draft.slice(0, -1);
+		commitPlanningDraft();
 	}
 
 	function handlePointerMove(e: PointerEvent) {

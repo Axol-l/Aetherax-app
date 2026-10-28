@@ -589,6 +589,9 @@
 		return Math.abs(twiceArea) / 2 / (wupm * wupm);
 	}
 
+	/** Whether the floor's notes are listed. Open on first use, collapsible after. */
+	let notesOpen = $state(true);
+
 	/** The note being edited, on the floor on screen. */
 	const selectedNote = $derived.by(() => {
 		const id = appState.noteSelectedId;
@@ -1498,6 +1501,33 @@
 					<span class="planning-state">{t('{count} on this floor', { count: (currentFloor()?.notes ?? []).length })}</span>
 				</div>
 
+				<!--
+					The list of this floor's notes, collapsed by default once there are some: a
+					plan's annotations are something you consult, not something that has to
+					take six rows of the sidebar while you are placing access points.
+				-->
+				{#if (currentFloor()?.notes ?? []).length > 0}
+					<button class="notes-toggle" onclick={() => (notesOpen = !notesOpen)} aria-expanded={notesOpen}>
+						<Icon name={notesOpen ? 'chevron-down' : 'chevron-down'} size={12} />
+						{notesOpen ? t('Hide the list') : t('Show the list')}
+					</button>
+					{#if notesOpen}
+						<ul class="notes-list">
+							{#each currentFloor()?.notes ?? [] as note (note.id)}
+								<li>
+									<button
+										class="note-row"
+										class:active={appState.noteSelectedId === note.id}
+										onclick={() => (appState.noteSelectedId = note.id)}
+									>
+										{note.text.trim() || t('(empty note)')}
+									</button>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				{/if}
+
 				{#if appState.noteMode}
 					<p class="planning-hint">{t('Click on the plan to place a note. Escape cancels.')}</p>
 					<div class="planning-actions">
@@ -2067,6 +2097,62 @@
 	.wall-hint {
 		font-size: var(--text-xs);
 		color: var(--text-disabled);
+	}
+
+	/* The floor's notes, listed: consultable, collapsible, one row per note. */
+	.notes-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: var(--space-1);
+		align-self: flex-start;
+		padding: 2px 6px;
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
+		background: transparent;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+	}
+
+	.notes-toggle:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.notes-list {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		max-height: 140px;
+		margin: 0;
+		padding: 0;
+		overflow-y: auto;
+		list-style: none;
+	}
+
+	.note-row {
+		width: 100%;
+		padding: 3px 6px;
+		font-size: var(--text-xs);
+		text-align: left;
+		color: var(--text-secondary);
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.note-row:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.note-row.active {
+		border-color: var(--accent-primary);
+		color: var(--text-primary);
 	}
 
 	.draw-scratch {
