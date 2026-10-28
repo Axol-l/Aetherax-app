@@ -95,8 +95,6 @@
 		{/if}
 	</div>
 
-	<span class="divider"></span>
-
 	<!--
 		The material for whatever is drawn next. One button rather than a row of chips: the
 		list includes the user's own materials and grows, and a row of eight in a floating bar
@@ -105,7 +103,7 @@
 	<button class="material" onclick={onmaterial} title={t('Material for the next wall or column')}>
 		<span class="swatch" style="background: rgb({current.color[0]},{current.color[1]},{current.color[2]})"
 		></span>
-		<span class="material-name">{t(current.name)}</span>
+		<span class="material-name">{t(current.name) || current.name}</span>
 	</button>
 
 	<button class="done" onclick={ondone}>
@@ -122,7 +120,13 @@
 		transform: translateX(-50%);
 		display: flex;
 		align-items: center;
-		gap: var(--space-2, 8px);
+		/*
+		 * Tight, and with no spare element between the groups.
+		 *
+		 * The bar used to have a divider and an empty span before Done, which read as a gap
+		 * where a control was missing. Every child is now a control and the gaps are 4 px.
+		 */
+		gap: 4px;
 		padding: 4px var(--space-2, 8px);
 		background: var(--bg-elevated);
 		border: 1px solid var(--border-default);
@@ -224,9 +228,8 @@
 	}
 
 	.material-name {
-		max-width: 96px;
-		overflow: hidden;
-		text-overflow: ellipsis;
+		/* No fixed cap: a name shorter than 96 px used to leave a blank stretch inside the
+		   material button, which is the "empty space" beside Done. */
 		white-space: nowrap;
 	}
 

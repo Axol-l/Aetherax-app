@@ -343,11 +343,25 @@ export class Floor3DLayer implements Layer {
 			 * the same colour where they meet, so the only edges left are real silhouettes.
 			 */
 			const half = WALL_BAND_WU / 2;
+			/*
+			 * Each wall is extended by half its band at both ends.
+			 *
+			 * Two boxes centred on their segments meet at a corner at an angle, and between
+			 * them is a notch of background — the dark strip through every junction in the
+			 * 3D view. Extending each end by half a band makes the two overlap instead, and
+			 * because every wall is one tone the overlap is invisible.
+			 */
+			const ux = dx / length;
+			const uy = dy / length;
+			const ax2 = wall.ax - ux * half;
+			const ay2 = wall.ay - uy * half;
+			const bx2 = wall.bx + ux * half;
+			const by2 = wall.by + uy * half;
 			const viewerFacing = nx * sinYaw + ny * cosYaw;
-			const a1 = { x: wall.ax + nx * half, y: wall.ay + ny * half };
-			const a2 = { x: wall.ax - nx * half, y: wall.ay - ny * half };
-			const b1 = { x: wall.bx + nx * half, y: wall.by + ny * half };
-			const b2 = { x: wall.bx - nx * half, y: wall.by - ny * half };
+			const a1 = { x: ax2 + nx * half, y: ay2 + ny * half };
+			const a2 = { x: ax2 - nx * half, y: ay2 - ny * half };
+			const b1 = { x: bx2 + nx * half, y: by2 + ny * half };
+			const b2 = { x: bx2 - nx * half, y: by2 - ny * half };
 			const near = viewerFacing >= 0 ? { a: a1, b: b1 } : { a: a2, b: b2 };
 			const fill = (tone: number) =>
 				`rgba(${Math.round(r * tone)},${Math.round(g * tone)},${Math.round(b * tone)},0.94)`;

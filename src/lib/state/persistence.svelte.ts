@@ -42,7 +42,16 @@ const LEGACY_PREFIX = 'deconflict:';
 
 const STORAGE_KEY = `${STORAGE_PREFIX}project`;
 const FLOORPLAN_KEY = `${STORAGE_PREFIX}floorplan`;
-const SAVE_DELAY = 2000;
+/**
+ * How long after the last edit an autosave runs.
+ *
+ * Two seconds is short enough that a drag or a run of wall edits finishes *inside* the
+ * window and still triggers a write while the user is looking at the result: every snapshot
+ * serialises every floor's mask data URLs, which is megabytes. Five seconds means one write
+ * after a gesture instead of one during it, and nothing is lost — the delay is only the gap
+ * between "the plan changed" and "the plan is on disk".
+ */
+const SAVE_DELAY = 5000;
 
 /**
  * Copy every stored key from the old prefix to the new one, once.

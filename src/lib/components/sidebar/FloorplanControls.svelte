@@ -1399,16 +1399,7 @@
 							<button class="skip-link" onclick={clearVectorWalls}>{t('Clear walls')}</button>
 						{/if}
 					</div>
-					{#if (currentFloor()?.walls ?? []).length > 0}
-						<!--
-							The mask is a derivation of the segments, not a second drawing. Saying so
-							here is what stops "the walls I drew" and "the walls the model uses" from
-							ever being two different things the user has to reconcile.
-						-->
-						<p class="planning-hint">
-							{t('Derived from these walls: the mask, the interior and the coverage.')}
-						</p>
-					{:else if !wallState.wallMask}
+					{#if (currentFloor()?.walls ?? []).length === 0 && !wallState.wallMask}
 						<span class="wall-hint">{t('Detect walls from the floorplan, or import one first')}</span>
 					{/if}
 				{/if}
@@ -1533,11 +1524,6 @@
 							</Button>
 						{/if}
 					</div>
-					{#if (currentFloor()?.surfaces ?? []).length > 0}
-						<p class="planning-hint">
-							{t('Click an outline to select it; Delete removes it.')}
-						</p>
-					{/if}
 				{/if}
 			</div>
 
@@ -1941,7 +1927,44 @@
 		gap: var(--space-2);
 	}
 
+	.note-input {
+		width: 100%;
+		padding: 6px 8px;
+		font-family: inherit;
+		font-size: var(--text-xs);
+		line-height: 1.5;
+		color: var(--text-primary);
+		background: var(--bg-surface);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-sm);
+		resize: vertical;
+	}
+
+	.note-input::placeholder {
+		color: var(--text-disabled);
+	}
+
+	.note-input:focus-visible {
+		outline: 2px solid var(--accent-primary);
+		outline-offset: 1px;
+	}
+
+	/*
+	 * Heads are a title and a fold control, nothing else. The right-aligned state text ("12
+	 * drawn", "1 px = 0.10m") made every head a two-column table and pushed the title off the
+	 * left edge; the one state worth showing while it matters — that the area is being drawn —
+	 * keeps its badge.
+	 */
+	.planning-head .planning-state {
+		display: none;
+	}
+
+	.planning-head .planning-state.drawing {
+		display: inline;
+	}
+
 	.planning-title {
+		flex: 1;
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
