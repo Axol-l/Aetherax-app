@@ -589,6 +589,16 @@
 		return Math.abs(twiceArea) / 2 / (wupm * wupm);
 	}
 
+	/**
+	 * Whether the two once-per-floor cards are folded away.
+	 *
+	 * Scale and Planning area are set once and then read, so they take the most room while
+	 * being the least used: folding them to a title row leaves the cards that are actually
+	 * worked in — walls, raised surfaces, notes — above the fold.
+	 */
+	let scaleCollapsed = $state(false);
+	let areaCollapsed = $state(false);
+
 	/** Whether the floor's notes are listed. Open on first use, collapsible after. */
 	let notesOpen = $state(true);
 
@@ -1028,13 +1038,22 @@
 		-->
 		<div class="planning-area">
 			<div class="planning-head">
+				<button
+					class="card-collapse"
+					aria-expanded={!scaleCollapsed}
+					title={scaleCollapsed ? t('Show the list') : t('Hide the list')}
+					onclick={() => (scaleCollapsed = !scaleCollapsed)}
+				>
+					<Icon name="chevron-down" size={11} />
+				</button>
 				<span class="planning-title">
-					<Icon name="crosshair" size={13} />
+					<Icon name="ruler" size={13} />
 					{t('Scale')}
 				</span>
 				<span class="planning-state">{scaleDisplay ?? t('Not set')}</span>
 			</div>
 
+			{#if !scaleCollapsed}
 			{#if detecting}
 				<span class="calibration-status">{t('Detecting boundary...')}</span>
 			{:else if (detectedWorldArea || wallState.wallMask) && !calibrationDone}
@@ -1137,6 +1156,7 @@
 						{t('Measure a distance')}
 					</button>
 				</div>
+			{/if}
 			{/if}
 		</div>
 	{/if}
@@ -1245,6 +1265,14 @@
 			-->
 			<div class="planning-area">
 				<div class="planning-head">
+					<button
+						class="card-collapse"
+						aria-expanded={!areaCollapsed}
+						title={areaCollapsed ? t('Show the list') : t('Hide the list')}
+						onclick={() => (areaCollapsed = !areaCollapsed)}
+					>
+						<Icon name="chevron-down" size={11} />
+					</button>
 					<span class="planning-title">
 						<Icon name="crosshair" size={13} />
 						{t('Planning area')}
@@ -1260,6 +1288,7 @@
 					{/if}
 				</div>
 
+				{#if !areaCollapsed}
 				{#if appState.planningDrawMode}
 					<p class="planning-hint">
 						{#if appState.planningDraft.length < 3}
@@ -1296,6 +1325,7 @@
 							<button class="skip-link" onclick={clearPlanningArea}>{t('Use the detected area')}</button>
 						{/if}
 					</div>
+				{/if}
 				{/if}
 			</div>
 
@@ -2097,6 +2127,35 @@
 	.wall-hint {
 		font-size: var(--text-xs);
 		color: var(--text-disabled);
+	}
+
+	/*
+	 * A card's fold control: a chevron on the left of its title, pointing down when the card
+	 * is open and right when it is folded. Scale and Planning area are set once and then read,
+	 * so they can be put away — the cards that get worked in stay.
+	 */
+	.card-collapse {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 18px;
+		height: 18px;
+		padding: 0;
+		color: var(--text-tertiary);
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		transition: transform var(--transition-fast);
+	}
+
+	.card-collapse[aria-expanded='false'] {
+		transform: rotate(-90deg);
+	}
+
+	.card-collapse:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
 	}
 
 	/* The floor's notes, listed: consultable, collapsible, one row per note. */

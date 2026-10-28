@@ -36,6 +36,9 @@
 		// A box: two faces and a top, which is what the 3D view extrudes a plan into.
 		cube:
 			'M3 5l5-3 5 3v6l-5 3-5-3zM3 5l5 3 5-3M8 8v6',
+		// A ruler: the scale card's own mark, because it shared the crosshair with the
+		// planning area and the two were indistinguishable once folded.
+		ruler: 'M2 9.5l7.5-7.5 4 4L6 13.5zM5 7l1.5 1.5M7.5 4.5L9 6',
 		radio:
 			'M8 10a2 2 0 100-4 2 2 0 000 4zm-3.5-6A5.5 5.5 0 008 2.5 5.5 5.5 0 0111.5 4m-10 8A7.5 7.5 0 018 .5a7.5 7.5 0 016.5 3.5',
 		arc:
