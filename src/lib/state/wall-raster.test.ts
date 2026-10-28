@@ -57,4 +57,35 @@ describe('rasteriseWalls', () => {
 		expect(masks.width).toBeLessThan(70);
 		expect(masks.height).toBeLessThan(10);
 	});
+
+	/**
+	 * A column is dragged from its centre to its edge, so the two points span one quadrant.
+	 * Scanning that quadrant filled a quarter of the disc while the vector layer drew the
+	 * whole ring: the mask and the drawing disagreed, and the heatmap looked like the column
+	 * only blocked half of it.
+	 */
+	it('fills the whole disc of a circular column, not the quadrant it was dragged across', () => {
+		const masks = rasteriseWalls(
+			[],
+			1,
+			2,
+			undefined,
+			[{ shape: 'circle', ax: 100, ay: 100, bx: 120, by: 100, material: 0 }]
+		)!;
+		expect(paintedPixels(masks)).toBeGreaterThan(Math.PI * 20 * 20 * 0.85);
+
+		const at = (wx: number, wy: number): number => {
+			const x = wx - masks.originX;
+			const y = wy - masks.originY;
+			return masks.wall[y * masks.width + x]!;
+		};
+		// All four sides of the centre, at half the radius.
+		expect(at(110, 100)).toBe(1);
+		expect(at(90, 100)).toBe(1);
+		expect(at(100, 110)).toBe(1);
+		expect(at(100, 90)).toBe(1);
+		// And just outside the rim.
+		expect(at(121, 100)).toBe(0);
+		expect(at(79, 100)).toBe(0);
+	});
 });

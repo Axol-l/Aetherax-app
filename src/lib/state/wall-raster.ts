@@ -71,10 +71,14 @@ export function rasteriseWalls(
 		maxY = Math.max(maxY, wall.ay, wall.by);
 	}
 	for (const column of columns) {
-		minX = Math.min(minX, column.ax, column.bx);
-		minY = Math.min(minY, column.ay, column.by);
-		maxX = Math.max(maxX, column.ax, column.bx);
-		maxY = Math.max(maxY, column.ay, column.by);
+		// A circle reaches its radius past the point it was dragged to, so the frame has to
+		// grow by that much on every side or the disc is cropped by the mask it lives in.
+		const r =
+			column.shape === 'circle' ? Math.hypot(column.bx - column.ax, column.by - column.ay) : 0;
+		minX = Math.min(minX, column.ax - r, column.bx - r);
+		minY = Math.min(minY, column.ay - r, column.by - r);
+		maxX = Math.max(maxX, column.ax + r, column.bx + r);
+		maxY = Math.max(maxY, column.ay + r, column.by + r);
 	}
 	if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
 
@@ -121,19 +125,28 @@ export function rasteriseWalls(
 
 	// Columns are filled, not stroked: their whole footprint is obstruction.
 	for (const column of columns) {
-		const x0 = Math.round(Math.min(column.ax, column.bx) - originX);
-		const x1 = Math.round(Math.max(column.ax, column.bx) - originX);
-		const y0 = Math.round(Math.min(column.ay, column.by) - originY);
-		const y1 = Math.round(Math.max(column.ay, column.by) - originY);
-		for (let y = Math.max(0, y0); y <= Math.min(height - 1, y1); y++) {
-			for (let x = Math.max(0, x0); x <= Math.min(width - 1, x1); x++) {
-				if (column.shape === 'circle') {
-					const cx = column.ax - originX;
-					const cy = column.ay - originY;
-					const r = Math.hypot(column.bx - column.ax, column.by - column.ay);
+		const cx = column.ax - originX;
+		const cy = column.ay - originY;
+		/*
+		 * A circle's bounds are the circle, not the drag box.
+		 *
+		 * A column is dragged from its centre to its edge, so the box between the two points
+		 * is one quadrant — scanning it filled a quarter of the disc while the vector layer
+		 * drew the whole ring, which read as "the column only blocks half the heatmap". The
+		 * circle scans its own square now.
+		 */
+		const circle = column.shape === 'circle';
+		const radius = circle ? Math.hypot(column.bx - column.ax, column.by - column.ay) : 0;
+		const x0 = circle ? cx - radius : Math.min(column.ax, column.bx) - originX;
+		const x1 = circle ? cx + radius : Math.max(column.ax, column.bx) - originX;
+		const y0 = circle ? cy - radius : Math.min(column.ay, column.by) - originY;
+		const y1 = circle ? cy + radius : Math.max(column.ay, column.by) - originY;
+		for (let y = Math.max(0, Math.floor(y0)); y <= Math.min(height - 1, Math.ceil(y1)); y++) {
+			for (let x = Math.max(0, Math.floor(x0)); x <= Math.min(width - 1, Math.ceil(x1)); x++) {
+				if (circle) {
 					const px = x + 0.5;
 					const py = y + 0.5;
-					if ((px - cx) ** 2 + (py - cy) ** 2 > r * r) continue;
+					if ((px - cx) ** 2 + (py - cy) ** 2 > radius * radius) continue;
 				}
 				const index = y * width + x;
 				wall[index] = 1;
