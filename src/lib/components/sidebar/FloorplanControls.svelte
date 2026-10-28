@@ -18,6 +18,10 @@
 	import { setPlanningDrawMode } from '$state/app.svelte';
 	import { wupmFromSegment } from '$state/calibrate.js';
 	import { forgetInterior } from '$state/ap-interior.js';
+	import { getFloorMask } from '$state/floor-mask.js';
+	import { compareWallModels, type WallModelComparison } from '$lib/rf/wall-model-compare.js';
+	import { rasterRayLossDb } from '$lib/rf/raster-ray.js';
+	import type { WallMaterialId } from '$canvas/materials.js';
 
 	let confirmOpen = $state(false);
 	let confirmMessage = $state('');
@@ -621,8 +625,58 @@
 		scheduleSave();
 	}
 
-	/** Back to the inferred interior. */
-	function clearPlanningArea() {
+	/**
+	 * Measure the two wall models against each other on this floor.
+	 *
+	 * Rays from the first access point to a grid over the mask, each computed both ways: the
+	 * vector model from the drawn segments, the raster one by walking the material mask. The
+	 * point is to have a number before anything is switched over — "it looks similar" is how a
+	 * coverage figure quietly gains four points.
+	 */
+	let wallModelComparison = $state<WallModelComparison | null>(null);
+
+	async function compareWallModelsOnFloor(): Promise<void> {
+		const floor = currentFloor();
+		const ap = apState.aps.find((candidate) => candidate.floorId === floor?.id);
+		const decoded = floor ? await getFloorMask(floor.id) : null;
+		if (!floor || !ap || !decoded) return;
+		const walls = (floor.walls ?? []).map((wall) => ({
+			ax: wall.ax,
+			ay: wall.ay,
+			bx: wall.bx,
+			by: wall.by,
+			material: wall.material as WallMaterialId
+		}));
+		const points: Array<{ x: number; y: number }> = [];
+		const stepX = Math.max(1, Math.floor(decoded.width / 24));
+		const stepY = Math.max(1, Math.floor(decoded.height / 24));
+		for (let py = 0; py < decoded.height; py += stepY) {
+			for (let px = 0; px < decoded.width; px += stepX) {
+				points.push({ x: decoded.originX + px, y: decoded.originY + py });
+			}
+		}
+		const band = apState.band;
+		wallModelComparison = compareWallModels({
+			walls,
+			band,
+			from: { x: ap.x, y: ap.y },
+			points,
+			rasterLoss: (from, to) =>
+				rasterRayLossDb(
+					from,
+					to,
+					decoded.materialMap,
+					decoded.width,
+					decoded.height,
+					decoded.originX,
+					decoded.originY,
+					band,
+					floor.wallMaterial as WallMaterialId
+				)
+		});
+	}
+
+	/** Back to the inferred interior. */	function clearPlanningArea() {
 		const floor = currentFloor();
 		if (!floor) return;
 		pushState();
@@ -1190,7 +1244,25 @@
 						{#if (currentFloor()?.walls ?? []).length > 0}
 							<button class="skip-link" onclick={clearVectorWalls}>{t('Clear walls')}</button>
 						{/if}
+						<button class="skip-link" onclick={() => void compareWallModelsOnFloor()}>
+							{t('Compare wall models')}
+						</button>
 					</div>
+					{#if wallModelComparison}
+						<!--
+							The measured difference, not a claim. Mean and worst-case loss difference in
+							dB, and how many rays one model walls off while the other does not — the last
+							number is the one that matters, because a whole wall's figure is a difference
+							of geometry rather than of arithmetic.
+						-->
+						<p class="planning-hint">
+							{t('Δ {mean} dB mean · {max} dB worst · {count} rays where one model has a wall and the other does not', {
+								mean: wallModelComparison.meanAbsDb.toFixed(2),
+								max: wallModelComparison.maxAbsDb.toFixed(2),
+								count: wallModelComparison.disagreements
+							})}
+						</p>
+					{/if}
 				{/if}
 			</div>
 

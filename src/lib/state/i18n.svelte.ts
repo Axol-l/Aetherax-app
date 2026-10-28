@@ -55,6 +55,9 @@ const zh: Record<string, string> = {
 	'Clear walls': '清空墙体',
 	'Click the start of a wall. Ends snap to walls already drawn.': '点击墙的起点；端点会自动吸附到已画的墙。',
 	'Click the far end. Hold Shift to keep it straight, Escape to cancel.': '点击墙的终点；按住 Shift 保持正交，Esc 取消。',
+	'Compare wall models': '对比两种墙体模型',
+	'Δ {mean} dB mean · {max} dB worst · {count} rays where one model has a wall and the other does not':
+		'平均差 {mean} dB · 最大差 {max} dB · {count} 条射线上一个模型有墙、另一个没有',
 	'Delete material': '删除材质',
 	'Loss per crossing': '单次穿墙损耗',
 	'Thickness': '厚度',
