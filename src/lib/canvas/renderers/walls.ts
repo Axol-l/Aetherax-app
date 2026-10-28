@@ -1,6 +1,6 @@
 import type { Layer, RenderContext } from '../types.js';
 import type { DecodedWallMask } from '../wall-detect.js';
-import { WALL_MATERIALS, isVirtualMaterial, type WallMaterialId } from '../materials.js';
+import { WALL_MATERIALS, getMaterial, isVirtualMaterial, type WallMaterialId } from '../materials.js';
 
 export class WallLayer implements Layer {
 	id = 'walls';
@@ -79,13 +79,17 @@ export function colorizeWalls(
 	canvas.height = height;
 	const ctx = canvas.getContext('2d')!;
 	const imgData = ctx.createImageData(width, height);
-	const defaultColor = WALL_MATERIALS[defaultMaterial]?.color ?? WALL_MATERIALS[0]!.color;
+	// Through `getMaterial`, not the built-in table: a wall painted with one of the user's own
+	// materials has an id the table does not contain, so indexing it directly fell back to the
+	// default colour — picking a custom material in the right-click menu changed the physics
+	// and left the wall looking exactly as it did.
+	const defaultColor = getMaterial(defaultMaterial).color;
 
 	for (let i = 0; i < maskData.length; i++) {
 		if (!maskData[i]) continue;
 		const j = i * 4;
 		const matId = materialMap ? materialMap[i]! : defaultMaterial;
-		const color = WALL_MATERIALS[matId]?.color ?? defaultColor;
+		const color = getMaterial(matId as WallMaterialId).color;
 		let r = color[0];
 		let g = color[1];
 		let b = color[2];
