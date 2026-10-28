@@ -626,14 +626,75 @@
 	}
 
 	/**
+	 * Rasterise the drawn walls into a material mask, so the two kernels can be compared on
+	 * the *same* geometry.
+	 *
+	 * The comparison against the floor's own mask measures coverage as much as it measures
+	 * agreement: twenty-two hand-drawn segments cannot stand in for every wall in a detected
+	 * plan, so the raster side legitimately charges more. Painting the segments into a mask
+	 * removes that variable — both sides then see exactly the same walls, and any difference
+	 * left is the two algorithms disagreeing rather than the drawing being incomplete.
+	 *
+	 * The band is six units wide, the same stroke the vector layer draws and the smallest
+	 * brush the raster tool offers.
+	 */
+	function rasteriseWalls(
+		walls: readonly { ax: number; ay: number; bx: number; by: number; material: number }[]
+	): { material: Uint8Array; width: number; height: number; originX: number; originY: number } | null {
+		if (walls.length === 0) return null;
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
+		for (const wall of walls) {
+			minX = Math.min(minX, wall.ax, wall.bx);
+			minY = Math.min(minY, wall.ay, wall.by);
+			maxX = Math.max(maxX, wall.ax, wall.bx);
+			maxY = Math.max(maxY, wall.ay, wall.by);
+		}
+		const pad = 6;
+		const originX = Math.floor(minX) - pad;
+		const originY = Math.floor(minY) - pad;
+		const width = Math.max(1, Math.ceil(maxX - originX) + pad);
+		const height = Math.max(1, Math.ceil(maxY - originY) + pad);
+		// A cap on the working size: a stray far-out segment would otherwise allocate a mask
+		// of a million pixels to compare a handful of rays.
+		if (width * height > 4_000_000) return null;
+		const material = new Uint8Array(width * height);
+		const radius = 3;
+		for (const wall of walls) {
+			const length = Math.hypot(wall.bx - wall.ax, wall.by - wall.ay);
+			const steps = Math.max(1, Math.ceil(length));
+			for (let i = 0; i <= steps; i++) {
+				const t = i / steps;
+				const cx = Math.round(wall.ax + (wall.bx - wall.ax) * t - originX);
+				const cy = Math.round(wall.ay + (wall.by - wall.ay) * t - originY);
+				for (let dy = -radius; dy <= radius; dy++) {
+					for (let dx = -radius; dx <= radius; dx++) {
+						const x = cx + dx;
+						const y = cy + dy;
+						if (x < 0 || y < 0 || x >= width || y >= height) continue;
+						material[y * width + x] = wall.material;
+					}
+				}
+			}
+		}
+		return { material, width, height, originX, originY };
+	}
+
+	/**
 	 * Measure the two wall models against each other on this floor.
 	 *
-	 * Rays from the first access point to a grid over the mask, each computed both ways: the
-	 * vector model from the drawn segments, the raster one by walking the material mask. The
-	 * point is to have a number before anything is switched over — "it looks similar" is how a
-	 * coverage figure quietly gains four points.
+	 * Two answers, because they answer different questions:
+	 *
+	 * - **on the floor's own mask**: how much geometry the drawn walls represent, which is
+	 *   what the coverage figure will change by when the vector model takes over;
+	 * - **on the drawn geometry rasterised**: whether the two kernels agree when they see the
+	 *   same walls. This one should be near zero, and if it is not, the kernel is wrong —
+	 *   which is exactly what the first number cannot tell you.
 	 */
 	let wallModelComparison = $state<WallModelComparison | null>(null);
+	let wallModelSameGeometry = $state<WallModelComparison | null>(null);
 
 	async function compareWallModelsOnFloor(): Promise<void> {
 		const floor = currentFloor();
@@ -656,15 +717,17 @@
 			}
 		}
 		const band = apState.band;
+		const from = { x: ap.x, y: ap.y };
+
 		wallModelComparison = compareWallModels({
 			walls,
 			band,
-			from: { x: ap.x, y: ap.y },
+			from,
 			points,
-			rasterLoss: (from, to) =>
+			rasterLoss: (a, b) =>
 				rasterRayLossDb(
-					from,
-					to,
+					a,
+					b,
 					decoded.materialMap,
 					decoded.width,
 					decoded.height,
@@ -674,6 +737,29 @@
 					floor.wallMaterial as WallMaterialId
 				)
 		});
+
+		// The same walls, seen by both kernels.
+		const synthetic = rasteriseWalls(walls);
+		wallModelSameGeometry = synthetic
+			? compareWallModels({
+					walls,
+					band,
+					from,
+					points,
+					rasterLoss: (a, b) =>
+						rasterRayLossDb(
+							a,
+							b,
+							synthetic.material,
+							synthetic.width,
+							synthetic.height,
+							synthetic.originX,
+							synthetic.originY,
+							band,
+							floor.wallMaterial as WallMaterialId
+						)
+				})
+			: null;
 	}
 
 	/** Back to the inferred interior. */	function clearPlanningArea() {
@@ -1276,6 +1362,20 @@
 								vector: wallModelComparison.vectorMeanDb.toFixed(2)
 							})}
 						</p>
+						{#if wallModelSameGeometry}
+							<!--
+								The same walls through both kernels: this is the number that says whether
+								the new model is correct. The one above says how much of the floor the
+								drawing represents, which is a different question and moves with the
+								drawing rather than with the code.
+							-->
+							<p class="planning-hint">
+								{t('Same walls, both kernels: Δ {mean} dB mean · {count} disagreements', {
+									mean: wallModelSameGeometry.meanAbsDb.toFixed(2),
+									count: wallModelSameGeometry.disagreements
+								})}
+							</p>
+						{/if}
 					{/if}
 				{/if}
 			</div>

@@ -58,6 +58,8 @@ const zh: Record<string, string> = {
 	'Compare wall models': '对比两种墙体模型',
 	'{walls} walls · {samples} rays · raster {raster} dB · vector {vector} dB':
 		'{walls} 段墙 · {samples} 条射线 · 栅格 {raster} dB · 矢量 {vector} dB',
+	'Same walls, both kernels: Δ {mean} dB mean · {count} disagreements':
+		'同一批墙、两个内核：平均差 {mean} dB · {count} 处不一致',
 	'Δ {mean} dB mean · {max} dB worst · {count} rays where one model has a wall and the other does not':
 		'平均差 {mean} dB · 最大差 {max} dB · {count} 条射线上一个模型有墙、另一个没有',
 	'Delete material': '删除材质',
