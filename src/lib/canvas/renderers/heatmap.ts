@@ -598,8 +598,10 @@ export class HeatmapLayer implements Layer {
 
 					// A deck between the AP and a client standing on it: the path from below
 					// has to pass through the slab, and that is what the surface's own
-					// attenuation figure is for.
-					if (surfaces.length > 0) {
+					// attenuation figure is for. Guarded on `liftWu` because a texel off any
+					// deck cannot cross one, and that is most of the plan — the contains test
+					// per surface per texel per AP was measurable in a drag.
+					if (liftWu > 0) {
 						const deck = deckCrossing(surfaces, wx, wy, gap / surfaceScale);
 						if (deck) level -= deck.lossDb;
 					}

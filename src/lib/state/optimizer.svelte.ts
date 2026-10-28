@@ -617,13 +617,12 @@ export async function updateCoverage(): Promise<void> {
 			// A void is a hole in the slab, so a ray crossing there pays no slab loss.
 			dbLoss += slabLoss;
 			// A deck between this AP and a client standing on it: a path from below has to
-			// pass through the slab, and that is what the surface's attenuation is for.
-			const deck = deckCrossing(
-				surfaces,
-				sample.x + ox,
-				sample.y + oy,
-				vertical / surfaceWupm
-			);
+			// pass through the slab, and that is what the surface's attenuation is for. Only
+			// a sample that is on a deck can cross one, which is the cheap guard.
+			const deck =
+				(sampleHeightWu[i] ?? 0) > 0
+					? deckCrossing(surfaces, sample.x + ox, sample.y + oy, vertical / surfaceWupm)
+					: null;
 			if (deck) dbLoss += deck.lossDb;
 			// The antenna's cuts, from the geometry of this ray: an AP ten metres away
 			// on the same floor is near the peak of an upright omni, one almost

@@ -2785,6 +2785,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// Nothing drawn and nothing was: the floor's mask is whatever detection produced,
 		// and it must be left alone.
 		if (signature === '|' && !hadWalls) return;
+		// While a shape is being drawn, nothing is re-derived: a plan is drawn in runs of a
+		// dozen walls, and each pass is a full rasterise, a PNG encode, the interior, the
+		// room labels and a save. Skipping the pass until the tool is left turns a drag that
+		// stalled every segment into one pass at the end.
+		if (appState.wallVectorMode) return;
 		if (wallsSyncTimer) clearTimeout(wallsSyncTimer);
 		wallsSyncTimer = setTimeout(() => {
 			wallsSyncTimer = null;

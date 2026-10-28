@@ -1116,7 +1116,16 @@
 						</button>
 					</div>
 				{/if}
-			{:else if scaleDisplay}
+			{:else}
+				<!--
+					Nothing to calibrate right now — either the scale is set, or it was
+					skipped. Both still need the two routes back: skipping used to fall
+					through every branch, so the card went empty and the only way to measure a
+					distance was to reload the project.
+				-->
+				{#if scaleDisplay}
+					<span class="calibration-label">{t('Scale:')} {scaleDisplay}</span>
+				{/if}
 				<div class="planning-actions">
 					<button class="skip-link" onclick={() => { calibrationDone = false; }}>
 						{t('Recalibrate')}
