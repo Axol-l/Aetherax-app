@@ -339,8 +339,16 @@ export async function updateCoverage(): Promise<void> {
 		if (coverageAfterDrag) clearTimeout(coverageAfterDrag);
 		coverageAfterDrag = setTimeout(() => {
 			coverageAfterDrag = null;
-			if (!canvasState.isDragging) void updateCoverage();
-		}, 300);
+			if (canvasState.isDragging) return;
+			// On an idle frame, like the save: a pass is the most expensive thing the app
+			// does on the main thread, and it must not land on the frame the pointer is
+			// released in.
+			if (typeof requestIdleCallback === 'function') {
+				requestIdleCallback(() => void updateCoverage(), { timeout: 1200 });
+			} else {
+				void updateCoverage();
+			}
+		}, 600);
 		return;
 	}
 	if (apState.aps.length === 0 || !wallState.wallMask) {

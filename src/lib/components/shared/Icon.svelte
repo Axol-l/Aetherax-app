@@ -71,6 +71,9 @@
 			'M8 15a7 7 0 110-14 7 7 0 010 14zM6.5 5.5a2 2 0 012.7-1.4c.8.3 1.3 1 1.3 1.9 0 1-1.5 1.3-1.5 2.5m0 2h.01',
 		warning:
 			'M8 2l6.2 11.2H1.8zM8 6.4v3.2m0 2.2h.01',
+		// The tick. It was missing from this map, so `<Icon name="check">` rendered an empty
+		// <path> — a blank gap at the left of every button that used it, "Done" included.
+		check: 'M2.5 8.5l3.5 3.5 7.5-8',
 		heatmap:
 			'M1 1h6v6H1zM9 1h6v6H9zM1 9h6v6H1zM9 9h6v6H9z',
 		eye:

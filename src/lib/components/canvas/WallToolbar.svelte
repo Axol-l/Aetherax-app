@@ -247,14 +247,17 @@
 		margin-left: 4px;
 		padding: 0 10px;
 		font-size: var(--text-xs);
-		color: var(--text-primary);
-		background: var(--bg-surface);
-		border: 1px solid var(--border-default);
+		font-weight: 500;
+		/* The one action that ends the mode: the accent, so it cannot be mistaken for the
+		   material chip beside it. */
+		color: #0b0d12;
+		background: var(--accent-primary);
+		border: 1px solid var(--accent-primary);
 		border-radius: var(--radius-sm);
 		cursor: pointer;
 	}
 
 	.done:hover {
-		background: var(--bg-hover);
+		background: color-mix(in srgb, var(--accent-primary) 85%, white);
 	}
 </style>
