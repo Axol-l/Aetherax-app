@@ -822,6 +822,7 @@
 	function useWallsAsMask(): void {
 		const floor = currentFloor();
 		if (!floor) return;
+		const existing = wallState.wallMask;
 		const masks = rasteriseWallsToMasks(
 			(floor.walls ?? []).map((wall) => ({
 				ax: wall.ax,
@@ -829,7 +830,19 @@
 				bx: wall.bx,
 				by: wall.by,
 				material: wall.material
-			}))
+			})),
+			6,
+			8,
+			// Keep the plan's own frame: samples, texels and the interior are all addressed in
+			// the mask the plan was drawn in, so a tight mask puts every one of them off it.
+			existing
+				? {
+						width: existing.width,
+						height: existing.height,
+						originX: existing.originX,
+						originY: existing.originY
+					}
+				: undefined
 		);
 		if (!masks) return;
 		pushState();

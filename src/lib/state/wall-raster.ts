@@ -40,7 +40,8 @@ export interface RasterisedMasks {
 export function rasteriseWalls(
 	walls: readonly RasterWall[],
 	bandWidth = 6,
-	padding = 8
+	padding = 8,
+	extent?: { width: number; height: number; originX: number; originY: number }
 ): RasterisedMasks | null {
 	if (walls.length === 0) return null;
 	let minX = Infinity;
@@ -55,10 +56,19 @@ export function rasteriseWalls(
 	}
 	if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
 
-	const originX = Math.floor(minX) - padding;
-	const originY = Math.floor(minY) - padding;
-	const width = Math.max(1, Math.ceil(maxX - originX) + padding);
-	const height = Math.max(1, Math.ceil(maxY - originY) + padding);
+	/*
+	 * The extent is the *existing* mask's when there is one, and that is not a detail.
+	 *
+	 * Everything downstream — the sample grid, the heatmap's texels, the interior test, the
+	 * coverage figure — addresses the mask the plan was drawn in. A mask sized to the walls'
+	 * bounding box is a different frame: samples fall outside it, the field is generated for
+	 * the wrong rectangle, and the heatmap comes out as a fan of colour around the AP rather
+	 * than over the floor.
+	 */
+	const originX = extent ? extent.originX : Math.floor(minX) - padding;
+	const originY = extent ? extent.originY : Math.floor(minY) - padding;
+	const width = extent ? extent.width : Math.max(1, Math.ceil(maxX - originX) + padding);
+	const height = extent ? extent.height : Math.max(1, Math.ceil(maxY - originY) + padding);
 	// A cap on the working size: a stray far-out segment would otherwise allocate a mask of
 	// millions of pixels and stall the tab.
 	if (width * height > 16_000_000) return null;
