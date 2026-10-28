@@ -65,13 +65,34 @@ export class DragHandler {
 		return false;
 	}
 
+	/**
+	 * The last pointer position, applied once per frame.
+	 *
+	 * A pointermove can arrive more often than the display refreshes (120 Hz trackpads,
+	 * coalesced mouse events), and every application writes the AP's state — which re-runs
+	 * the effects that watch it. One write per frame is the most the screen can show and the
+	 * least the rest of the app can be asked to do.
+	 */
+	private pending: { x: number; y: number } | null = null;
+	private frame: number | null = null;
+
 	handlePointerMove(e: PointerEvent): void {
 		if (!this._isDragging) return;
 
 		const rect = this.engine.canvas.getBoundingClientRect();
 		const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
 		const worldPoint = this.engine.camera.screenToWorld(screenPoint);
+		this.pending = worldPoint;
+		if (this.frame !== null) return;
+		this.frame = requestAnimationFrame(() => {
+			this.frame = null;
+			const point = this.pending;
+			this.pending = null;
+			if (point) this.apply(point);
+		});
+	}
 
+	private apply(worldPoint: { x: number; y: number }): void {
 		const dx = worldPoint.x - this.startWorld.x;
 		const dy = worldPoint.y - this.startWorld.y;
 
@@ -100,6 +121,17 @@ export class DragHandler {
 	}
 
 	handlePointerUp(): void {
+		// Apply the last position before the gesture ends, or a move made between the last
+		// frame and the release is dropped.
+		if (this.pending) {
+			const point = this.pending;
+			this.pending = null;
+			this.apply(point);
+		}
+		if (this.frame !== null) {
+			cancelAnimationFrame(this.frame);
+			this.frame = null;
+		}
 		if (this._isDragging) {
 			this._isDragging = false;
 			this.dragApId = null;

@@ -1883,6 +1883,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 			appState.outsideNotice = null;
 			return;
 		}
+		/*
+		 * Not on every frame of a drag either.
+		 *
+		 * This is an async pass over every access point (mask lookup, interior cache, the
+		 * planning area) and it re-runs on each position write — thirty to a hundred times a
+		 * second. Its answer cannot change meaningfully between two frames of one drag, and
+		 * `canvasState.isDragging` is reactive, so the check runs once when the pointer comes
+		 * up and the notice is right by the time the user looks at it.
+		 */
+		if (canvasState.isDragging) return;
 		let cancelled = false;
 		void (async () => {
 			const outside = await apsOutsideInterior();

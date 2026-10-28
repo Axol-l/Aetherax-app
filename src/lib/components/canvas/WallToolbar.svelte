@@ -35,45 +35,64 @@
 	const current = $derived(getMaterial(material));
 
 	const tools = $derived<Array<{ id: 'line' | 'rect' | 'circle'; label: string }>>([
-		{ id: 'line', label: t('Line') },
-		{ id: 'rect', label: t('Rectangle') },
-		{ id: 'circle', label: t('Circle') }
+		{ id: 'line', label: t('Walls') },
+		{ id: 'rect', label: t('Columns') },
+		{ id: 'circle', label: t('Columns') }
 	]);
 </script>
 
 <div class="wall-toolbar" role="toolbar" aria-label={t('Wall tools')}>
 	<div class="tool-group">
-		{#each tools as option (option.id)}
-			<button
-				class="tool"
-				class:active={tool === option.id}
-				aria-pressed={tool === option.id}
-				onclick={() => ontool(option.id)}
-			>
-				{#if option.id === 'line'}
-					<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-						<path d="M2 13L14 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+		<!-- Two things a plan is made of: walls, and the columns that break them. -->
+		<button
+			class="tool"
+			class:active={tool === 'line'}
+			aria-pressed={tool === 'line'}
+			onclick={() => ontool('line')}
+		>
+			<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+				<path d="M2 13L14 3" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+			</svg>
+			{t('Walls')}
+		</button>
+		<button
+			class="tool"
+			class:active={tool !== 'line'}
+			aria-pressed={tool !== 'line'}
+			onclick={() => ontool(tool === 'line' ? 'rect' : tool)}
+		>
+			<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+				<rect x="3" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.5" />
+			</svg>
+			{t('Columns')}
+		</button>
+		<!-- The column's geometry, only while the column tool is the one in use. -->
+		{#if tool !== 'line'}
+			<span class="shapes" role="group" aria-label={t('Column shape')}>
+				<button
+					class="shape"
+					class:active={tool === 'rect'}
+					aria-pressed={tool === 'rect'}
+					title={t('Rectangle')}
+					onclick={() => ontool('rect')}
+				>
+					<svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true">
+						<rect x="2.5" y="3.5" width="11" height="9" fill="none" stroke="currentColor" stroke-width="1.5" />
 					</svg>
-				{:else if option.id === 'rect'}
-					<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
-						<rect
-							x="2.5"
-							y="3.5"
-							width="11"
-							height="9"
-							fill="none"
-							stroke="currentColor"
-							stroke-width="1.5"
-						/>
-					</svg>
-				{:else}
-					<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+				</button>
+				<button
+					class="shape"
+					class:active={tool === 'circle'}
+					aria-pressed={tool === 'circle'}
+					title={t('Circle')}
+					onclick={() => ontool('circle')}
+				>
+					<svg width="11" height="11" viewBox="0 0 16 16" aria-hidden="true">
 						<circle cx="8" cy="8" r="5" fill="none" stroke="currentColor" stroke-width="1.5" />
 					</svg>
-				{/if}
-				{option.label}
-			</button>
-		{/each}
+				</button>
+			</span>
+		{/if}
 	</div>
 
 	<span class="divider"></span>
@@ -87,10 +106,7 @@
 		<span class="swatch" style="background: rgb({current.color[0]},{current.color[1]},{current.color[2]})"
 		></span>
 		<span class="material-name">{t(current.name)}</span>
-		<span class="material-db">{chips.length > 8 ? t('More…') : ''}</span>
 	</button>
-
-	<span class="divider"></span>
 
 	<button class="done" onclick={ondone}>
 		<Icon name="check" size={13} />
@@ -149,6 +165,37 @@
 		width: 1px;
 		height: 18px;
 		background: var(--border-subtle);
+	}
+
+	.shapes {
+		display: inline-flex;
+		gap: 2px;
+		margin-left: 2px;
+		padding-left: 4px;
+		border-left: 1px solid var(--border-subtle);
+	}
+
+	.shape {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 24px;
+		height: 24px;
+		color: var(--text-secondary);
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+	}
+
+	.shape:hover {
+		background: var(--bg-hover);
+		color: var(--text-primary);
+	}
+
+	.shape.active {
+		border-color: var(--accent-primary);
+		color: var(--accent-primary);
 	}
 
 	.material {

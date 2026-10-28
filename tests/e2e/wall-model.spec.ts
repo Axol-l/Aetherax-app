@@ -271,9 +271,11 @@ test.describe('Walls as segments', () => {
 		await page.getByRole('button', { name: 'Draw from Scratch' }).click();
 		await page.waitForTimeout(300);
 
-		// The toolbar is the tool's own control: shape, material and Done, over the canvas.
+		// The toolbar is the tool's own control: walls or columns, a shape for the column,
+		// the material and Done, over the canvas.
 		const toolbar = page.getByRole('toolbar', { name: 'Wall tools' });
 		await expect(toolbar).toBeVisible();
+		await toolbar.getByRole('button', { name: 'Columns' }).click();
 		await toolbar.getByRole('button', { name: 'Circle' }).click();
 
 		const canvas = page.locator('canvas');
