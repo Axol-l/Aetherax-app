@@ -408,7 +408,13 @@ async function saveToStorage(): Promise<void> {
 			})),
 			aps: JSON.parse(JSON.stringify(apState.aps))
 		};
-		await store.write(STORAGE_KEY, JSON.stringify(data));
+		const started = performance.now();
+		const json = JSON.stringify(data);
+		// Timed and reported: a write that takes seconds is a stall in the middle of the
+		// user's work, and the only way to know is to print it.
+		console.info(`[save] ${json.length} bytes serialised in ${Math.round(performance.now() - started)} ms`);
+		await store.write(STORAGE_KEY, json);
+		console.info(`[save] written in ${Math.round(performance.now() - started)} ms`);
 		persistenceState.lastSaved = new Date();
 		// A later save that works clears the warning: storage was full, and is not any
 		// more.
@@ -762,7 +768,24 @@ export function scheduleSave(keep = false): void {
 	if (saveTimeout) clearTimeout(saveTimeout);
 	// `saveToStorage` opens the store itself and reports its own failures; the debounce
 	// only has to decide *when*.
-	saveTimeout = setTimeout(() => void saveToStorage(), SAVE_DELAY);
+	saveTimeout = setTimeout(() => {
+		saveTimeout = null;
+		/*
+		 * On an idle frame, not on the timer's frame.
+		 *
+		 * The write serialises every floor's masks — megabytes of base64 — and the timer
+		 * fires two to five seconds after the last edit, which is exactly when a hand is
+		 * still on the mouse. An idle callback puts the same write in the gap between
+		 * gestures; the timeout is the guarantee that it still happens if the frame never
+		 * goes idle.
+		 */
+		const run = () => void saveToStorage();
+		if (typeof requestIdleCallback === 'function') {
+			requestIdleCallback(run, { timeout: 1500 });
+		} else {
+			run();
+		}
+	}, SAVE_DELAY);
 }
 
 export async function hasSavedState(): Promise<boolean> {

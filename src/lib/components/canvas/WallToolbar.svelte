@@ -121,13 +121,14 @@
 		display: flex;
 		align-items: center;
 		/*
-		 * Tight, and with no spare element between the groups.
+		 * No gap at all, and a hairline divider between the two groups.
 		 *
-		 * The bar used to have a divider and an empty span before Done, which read as a gap
-		 * where a control was missing. Every child is now a control and the gaps are 4 px.
+		 * Every spacing above 0 read as "a control is missing" beside Done, whatever the
+		 * number was. The bar is one continuous strip now: the tool group is a segmented
+		 * control, and a 1 px divider is the only separation before the material and Done.
 		 */
-		gap: 4px;
-		padding: 4px var(--space-2, 8px);
+		gap: 0;
+		padding: 4px 6px;
 		background: var(--bg-elevated);
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-md);
@@ -207,6 +208,7 @@
 		align-items: center;
 		gap: 6px;
 		height: 26px;
+		margin-left: 6px;
 		padding: 0 8px;
 		font-size: var(--text-xs);
 		color: var(--text-primary);
@@ -242,6 +244,7 @@
 		align-items: center;
 		gap: 4px;
 		height: 26px;
+		margin-left: 4px;
 		padding: 0 10px;
 		font-size: var(--text-xs);
 		color: var(--text-primary);
