@@ -39,6 +39,28 @@ interface Snapshot {
 let undoStack: Snapshot[] = $state([]);
 let redoStack: Snapshot[] = $state([]);
 
+/**
+ * A structural copy of the project's plain data.
+ *
+ * The obvious `JSON.parse(JSON.stringify(floors))` copies every **wall mask's data URL** —
+ * megabytes of base64 per floor — on every snapshot, and a snapshot is taken on every AP
+ * placement, every deletion and every drag. That parse is what made placing an access point
+ * stall. A data URL is a string and strings are immutable, so the copy can share it: only the
+ * objects and arrays around it are copied, which is kilobytes.
+ */
+function cloneValue<T>(value: T): T {
+	if (Array.isArray(value)) return value.map((item) => cloneValue(item)) as unknown as T;
+	if (value && typeof value === 'object') {
+		const out: Record<string, unknown> = {};
+		for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+			out[key] = cloneValue(item);
+		}
+		return out as T;
+	}
+	// Strings, numbers, booleans, null: shared, and the masks are the strings that matter.
+	return value;
+}
+
 function takeSnapshot(): Snapshot {
 	// Sync current floor's legacy atom state before snapshotting
 	// (floor data is normally only synced on floor switch)
@@ -56,12 +78,12 @@ function takeSnapshot(): Snapshot {
 	}
 
 	return {
-		aps: JSON.parse(JSON.stringify(apState.aps)),
+		aps: cloneValue(apState.aps),
 		wallMask: wallState.wallMask ? { ...wallState.wallMask } : null,
 		materialMask: wallState.materialMask ? { ...wallState.materialMask } : null,
 		roomTypeMask: wallState.roomTypeMask ? { ...wallState.roomTypeMask } : null,
 		wallMaterial: wallState.wallMaterial,
-		floors: JSON.parse(JSON.stringify(floorState.floors)),
+		floors: cloneValue(floorState.floors),
 		currentFloorId: floorState.currentFloorId
 	};
 }

@@ -241,10 +241,14 @@
 		height: 26px;
 		padding: 0 10px;
 		font-size: var(--text-xs);
-		color: var(--bg-primary);
-		background: var(--accent-primary);
-		border: none;
+		color: var(--text-primary);
+		background: var(--bg-surface);
+		border: 1px solid var(--border-default);
 		border-radius: var(--radius-sm);
 		cursor: pointer;
+	}
+
+	.done:hover {
+		background: var(--bg-hover);
 	}
 </style>

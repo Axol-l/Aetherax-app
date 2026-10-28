@@ -598,6 +598,11 @@
 	 */
 	let scaleCollapsed = $state(false);
 	let areaCollapsed = $state(false);
+	/** The cards that are worked in fold too: the step in use is not always the tallest. */
+	let floorplanCollapsed = $state(false);
+	let wallsCollapsed = $state(false);
+	let surfacesCollapsed = $state(false);
+	let notesCollapsed = $state(false);
 
 	/** Whether the floor's notes are listed. Open on first use, collapsible after. */
 	let notesOpen = $state(true);
@@ -982,6 +987,14 @@
 		-->
 		<div class="planning-area">
 			<div class="planning-head">
+				<button
+					class="card-collapse"
+					aria-expanded={!floorplanCollapsed}
+					title={floorplanCollapsed ? t('Show the list') : t('Hide the list')}
+					onclick={() => (floorplanCollapsed = !floorplanCollapsed)}
+				>
+					<Icon name="chevron-down" size={11} />
+				</button>
 				<span class="planning-title">
 					<Icon name="file" size={13} />
 					{t('Floorplan')}
@@ -1053,7 +1066,6 @@
 				<span class="planning-state">{scaleDisplay ?? t('Not set')}</span>
 			</div>
 
-			{#if !scaleCollapsed}
 			{#if detecting}
 				<span class="calibration-status">{t('Detecting boundary...')}</span>
 			{:else if (detectedWorldArea || wallState.wallMask) && !calibrationDone}
@@ -1156,7 +1168,6 @@
 						{t('Measure a distance')}
 					</button>
 				</div>
-			{/if}
 			{/if}
 		</div>
 	{/if}
@@ -1340,6 +1351,14 @@
 			-->
 			<div class="planning-area">
 				<div class="planning-head">
+					<button
+						class="card-collapse"
+						aria-expanded={!wallsCollapsed}
+						title={wallsCollapsed ? t('Show the list') : t('Hide the list')}
+						onclick={() => (wallsCollapsed = !wallsCollapsed)}
+					>
+						<Icon name="chevron-down" size={11} />
+					</button>
 					<span class="planning-title">
 						<Icon name="arc" size={13} />
 						{t('Walls')}
@@ -1387,7 +1406,7 @@
 							ever being two different things the user has to reconcile.
 						-->
 						<p class="planning-hint">
-							{t('The mask, the interior and the coverage are derived from these walls. Click a wall to select it, right-click it to change its material.')}
+							{t('Derived from these walls: the mask, the interior and the coverage.')}
 						</p>
 					{:else if !wallState.wallMask}
 						<span class="wall-hint">{t('Detect walls from the floorplan, or import one first')}</span>
@@ -1406,6 +1425,14 @@
 			-->
 			<div class="planning-area">
 				<div class="planning-head">
+					<button
+						class="card-collapse"
+						aria-expanded={!surfacesCollapsed}
+						title={surfacesCollapsed ? t('Show the list') : t('Hide the list')}
+						onclick={() => (surfacesCollapsed = !surfacesCollapsed)}
+					>
+						<Icon name="chevron-down" size={11} />
+					</button>
 					<span class="planning-title">
 						<Icon name="stack" size={13} />
 						{t('Raised surfaces')}
@@ -1508,7 +1535,7 @@
 					</div>
 					{#if (currentFloor()?.surfaces ?? []).length > 0}
 						<p class="planning-hint">
-							{t('A client on a raised area is measured from its own floor, not the slab. Click an outline to select it; Delete removes it.')}
+							{t('Click an outline to select it; Delete removes it.')}
 						</p>
 					{/if}
 				{/if}
@@ -1524,6 +1551,14 @@
 			-->
 			<div class="planning-area notes-block">
 				<div class="planning-head">
+					<button
+						class="card-collapse"
+						aria-expanded={!notesCollapsed}
+						title={notesCollapsed ? t('Show the list') : t('Hide the list')}
+						onclick={() => (notesCollapsed = !notesCollapsed)}
+					>
+						<Icon name="chevron-down" size={11} />
+					</button>
 					<span class="planning-title">
 						<Icon name="tag" size={13} />
 						{t('Notes')}
@@ -2156,6 +2191,16 @@
 	.card-collapse:hover {
 		background: var(--bg-hover);
 		color: var(--text-primary);
+	}
+
+	/*
+	 * Every card folds from its own head: the chevron's `aria-expanded` is the state, and a
+	 * folded card keeps its title and state line while its body — every child that is not the
+	 * head — is hidden. One rule rather than a wrapper per card, so a card added later folds
+	 * by putting the button in its head.
+	 */
+	.planning-area:has(.card-collapse[aria-expanded='false']) > :not(.planning-head) {
+		display: none;
 	}
 
 	/* The floor's notes, listed: consultable, collapsible, one row per note. */

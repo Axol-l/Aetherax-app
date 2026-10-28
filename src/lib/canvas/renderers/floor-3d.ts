@@ -251,8 +251,10 @@ export class Floor3DLayer implements Layer {
 				const p2 = points[(i + 1) % points.length]!;
 				const nx = p2.y - p1.y;
 				const ny = p1.x - p2.x;
-				const facing = Math.abs(nx * sinYaw - ny * cosYaw) / Math.max(1e-6, Math.hypot(nx, ny));
-				const shade = SHADE_MIN + (1 - SHADE_MIN) * (0.4 + 0.6 * facing);
+				const norm = Math.max(1e-6, Math.hypot(nx, ny));
+				// Back faces only: the prism is closed, so half its sides point away.
+				if ((nx / norm) * sinYaw + (ny / norm) * cosYaw < 0) continue;
+				const shade = 0.8;
 				faces.push({
 					points: [
 						projectPoint(view, p1.x, p1.y, 0, pivot),
@@ -261,10 +263,17 @@ export class Floor3DLayer implements Layer {
 						projectPoint(view, p1.x, p1.y, top, pivot)
 					],
 					depth: depth + 0.001 * i,
-					fill: `rgba(${Math.round(r * shade)},${Math.round(g * shade)},${Math.round(b * shade)},0.92)`,
-					stroke: 'rgba(0,0,0,0.35)'
+					fill: `rgba(${Math.round(r * shade)},${Math.round(g * shade)},${Math.round(b * shade)},0.94)`,
+					stroke: null
 				});
 			}
+			// The cap: without it the prism is open at the top and reads as a tube.
+			faces.push({
+				points: points.map((p) => projectPoint(view, p.x, p.y, top, pivot)),
+				depth: depth + 0.02,
+				fill: `rgba(${Math.round(r * 0.95)},${Math.round(g * 0.95)},${Math.round(b * 0.95)},0.96)`,
+				stroke: 'rgba(0,0,0,0.22)'
+			});
 		}
 		return faces;
 	}
@@ -309,7 +318,16 @@ export class Floor3DLayer implements Layer {
 			const nx = -dy / length;
 			const ny = dx / length;
 			const facing = Math.abs(nx * sinYaw + ny * cosYaw);
-			const shade = SHADE_MIN + (1 - SHADE_MIN) * facing;
+			/*
+			 * One tone for every wall, not a shade per orientation.
+			 *
+			 * Shading each wall by how it faces the viewer made two walls that overlap at a
+			 * corner *different colours* exactly where they meet, so the seam was as visible
+			 * as the wall — which is what "the walls look overlapping" was. All walls the same
+			 * tone means an overlap is invisible; the top face's lighter edge is what gives a
+			 * corner its definition.
+			 */
+			const shade = facing >= 0 ? 0.82 : 0.82;
 			const [r, g, b] = material.color;
 			const midX = (wall.ax + wall.bx) / 2 - pivot.x;
 			const midY = (wall.ay + wall.by) / 2 - pivot.y;

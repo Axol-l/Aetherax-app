@@ -240,6 +240,9 @@ const zh: Record<string, string> = {
 	'Remove floorplan': '移除平面图',
 	Scale: '比例',
 	'Not set': '未设置',
+	'Derived from these walls: the mask, the interior and the coverage.':
+		'掩码、室内范围与覆盖率均由这些墙线推导。',
+	'Click an outline to select it; Delete removes it.': '单击轮廓可选中，按 Delete 删除。',
 	'Measure a distance': '量一段距离',
 	Line: '直线',
 	Rectangle: '矩形',
