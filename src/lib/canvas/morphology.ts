@@ -57,6 +57,25 @@ export interface BuildingInteriorOptions {
 // ─── Reusable morphological operations ─────────────────────────────
 
 /**
+ * Close the mask's gaps, so an opening up to `2·radius` wide no longer connects two sides.
+ *
+ * A close — dilate, then erode — bridges a doorway without growing the walls: the dilation
+ * fills the gap, the erosion takes back the extra thickness, and the solid out-of-bounds
+ * border keeps a wall that runs to the mask's edge a wall rather than letting the erosion
+ * eat it. This is what "a room with a 1 m doorway is a room" needs from the geometry.
+ */
+export function sealOpenings(
+	mask: Uint8Array,
+	w: number,
+	h: number,
+	radius: number
+): Uint8Array {
+	const r = Math.max(0, Math.round(radius));
+	if (r === 0) return new Uint8Array(mask);
+	return erodeMask(dilateMask(mask, w, h, r), w, h, r, 'solid');
+}
+
+/**
  * Dilate truthy pixels in a binary mask by a square radius.
  * Each truthy pixel expands to fill a (2r+1)×(2r+1) square.
  * Returns a new mask (does not mutate input).
