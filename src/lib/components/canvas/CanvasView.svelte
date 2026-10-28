@@ -2233,11 +2233,22 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	// Auto-solve: debounce solver runs when AP layout, RF params, or walls change.
 	// Excludes assignedChannel to avoid infinite loops (solver writes channels).
+	const wupm = getEffectiveWupm();
 	let autoSolveKey = $derived(
 		apState.aps
 			.map(
 				(ap) =>
-					`${ap.id}:${Math.round(ap.x)}:${Math.round(ap.y)}:${ap.floorId}:${ap.interferenceRadius}:${ap.band}:${ap.channelWidth}:` +
+					/*
+					 * The AP's position, quantised to two metres.
+					 *
+					 * The solver assigns channels to avoid co-channel interference, so a
+					 * position does belong in the key — but a drag writes a new position on
+					 * every frame, and each solve builds its graph on the main thread
+					 * (`[solve] graph built in 320–516 ms`, measured). Quantising means a
+					 * one-pixel nudge does not re-solve, while moving a unit to the other end
+					 * of the floor does.
+					 */
+					`${ap.id}:${Math.round(ap.x / (2 * wupm))}:${Math.round(ap.y / (2 * wupm))}:${ap.floorId}:${ap.interferenceRadius}:${ap.band}:${ap.channelWidth}:` +
 					// Where the AP is mounted is part of the geometry, so it belongs in
 					// the key: a change here moves the coverage figure and, with
 					// auto-solve on, the placement the solver would choose. The antenna's
@@ -2277,7 +2288,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		}
 		autoSolveTimeout = setTimeout(() => {
 			runSolver();
-		}, 500);
+		}, 1200);
 	});
 
 	// Re-run solver when a queued solve was pending

@@ -1048,7 +1048,12 @@
 			work (import, calibrate, draw walls, place APs), not a footnote under the header.
 			The area route and the measured route are the two answers to the same question,
 			so they live together with the current scale as the card's state.
+
+			Single-floor view only: the scale is a property of one plan, and in the tiled or
+			stacked views there is no single plan to calibrate against — the card there was a
+			button that could only be wrong.
 		-->
+		{#if appState.floorView === 'single'}
 		<div class="planning-area">
 			<div class="planning-head">
 				<button
@@ -1170,6 +1175,7 @@
 				</div>
 			{/if}
 		</div>
+		{/if}
 	{/if}
 
 	<!--

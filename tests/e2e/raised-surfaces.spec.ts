@@ -81,7 +81,9 @@ test.describe('Raised surfaces', () => {
 		expect(Math.abs(surface.bx - surface.ax)).toBeGreaterThan(1);
 		expect(Math.abs(surface.by - surface.ay)).toBeGreaterThan(1);
 
-		await expect(page.getByText('1 raised')).toBeVisible();
+		// The card no longer prints a count in its head (heads are titles now), so the proof
+		// that the geometry reached the card is the surface it can clear.
+		await expect(page.getByRole('button', { name: 'Clear raised areas' })).toBeVisible();
 	});
 
 	test('a stair carries a rise, and the card derives its steps', async ({ page }) => {
@@ -118,7 +120,7 @@ test.describe('Raised surfaces', () => {
 			async () => (await savedFloor(page)).surfaces?.length ?? 0,
 			{ timeout: 20_000 }
 		).toBe(0);
-		await expect(page.getByText('0 raised')).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Clear raised areas' })).toHaveCount(0);
 	});
 
 	test('the surface is painted on the plan and clears with the card', async ({ page }) => {
