@@ -95,6 +95,63 @@ export function lockToAxis(from: Point, to: Point, ratio = 0.12): Point {
 	return to;
 }
 
+/**
+ * The closest point on any wall — an endpoint or anywhere along its length.
+ *
+ * Endpoint snapping alone leaves the commonest gesture in a plan impossible: running a
+ * partition *into* the middle of a wall (a T-junction). The drawing then has two walls that
+ * look joined and a model with a gap, which is the class of bug this model exists to remove.
+ * So a point snaps to any wall within reach, and to the nearer of "an end" and "the side"
+ * when both are close.
+ *
+ * The kind is returned so the drawing can say which happened.
+ */
+export function snapToWalls(
+	point: Point,
+	walls: readonly VectorWall[],
+	tolerance: number
+): { point: Point; kind: 'endpoint' | 'edge' } {
+	let best: Point = point;
+	let bestDistance = tolerance;
+	let kind: 'endpoint' | 'edge' = 'edge';
+
+	// Ends first: two walls meeting at a corner should snap to the corner, not to the
+	// nearest spot on one of its sides.
+	for (const wall of walls) {
+		for (const end of [
+			{ x: wall.ax, y: wall.ay },
+			{ x: wall.bx, y: wall.by }
+		]) {
+			const distance = Math.hypot(end.x - point.x, end.y - point.y);
+			if (distance <= bestDistance) {
+				best = end;
+				bestDistance = distance;
+				kind = 'endpoint';
+			}
+		}
+	}
+
+	// Then the sides, which may be closer than either end on a long wall.
+	for (const wall of walls) {
+		const dx = wall.bx - wall.ax;
+		const dy = wall.by - wall.ay;
+		const lengthSquared = dx * dx + dy * dy;
+		if (lengthSquared === 0) continue;
+		let t = ((point.x - wall.ax) * dx + (point.y - wall.ay) * dy) / lengthSquared;
+		t = Math.max(0, Math.min(1, t));
+		const candidate = { x: wall.ax + t * dx, y: wall.ay + t * dy };
+		const distance = Math.hypot(candidate.x - point.x, candidate.y - point.y);
+		// Strictly closer, so an endpoint found at the same distance keeps winning.
+		if (distance < bestDistance) {
+			best = candidate;
+			bestDistance = distance;
+			kind = 'edge';
+		}
+	}
+
+	return { point: best, kind };
+}
+
 /** Distance from a point to a segment, for selecting a wall by clicking near it. */
 export function distanceToSegment(point: Point, wall: VectorWall): number {
 	const dx = wall.bx - wall.ax;

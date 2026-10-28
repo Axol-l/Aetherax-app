@@ -25,6 +25,7 @@
 	import { VectorWallsLayer } from '$canvas/renderers/vector-walls.js';
 	import {
 		snapToEndpoint,
+		snapToWalls,
 		lockToAxis,
 		wallNearPoint,
 		isDegenerate,
@@ -2695,7 +2696,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 		if (!floor) return;
 		const walls = currentWalls();
 		const tolerance = snapToleranceWorld();
-		const snapped = snapToEndpoint(world, walls, tolerance);
+		// Ends *and* sides: a partition running into the middle of a wall is the commonest
+		// gesture on a plan, and without it the drawing has two walls that look joined while
+		// the model has a gap between them.
+		const snapped = snapToWalls(world, walls, tolerance).point;
 
 		if (!appState.wallVectorDraft) {
 			appState.wallVectorDraft = snapped;
@@ -2818,8 +2822,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 				y: e.clientY - rect.top
 			});
 			// Where the click would land, so the ring can say "this will meet that wall".
-			const snapped = snapToEndpoint(vectorCursor, currentWalls(), snapToleranceWorld());
-			vectorSnap = snapped.x !== vectorCursor.x || snapped.y !== vectorCursor.y ? snapped : null;
+			const snapped = snapToWalls(vectorCursor, currentWalls(), snapToleranceWorld());
+			vectorSnap =
+				snapped.point.x !== vectorCursor.x || snapped.point.y !== vectorCursor.y
+					? snapped.point
+					: null;
 			engine.markDirty();
 			return;
 		}

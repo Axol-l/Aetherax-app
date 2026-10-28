@@ -44,6 +44,15 @@ export class VectorWallsLayer implements Layer {
 		// The drawing colour: green, the same accent the app uses for "this is going right".
 		const DRAW = 'rgba(74, 222, 128, ';
 
+		/*
+		 * The stroke width, in **world** units: the smallest brush the raster tool offers
+		 * (radius 3, so 6 units across). A vector wall and a painted one then have the same
+		 * thickness on the plan, and the line grows with the zoom instead of staying a
+		 * hairline on top of a thick wall. The floor of one screen pixel keeps it visible when
+		 * the plan is zoomed far out.
+		 */
+		const stroke = Math.max(1 / zoom, 6);
+
 		for (const wall of this.walls) {
 			const material = getMaterial(wall.material);
 			const selected = wall.id === this.selectedId;
@@ -51,7 +60,7 @@ export class VectorWallsLayer implements Layer {
 			ctx.moveTo(wall.ax, wall.ay);
 			ctx.lineTo(wall.bx, wall.by);
 			ctx.strokeStyle = `rgba(${material.color[0]}, ${material.color[1]}, ${material.color[2]}, ${selected ? 1 : 0.9})`;
-			ctx.lineWidth = (selected ? 3.5 : 2) / zoom;
+			ctx.lineWidth = selected ? stroke * 1.4 : stroke;
 			// A virtual partition is a modelling line rather than a surface: dashed says so
 			// without a legend.
 			ctx.setLineDash(material.dbPerMeter['5ghz'] === 0 ? [5 / zoom, 4 / zoom] : []);
@@ -64,7 +73,7 @@ export class VectorWallsLayer implements Layer {
 				{ x: wall.bx, y: wall.by }
 			]) {
 				ctx.beginPath();
-				ctx.arc(point.x, point.y, (selected ? 3 : 2.2) / zoom, 0, Math.PI * 2);
+				ctx.arc(point.x, point.y, (selected ? 1.4 : 1) * stroke * 0.55, 0, Math.PI * 2);
 				ctx.fillStyle = `rgba(${material.color[0]}, ${material.color[1]}, ${material.color[2]}, 1)`;
 				ctx.fill();
 			}
@@ -102,13 +111,13 @@ export class VectorWallsLayer implements Layer {
 			ctx.moveTo(this.draft.x, this.draft.y);
 			ctx.lineTo(end.x, end.y);
 			ctx.strokeStyle = `${DRAW}0.95)`;
-			ctx.lineWidth = 2 / zoom;
+			ctx.lineWidth = stroke;
 			ctx.setLineDash([6 / zoom, 4 / zoom]);
 			ctx.stroke();
 			ctx.setLineDash([]);
 
 			ctx.beginPath();
-			ctx.arc(this.draft.x, this.draft.y, 3.5 / zoom, 0, Math.PI * 2);
+			ctx.arc(this.draft.x, this.draft.y, stroke * 0.6, 0, Math.PI * 2);
 			ctx.fillStyle = `${DRAW}1)`;
 			ctx.fill();
 		}
@@ -116,9 +125,9 @@ export class VectorWallsLayer implements Layer {
 		// The endpoint this click would land on, ringed before it lands.
 		if (this.snapTarget) {
 			ctx.beginPath();
-			ctx.arc(this.snapTarget.x, this.snapTarget.y, 7 / zoom, 0, Math.PI * 2);
+			ctx.arc(this.snapTarget.x, this.snapTarget.y, stroke * 1.6, 0, Math.PI * 2);
 			ctx.strokeStyle = `${DRAW}0.95)`;
-			ctx.lineWidth = 1.5 / zoom;
+			ctx.lineWidth = Math.max(1 / zoom, stroke * 0.25);
 			ctx.stroke();
 		}
 	}
