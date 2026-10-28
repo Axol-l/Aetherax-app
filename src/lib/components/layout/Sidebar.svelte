@@ -18,7 +18,7 @@
 </script>
 
 {#if appState.sidebarOpen}
-	<aside class="sidebar" class:disabled={!!appState.wallEditMode} aria-label={t('Sidebar')}>
+	<aside class="sidebar" aria-label={t('Sidebar')}>
 		<div class="tab-bar" role="tablist">
 			{#each tabs as tab}
 				<button
@@ -129,10 +129,5 @@
 		overflow-x: hidden;
 		min-height: 0;
 		padding: var(--space-4);
-	}
-
-	.sidebar.disabled {
-		pointer-events: none;
-		opacity: 0.4;
 	}
 </style>

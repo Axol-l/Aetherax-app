@@ -32,12 +32,26 @@
 	 * exactly when a user is most likely to be pressing things.
 	 */
 	const saved = $derived(appState.savedNotice);
+	/**
+	 * A statement about the walls, e.g. that a detected plan was traced into segments.
+	 *
+	 * Ticked rather than warned: nothing went wrong, and the change is one the user asked
+	 * for by pressing Draw wall. It expires — see `notifyWalls`.
+	 */
+	const walls = $derived(appState.wallNotice);
 </script>
 
 {#if text}
 	<div class="notice" role="status" aria-live="polite">
 		<Icon name="warning" size={15} />
 		<p>{text}</p>
+	</div>
+{/if}
+
+{#if walls}
+	<div class="notice saved" class:stacked={text !== null || saved !== null} role="status" aria-live="polite">
+		<Icon name="check" size={13} />
+		<p>{walls}</p>
 	</div>
 {/if}
 

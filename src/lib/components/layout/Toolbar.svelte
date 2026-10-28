@@ -116,7 +116,7 @@
 
 </script>
 
-<header class="toolbar" class:disabled={!!appState.wallEditMode}>
+<header class="toolbar">
 	<div class="toolbar-left">
 		<span class="logo">
 			<!--
@@ -544,10 +544,5 @@
 		.toolbar-left {
 			gap: 2px;
 		}
-	}
-
-	.toolbar.disabled {
-		pointer-events: none;
-		opacity: 0.4;
 	}
 </style>

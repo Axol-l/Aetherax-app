@@ -32,10 +32,10 @@ export interface RasterisedMasks {
 /**
  * Paint the segments into a wall mask and a material mask.
  *
- * The band is the same width the vector layer draws and the smallest brush the raster tool
- * offers — six units across — so a plan looks and behaves the same whichever way it was
- * entered. Material ids go into their own array: zero there means "unpainted" and the floor's
- * default applies, which is the distinction the comparison proved matters.
+ * The band is the width the vector layer draws with, so what the model charges is what the
+ * plan shows, whichever way the walls were entered. Material ids go into their own array:
+ * zero there means "unpainted" and the floor's default applies, which is the distinction
+ * the comparison proved matters.
  */
 export function rasteriseWalls(
 	walls: readonly RasterWall[],
@@ -98,6 +98,30 @@ export function rasteriseWalls(
 	}
 
 	return { wall, material, width, height, originX, originY };
+}
+
+/**
+ * A mask that says "no walls here", in a frame the caller already knows.
+ *
+ * Deleting the last wall has to empty the mask without moving the frame: every label,
+ * sample and room type on the floor is addressed in that frame, and dropping the mask
+ * entirely would read as "this floor has no plan" rather than "this floor has no walls".
+ */
+export function emptyWallMasks(extent: {
+	width: number;
+	height: number;
+	originX: number;
+	originY: number;
+}): RasterisedMasks {
+	const { width, height, originX, originY } = extent;
+	return {
+		wall: new Uint8Array(width * height),
+		material: new Uint8Array(width * height),
+		width,
+		height,
+		originX,
+		originY
+	};
 }
 
 /** A band one pixel wide, for tests and for reasoning about the geometry alone. */

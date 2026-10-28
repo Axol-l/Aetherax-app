@@ -58,6 +58,10 @@ const zh: Record<string, string> = {
 	'Compare wall models': '对比两种墙体模型',
 	'Trace from mask': '从掩码自动提取墙线',
 	'Use walls as the mask': '用墙线作为墙体掩码',
+	'The mask, the interior and the coverage are derived from these walls. Click a wall to select it, right-click it to change its material.':
+		'墙体掩码、室内范围与覆盖率都由这些墙线推导。单击墙体可选中，右键可修改材质。',
+	'{count} walls were traced from the plan into segments, so they can be corrected one at a time.':
+		'已从图纸中提取 {count} 段墙体，可逐段修改。',
 	'{walls} walls · {samples} rays · raster {raster} dB · vector {vector} dB':
 		'{walls} 段墙 · {samples} 条射线 · 栅格 {raster} dB · 矢量 {vector} dB',
 	'Same walls, both kernels: Δ {mean} dB mean · {count} disagreements':

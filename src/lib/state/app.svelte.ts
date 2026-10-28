@@ -13,7 +13,6 @@ export type FloorView = 'single' | 'tiled' | 'stacked';
 export const STACK_YAW_LIMIT_DEG = 180;
 export const STACK_MIN_PITCH_DEG = 5;
 export const STACK_MAX_PITCH_DEG = 75;
-export type WallEditMode = 'erase' | 'draw' | 'line' | 'rect' | 'arc' | 'material' | null;
 
 export const appState = $state({
 	/**
@@ -68,6 +67,13 @@ export const appState = $state({
 	wallVectorDraft: null as { x: number; y: number } | null,
 	/** The segment under the pointer or the one just drawn, for the delete key. */
 	wallVectorSelected: null as string | null,
+	/**
+	 * What just happened to the walls, in the corner for a few seconds.
+	 *
+	 * Its own slot rather than sharing the placement refusal: tracing a detected plan is
+	 * neither a refusal nor a save, and it happens as a side effect of pressing Draw wall.
+	 */
+	wallNotice: null as string | null,
 	/**
 	 * Note editing: a click on the plan drops a note.
 	 *
@@ -137,10 +143,7 @@ export const appState = $state({
 	stackPitch: 40,
 	stackSpread: 1,
 	/** Draw only the current floor and the one either side of it. */
-	stackFocus: false,
-	wallEditMode: null as WallEditMode,
-	wallEditLastMode: 'erase' as Exclude<WallEditMode, null>,
-	wallBrushSize: 15
+	stackFocus: false
 });
 
 /** True when alignment mode is what switched the ghost on, so it can undo it. */
@@ -244,4 +247,22 @@ export function setPlanningDrawMode(on: boolean): void {
 
 export function addPlanningPoint(point: { x: number; y: number }): void {
 	appState.planningDraft = [...appState.planningDraft, point];
+}
+
+/**
+ * Say something that happened to the walls, briefly.
+ *
+ * The messages are not warnings and not the save acknowledgment: they explain a change
+ * the user did not ask for in those words — "the detected plan was traced into segments
+ * so your new wall sits on top of it". They expire on their own, so the canvas does not
+ * carry a permanent sentence about an action that is already visible on it.
+ */
+let wallsNoticeTimer: ReturnType<typeof setTimeout> | null = null;
+export function notifyWalls(message: string): void {
+	appState.wallNotice = message;
+	if (wallsNoticeTimer) clearTimeout(wallsNoticeTimer);
+	wallsNoticeTimer = setTimeout(() => {
+		wallsNoticeTimer = null;
+		appState.wallNotice = null;
+	}, 7000);
 }

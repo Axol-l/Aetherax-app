@@ -133,7 +133,7 @@
 			scheduleSave();
 		});
 	}
-	import { appState, setFloorAlignMode } from '$state/app.svelte.js';
+	import { appState, setFloorAlignMode, notifyWalls } from '$state/app.svelte.js';
 	import { detectBoundary, polygonArea } from '$canvas/boundary-detect.js';
 	import { encodeMask } from '$canvas/wall-detect.js';
 	import { detectFloorplanMasks } from '$canvas/detect-floorplan.js';
@@ -485,13 +485,6 @@
 		);
 	}
 
-	/** Enter wall editing, remembering the last tool used. */
-	function startWallEdit() {
-		pushState();
-		appState.wallEditMode = appState.wallEditLastMode;
-		if (window.innerWidth < 768) appState.sidebarOpen = false;
-	}
-
 	/**
 	 * Apply a scale to the whole project, keeping the AP radii real.
 	 *
@@ -785,6 +778,9 @@
 	 * reads the mask detection already produced and takes its centre lines. The traced set
 	 * covers the same walls the mask does — which is the point: switching models then does not
 	 * change the plan's coverage, and the hand-drawn segments become corrections on top.
+	 *
+	 * The mask is not written here. The canvas re-derives it from the segments whenever they
+	 * change, so committing a whole traced plan is one edit, not two.
 	 */
 	async function traceWallsFromMaskOnFloor(): Promise<void> {
 		const floor = currentFloor();
@@ -808,66 +804,29 @@
 		}));
 		appState.wallVectorSelected = null;
 		scheduleSave();
+		if (traced.length > 0) {
+			notifyWalls(
+				t('{count} walls were traced from the plan into segments, so they can be corrected one at a time.', {
+					count: traced.length
+				})
+			);
+		}
 	}
 
 	/**
-	 * Make the drawn walls the floor's mask.
+	 * Start drawing walls.
 	 *
-	 * This is the switch that puts the vector model in charge **without touching a line of
-	 * field or march code**: everything downstream — the heatmap's attenuation field, the
-	 * optimiser's domain, the coverage samples, the interior test — reads a wall mask and a
-	 * material mask, so deriving those from the segments makes the whole app vector-driven by
-	 * construction. Re-detect to go back to the drawing.
+	 * A floor whose walls exist only as a detected raster is traced first. Otherwise the
+	 * first segment drawn would *replace* the plan instead of correcting it — the mask is
+	 * derived from the segments, so it would come back holding one wall — and the user
+	 * would watch the detection vanish under their own click.
 	 */
-	function useWallsAsMask(): void {
+	async function startDrawingWalls(): Promise<void> {
 		const floor = currentFloor();
-		if (!floor) return;
-		const existing = wallState.wallMask;
-		const masks = rasteriseWallsToMasks(
-			(floor.walls ?? []).map((wall) => ({
-				ax: wall.ax,
-				ay: wall.ay,
-				bx: wall.bx,
-				by: wall.by,
-				material: wall.material
-			})),
-			6,
-			8,
-			// Keep the plan's own frame: samples, texels and the interior are all addressed in
-			// the mask the plan was drawn in, so a tight mask puts every one of them off it.
-			existing
-				? {
-						width: existing.width,
-						height: existing.height,
-						originX: existing.originX,
-						originY: existing.originY
-					}
-				: undefined
-		);
-		if (!masks) return;
-		pushState();
-		const wallMask = {
-			dataUrl: encodeMask(masks.wall, masks.width, masks.height),
-			width: masks.width,
-			height: masks.height,
-			originX: masks.originX,
-			originY: masks.originY
-		};
-		wallState.wallMask = wallMask;
-		floor.wallMask = wallMask;
-		// Material ids follow the walls; 0 means "unpainted", so the floor default applies
-		// exactly as it does for a painted band.
-		const materialMask = {
-			dataUrl: encodeMaterialMask(masks.material, masks.width, masks.height),
-			width: masks.width,
-			height: masks.height,
-			originX: masks.originX,
-			originY: masks.originY
-		};
-		wallState.materialMask = materialMask;
-		floor.materialMask = materialMask;
-		forgetInterior(floor.id);
-		scheduleSave();
+		if (floor && (floor.walls ?? []).length === 0 && wallState.wallMask) {
+			await traceWallsFromMaskOnFloor();
+		}
+		appState.wallVectorMode = true;
 	}
 
 	/** Back to the inferred interior. */	function clearPlanningArea() {
@@ -1077,12 +1036,18 @@
 		<div class="draw-scratch">
 			<Button variant="secondary" size="sm" onclick={() => {
 				pushState();
+				/*
+				 * A blank frame to draw into. A floor with no plan still needs a coordinate
+				 * system: every consumer — the samples, the heatmap's texels, the interior,
+				 * the room labels — addresses a mask, so this creates the frame and the wall
+				 * tool then fills it. It used to create the frame and hand over a brush.
+				 */
 				const w = 2000;
 				const h = 1500;
 				const emptyData = new Uint8Array(w * h);
 				const dataUrl = encodeMask(emptyData, w, h);
 				wallState.wallMask = { dataUrl, width: w, height: h, originX: 0, originY: 0 };
-				appState.wallEditMode = 'draw';
+				appState.wallVectorMode = true;
 				if (window.innerWidth < 768) appState.sidebarOpen = false;
 				scheduleSave();
 			}}>
@@ -1322,12 +1287,6 @@
 		     cannot see or aim at. -->
 		{#if appState.floorView === 'single'}
 			<div class="wall-actions">
-				{#if wallState.wallMask}
-					<Button variant="secondary" size="sm" onclick={startWallEdit}>
-						<Icon name="eraser" size={14} />
-						{t('Edit Walls')}
-					</Button>
-				{/if}
 				<Button variant="secondary" size="sm" onclick={requestWallDetection} disabled={detecting}>
 					<Icon name="sparkles" size={14} />
 					{detecting ? t('Detecting…') : wallState.wallMask ? t('Re-detect Walls') : t('Detect Walls')}
@@ -1403,18 +1362,19 @@
 			</div>
 
 			<!--
-				Walls as line segments.
+				Walls as line segments — the only way walls are drawn now.
 
-				The raster brush paints a band of pixels and everything downstream has to infer
-				what that band means; a segment says it. This is the drawing half only — the
-				propagation still reads the mask, so nothing about coverage or the optimiser
-				changes while the two exist side by side.
+				The raster brush painted a band of pixels and everything downstream had to
+				infer what that band meant, which is where a hollow wall, a cavity read as a
+				room and an outline with an opening read as "outside" all came from. A segment
+				says what it is, and the mask the propagation reads is derived from it: draw,
+				move or delete a wall and the mask follows without a second action.
 			-->
 			<div class="planning-area">
 				<div class="planning-head">
 					<span class="planning-title">
 						<Icon name="arc" size={13} />
-						{t('Vector walls')}
+						{t('Walls')}
 					</span>
 					<span class="planning-state">{t('{count} drawn', { count: (currentFloor()?.walls ?? []).length })}</span>
 				</div>
@@ -1431,7 +1391,7 @@
 					</div>
 				{:else}
 					<div class="planning-actions">
-						<Button variant="secondary" size="sm" onclick={() => (appState.wallVectorMode = true)}>
+						<Button variant="secondary" size="sm" onclick={() => void startDrawingWalls()}>
 							<Icon name="pencil" size={14} />
 							{t('Draw wall')}
 						</Button>
@@ -1443,19 +1403,20 @@
 								{t('Trace from mask')}
 							</button>
 						{/if}
-						{#if (currentFloor()?.walls ?? []).length > 0}
-							<!--
-								The switch that puts the segments in charge: the mask the rest of the app
-								reads becomes a derivation of them, so the heatmap, the optimiser and the
-								coverage figure all take the vector geometry with no change to their own
-								maths. Re-detect to go back.
-							-->
-							<button class="skip-link" onclick={useWallsAsMask}>{t('Use walls as the mask')}</button>
-						{/if}
 						<button class="skip-link" onclick={() => void compareWallModelsOnFloor()}>
 							{t('Compare wall models')}
 						</button>
 					</div>
+					{#if (currentFloor()?.walls ?? []).length > 0}
+						<!--
+							The mask is a derivation of the segments, not a second drawing. Saying so
+							here is what stops "the walls I drew" and "the walls the model uses" from
+							ever being two different things the user has to reconcile.
+						-->
+						<p class="planning-hint">
+							{t('The mask, the interior and the coverage are derived from these walls. Click a wall to select it, right-click it to change its material.')}
+						</p>
+					{/if}
 					{#if wallModelComparison}
 						<!--
 							The measured difference, not a claim. Mean and worst-case loss difference in

@@ -14,7 +14,6 @@
 		createWallDistanceCache,
 		nearestSideWall
 	} from '$canvas/wall-distance.js';
-	import { WallEditHandler } from '$canvas/interactions/wall-edit.js';
 	import { PanZoomHandler } from '$canvas/interactions/pan-zoom.js';
 	import { SelectHandler } from '$canvas/interactions/select.js';
 	import { SelectionRectLayer } from '$canvas/renderers/selection-rect.js';
@@ -31,8 +30,12 @@
 		isDegenerate,
 		type VectorWall
 	} from '$state/vector-walls.js';
+	import {
+		rasteriseWalls as rasteriseWallsToMasks,
+		emptyWallMasks,
+		DEFAULT_WALL_BAND
+	} from '$state/wall-raster.js';
 	import { forgetInterior } from '$state/ap-interior.js';
-	import { ShapePreviewLayer } from '$canvas/renderers/shape-preview.js';
 	import { ReferenceFloorLayer } from '$canvas/renderers/reference-floor.js';
 	import { FloorTilesLayer } from '$canvas/renderers/floor-tiles.js';
 	import { StackedFloorsLayer, MAX_PITCH } from '$canvas/renderers/stacked-floors.js';
@@ -73,7 +76,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		solverState,
 		runSolver,
 		invalidateSolverMaskCache,
-		setLiveSolverMask,
 		getFloorMask
 	} from '$state/solver.svelte.js';
 	import { updateCoverage, optimizerState, floorCoverage, apsOutsideInterior } from '$state/optimizer.svelte.js';
@@ -94,7 +96,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	} from '$state/floor-state.svelte.js';
 	import { FLOOR_MATERIALS } from '$canvas/floor-materials.js';
 	import type { Band } from '@aetherax/channels';
-	import { TiledMask } from '$canvas/tiled-mask.js';
 	import { scheduleSave } from '$state/persistence.svelte.js';
 	import { computeBuildingInterior } from '$canvas/morphology.js';
 	import { RoomLabelsLayer } from '$canvas/renderers/room-labels.js';
@@ -102,17 +103,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import LayerPanel from '$components/canvas/LayerPanel.svelte';
 	import WallMaterialPopup from '$components/canvas/WallMaterialPopup.svelte';
 	import RoomTypePopup from '$components/canvas/RoomTypePopup.svelte';
-	import WallEditToolbar from '$components/canvas/WallEditToolbar.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
 	import { t, i18nState } from '$state/i18n.svelte';
 	import { displayLength, formatMeasure, lengthUnit } from '$lib/units.js';
-
-	let wallEditMaterial = $state<WallMaterialId>(0);
-	let clearWallsConfirmOpen = $state(false);
-	let brushCursorX = $state(0);
-	let brushCursorY = $state(0);
-	let brushCursorSize = $state(0);
-	let brushCursorVisible = $state(false);
 
 	/**
 	 * The decoded wall mask the AP annotations are measured against.
@@ -205,15 +198,23 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	/**
-	 * Encode the editor's mask and publish it as the floor's wall mask.
+	 * Publish a materialised raster as the floor's wall mask.
 	 *
-	 * Returns false when there is no raster at all — no pixels and no frame — which
-	 * is the same statement as "this floor has no floorplan".
+	 * There is one way a mask changes now: the segments are rasterised and the result
+	 * becomes the mask. That used to be the wall editor's job, and it is kept as one
+	 * routine because the mask is not just a data URL: the layers draw the pixels that
+	 * were just written (the decode effect would skip a URL it has already seen), the
+	 * material popup needs the blob labels, the room types need the interior, and the
+	 * solver's decoded copy is now stale.
 	 */
-	function persistWallMaskFromEditor(): boolean {
-		const mat = wallEditHandler?.tiledMask?.materialize();
-		if (!mat) return false;
-
+	function publishWallRaster(mat: {
+		data: Uint8Array;
+		materialData: Uint8Array | null;
+		width: number;
+		height: number;
+		originX: number;
+		originY: number;
+	}): boolean {
 		const { data, materialData, width, height, originX, originY } = mat;
 
 		// The mask is encoded whole on every edit, so its extent is worth watching.
@@ -275,82 +276,71 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 		heatmapLayer.markWallsDirty();
 		engine.markDirty();
+		// The walls are what decides what the floor covers, so the figure is re-measured
+		// rather than left standing from the geometry that was just replaced.
+		void updateCoverage();
 		scheduleSave();
 		return true;
 	}
 
-	function handleWallEditDone() {
-		appState.wallEditMode = null;
-		brushCursorVisible = false;
-		// A shape can still be mid-drag when the mode is torn down, and the preview
-		// layer draws independently of the handler, so clear it explicitly.
-		if (shapePreviewLayer) shapePreviewLayer.active = false;
-		heatmapLayer.isDragging = false; // restore full-resolution grid
-		setLiveSolverMask(null, null, 0, 0); // clear live mask override
-
-		persistWallMaskFromEditor();
+	/**
+	 * Make the drawn segments the floor's mask.
+	 *
+	 * Everything downstream — the heatmap's attenuation field, the optimiser's domain, the
+	 * coverage samples, the interior test, the worker's payload — reads a wall mask and a
+	 * material mask. Deriving those from the segments therefore makes the whole app
+	 * vector-driven with no change to any of its own maths.
+	 *
+	 * Nothing calls this by hand any more: a wall that is drawn, moved or deleted moves the
+	 * mask with it (see the effect below). The frame is always the mask's own, never the
+	 * segments' bounding box — samples, texels and the interior are addressed in the plan's
+	 * frame, and a mask sized to the walls puts every one of them outside it.
+	 */
+	function syncVectorWallsToMask(): void {
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		if (!floor) return;
+		const walls = floor.walls ?? [];
+		const frame = wallState.wallMask;
+		const extent = frame
+			? {
+					width: frame.width,
+					height: frame.height,
+					originX: frame.originX,
+					originY: frame.originY
+				}
+			: undefined;
+		// The last wall was deleted. The mask has to be emptied with it — otherwise every
+		// consumer keeps measuring walls that no longer exist — but the *frame* stays, so
+		// the room labels and the plan's coordinate system do not move.
+		const masks =
+			walls.length === 0
+				? frame
+					? emptyWallMasks(extent!)
+					: null
+				: rasteriseWallsToMasks(
+						walls.map((wall) => ({
+							ax: wall.ax,
+							ay: wall.ay,
+							bx: wall.bx,
+							by: wall.by,
+							material: wall.material
+						})),
+						DEFAULT_WALL_BAND,
+						8,
+						extent
+					);
+		if (!masks) return;
+		publishWallRaster({
+			data: masks.wall,
+			materialData: masks.material,
+			width: masks.width,
+			height: masks.height,
+			originX: masks.originX,
+			originY: masks.originY
+		});
 	}
 
 	let canvasDragOver = $state(false);
-
-	/**
-	 * Wipe every wall on the current floor.
-	 *
-	 * The mask survives as an empty raster of the same size. Drop it entirely and
-	 * `materialize()` returns null (no pixels, no frame), which every consumer reads
-	 * as "no floorplan here" — the wall editor included, so clearing the walls also
-	 * ended the drawing session and the next stroke went nowhere. A zeroed mask of a
-	 * known size is a state the rest of the app already handles, because it is
-	 * exactly what an imported plan whose detection found no walls looks like.
-	 */
-	function handleClearWalls() {
-		clearWallsConfirmOpen = false;
-		const tm = wallEditHandler?.tiledMask;
-		if (!tm) return;
-
-		pushState();
-
-		// Keep the raster frame across the clear. `bounds` is the box the raster was
-		// last materialised at, so pinning it means the mask keeps its size and
-		// origin — room type labels, which are indexed by the same raster, stay put.
-		const frame = tm.bounds;
-		tm.clear();
-		if (frame) tm.setFrame(frame.originX, frame.originY, frame.width, frame.height);
-
-		if (persistWallMaskFromEditor()) return;
-
-		// Nothing to persist even with the frame: this floor genuinely has no
-		// floorplan. Drop the mask everywhere, as the old code always did.
-		wallState.wallMask = null;
-		wallState.materialMask = null;
-		cachedWallData = null;
-		cachedMaterialData = null;
-		cachedWallLabels = null;
-		cachedInterior = null;
-		cachedRoomLabels = null;
-		lastWallMaskUrl = null;
-		lastMatMaskUrl = null;
-
-		wallMaskVersion++;
-		invalidateSolverMaskCache();
-
-		wallLayer.mask = null;
-		wallLayer.materialMap = null;
-		wallLayer.invalidateCache();
-		heatmapLayer.wallMask = null;
-		heatmapLayer.materialMap = null;
-		heatmapLayer.markWallsDirty();
-		heatmapLayer.materialVersion++;
-		setApWallMask(null);
-		if (roomLabelsLayer) {
-			roomLabelsLayer.roomLabels = null;
-			roomLabelsLayer.roomTypeData = null;
-			roomLabelsLayer.invalidateCache();
-		}
-
-		engine.markDirty();
-		scheduleSave();
-	}
 
 	function handleCanvasDrop(e: DragEvent) {
 		e.preventDefault();
@@ -374,11 +364,18 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	// Wall material popup state
-	let wallPopup = $state<{ x: number; y: number; material: WallMaterialId; blobId: number } | null>(null);
+	let wallPopup = $state<{
+		x: number;
+		y: number;
+		material: WallMaterialId;
+		/** The raster blob it was opened on, when it was a detected wall. */
+		blobId?: number;
+		/** The drawn segment it was opened on, when it was one. */
+		wallId?: string;
+	} | null>(null);
 	let cachedWallLabels: ReturnType<typeof labelWallBlobs> | null = null;
 	let cachedMaterialData: Uint8Array | null = null;
 	let cachedWallData: Uint8Array | null = null;
-	let cachedTiledMask: TiledMask | null = null;
 	let cachedMaskOriginX = 0;
 	let cachedMaskOriginY = 0;
 
@@ -440,10 +437,38 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/** Right-click / long-press contextual handler: wall popup or room popup. */
 	function handleContextAction(screenX: number, screenY: number): boolean {
-		// Try wall first, then room
+		// A drawn segment first: it is the model, and the raster blob under it is only
+		// its shadow. Then the raster, then a room.
+		if (handleVectorWallContext(screenX, screenY)) return true;
 		if (handleWallClick(screenX, screenY)) return true;
 		if (handleRoomClick(screenX, screenY)) return true;
 		return false;
+	}
+
+	/**
+	 * Right-click on a drawn wall: the popup edits *that segment's* material.
+	 *
+	 * This is how a wall's material is set now that the paint brush is gone, so it has to
+	 * outrank the blob behind it — the segment is the wall, the blob is its rasterisation.
+	 */
+	function handleVectorWallContext(screenX: number, screenY: number): boolean {
+		if (!engine) return false;
+		const floor = currentFloor();
+		const walls = (floor?.walls ?? []) as VectorWall[];
+		if (walls.length === 0) return false;
+		const world = engine.camera.screenToWorld({ x: screenX, y: screenY });
+		const tolerance = 12 / (engine.camera.state.zoom || 1);
+		const wall = wallNearPoint(world, walls, tolerance);
+		if (!wall) return false;
+		appState.wallVectorSelected = wall.id;
+		wallPopup = {
+			x: screenX,
+			y: screenY,
+			material: wall.material as WallMaterialId,
+			wallId: wall.id
+		};
+		engine.markDirty();
+		return true;
 	}
 
 	function handleContextMenu(e: MouseEvent) {
@@ -451,15 +476,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			e.preventDefault();
 			cancelAlignDrag();
 			setFloorAlignMode(false);
-			return;
-		}
-		if (appState.wallEditMode) {
-			// Right-click abandons the shape being dragged. preventDefault is
-			// required: otherwise the native menu opens over the canvas and the
-			// drag stays live underneath it until the button is released.
-			e.preventDefault();
-			wallEditHandler?.cancelEdit();
-			brushCursorVisible = false;
 			return;
 		}
 		if (!engine) return;
@@ -519,9 +535,28 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	async function handleMaterialSelect(newMaterial: WallMaterialId) {
-		if (!wallPopup || !cachedWallLabels || !wallState.wallMask) return;
+		if (!wallPopup) return;
+		/*
+		 * A drawn segment: the material is a property of *the wall*, not of the pixels
+		 * under it. Writing it here and re-deriving the mask is what keeps the two
+		 * models from drifting — the segment stays the truth and the mask follows.
+		 */
+		if (wallPopup.wallId) {
+			const floor = currentFloor();
+			const wall = floor?.walls?.find((candidate) => candidate.id === wallPopup!.wallId);
+			if (!floor || !wall) return;
+			pushState();
+			floor.walls = (floor.walls ?? []).map((candidate) =>
+				candidate.id === wall.id ? { ...candidate, material: newMaterial } : candidate
+			);
+			syncVectorWallsToMask();
+			scheduleSave();
+			return;
+		}
+		if (!cachedWallLabels || !wallState.wallMask || wallPopup.blobId === undefined) return;
 		pushState(); // undo captures state before blob relabel
 		const mask = wallState.wallMask;
+		const blobId = wallPopup.blobId;
 
 		// Create or clone material mask
 		if (!cachedMaterialData) {
@@ -529,7 +564,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			cachedMaterialData.fill(wallState.wallMaterial);
 		}
 
-		relabelBlob(cachedWallLabels.labels, cachedMaterialData, wallPopup.blobId, newMaterial);
+		relabelBlob(cachedWallLabels.labels, cachedMaterialData, blobId, newMaterial);
 
 		// Update renderers immediately
 		wallLayer.materialMap = cachedMaterialData;
@@ -556,7 +591,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let selectHandler: SelectHandler;
 	let dragHandler: DragHandler;
 	let placeHandler: PlaceHandler;
-	let wallEditHandler: WallEditHandler;
 	let floorplanLayer: FloorplanLayer;
 	let gridLayer: GridLayer;
 	let heatmapLayer: HeatmapLayer;
@@ -572,7 +606,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let vectorSnap = $state<{ x: number; y: number } | null>(null);
 	/** Pointer position while drawing the planning area; drives the rubber band. */
 	let planningCursor = $state<{ x: number; y: number } | null>(null);
-	let shapePreviewLayer: ShapePreviewLayer;
 	let referenceFloorLayer: ReferenceFloorLayer;
 	let floorTilesLayer: FloorTilesLayer;
 	let stackedFloorsLayer: StackedFloorsLayer;
@@ -605,12 +638,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const target = e.target as HTMLElement;
 		const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
 		const mod = e.metaKey || e.ctrlKey;
-
-		// Shape tools constrain on Shift, and the key can be pressed without any
-		// pointer movement in between, so forward it to the handler directly.
-		if (!isInput && e.key === 'Shift' && wallEditHandler) {
-			wallEditHandler.setShift(true);
-		}
 
 		if (!isInput && appState.wallVectorMode && e.key === 'Escape') {
 			appState.wallVectorDraft = null;
@@ -691,7 +718,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		}
 
 		if (mod && e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
-			if (appState.wallEditMode) return; // no undo during wall drawing
 			e.preventDefault();
 			redo();
 			engine?.markDirty();
@@ -699,7 +725,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		}
 
 		if (mod && (e.key === 'z' || e.key === 'Z')) {
-			if (appState.wallEditMode) return; // no undo during wall drawing
 			e.preventDefault();
 			undo();
 			engine?.markDirty();
@@ -741,17 +766,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 		return i > 0 ? sorted[i - 1]! : null;
 	}
 
-	function handleKeyUp(e: KeyboardEvent) {
-		if (e.key === 'Shift' && wallEditHandler) wallEditHandler.setShift(false);
-	}
-
 	onMount(() => {
 		// Asynchronous since the project moved to a store seam: this opens it, carries any
 		// record that only exists in localStorage into it, and loads the project. The
 		// canvas draws the empty plan until it lands, which is what it did before.
 		void restoreFromStorage();
 		window.addEventListener('keydown', handleKeyDown);
-		window.addEventListener('keyup', handleKeyUp);
 		engine = new CanvasEngine(canvasEl);
 		// Published so the toolbar and the status bar can act on the live view: they
 		// export the frame, fit the plan and reset the camera. See `canvasEngineRef`.
@@ -765,7 +785,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		apLayer = new ApLayer();
 		selectionRectLayer = new SelectionRectLayer();
 		reviewHighlightLayer = new ReviewHighlightLayer();
-		shapePreviewLayer = new ShapePreviewLayer();
 		referenceFloorLayer = new ReferenceFloorLayer();
 		referenceFloorLayer.onLoad = () => engine?.markDirty();
 		floorTilesLayer = new FloorTilesLayer(floorCards);
@@ -773,7 +792,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		stackedFloorsLayer = new StackedFloorsLayer(floorCards);
 		stackedFloorsLayer.onLoad = () => engine?.markDirty();
 
-		// Add layers in draw order: floorplan, grid, heatmap, walls, room labels, APs, selection rect, shape preview
+		// Add layers in draw order: floorplan, grid, heatmap, walls, room labels, APs, selection rect
 		engine.addLayer(floorplanLayer);
 		engine.addLayer(gridLayer);
 		engine.addLayer(heatmapLayer);
@@ -789,8 +808,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.addLayer(roomLabelsLayer);
 		engine.addLayer(apLayer);
 		engine.addLayer(selectionRectLayer);
-		// Above everything, including the shape preview: it answers a question about the
-		// mask underneath it and has to stay legible while the user edits walls.
 		engine.addLayer(reviewHighlightLayer);
 		// The measured calibration line, over the plan it measures.
 		calibrationLineLayer = new CalibrationLineLayer();
@@ -801,7 +818,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.addLayer(notesLayer);
 		vectorWallsLayer = new VectorWallsLayer();
 		engine.addLayer(vectorWallsLayer);
-		engine.addLayer(shapePreviewLayer);
 
 		// Create interaction handlers
 		panZoom = new PanZoomHandler(engine);
@@ -809,18 +825,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		selectHandler = new SelectHandler(engine, selectionRectLayer);
 		dragHandler = new DragHandler(engine, wallProbe);
 		placeHandler = new PlaceHandler(engine);
-		wallEditHandler = new WallEditHandler(engine);
-		wallEditHandler.preview = shapePreviewLayer;
-		wallEditHandler.onEdit = () => {
-			// Materialize tiled mask to flat arrays for renderers
-			const mat = wallEditHandler.tiledMask?.materialize();
-			if (mat) applyMaskToRenderers(mat);
-			// Don't rebuild attenuation fields per stroke — too expensive.
-			// Wall overlay updates live; heatmap uses stale field until Done.
-			engine.markDirty();
-
-			// Defer solver to Done — per-stroke solve is too expensive
-		};
 
 		// Set up resize observer
 		const observer = new ResizeObserver((entries) => {
@@ -843,7 +847,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 		return () => {
 			window.removeEventListener('keydown', handleKeyDown);
-			window.removeEventListener('keyup', handleKeyUp);
 			engine.stop();
 			panZoom.detach();
 			observer.disconnect();
@@ -930,7 +933,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				? decoded
 				: null;
 
-		const show = appState.floorView === 'single' && appState.showAPs && !appState.wallEditMode;
+		const show = appState.floorView === 'single' && appState.showAPs;
 		const unit = lengthUnit(floorplanState.unitSystem);
 		const wupm = getEffectiveWupm();
 
@@ -1353,37 +1356,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	// Coarser wall grid during drag or wall editing for responsiveness
+	// Coarser wall grid while dragging, for responsiveness
 	$effect(() => {
 		if (!heatmapLayer) return;
-		heatmapLayer.isDragging = canvasState.isDragging || !!appState.wallEditMode;
+		heatmapLayer.isDragging = canvasState.isDragging;
 		engine.markDirty();
-	});
-
-	/**
-	 * The heatmap stands down while walls are being edited.
-	 *
-	 * Every dab rewrites the wall mask, and the heatmap is rebuilt from it — one
-	 * attenuation field marched per AP over the whole plan, on the main thread, in
-	 * the same frame as the stroke. Coarsening the grid during edits (above) was not
-	 * enough; drawing with the heatmap on stutters badly. So it is switched off for
-	 * the duration, and switched back on afterwards if it was on before — the user
-	 * asked for it off while drawing, not off for good.
-	 *
-	 * Turning it back on *during* an edit is respected: the flag is only set when
-	 * this effect is the one switching it off.
-	 */
-	let heatmapWasOnBeforeEdit = false;
-	$effect(() => {
-		if (appState.wallEditMode) {
-			if (appState.showHeatmap) {
-				heatmapWasOnBeforeEdit = true;
-				appState.showHeatmap = false;
-			}
-		} else if (heatmapWasOnBeforeEdit) {
-			heatmapWasOnBeforeEdit = false;
-			appState.showHeatmap = true;
-		}
 	});
 
 	// Floor → legacy atoms: load current floor's data into legacy atoms on switch
@@ -1420,12 +1397,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		wallState.materialMask = floor.materialMask;
 		wallState.roomTypeMask = floor.roomTypeMask;
 
-		// Cancel wall edit mode on floor switch to prevent editing the wrong floor
-		if (appState.wallEditMode) {
-			appState.wallEditMode = null;
-			if (shapePreviewLayer) shapePreviewLayer.active = false;
-		}
-
 		// Force wall mask re-decode on floor switch (prevent stale cache).
 		// Clear renderer references immediately so stale wall data from
 		// the previous floor doesn't render while the decode is in-flight.
@@ -1440,17 +1411,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 		cachedWallData = null;
 		cachedMaterialData = null;
 		cachedWallLabels = null;
-		cachedTiledMask = null;
 		cachedInterior = null;
 		cachedRoomLabels = null;
 		cachedRoomTypeData = null;
-		// And the editor's copy with them. Clearing only `cachedTiledMask` left the
-		// handler holding the *previous* floor's mask, so strokes landed in the
-		// wrong coordinate frame — and with an alignment offset between the two
-		// floors that is off the mask entirely, which makes editing look like it
-		// does nothing. If a decode is slow or gets superseded, that stale mask is
-		// what the next stroke uses.
-		if (wallEditHandler) wallEditHandler.tiledMask = null;
 		if (wallLayer) {
 			wallLayer.mask = null;
 			wallLayer.materialMap = null;
@@ -1555,10 +1518,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			cachedInterior = null;
 			cachedRoomLabels = null;
 			cachedRoomTypeData = null;
-			// The editor's mask too, or a floor with no walls leaves the handler
-			// painting into whatever mask it was last handed.
-			cachedTiledMask = null;
-			if (wallEditHandler) wallEditHandler.tiledMask = null;
 			if (roomLabelsLayer) {
 				roomLabelsLayer.roomTypeData = null;
 				roomLabelsLayer.roomLabels = null;
@@ -1579,31 +1538,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 			// Propagate the stored origin to the decoded mask, snapped to whole
 			// pixels. The origin comes from the alignment offset, which is
 			// `dragDistance / zoom` and therefore fractional, but it is used as a
-			// pixel address: the renderer places the raster at it, the editor writes
-			// into the raster at it, and the two have to agree on one integer. A
-			// fractional address also makes `fromFlat` drop every pixel it writes
-			// (see tiled-mask.ts), which loaded an offset floor's detected walls as
-			// a blank raster that the first edit then saved over them.
+			// pixel address: the renderer places the raster at it and every kernel
+			// reads it at it, so the two have to agree on one integer.
 			decoded.originX = Math.round(mask.originX ?? 0);
 			decoded.originY = Math.round(mask.originY ?? 0);
 
 			const defaultMat = wallState.wallMaterial;
-
-			// Build the wall editor's mask FIRST, before anything that can throw.
-			//
-			// This used to sit after `labelWallBlobs` and the interior/room
-			// detection, so a failure anywhere in that decoration left the editor
-			// holding no mask at all — every stroke returned early and the canvas
-			// simply did not respond, with nothing in the console to say why
-			// because the chain had no catch. Editing being dead is a far worse
-			// failure than a stale room label, so the critical artefact goes first
-			// and the decoration is allowed to fail on its own.
-			cachedTiledMask = TiledMask.fromFlat(
-				decoded.data, decoded.width, decoded.height,
-				matData, defaultMat,
-				decoded.originX, decoded.originY
-			);
-			if (wallEditHandler) wallEditHandler.tiledMask = cachedTiledMask;
 
 			wallLayer.mask = decoded;
 			wallLayer.materialMap = matData ?? null;
@@ -1651,16 +1591,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 			}
 
 			engine.markDirty();
-			console.info(
-				'[walls] decode complete; editor mask ready' +
-					(cachedTiledMask ? ` (bounds ${JSON.stringify(cachedTiledMask.bounds)})` : ' (none)')
-			);
 		}).catch((err) => {
-			// Without this the chain failed silently, so "the editor has no mask"
-			// arrived with no explanation of why the decode never finished.
+			// Without this the chain failed silently, so a plan whose walls never
+			// appeared arrived with no explanation of why the decode never finished.
 			console.error(
-				'[walls] floorplan decode failed. The editor keeps whatever mask it last had, so ' +
-					'if this is the first decode for this floor, editing will not respond at all.',
+				'[walls] floorplan decode failed. The plan then has no walls to measure ' +
+					'against, so coverage and the heatmap read as empty rather than as wrong.',
 				err
 			);
 		});
@@ -1810,10 +1746,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 			void ap.y;
 			void ap.floorId;
 		}
-		// While the walls are being drawn the mask is a draft. Judging against a half-drawn
-		// wall accuses points that are inside the moment the edit is committed, and the
+		// While a wall is being drawn the mask is a draft. Judging against a half-drawn
+		// wall accuses points that are inside the moment the segment is committed, and the
 		// notice is not worth showing for a geometry the user has not finished describing.
-		if (appState.wallEditMode) {
+		if (appState.wallVectorDraft) {
 			appState.outsideNotice = null;
 			return;
 		}
@@ -2237,17 +2173,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			pendingPan = false;
 			longPressFired = false;
 
-			// Wall edit mode: single touch draws
-			if (appState.wallEditMode) {
-				e.preventDefault();
-				wallEditHandler.activeMaterial = wallEditMaterial;
-				wallEditHandler.defaultMaterial = wallState.wallMaterial;
-				wallEditHandler.handlePointerDown(
-					new PointerEvent('pointerdown', { clientX: t.clientX, clientY: t.clientY, button: 0 })
-				);
-				return;
-			}
-
 			// Start long-press timer for contextual wall/room actions
 			if (longPressTimer) clearTimeout(longPressTimer);
 			const lpX = t.clientX;
@@ -2267,10 +2192,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			e.preventDefault();
 			// Cancel long-press and single-finger state
 			if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-			if (appState.wallEditMode) {
-				wallEditHandler.handlePointerUp();
-				brushCursorVisible = false;
-			}
 			pendingPan = false;
 			touchStartedOnAp = false;
 			touchMoved = true;
@@ -2326,19 +2247,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		if (e.touches.length !== 1) return;
 		const t = e.touches[0]!;
 
-		// Wall edit mode: single touch draws
-		if (appState.wallEditMode) {
-			e.preventDefault();
-			wallEditHandler.handlePointerMove(
-				new PointerEvent('pointermove', { clientX: t.clientX, clientY: t.clientY })
-			);
-			const rect = engine.canvas.getBoundingClientRect();
-			brushCursorX = t.clientX - rect.left;
-			brushCursorY = t.clientY - rect.top;
-			brushCursorVisible = true;
-			return;
-		}
-
 		const dx = t.clientX - touchStartX;
 		const dy = t.clientY - touchStartY;
 
@@ -2377,14 +2285,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
 
 		if (activeTouches === 1 && e.touches.length === 0) {
-			// Wall edit mode: end stroke
-			if (appState.wallEditMode) {
-				wallEditHandler.handlePointerUp();
-				brushCursorVisible = false;
-				activeTouches = 0;
-				return;
-			}
-
 			// Skip tap action if long-press already fired a contextual popup
 			if (!touchMoved && !longPressFired && engine) {
 				const rect = engine.canvas.getBoundingClientRect();
@@ -2430,6 +2330,26 @@ import { wallState } from '$state/wall-state.svelte.js';
 			pendingPlace = false;
 			pendingPan = false;
 		} else {
+			// A drawn wall is an object: a click near one selects it — Delete removes it,
+			// right-click changes its material — instead of starting a marquee. Without
+			// this the only way to reach a wall was to have just drawn it.
+			const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+			const walls = (floor?.walls ?? []) as VectorWall[];
+			if (walls.length > 0) {
+				const world = engine.camera.screenToWorld(screenPoint);
+				const wall = wallNearPoint(world, walls, 12 / (engine.camera.state.zoom || 1));
+				if (wall) {
+					appState.wallVectorSelected = wall.id;
+					pendingPlace = false;
+					pendingPan = false;
+					engine.markDirty();
+					return;
+				}
+			}
+			if (appState.wallVectorSelected) {
+				appState.wallVectorSelected = null;
+				engine.markDirty();
+			}
 			// A click on empty canvas adds an AP only in placement mode; otherwise it is
 			// a selection gesture (click to clear, drag to marquee), which is the same
 			// thing Shift+click does.
@@ -2596,35 +2516,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			e.preventDefault();
 			return;
 		}
-		// Wall edit mode intercepts primary pointer
-		if (appState.wallEditMode) {
-			wallEditHandler.activeMaterial = wallEditMaterial;
-			wallEditHandler.defaultMaterial = wallState.wallMaterial;
-			// Self-heal before handing the stroke over.
-			//
-			// The editor's mask is normally built by the async decode effect. When
-			// that chain fails, is superseded, or simply has not finished, the
-			// handler is left with no mask and every stroke returns at its first
-			// line — editing is dead, silently, with no way back short of a reload.
-			// If the decoded pixels are here, build the mask now: it is a
-			// synchronous copy of an array that already exists, and it turns a
-			// permanent failure into a single skipped frame.
-			if (!wallEditHandler.tiledMask && cachedWallData && wallLayer?.mask) {
-				const dm = wallLayer.mask;
-				wallEditHandler.tiledMask = TiledMask.fromFlat(
-					cachedWallData,
-					dm.width,
-					dm.height,
-					cachedMaterialData,
-					wallState.wallMaterial,
-					dm.originX,
-					dm.originY
-				);
-				console.info('[walls] rebuilt the editor mask from the decoded pixels');
-			}
-			wallEditHandler.handlePointerDown(e);
-			return;
-		}
 		processPointerDown(e);
 	}
 
@@ -2656,9 +2547,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 	/**
 	 * The vector walls of the floor on screen, the one being drawn and the selected one.
 	 *
-	 * They are drawn over the raster mask rather than instead of it: during the migration the
-	 * mask is still what the propagation reads, so a plan drawn this way has to be visible
-	 * against the walls the app is actually using.
+	 * They are drawn *over* the mask they produce, so the model and the raster it derives
+	 * can be seen together: a wall whose band looks wrong against the drawing is a
+	 * rasterisation problem, and one that looks wrong against its own position is not.
 	 */
 	$effect(() => {
 		if (!vectorWallsLayer) return;
@@ -2671,6 +2562,36 @@ import { wallState } from '$state/wall-state.svelte.js';
 		vectorWallsLayer.snapTarget = appState.wallVectorMode ? vectorSnap : null;
 		vectorWallsLayer.wupm = getEffectiveWupm();
 		engine.markDirty();
+	});
+
+	/**
+	 * The segments are the model, so a change to them re-derives the floor's mask.
+	 *
+	 * This is the whole of the merge: the drawn walls are what the app measures against,
+	 * and the raster is their shadow. Debounced because tracing a plan commits dozens of
+	 * segments at once and each pass is a full rasterise plus a PNG encode; the signature
+	 * is what the rasterisation reads, so it is also exactly what decides whether another
+	 * pass is needed.
+	 */
+	let wallsSyncTimer: ReturnType<typeof setTimeout> | null = null;
+	let lastWallsKey = { floorId: '', signature: '' };
+	$effect(() => {
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		if (!floor) return;
+		const signature = (floor?.walls ?? [])
+			.map((wall) => `${wall.ax},${wall.ay},${wall.bx},${wall.by},${wall.material}`)
+			.join(';');
+		const sameFloor = lastWallsKey.floorId === floor.id;
+		const hadWalls = sameFloor && lastWallsKey.signature !== '';
+		lastWallsKey = { floorId: floor.id, signature };
+		// Nothing drawn and nothing was: the floor's mask is whatever detection produced,
+		// and it must be left alone.
+		if (!signature && !hadWalls) return;
+		if (wallsSyncTimer) clearTimeout(wallsSyncTimer);
+		wallsSyncTimer = setTimeout(() => {
+			wallsSyncTimer = null;
+			syncVectorWallsToMask();
+		}, 120);
 	});
 
 	/** Walls on the floor on screen, in the shapes the geometry helpers expect. */
@@ -2905,16 +2826,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			engine.markDirty();
 			return;
 		}
-		if (appState.wallEditMode) {
-			const rect = engine.canvas.getBoundingClientRect();
-			brushCursorX = e.clientX - rect.left;
-			brushCursorY = e.clientY - rect.top;
-			brushCursorSize = appState.wallBrushSize * 2 * engine.camera.state.zoom;
-			brushCursorVisible = true;
-			wallEditHandler.handlePointerMove(e);
-			return;
-		}
-
 		if (dragHandler.isDragging) {
 			dragHandler.handlePointerMove(e);
 			return;
@@ -2985,13 +2896,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			engine.markDirty();
 			return;
 		}
-		if (appState.wallEditMode) {
-			// Pass the event so the handler can read Shift at release time — the
-			// last modifier state is what constrains the committed shape.
-			wallEditHandler.handlePointerUp(e);
-			return;
-		}
-
 		if (pendingPlace) {
 			pendingPlace = false;
 			// Check if click was on a wall pixel first (for material popup)
@@ -3033,11 +2937,15 @@ import { wallState } from '$state/wall-state.svelte.js';
 		class:drawing-area={appState.planningDrawMode}
 		onpointerup={handlePointerUp}
 		onpointerleave={() => {
-			brushCursorVisible = false;
 			// Leaving the canvas has to drop the stack highlight: the pointer move
 			// that would clear it never arrives.
 			if (stackedFloorsLayer?.hoverFloorId) {
 				stackedFloorsLayer.hoverFloorId = null;
+				engine?.markDirty();
+			}
+			if (vectorCursor) {
+				vectorCursor = null;
+				vectorSnap = null;
 				engine?.markDirty();
 			}
 		}}
@@ -3047,22 +2955,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		ontouchend={handleTouchEnd}
 		ontouchcancel={handleTouchEnd}
 	></canvas>
-	{#if !appState.wallEditMode}
-		<LayerPanel />
-	{/if}
-	{#if appState.wallEditMode}
-		<WallEditToolbar
-			bind:activeMaterial={wallEditMaterial}
-			ondone={handleWallEditDone}
-			onclear={() => (clearWallsConfirmOpen = true)}
-		/>
-		{#if brushCursorVisible}
-			<div
-				class="brush-cursor"
-				style="left: {brushCursorX - brushCursorSize / 2}px; top: {brushCursorY - brushCursorSize / 2}px; width: {brushCursorSize}px; height: {brushCursorSize}px"
-			></div>
-		{/if}
-	{/if}
+	<LayerPanel />
 	{#if showEmptyHint}
 		<div class="empty-hint">
 			<p>{t('Drop a floorplan image here')}</p>
@@ -3101,14 +2994,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	/>
 {/if}
 
-<ConfirmDialog
-	bind:open={clearWallsConfirmOpen}
-	title={t('Clear all walls')}
-	message="This removes every wall on this floor, including wall material assignments. Access points and room type labels are not affected. You can undo this with Cmd/Ctrl+Z."
-	confirmLabel="Clear walls"
-	onconfirm={handleClearWalls}
-/>
-
 <style>
 	.canvas-container {
 		width: 100%;
@@ -3119,15 +3004,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		-webkit-user-select: none;
 		user-select: none;
 		-webkit-touch-callout: none;
-	}
-
-	.brush-cursor {
-		position: absolute;
-		border: 1.5px solid var(--accent-primary);
-		border-radius: 50%;
-		pointer-events: none;
-		z-index: 15;
-		opacity: 0.7;
 	}
 
 	.canvas-container.drag-over {

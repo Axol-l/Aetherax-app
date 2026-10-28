@@ -1,18 +1,17 @@
-import { test, expect, type Page } from '@playwright/test';
-
 /**
- * The heatmap stands down while walls are edited, and comes back afterwards.
+ * Drawing a wall keeps the heatmap drawn.
  *
- * Every brush dab rewrites the wall mask and the heatmap is rebuilt from it — one
- * attenuation field marched per AP over the whole plan, on the main thread, inside
- * the same frame as the stroke — which is what made drawing with the heatmap on
- * stutter.
+ * The wall editor used to switch the heatmap off for the duration of an edit, because
+ * every brush dab rewrote the mask and rebuilt a whole attenuation field in the same
+ * frame. There is no brush any more: a wall is two clicks, and the mask is re-derived
+ * once after them — so the layer stays up and simply repaints. This spec is the guard
+ * on that: the canvas must not go blank while the geometry changes underneath it.
  *
  * The proxy is the canvas itself: the heatmap ramp is the only saturated thing the
- * canvas draws (walls, grid and labels are neutral grey), so counting coloured
- * pixels tells whether the layer is being drawn at all. The LAYERS panel is hidden
- * during an edit, so its legend cannot be the signal.
+ * canvas draws (walls, grid and labels are neutral grey), so counting coloured pixels
+ * tells whether the layer is drawn at all.
  */
+import { test, expect, type Page } from '@playwright/test';
 
 async function seed(page: Page) {
 	await page.addInitScript(() => {
@@ -56,7 +55,7 @@ async function seed(page: Page) {
 			'aetherax:project',
 			JSON.stringify({
 				version: 3,
-				name: 'Edit perf',
+				name: 'Draw perf',
 				band: '5ghz',
 				channelWidth: 20,
 				regulatoryDomain: 'fcc',
@@ -105,7 +104,7 @@ async function colouredPixels(page: Page): Promise<number> {
 	});
 }
 
-test('heatmap stands down while editing walls', async ({ page }) => {
+test('the heatmap stays drawn while a wall is added', async ({ page }) => {
 	page.on('pageerror', (e) => console.log('[edit:pageerror]', String(e).slice(0, 400)));
 	await seed(page);
 	await page.goto('/');
@@ -115,23 +114,23 @@ test('heatmap stands down while editing walls', async ({ page }) => {
 	await page.locator('.layer-row').filter({ hasText: 'Signal heatmap' }).click();
 	await page.waitForTimeout(2500);
 	const withHeatmap = await colouredPixels(page);
-
-	await page.getByText('Edit Walls').click();
-	await page.waitForTimeout(2000);
-	const whileEditing = await colouredPixels(page);
-	await page.screenshot({ path: 'test-results/edit-perf/editing.png' });
-
-	await page.locator('.wall-toolbar').locator('text=Done').click();
-	await page.waitForTimeout(2500);
-	const afterDone = await colouredPixels(page);
-	await page.screenshot({ path: 'test-results/edit-perf/after-done.png' });
-
-	console.log(
-		`[edit] coloured px: with heatmap=${withHeatmap} while editing=${whileEditing} after done=${afterDone}`
-	);
 	expect(withHeatmap).toBeGreaterThan(1000);
-	// Off while editing: only the neutral walls, grid and labels are left.
-	expect(whileEditing).toBeLessThan(withHeatmap * 0.05);
-	// And back afterwards.
-	expect(afterDone).toBeGreaterThan(withHeatmap * 0.5);
+
+	// Drawing a wall traces the detected plan first, so the mask is re-derived from the
+	// segments rather than being left as the raster.
+	await page.getByRole('tab', { name: 'Floorplan' }).click();
+	await page.getByRole('button', { name: 'Draw wall' }).click();
+	const canvas = page.locator('canvas');
+	const box = (await canvas.boundingBox())!;
+	await canvas.click({ position: { x: box.width * 0.55, y: box.height * 0.3 } });
+	await canvas.click({ position: { x: box.width * 0.55, y: box.height * 0.7 } });
+	await page.getByRole('button', { name: 'Done' }).click();
+	await page.waitForTimeout(2500);
+
+	const after = await colouredPixels(page);
+	await page.screenshot({ path: 'test-results/draw-wall/after.png' });
+	console.log(`[draw] coloured px: before=${withHeatmap} after=${after}`);
+
+	// Not blank, and the same layer is still the thing covering the plan.
+	expect(after).toBeGreaterThan(withHeatmap * 0.3);
 });

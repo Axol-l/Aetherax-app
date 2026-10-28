@@ -358,9 +358,9 @@ test.describe('Stacked floor overview', () => {
 
 	test('the overview is read-only', async ({ page }) => {
 		await stackView(page);
-		// The wall editor lives in the sidebar and needs the editing layers, which
+		// The wall tool lives in the sidebar and edits a single floor's layers, which
 		// the overviews do not draw.
-		await expect(page.getByText('Edit Walls')).toHaveCount(0);
+		await expect(page.getByText('Draw wall')).toHaveCount(0);
 
 		// A click on empty canvas picks a floor or does nothing; it must not place an
 		// access point. `apPlaceMode` is off by default, so this is about the
