@@ -23,6 +23,8 @@
 	import { rasterRayLossDb } from '$lib/rf/raster-ray.js';
 	import type { WallMaterialId } from '$canvas/materials.js';
 	import { traceWallsFromMask } from '$state/wall-trace.js';
+	import { rasteriseWalls as rasteriseWallsToMasks } from '$state/wall-raster.js';
+	import { encodeMaterialMask } from '$canvas/region-labels.js';
 
 	let confirmOpen = $state(false);
 	let confirmMessage = $state('');
@@ -808,6 +810,53 @@
 		scheduleSave();
 	}
 
+	/**
+	 * Make the drawn walls the floor's mask.
+	 *
+	 * This is the switch that puts the vector model in charge **without touching a line of
+	 * field or march code**: everything downstream — the heatmap's attenuation field, the
+	 * optimiser's domain, the coverage samples, the interior test — reads a wall mask and a
+	 * material mask, so deriving those from the segments makes the whole app vector-driven by
+	 * construction. Re-detect to go back to the drawing.
+	 */
+	function useWallsAsMask(): void {
+		const floor = currentFloor();
+		if (!floor) return;
+		const masks = rasteriseWallsToMasks(
+			(floor.walls ?? []).map((wall) => ({
+				ax: wall.ax,
+				ay: wall.ay,
+				bx: wall.bx,
+				by: wall.by,
+				material: wall.material
+			}))
+		);
+		if (!masks) return;
+		pushState();
+		const wallMask = {
+			dataUrl: encodeMask(masks.wall, masks.width, masks.height),
+			width: masks.width,
+			height: masks.height,
+			originX: masks.originX,
+			originY: masks.originY
+		};
+		wallState.wallMask = wallMask;
+		floor.wallMask = wallMask;
+		// Material ids follow the walls; 0 means "unpainted", so the floor default applies
+		// exactly as it does for a painted band.
+		const materialMask = {
+			dataUrl: encodeMaterialMask(masks.material, masks.width, masks.height),
+			width: masks.width,
+			height: masks.height,
+			originX: masks.originX,
+			originY: masks.originY
+		};
+		wallState.materialMask = materialMask;
+		floor.materialMask = materialMask;
+		forgetInterior(floor.id);
+		scheduleSave();
+	}
+
 	/** Back to the inferred interior. */	function clearPlanningArea() {
 		const floor = currentFloor();
 		if (!floor) return;
@@ -1380,6 +1429,15 @@
 							<button class="skip-link" onclick={() => void traceWallsFromMaskOnFloor()}>
 								{t('Trace from mask')}
 							</button>
+						{/if}
+						{#if (currentFloor()?.walls ?? []).length > 0}
+							<!--
+								The switch that puts the segments in charge: the mask the rest of the app
+								reads becomes a derivation of them, so the heatmap, the optimiser and the
+								coverage figure all take the vector geometry with no change to their own
+								maths. Re-detect to go back.
+							-->
+							<button class="skip-link" onclick={useWallsAsMask}>{t('Use walls as the mask')}</button>
 						{/if}
 						<button class="skip-link" onclick={() => void compareWallModelsOnFloor()}>
 							{t('Compare wall models')}

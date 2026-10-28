@@ -57,6 +57,7 @@ const zh: Record<string, string> = {
 	'Click the far end. Hold Shift to keep it straight, Escape to cancel.': '点击墙的终点；按住 Shift 保持正交，Esc 取消。',
 	'Compare wall models': '对比两种墙体模型',
 	'Trace from mask': '从掩码自动提取墙线',
+	'Use walls as the mask': '用墙线作为墙体掩码',
 	'{walls} walls · {samples} rays · raster {raster} dB · vector {vector} dB':
 		'{walls} 段墙 · {samples} 条射线 · 栅格 {raster} dB · 矢量 {vector} dB',
 	'Same walls, both kernels: Δ {mean} dB mean · {count} disagreements':
