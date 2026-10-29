@@ -61,6 +61,15 @@ import {
 import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../rf/antenna.js';
 import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
 import { bestReflection, type ReflectingWall } from '../../rf/reflection.js';
+import { diffractionLossDb, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
+
+/**
+ * Wall loss above which the direct path counts as blocked.
+ *
+ * Diffraction is a shadow-filling term; below this the ray reaches the texel directly and the
+ * geometry does not call for a bend.
+ */
+const DIFFRACTION_BLOCKED_DB = 6;
 import { rampColorAt } from '../heatmap-ramp.js';
 import { maskSignature } from '../mask-registry.js';
 import { antennaProfileFor } from '$state/ap-state.svelte.js';
@@ -583,6 +592,8 @@ export class HeatmapLayer implements Layer {
 		 */
 		const walls = this.isDragging ? [] : this.reflectingWalls;
 		const reflectionReach = 24 * this.worldUnitsPerMeter;
+		// Every wall end is a knife edge; computed once per image.
+		const edges: DiffractionEdge[] = walls.length > 0 ? edgesOf(walls) : [];
 
 		for (let ty = 0; ty < rows; ty++) {
 			const wy = y0 + (ty + 0.5) * texel;
@@ -605,7 +616,9 @@ export class HeatmapLayer implements Layer {
 				// term below, which is a power *sum* and has to be converted once.
 				let bestDb = -Infinity;
 				let reflectedMw = 0;
+				let wallLoss = 0;
 				for (let i = 0; i < n; i++) {
+					wallLoss = 0;
 					const dx = wx - apX[i]!;
 					const dy = wy - apY[i]!;
 					// The AP–client gap, less what the client stands on. Signed: a client
@@ -643,7 +656,10 @@ export class HeatmapLayer implements Layer {
 					const field = fields[i];
 					const crossFloor = this.aps[i]!.crossFloor;
 					if (field) {
-						level -= lookupAtten(field, wx, wy);
+						// Kept separate from `level`: it is also the test for whether this ray is
+						// blocked, which is when diffraction has something to fill.
+						wallLoss = lookupAtten(field, wx, wy);
+						level -= wallLoss;
 						if (crossFloor) {
 							// Split at the slab: undo the part of this floor's run that
 							// happens above the crossing, and charge that part to the
@@ -728,6 +744,30 @@ export class HeatmapLayer implements Layer {
 								) +
 								10 * Math.log10(bounce.powerRatio);
 							if (reflected > this.rssiFloor) reflectedMw += 10 ** (reflected / 10);
+						}
+					}
+
+					/*
+					 * Diffraction, only where the direct path is blocked.
+					 *
+					 * A wall end is the one place a wave can bend around a segment, and the
+					 * loss it pays is the knife-edge figure from P.526. It fills the shadow a
+					 * wall casts — the room around the corner that the model used to call
+					 * silent — and is not added beside a line-of-sight path, where the direct ray
+					 * already carries the energy.
+					 */
+					if (wallLoss >= DIFFRACTION_BLOCKED_DB && edges.length > 0) {
+						const loss = diffractionLossDb(
+							{ x: apX[i]!, y: apY[i]! },
+							{ x: wx, y: wy },
+							edges,
+							bands[i]!
+						);
+						if (loss > 0) {
+							const diffracted =
+								apRefDb[i]! - relativePathLossDb(dWu * metersPerWorldUnit) - loss -
+								antennaRayLossDb(apProfiles[i]!, gap, dx, dy);
+							if (diffracted > this.rssiFloor) reflectedMw += 10 ** (diffracted / 10);
 						}
 					}
 				}

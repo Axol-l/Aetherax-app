@@ -4,6 +4,15 @@ import { apHeightAboveFloor, apSplitFor, apVerticalOffsetTo, antennaProfileFor, 
 import { antennaRayLossDb } from '$lib/rf/antenna.js';
 import { surfaceHeightAt, deckCrossing } from '$lib/rf/surface-height.js';
 import { bestReflection } from '$lib/rf/reflection.js';
+import { diffractionLossDb, edgesOf } from '$lib/rf/diffraction.js';
+
+/**
+ * Wall loss above which the direct path counts as blocked.
+ *
+ * Diffraction fills a shadow; beside a line-of-sight path the direct ray already carries the
+ * energy. The same threshold the heatmap uses.
+ */
+const DIFFRACTION_BLOCKED_DB = 6;
 import type { Band, ChannelWidth } from '@aetherax/channels';
 import { scheduleSave } from './persistence.svelte.js';
 import { t } from './i18n.svelte.js';
@@ -565,6 +574,8 @@ export async function updateCoverage(): Promise<void> {
 		material: wall.material
 	}));
 	const reflectionReach = 24 * surfaceWupm;
+	/** Every wall end is a knife edge, for the shadow a wall casts. */
+	const diffractionEdges = reflectingWalls.length > 0 ? edgesOf(reflectingWalls) : [];
 	const coverageStarted = performance.now();
 	const sampleHeightWu = cachedSamples.map(
 		(sample) => surfaceHeightAt(surfaces, sample.x + ox, sample.y + oy) * surfaceWupm
@@ -617,6 +628,8 @@ export async function updateCoverage(): Promise<void> {
 			// per crossing out of the material table, so a zero-attenuation virtual partition
 			// costs nothing and a material costs what its own measured entry says.
 			let dbLoss: number;
+			/** Only the walls' share of `dbLoss`: the diffraction gate reads it. */
+			let wallLossDb = 0;
 			const segments = ap.source
 				? crossFloorSegments(ap.sourceT, ap.targetT, ap.x - ox, ap.y - oy, sample.x, sample.y)
 				: null;
@@ -673,6 +686,9 @@ export async function updateCoverage(): Promise<void> {
 					wallState.wallMaterial
 				);
 			}
+			// The wall part on its own: it is both a term of `dbLoss` and the test for whether
+			// this path is blocked, which is when diffraction has something to fill.
+			wallLossDb = dbLoss;
 			// A void is a hole in the slab, so a ray crossing there pays no slab loss.
 			dbLoss += slabLoss;
 			// A deck between this AP and a client standing on it: a path from below has to
@@ -690,6 +706,28 @@ export async function updateCoverage(): Promise<void> {
 			dbLoss += antennaRayLossDb(antennaProfileFor(ap), vertical, dx, dy);
 			const margin = coverageMarginDb(dist, ap.interferenceRadius) - dbLoss;
 			if (margin > bestMargin) bestMargin = margin;
+			/*
+			 * Diffraction around a wall end, only where the walls block this path.
+			 *
+			 * The same knife-edge model and the same gate as the heatmap
+			 * (`rf/diffraction.ts`): a shadow is filled by the nearest edge, and beside a
+			 * line-of-sight path there is nothing to fill.
+			 */
+			if (wallLossDb >= DIFFRACTION_BLOCKED_DB && diffractionEdges.length > 0) {
+				const loss = diffractionLossDb(
+					{ x: ap.x - ox, y: ap.y - oy },
+					{ x: sample.x, y: sample.y },
+					diffractionEdges,
+					ap.band as '2.4ghz' | '5ghz' | '6ghz'
+				);
+				if (loss > 0) {
+					const diffractedMargin =
+						coverageMarginDb(dist, ap.interferenceRadius) -
+						(wallLossDb + loss) +
+						(dbLoss - wallLossDb);
+					if (diffractedMargin > bestMargin) bestMargin = diffractedMargin;
+				}
+			}
 			/*
 			 * The wall's mirror image, as the heatmap adds it.
 			 *

@@ -437,6 +437,55 @@ export function translateFloor(
 		}
 	}
 
+	/*
+	 * The segments, the columns and anything else drawn on the plan move too.
+	 *
+	 * The mask above is *derived* from the segments now, so shifting it without shifting them
+	 * was undone on the next derivation: the alignment drag appeared to snap back, and the
+	 * stacked and 3D views — which draw the segments, not the mask — kept the floor where it
+	 * started.
+	 *
+	 * Each list is replaced rather than mutated in place, because the derived-mask cache is
+	 * keyed on the array's identity: an in-place edit leaves the key unchanged and `getFloorMask`
+	 * hands back the mask from before the move.
+	 */
+	if (floor.walls) {
+		floor.walls = floor.walls.map((wall) => ({
+			...wall,
+			ax: wall.ax + dx,
+			ay: wall.ay + dy,
+			bx: wall.bx + dx,
+			by: wall.by + dy
+		}));
+	}
+	if (floor.columns) {
+		floor.columns = floor.columns.map((column) => ({
+			...column,
+			ax: column.ax + dx,
+			ay: column.ay + dy,
+			bx: column.bx + dx,
+			by: column.by + dy
+		}));
+	}
+	if (floor.planningArea) {
+		floor.planningArea = floor.planningArea.map((point) => ({
+			x: point.x + dx,
+			y: point.y + dy
+		}));
+	}
+	if (floor.surfaces) {
+		floor.surfaces = floor.surfaces.map((surface) => ({
+			...surface,
+			ax: surface.ax + dx,
+			ay: surface.ay + dy,
+			bx: surface.bx + dx,
+			by: surface.by + dy
+		}));
+	}
+	if (floor.notes) {
+		floor.notes = floor.notes.map((note) => ({ ...note, x: note.x + dx, y: note.y + dy }));
+	}
+
 	for (const ap of aps) {
 		if (ap.floorId !== floorId) continue;
 		ap.x += dx;
