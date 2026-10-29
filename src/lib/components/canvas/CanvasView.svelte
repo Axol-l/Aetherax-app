@@ -708,6 +708,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let vectorCursor = $state<{ x: number; y: number } | null>(null);
 	/** The endpoint that click would snap to, ringed while the pointer is near it. */
 	let vectorSnap = $state<{ x: number; y: number } | null>(null);
+	/** True once the current eraser stroke has pushed its undo state. */
+	let eraserStrokePushed = false;
 	/** Pointer position while drawing the planning area; drives the rubber band. */
 	let planningCursor = $state<{ x: number; y: number } | null>(null);
 	let referenceFloorLayer: ReferenceFloorLayer;
@@ -3021,6 +3023,65 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	/**
+	 * The eraser: one stroke removes whatever it passes over.
+	 *
+	 * It deletes **segments and columns**, not mask pixels: the segments are the model, and the
+	 * mask is derived from them, so erasing the model is the only erase that every consumer sees.
+	 * A floor whose walls are still a detected raster has no segments to delete — pressing Draw
+	 * wall traces that raster into segments first, which is where the eraser becomes available.
+	 */
+	function eraseAt(world: { x: number; y: number }): boolean {
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		if (!floor) return false;
+		const radius = 12 / (engine?.camera.state.zoom || 1) + 4;
+		const walls = (floor.walls ?? []) as VectorWall[];
+		const keptWalls = walls.filter((wall) => distanceToSegment(world, wall) > radius);
+		const columns = (floor.columns ?? []) as VectorColumn[];
+		const keptColumns = columns.filter((column) => !columnHitsPoint(column, world, radius));
+		if (keptWalls.length === walls.length && keptColumns.length === columns.length) return false;
+		floor.walls = keptWalls;
+		floor.columns = keptColumns;
+		if (!keptWalls.some((wall) => wall.id === appState.wallVectorSelected)) {
+			appState.wallVectorSelected = null;
+		}
+		if (!keptColumns.some((column) => column.id === appState.wallColumnSelected)) {
+			appState.wallColumnSelected = null;
+		}
+		return true;
+	}
+
+	function distanceToSegment(
+		point: { x: number; y: number },
+		wall: { ax: number; ay: number; bx: number; by: number }
+	): number {
+		const dx = wall.bx - wall.ax;
+		const dy = wall.by - wall.ay;
+		const lengthSq = dx * dx + dy * dy;
+		if (lengthSq < 1e-9) return Math.hypot(point.x - wall.ax, point.y - wall.ay);
+		const t = Math.min(
+			1,
+			Math.max(0, ((point.x - wall.ax) * dx + (point.y - wall.ay) * dy) / lengthSq)
+		);
+		return Math.hypot(point.x - (wall.ax + dx * t), point.y - (wall.ay + dy * t));
+	}
+
+	function columnHitsPoint(
+		column: { shape: 'rect' | 'circle'; ax: number; ay: number; bx: number; by: number },
+		point: { x: number; y: number },
+		radius: number
+	): boolean {
+		if (column.shape === 'circle') {
+			const circle = Math.hypot(column.bx - column.ax, column.by - column.ay);
+			return Math.hypot(point.x - column.ax, point.y - column.ay) <= circle + radius;
+		}
+		const x0 = Math.min(column.ax, column.bx) - radius;
+		const x1 = Math.max(column.ax, column.bx) + radius;
+		const y0 = Math.min(column.ay, column.by) - radius;
+		const y1 = Math.max(column.ay, column.by) + radius;
+		return point.x >= x0 && point.x <= x1 && point.y >= y0 && point.y <= y1;
+	}
+
+	/**
 	 * One click of the wall tool.
 	 *
 	 * A line is two clicks — start, end — snapping to walls first so a plan grows watertight.
@@ -3031,6 +3092,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 	function handleVectorWallClick(world: { x: number; y: number }, shiftKey: boolean): void {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		if (!floor) return;
+		if (appState.wallTool === 'eraser') {
+			pushState();
+			eraseAt(world);
+			return;
+		}
 		if (appState.wallTool !== 'line') {
 			commitColumnClick(floor, world);
 			return;
@@ -3207,6 +3273,23 @@ import { wallState } from '$state/wall-state.svelte.js';
 				x: e.clientX - rect.left,
 				y: e.clientY - rect.top
 			});
+			/*
+			 * The eraser works as a stroke, not a click: whatever the brush passes over goes,
+			 * and one undo puts the whole stroke back. `buttons` is what says the pointer is
+			 * down — a move without it is a hover and must not delete anything.
+			 */
+			if (appState.wallTool === 'eraser') {
+				if ((e.buttons & 1) !== 0) {
+					if (!eraserStrokePushed) {
+						pushState();
+						eraserStrokePushed = true;
+					}
+					if (eraseAt(vectorCursor)) engine.markDirty();
+				}
+				vectorSnap = null;
+				engine.markDirty();
+				return;
+			}
 			if (appState.wallTool === 'line') {
 				// Where the click would land, so the ring can say "this will meet that wall".
 				const snapped = snapToWalls(vectorCursor, currentWalls(), snapToleranceWorld());
@@ -3353,6 +3436,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 	function handlePointerUp(e: PointerEvent) {
 		if (!engine) return;
 		if (e.button !== 0) return; // Only handle primary (left) button
+		// An eraser stroke ends with the pointer: the next one is its own undo step.
+		eraserStrokePushed = false;
 		// The overview's drag-vs-click decision, made on release.
 		if (orbitPointerId === e.pointerId) {
 			orbitPointerId = null;
@@ -3386,6 +3471,14 @@ import { wallState } from '$state/wall-state.svelte.js';
 			referenceFloorLayer.compensateY = 0;
 			if (dxWorld !== 0 || dyWorld !== 0) {
 				translateFloor(floorState.currentFloorId, dxWorld, dyWorld, apState.aps);
+				// An alignment is a project edit like any other: without this the floor moved on
+				// screen and nowhere else, and the next save wrote the old offsets back — which is
+				// the "dragged, and it went back" report.
+				scheduleSave();
+				// The mask was re-derived in the old frame by anything that ran in between; make
+				// the derived geometry follow the segments now that they have moved.
+				syncVectorWallsToMask();
+				forgetInterior(floorState.currentFloorId);
 			}
 			engine.markDirty();
 			return;
@@ -3440,6 +3533,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 			if (vectorCursor) {
 				vectorCursor = null;
 				vectorSnap = null;
+				// A stroke that leaves the canvas has ended; the next one is its own undo step.
+				eraserStrokePushed = false;
 				engine?.markDirty();
 			}
 		}}

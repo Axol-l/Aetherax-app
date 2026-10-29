@@ -250,6 +250,7 @@ const zh: Record<string, string> = {
 	'Wall tools': '墙体工具',
 	Columns: '柱子',
 	'Column shape': '柱子形状',
+	Erase: '擦除',
 	'Material for the next wall or column': '下一段墙 / 柱使用的材质',
 	'More…': '更多…',
 	'Add floor': '添加楼层',

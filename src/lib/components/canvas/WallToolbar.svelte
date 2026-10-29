@@ -24,9 +24,9 @@
 		onmaterial,
 		ondone
 	}: {
-		tool: 'line' | 'rect' | 'circle';
+		tool: 'line' | 'rect' | 'circle' | 'eraser';
 		material: WallMaterialId;
-		ontool: (tool: 'line' | 'rect' | 'circle') => void;
+		ontool: (tool: 'line' | 'rect' | 'circle' | 'eraser') => void;
 		onmaterial: (event: MouseEvent) => void;
 		ondone: () => void;
 	} = $props();
@@ -34,7 +34,7 @@
 	const chips = $derived(allWallMaterials(projectMeta.customMaterials));
 	const current = $derived(getMaterial(material));
 
-	const tools = $derived<Array<{ id: 'line' | 'rect' | 'circle'; label: string }>>([
+	const tools = $derived<Array<{ id: 'line' | 'rect' | 'circle' | 'eraser'; label: string }>>([
 		{ id: 'line', label: t('Walls') },
 		{ id: 'rect', label: t('Columns') },
 		{ id: 'circle', label: t('Columns') }
@@ -57,17 +57,29 @@
 		</button>
 		<button
 			class="tool"
-			class:active={tool !== 'line'}
-			aria-pressed={tool !== 'line'}
-			onclick={() => ontool(tool === 'line' ? 'rect' : tool)}
+			class:active={tool !== 'line' && tool !== 'eraser'}
+			aria-pressed={tool !== 'line' && tool !== 'eraser'}
+			onclick={() => ontool(tool === 'rect' || tool === 'circle' ? tool : 'rect')}
 		>
 			<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
 				<rect x="3" y="3" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.5" />
 			</svg>
 			{t('Columns')}
 		</button>
+		<!-- The eraser: strokes over the drawing, removing what they pass. -->
+		<button
+			class="tool"
+			class:active={tool === 'eraser'}
+			aria-pressed={tool === 'eraser'}
+			onclick={() => ontool('eraser')}
+		>
+			<svg width="12" height="12" viewBox="0 0 16 16" aria-hidden="true">
+				<path d="M2 11l6.5-6.5 3.5 3.5L5.5 14.5H2zM9 2.5L13.5 7" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round" fill="none" />
+			</svg>
+			{t('Erase')}
+		</button>
 		<!-- The column's geometry, only while the column tool is the one in use. -->
-		{#if tool !== 'line'}
+		{#if tool === 'rect' || tool === 'circle'}
 			<span class="shapes" role="group" aria-label={t('Column shape')}>
 				<button
 					class="shape"

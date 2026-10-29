@@ -73,7 +73,7 @@ export const appState = $state({
 	 * the material, and the layer, so switching between them must not drop the wall tool —
 	 * a plan is drawn by alternating partition walls and the piers that break them.
 	 */
-	wallTool: 'line' as 'line' | 'rect' | 'circle',
+	wallTool: 'line' as 'line' | 'rect' | 'circle' | 'eraser',
 	/** The pier or column being drawn, as two opposite corners. */
 	columnDraft: null as { shape: 'rect' | 'circle'; ax: number; ay: number; bx: number; by: number } | null,
 	/** The column under the pointer or just drawn, for the delete key. */

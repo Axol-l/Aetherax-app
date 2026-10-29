@@ -95,11 +95,11 @@ test('importing a floorplan file loads it', async ({ page }) => {
 	await expect(page.getByText('Floorplan loaded')).toBeVisible();
 
 	/*
-	 * The import also detects the walls, and the detection has to survive.
+	 * The import also detects the walls, and what it detects has to survive into the model.
 	 *
-	 * A floor whose segment list is empty is exactly the case a detected raster mask exists for;
-	 * the mask was being emptied by the segment sync on the way in, so an import drew a plan with
-	 * no walls on it and Re-detect walls appeared to do nothing.
+	 * Detection produces a mask and the app now traces it into segments, so either artefact
+	 * counts: what must not happen is a plan with no walls on it at all (the mask was being
+	 * emptied by the segment sync on the way in) and Re-detect walls appearing to do nothing.
 	 */
 	await expect
 		.poll(
@@ -108,13 +108,19 @@ test('importing a floorplan file loads it', async ({ page }) => {
 					const raw = localStorage.getItem('aetherax:project');
 					if (!raw) return 0;
 					const project = JSON.parse(raw) as {
-						floors?: Array<{ wallMask?: { dataUrl?: string } | null }>;
+						floors?: Array<{
+							wallMask?: { dataUrl?: string } | null;
+							walls?: unknown[] | null;
+						}>;
 					};
-					return project.floors?.[0]?.wallMask?.dataUrl?.length ?? 0;
+					const floor = project.floors?.[0];
+					const maskPixels = floor?.wallMask?.dataUrl?.length ?? 0;
+					const segments = floor?.walls?.length ?? 0;
+					return maskPixels > 1000 ? maskPixels : segments;
 				}),
 			{ timeout: 20_000 }
 		)
-		.toBeGreaterThan(1000);
+		.toBeGreaterThan(0);
 });
 
 test('a saved project round-trips through File → Save and Open', async ({ page }) => {

@@ -298,11 +298,11 @@
 {/if}
 
 <!--
-	The other half of the same report: what ran instead, and why.
+	The other half of the same report: what ran instead. One line, and nothing else.
 
-	Deliberately a different class from `.review`. The escape hatch polls for `.review`
-	disappearing to know the vector read is gone, and the specs do the same; a raster
-	note wearing that class would make "the vector read is over" unobservable.
+	It used to carry a reason sentence ("This file is an image, so there are no drawing objects
+	to classify") and a warning about text masking. Both were notes about the reader, not
+	controls, and on a plan that read as pixels they were the longest text in the sidebar.
 -->
 {#if !review && wallState.rasterReason && wallState.wallMask}
 	<div class="raster-note">
@@ -310,17 +310,6 @@
 			<Icon name="grid" size={12} />
 			{t('Read from pixels')}
 		</span>
-		<span class="meta">{t(RASTER_REASONS[wallState.rasterReason])}</span>
-		{#if wallState.textMaskingFailed}
-			<!-- The single most useful sentence this panel can say on a raster plan: it is
-			     the difference between a wall mask and a mask with the room labels
-			     thickened into walls, and it is a network failure, not a bad drawing. -->
-			<span class="meta warn">
-				{t(
-					'Text masking is unavailable, so labels are being read as walls. Re-detect when the text model can be downloaded.'
-				)}
-			</span>
-		{/if}
 	</div>
 {/if}
 
@@ -440,11 +429,6 @@
 	.review-sub {
 		font-size: var(--text-xs);
 		color: var(--text-tertiary);
-	}
-
-	/* A caveat about the mask, not a decoration: it says the numbers above are wrong. */
-	.meta.warn {
-		color: var(--color-warning, #ffb800);
 	}
 
 	.review-sub {

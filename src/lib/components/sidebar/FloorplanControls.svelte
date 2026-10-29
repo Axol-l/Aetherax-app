@@ -443,6 +443,22 @@
 						: null;
 				wallState.rasterReason = detection.rasterReason;
 				wallState.textMaskingFailed = detection.textMaskingFailed;
+				/*
+				 * Trace the detected mask into segments.
+				 *
+				 * Detection produces a mask, and walls are segments now: without this the drawing
+				 * showed the raster band (or nothing), and the user was left with a picture they
+				 * could not edit. The mask is then re-derived from the segments by the canvas's
+				 * sync effect, which is what every consumer reads.
+				 */
+				const floor = currentFloor();
+				if (floor) {
+					// The trace reads the floor's current mask, so the old segments have to go first
+					// (a floor with segments derives its mask from them, not from the detection).
+					floor.walls = [];
+					floor.columns = [];
+					await traceWallsFromMaskOnFloor();
+				}
 				scheduleSave();
 			}
 		} catch (e) {
