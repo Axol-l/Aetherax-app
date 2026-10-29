@@ -245,6 +245,157 @@ export interface SvgGeometryOptions {
 }
 
 /**
+ * A window is two strokes in the drawing and one material change in the model.
+ *
+ * Exporters draw a window as two parallel lines (the pane's edges) inside the wall's long
+ * strokes, so read literally it becomes two glass walls with the wall still running behind them:
+ * the wall line is not interrupted, and the picture shows a double glass line. What the model
+ * wants is one line that goes wall → glass → wall, which is what these two functions produce.
+ *
+ * `collapseOpenings` turns each pair of parallel, overlapping strokes into one centre line (the
+ * same collapse the tracer does for a wall's two edges); `mergeOpeningsIntoWalls` then cuts the
+ * wall where an opening sits and gives that piece the opening's material.
+ */
+export interface MaterialSegment {
+	ax: number;
+	ay: number;
+	bx: number;
+	by: number;
+	material: number;
+}
+
+const lengthOf = (s: MaterialSegment): number => Math.hypot(s.bx - s.ax, s.by - s.ay);
+
+function perpendicularDistance(
+	point: { x: number; y: number },
+	segment: MaterialSegment
+): number {
+	const dx = segment.bx - segment.ax;
+	const dy = segment.by - segment.ay;
+	const len = Math.hypot(dx, dy);
+	if (len < 1e-9) return Math.hypot(point.x - segment.ax, point.y - segment.ay);
+	return Math.abs((point.x - segment.ax) * dy - (point.y - segment.ay) * dx) / len;
+}
+
+/** Position along a segment's direction, in the segment's own length units. */
+function projectionAlong(point: { x: number; y: number }, segment: MaterialSegment): number {
+	const dx = segment.bx - segment.ax;
+	const dy = segment.by - segment.ay;
+	const len = Math.hypot(dx, dy);
+	if (len < 1e-9) return 0;
+	return ((point.x - segment.ax) * dx + (point.y - segment.ay) * dy) / len;
+}
+
+/**
+ * Collapse each pair of parallel strokes belonging to one opening into one centre line.
+ *
+ * Parallel by direction (cross product near zero) and close enough to be the two faces of the same
+ * panes — `tolerance` in output units, so a few pixels of wall band. The longer of the pair keeps
+ * its place; the shorter is dropped, and the result keeps the first one's material.
+ */
+export function collapseOpenings(
+	openings: readonly MaterialSegment[],
+	tolerance = 10
+): MaterialSegment[] {
+	const dropped = new Set<number>();
+	for (let i = 0; i < openings.length; i++) {
+		if (dropped.has(i)) continue;
+		const a = openings[i]!;
+		const lenA = lengthOf(a);
+		if (lenA < 1e-6) continue;
+		for (let j = i + 1; j < openings.length; j++) {
+			if (dropped.has(j)) continue;
+			const b = openings[j]!;
+			const lenB = lengthOf(b);
+			if (lenB < 1e-6) continue;
+			// Parallel? Cross of the unit directions, scaled by the lengths.
+			const cross = Math.abs((a.bx - a.ax) * (b.by - b.ay) - (a.by - a.ay) * (b.bx - b.ax));
+			if (cross / (lenA * lenB) > 0.05) continue;
+			// Same band, and overlapping along their own direction.
+			const near = Math.max(
+				perpendicularDistance({ x: b.ax, y: b.ay }, a),
+				perpendicularDistance({ x: b.bx, y: b.by }, a)
+			);
+			if (near > tolerance) continue;
+			const t0 = projectionAlong({ x: b.ax, y: b.ay }, a);
+			const t1 = projectionAlong({ x: b.bx, y: b.by }, a);
+			const overlap = Math.min(lenA, Math.max(t0, t1)) - Math.max(0, Math.min(t0, t1));
+			if (overlap < Math.min(lenA, lenB) * 0.5) continue;
+			// One opening, not two: drop whichever is shorter.
+			dropped.add(lenB <= lenA ? j : i);
+			if (lenB > lenA) break;
+		}
+	}
+	return openings.filter((_, index) => !dropped.has(index));
+}
+
+/**
+ * Cut walls where openings sit, and give the cut piece the opening's material.
+ *
+ * An opening that lies on no wall is returned unchanged (a freestanding pane), because dropping it
+ * would delete geometry the drawing contains.
+ */
+export function mergeOpeningsIntoWalls(
+	walls: readonly MaterialSegment[],
+	openings: readonly MaterialSegment[],
+	tolerance = 10
+): MaterialSegment[] {
+	const result: MaterialSegment[] = [];
+	const remaining = [...openings];
+
+	for (const wall of walls) {
+		const len = lengthOf(wall);
+		if (len < 1e-6) {
+			result.push(wall);
+			continue;
+		}
+		const cuts: Array<{ from: number; to: number; material: number }> = [];
+		for (let i = remaining.length - 1; i >= 0; i--) {
+			const opening = remaining[i]!;
+			const far = Math.max(
+				perpendicularDistance({ x: opening.ax, y: opening.ay }, wall),
+				perpendicularDistance({ x: opening.bx, y: opening.by }, wall)
+			);
+			if (far > tolerance) continue;
+			const t0 = projectionAlong({ x: opening.ax, y: opening.ay }, wall);
+			const t1 = projectionAlong({ x: opening.bx, y: opening.by }, wall);
+			const from = Math.max(0, Math.min(t0, t1));
+			const to = Math.min(len, Math.max(t0, t1));
+			if (to - from < tolerance * 0.5) continue;
+			cuts.push({ from, to, material: opening.material });
+			remaining.splice(i, 1);
+		}
+		if (cuts.length === 0) {
+			result.push(wall);
+			continue;
+		}
+		cuts.sort((a, b) => a.from - b.from);
+		let cursor = 0;
+		for (const cut of cuts) {
+			if (cut.from > cursor + 1) result.push(piece(wall, cursor, cut.from, wall.material));
+			result.push(piece(wall, Math.max(cursor, cut.from), cut.to, cut.material));
+			cursor = Math.max(cursor, cut.to);
+		}
+		if (cursor < len - 1) result.push(piece(wall, cursor, len, wall.material));
+	}
+	return [...result, ...remaining];
+}
+
+/** A sub-segment of `wall` between two positions along it. */
+function piece(wall: MaterialSegment, from: number, to: number, material: number): MaterialSegment {
+	const len = lengthOf(wall);
+	const ratioFrom = len < 1e-9 ? 0 : from / len;
+	const ratioTo = len < 1e-9 ? 0 : to / len;
+	return {
+		ax: wall.ax + (wall.bx - wall.ax) * ratioFrom,
+		ay: wall.ay + (wall.by - wall.ay) * ratioFrom,
+		bx: wall.ax + (wall.bx - wall.ax) * ratioTo,
+		by: wall.ay + (wall.by - wall.ay) * ratioTo,
+		material
+	};
+}
+
+/**
  * Every wall-shaped element of an SVG as world-unit segments.
  *
  * The caller passes the same `drawables` order the roles came from, so `roles[i]` is the role of

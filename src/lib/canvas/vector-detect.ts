@@ -32,7 +32,7 @@
 
 import { WALL_MATERIALS, type WallMaterialId } from './materials.js';
 import { fillParallelGaps } from './morphology.js';
-import { segmentsFromSvg } from './svg-walls.js';
+import { segmentsFromSvg, collapseOpenings, mergeOpeningsIntoWalls } from './svg-walls.js';
 import type { WallMaskData } from '$state/wall-state.svelte.js';
 import {
 	classifyVectorElements,
@@ -86,7 +86,13 @@ export interface VectorDetection {
 	 * Empty when the drawing's elements are all curves, which is the case the raster trace exists
 	 * for.
 	 */
-	segments: Array<{ ax: number; ay: number; bx: number; by: number; material: WallMaterialId }>;
+	segments: Array<{
+		ax: number;
+		ay: number;
+		bx: number;
+		by: number;
+		material: WallMaterialId;
+	}>;
 }
 
 /**
@@ -322,6 +328,20 @@ export async function detectVectorFloorplan(
 					role === 'window' ? WINDOW_MATERIAL : role === 'door' ? DOOR_MATERIAL : defaultMaterial
 			};
 		});
+		/*
+		 * One line that goes wall → glass → wall, not a wall with two glass lines over it.
+		 *
+		 * The drawing strokes a window as two parallel lines inside the wall's own long strokes, so
+		 * read literally it yields two glass walls and an uninterrupted wall behind them — the
+		 * double glass line and the wall that never breaks, as reported. The opening's strokes are
+		 * collapsed to one centre line and then *cut into* the wall, giving its piece the opening's
+		 * material.
+		 */
+		const wallRuns = segments.filter((segment) => segment.material === defaultMaterial);
+		const openingRuns = collapseOpenings(
+			segments.filter((segment) => segment.material !== defaultMaterial)
+		);
+		const merged = mergeOpeningsIntoWalls(wallRuns, openingRuns);
 
 		return {
 			wallMask: {
@@ -334,7 +354,13 @@ export async function detectVectorFloorplan(
 			materialMask,
 			summary,
 			elements,
-			segments
+			segments: merged.map((segment) => ({
+				ax: segment.ax,
+				ay: segment.ay,
+				bx: segment.bx,
+				by: segment.by,
+				material: segment.material as WallMaterialId
+			}))
 		};
 	} finally {
 		host.remove();
