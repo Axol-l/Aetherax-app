@@ -157,6 +157,29 @@ for (let i = 0; i < 256; i++) {
 LUT[0] = 0;
 
 /**
+ * Point in a closed polygon, by the crossing-number test.
+ *
+ * The clip is a floor's outline — a handful of corners — so the linear scan is the right
+ * algorithm: a spatial index would cost more than it saves at this vertex count.
+ */
+function pointInPolygon(
+	x: number,
+	y: number,
+	polygon: ReadonlyArray<{ x: number; y: number }>
+): boolean {
+	let inside = false;
+	for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+		const xi = polygon[i]!.x;
+		const yi = polygon[i]!.y;
+		const xj = polygon[j]!.x;
+		const yj = polygon[j]!.y;
+		const intersects = yi > y !== yj > y && x < ((xj - xi) * (y - yi)) / (yj - yi) + xi;
+		if (intersects) inside = !inside;
+	}
+	return inside;
+}
+
+/**
  * Separable 3×3 box blur over a level grid, twice, ignoring missing texels.
  *
  * The field the loop computes is exact per texel, which also means its shadow boundaries are
@@ -253,6 +276,16 @@ export class HeatmapLayer implements Layer {
 	 * raster gets — and what a drag gets, since a coarse image does not need the term.
 	 */
 	reflectingWalls: ReflectingWall[] = [];
+	/**
+	 * The building's outline, when the plan has one, so the picture stops at the walls.
+	 *
+	 * Without it the field is painted over the whole sheet: every interior wall throws its shadow
+	 * across the margin *outside* the building, which reads as a row of dark spikes leaving the
+	 * plan — the wedges that were reported. A planning tool clips its coverage to the floor it is
+	 * about, and this is that clip: the detected boundary at import, or the planning area when the
+	 * user has drawn one.
+	 */
+	clipPolygon: Array<{ x: number; y: number }> | null = null;
 	isDragging = false;
 	/**
 	 * A wall mask is on its way for the floor now showing.
@@ -460,7 +493,9 @@ export class HeatmapLayer implements Layer {
 			// reflected term even when the derived mask happens to keep the same frame.
 			`|rw:${this.reflectingWalls
 				.map((w) => `${w.ax},${w.ay},${w.bx},${w.by}:${w.material}`)
-				.join(';')}`
+				.join(';')}` +
+			// The clip decides which texels exist at all, so it is part of the picture.
+			`|clip:${this.clipPolygon?.map((p) => `${p.x},${p.y}`).join(';') ?? ''}`
 		);
 	}
 
@@ -636,6 +671,11 @@ export class HeatmapLayer implements Layer {
 		// inner loop is a multiply and a lookup rather than a conversion per texel.
 		const surfaces = this.surfaces;
 		const surfaceScale = this.worldUnitsPerMeter;
+		// The outline the picture is clipped to, resolved once for the loop.
+		const clip =
+			this.clipPolygon && this.clipPolygon.length >= 3 && !this.isDragging
+				? this.clipPolygon
+				: null;
 		/*
 		 * One specular reflection per access point, as a power term.
 		 *
@@ -654,6 +694,9 @@ export class HeatmapLayer implements Layer {
 
 			for (let tx = 0; tx < cols; tx++) {
 				const wx = x0 + (tx + 0.5) * texel;
+				// Outside the building's own outline there is no floor to report a level for:
+				// the field would paint every wall's shadow across the margin instead.
+				if (clip && !pointInPolygon(wx, wy, clip)) continue;
 
 				/*
 				 * How high the client is here, in world units. Zero on the floor; a

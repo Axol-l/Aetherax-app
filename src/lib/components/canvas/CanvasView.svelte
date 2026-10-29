@@ -209,6 +209,18 @@ import { wallState } from '$state/wall-state.svelte.js';
 			by: wall.by,
 			material: wall.material
 		}));
+		/*
+		 * The outline the heatmap is clipped to: the drawn planning area when there is one, the
+		 * detected boundary otherwise.
+		 *
+		 * Without it the field covers the whole sheet and every interior wall throws its shadow
+		 * into the margin outside the building, which is the row of dark wedges that was reported
+		 * as spikes. A planning tool reports the floor, not the paper around it.
+		 */
+		heatmapLayer.clipPolygon =
+			currentFloor()?.planningArea ??
+			floorplanState.floorplanBoundary ??
+			null;
 		cachedWallData = mat.data;
 		cachedMaterialData = mat.materialData;
 		cachedMaskOriginX = mat.originX;
