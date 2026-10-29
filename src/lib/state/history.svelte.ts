@@ -113,11 +113,15 @@ function applySnapshot(snap: Snapshot): void {
 }
 
 export function pushState(): void {
+	const started = performance.now();
 	undoStack.push(takeSnapshot());
 	if (undoStack.length > MAX_HISTORY) {
 		undoStack.shift();
 	}
 	redoStack.length = 0;
+	// Timed: a snapshot copies the floors and the AP list, and it is taken at the start of
+	// every gesture (drag, draw, delete) — a place a stall is felt as "it hangs".
+	console.info(`[history] snapshot in ${Math.round(performance.now() - started)} ms`);
 }
 
 export function undo(): void {

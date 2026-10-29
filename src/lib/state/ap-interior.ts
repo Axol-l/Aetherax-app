@@ -72,6 +72,7 @@ async function interiorFor(floorId: string): Promise<CachedInterior | null> {
 	 */
 	const wupm = getEffectiveWupm();
 	const sealRadius = Math.max(1, Math.round(SEAL_RADIUS_M * wupm));
+	const interiorStarted = performance.now();
 	const sealed = sealOpenings(decoded.wallData, decoded.width, decoded.height, sealRadius);
 	const { interior } = computeBuildingInterior(sealed, decoded.width, decoded.height, {
 		// The optimiser's own options, verbatim: a different domain here would mean an AP
@@ -83,6 +84,11 @@ async function interiorFor(floorId: string): Promise<CachedInterior | null> {
 		// ...including which regions count as rooms. See `room-domain.ts`.
 		minRegionRadius: minRoomRadiusWu()
 	});
+	// Timed: the flood fill and the sealing run on the whole mask, and this recomputes
+	// whenever the walls change — on the same frame the user releases the pointer.
+	console.info(
+		`[interior] ${decoded.width}×${decoded.height} in ${Math.round(performance.now() - interiorStarted)} ms`
+	);
 	const roomTypes = decoded.roomTypeData;
 	if (roomTypes && roomTypes.length === interior.length) {
 		for (let i = 0; i < interior.length; i++) {

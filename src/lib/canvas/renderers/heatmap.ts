@@ -248,11 +248,15 @@ export class HeatmapLayer implements Layer {
 		const key = this.getCacheKey();
 		if (key === this.cacheKey) return;
 		this.cacheKey = key;
+		const started = performance.now();
 		const generated = this.generateWorld();
 		this.cache = generated?.canvas ?? null;
 		this.cacheX0 = generated?.x0 ?? 0;
 		this.cacheY0 = generated?.y0 ?? 0;
 		this.cacheTexel = generated?.texel ?? TEXEL_FINE;
+		// Timed: a generation is a full field sweep over the plan, and it runs on the frame a
+		// gesture ends — the one place a stall is felt as "the app froze when I let go".
+		console.info(`[heatmap] ${generated ? 'generated' : 'skipped'} in ${Math.round(performance.now() - started)} ms`);
 	}
 
 	/**
