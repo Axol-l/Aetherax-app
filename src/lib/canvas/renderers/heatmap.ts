@@ -591,7 +591,36 @@ export class HeatmapLayer implements Layer {
 			MAX_TEXELS
 		);
 		if (!region) return null;
-		const { x0, y0, cols, rows, texel } = region;
+		/*
+		 * Shrink the image to the floor's own bounds.
+		 *
+		 * The region is built around the access points and their reach, so on a plan whose floor is
+		 * a corner of the sheet most of the image is texels the clip would discard one by one. The
+		 * mask's frame is the floor's frame: intersecting with it costs nothing and the whole
+		 * discarded area stops being iterated — the per-texel loop is a march, and a march the
+		 * picture never paints is the one kind of work that can be removed without changing it.
+		 */
+		const bounds = wm
+			? {
+					x0: wm.originX,
+					y0: wm.originY,
+					x1: wm.originX + wm.width,
+					y1: wm.originY + wm.height
+				}
+			: null;
+		const clipped = bounds
+			? {
+					x0: Math.max(region.x0, bounds.x0),
+					y0: Math.max(region.y0, bounds.y0),
+					x1: Math.min(region.x0 + region.cols * region.texel, bounds.x1),
+					y1: Math.min(region.y0 + region.rows * region.texel, bounds.y1)
+				}
+			: null;
+		const x0 = clipped?.x0 ?? region.x0;
+		const y0 = clipped?.y0 ?? region.y0;
+		const texel = region.texel;
+		const cols = clipped ? Math.max(1, Math.ceil((clipped.x1 - x0) / texel)) : region.cols;
+		const rows = clipped ? Math.max(1, Math.ceil((clipped.y1 - y0) / texel)) : region.rows;
 
 		// Wall attenuation is band dependent, so build one material table per band
 		// actually in use instead of a single 5 GHz table for every AP.
