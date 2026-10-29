@@ -1,7 +1,9 @@
 
 import { floorplanState } from '$state/floorplan-state.svelte.js';
+import { floorState } from '$state/floor-state.svelte.js';
 import { wallState } from '$state/wall-state.svelte.js';
 import { scheduleSave } from '$state/persistence.svelte.js';
+import { traceFloorWalls } from '$state/wall-trace.js';
 import { detectBoundary } from '$canvas/boundary-detect.js';
 import { detectFloorplanMasks } from '$canvas/detect-floorplan.js';
 
@@ -49,6 +51,20 @@ export async function importFloorplanFile(file: File): Promise<void> {
 			// A vector detection knows what each opening is; a raster one cannot, so it
 			// leaves the material map alone rather than half-filling it.
 			if (materialMask) wallState.materialMask = materialMask;
+			/*
+			 * Trace the mask into the segments the drawing actually shows.
+			 *
+			 * Walls are segments, and this import path sets the mask directly, so without this
+			 * an imported plan arrived as a raster band that could not be edited — the mask was
+			 * there, the model had no walls, and the vector layer (which paints segments) had
+			 * nothing to paint. Re-detect traced; the import did not.
+			 */
+			const floor = floorState.floors.find((candidate) => candidate.id === floorState.currentFloorId);
+			if (floor) {
+				floor.walls = [];
+				floor.columns = [];
+				await traceFloorWalls(floor.id);
+			}
 		}
 		// What the vector reader saw, for the review panel. Cleared by a raster run so a
 		// stale report cannot describe a mask that has since been replaced.

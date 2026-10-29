@@ -22,7 +22,7 @@
 	import { compareWallModels, type WallModelComparison } from '$lib/rf/wall-model-compare.js';
 	import { rasterRayLossDb } from '$lib/rf/raster-ray.js';
 	import type { WallMaterialId } from '$canvas/materials.js';
-	import { traceWallsFromMask } from '$state/wall-trace.js';
+	import { traceFloorWalls } from '$state/wall-trace.js';
 	import { rasteriseWalls as rasteriseWallsToMasks } from '$state/wall-raster.js';
 	import { encodeMaterialMask } from '$canvas/region-labels.js';
 
@@ -381,6 +381,14 @@
 				// writes them into the material map; a pixel read cannot, and leaves
 				// whatever was painted there rather than inventing an assignment.
 				if (detection.materialMask) wallState.materialMask = anchorToUnderlay(detection.materialMask);
+				// The same trace the import and Re-detect use: a mask alone leaves the floor
+				// with no segments, and segments are what the drawing shows.
+				const floor = currentFloor();
+				if (floor) {
+					floor.walls = [];
+					floor.columns = [];
+					await traceFloorWalls(floor.id);
+				}
 				scheduleSave();
 			}
 			wallState.vectorReview =
@@ -458,6 +466,7 @@
 					floor.walls = [];
 					floor.columns = [];
 					await traceWallsFromMaskOnFloor();
+					console.info(`[detect] traced ${floor.walls?.length ?? 0} segments`);
 				}
 				scheduleSave();
 			}
@@ -724,30 +733,16 @@
 	 */
 	async function traceWallsFromMaskOnFloor(): Promise<void> {
 		const floor = currentFloor();
-		const decoded = floor ? await getFloorMask(floor.id) : null;
-		if (!floor || !decoded) return;
-		const traced = traceWallsFromMask(
-			decoded.wallData,
-			decoded.materialMap,
-			decoded.width,
-			decoded.height,
-			floor.wallMaterial as WallMaterialId
-		);
+		if (!floor) return;
 		pushState();
-		floor.walls = traced.map((wall) => ({
-			id: crypto.randomUUID(),
-			ax: wall.ax + decoded.originX,
-			ay: wall.ay + decoded.originY,
-			bx: wall.bx + decoded.originX,
-			by: wall.by + decoded.originY,
-			material: wall.material
-		}));
+		const count = await traceFloorWalls(floor.id);
 		appState.wallVectorSelected = null;
+		appState.wallColumnSelected = null;
 		scheduleSave();
-		if (traced.length > 0) {
+		if (count > 0) {
 			notifyWalls(
 				t('{count} walls were traced from the plan into segments, so they can be corrected one at a time.', {
-					count: traced.length
+					count
 				})
 			);
 		}

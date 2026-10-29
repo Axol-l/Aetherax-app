@@ -83,10 +83,20 @@ test('an alignment drag leaves the floor where it was dropped', async ({ page })
 	await expect(page.getByRole('button', { name: 'Drag on canvas…' })).toBeVisible();
 	const canvas = page.locator('canvas');
 	const box = (await canvas.boundingBox())!;
+	// Zoom in first: an alignment must not re-frame the view, and at fit zoom a reset is
+	// invisible.
+	await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
+	await page.mouse.wheel(0, -500);
+	await page.waitForTimeout(400);
+	const zoomText = async (): Promise<string> =>
+		(await page.locator('body').innerText()).match(/(\d+)%/)?.[0] ?? '';
+	const zoomBefore = await zoomText();
 	await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
 	await page.mouse.down();
 	await page.mouse.move(box.x + box.width * 0.5 + 80, box.y + box.height * 0.5 + 40, { steps: 8 });
 	await page.mouse.up();
+	await page.waitForTimeout(600);
+	expect(await zoomText()).toBe(zoomBefore);
 
 	// The save is debounced; poll the stored project.
 	await expect

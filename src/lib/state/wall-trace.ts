@@ -18,6 +18,8 @@
  * Everything here is in mask pixels, which are world units; the caller adds the mask origin.
  */
 import type { WallMaterialId } from '../canvas/materials.js';
+import { getFloorMask } from './floor-mask.js';
+import { floorState } from './floor-state.svelte.js';
 
 export interface TracedWall {
 	ax: number;
@@ -305,4 +307,44 @@ export function traceWallsFromMask(
 		walls.push({ ax: run.line, ay: run.from, bx: run.line, by: run.to, material: run.material });
 	}
 	return pruneWalls(walls, wall, width, height, options);
+}
+
+/**
+ * Trace a floor's current mask into its wall segments.
+ *
+ * **Every** path that produces a mask has to run this, or the floor is left with geometry the
+ * drawing cannot show: the vector layer paints segments, so a mask-only floor draws nothing (or,
+ * worse, the raster band) and cannot be edited. It was wired into Re-detect only, which is why an
+ * *import* still came out as a picture — the import sets its mask on a different code path
+ * (`importFloorplanFile`, and `runBoundaryDetection` in the sidebar). One helper called from all
+ * three is the only way they stay in step.
+ *
+ * The mask is read through `getFloorMask`, so the caller must have cleared `floor.walls` first: a
+ * floor with segments derives its mask *from* them rather than from the detection.
+ *
+ * Returns how many segments were written (0 means the mask had no long runs to trace, and the
+ * raster mask is all the floor has).
+ */
+export async function traceFloorWalls(floorId: string): Promise<number> {
+	const floor = floorState.floors.find((candidate) => candidate.id === floorId);
+	if (!floor) return 0;
+	const decoded = await getFloorMask(floorId);
+	if (!decoded) return 0;
+	const traced = traceWallsFromMask(
+		decoded.wallData,
+		decoded.materialMap,
+		decoded.width,
+		decoded.height,
+		floor.wallMaterial as WallMaterialId
+	);
+	floor.walls = traced.map((wall) => ({
+		id: crypto.randomUUID(),
+		ax: wall.ax + decoded.originX,
+		ay: wall.ay + decoded.originY,
+		bx: wall.bx + decoded.originX,
+		by: wall.by + decoded.originY,
+		material: wall.material
+	}));
+	floor.columns = [];
+	return floor.walls.length;
 }

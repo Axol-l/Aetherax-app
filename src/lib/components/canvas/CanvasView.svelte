@@ -752,6 +752,26 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
 		const mod = e.metaKey || e.ctrlKey;
 
+		/*
+		 * Undo and redo first, in every mode.
+		 *
+		 * They used to sit below the mode-specific branches, and a mode that consumed the key
+		 * first won: with the wall tool open, Ctrl+Z did nothing, and the workaround was to press
+		 * Done and then undo. Undo is a property of the project, not of the tool that happens to
+		 * be open, so it is handled before anything looks at the key for its own purposes.
+		 */
+		if (mod && (e.key === 'z' || e.key === 'Z')) {
+			e.preventDefault();
+			if (e.shiftKey) redo();
+			else undo();
+			// An undo changes the project, so it has to be written like any other edit —
+			// otherwise the storage still holds the state that was undone and the next reload
+			// brings it back.
+			scheduleSave();
+			engine?.markDirty();
+			return;
+		}
+
 		if (!isInput && appState.wallVectorMode && e.key === 'Escape') {
 			stopWallMode();
 			return;

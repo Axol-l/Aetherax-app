@@ -95,7 +95,17 @@ import { antennaProfileFor } from '$state/ap-state.svelte.js';
  * keeps the cost of that on a large plan. COARSE is used while an AP is dragged so
  * the rebuild stays inside a frame.
  */
-const TEXEL_FINE = 1;
+/**
+ * World units per heatmap texel.
+ *
+ * This was 1 — one world unit per texel — which is a screen pixel at 1:1 zoom and gave the
+ * smoothest contour, but the cost of a texel is now a **wall march** rather than a field lookup
+ * (the polar field's angular slices were what drew spikes, so the heatmap marches each texel's
+ * own ray). At one unit a 900 × 700 plan is 630 000 texels and two APs is 1.3 M marches; at three
+ * it is 70 000 and the level grid is blurred anyway (see `boxBlurLevels`), so the contour is
+ * smoother rather than rougher for the same picture.
+ */
+const TEXEL_FINE = 3;
 const TEXEL_COARSE = 12;
 /**
  * Upper bound on the number of texels one regeneration may fill.
