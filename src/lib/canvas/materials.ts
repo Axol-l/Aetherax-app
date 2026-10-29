@@ -4,13 +4,25 @@
  */
 
 import type { Band } from '@aetherax/channels';
+import { BAND_FREQUENCY_GHZ, ituWallLossDb, type ItuMaterialKey } from '../rf/material-itu.js';
 
 export type WallMaterialId = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
 
 export interface WallMaterial {
 	id: WallMaterialId;
 	name: string;
-	dbPerMeter: Record<Band, number>; // dB per meter of material thickness, per band
+	/**
+	 * The P.2040 material this one is made of, when it is a real construction.
+	 *
+	 * With a key the crossing's loss is *computed* (`rf/material-itu.ts`: frequency-dependent
+	 * εr and σ, the single-layer slab coefficients, the mean of both polarisations) instead of
+	 * read off `dbPerMeter`. The table below keeps `dbPerMeter` for the materials with no ITU
+	 * equivalent — the virtual partition and the closed door, both engineering choices — and
+	 * as the fallback for a custom material, whose number the user typed.
+	 */
+	itu?: ItuMaterialKey;
+	/** Fallback/legacy figure, dB per metre of thickness, per band. */
+	dbPerMeter: Record<Band, number>;
 	typicalThickness: number; // meters — used when calibration unavailable
 	color: [number, number, number];
 }
@@ -37,6 +49,8 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 	{
 		id: 0,
 		name: 'Drywall',
+		// ITU: plasterboard — a 12 mm stud partition.
+		itu: 'plasterboard',
 		dbPerMeter: { '2.4ghz': 13, '5ghz': 25, '6ghz': 30 },
 		typicalThickness: 0.12,
 		color: [200, 200, 210]
@@ -44,6 +58,7 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 	{
 		id: 1,
 		name: 'Wood',
+		itu: 'wood',
 		dbPerMeter: { '2.4ghz': 17, '5ghz': 33, '6ghz': 40 },
 		typicalThickness: 0.15,
 		color: [160, 130, 90]
@@ -51,6 +66,7 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 	{
 		id: 2,
 		name: 'Glass',
+		itu: 'glass',
 		dbPerMeter: { '2.4ghz': 105, '5ghz': 200, '6ghz': 240 },
 		typicalThickness: 0.01,
 		color: [140, 210, 230]
@@ -58,6 +74,7 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 	{
 		id: 3,
 		name: 'Brick',
+		itu: 'brick',
 		dbPerMeter: { '2.4ghz': 18, '5ghz': 35, '6ghz': 42 },
 		typicalThickness: 0.23,
 		color: [180, 80, 60]
@@ -65,6 +82,7 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 	{
 		id: 4,
 		name: 'Concrete',
+		itu: 'concrete',
 		dbPerMeter: { '2.4ghz': 32, '5ghz': 60, '6ghz': 72 },
 		typicalThickness: 0.2,
 		color: [130, 130, 140]
@@ -72,6 +90,7 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 	{
 		id: 5,
 		name: 'Metal',
+		itu: 'metal',
 		dbPerMeter: { '2.4ghz': 63, '5ghz': 120, '6ghz': 144 },
 		typicalThickness: 0.17,
 		color: [90, 100, 120]
@@ -174,10 +193,32 @@ export function getMaterial(id: WallMaterialId): WallMaterial {
 	return found ?? WALL_MATERIALS[0]!;
 }
 
-/** Flat dB for one typical crossing at the given band: dbPerMeter * typicalThickness. */
+/**
+ * Flat dB for one typical crossing at the given band.
+ *
+ * A material with an ITU key is **computed** — frequency-dependent εr and σ, the single-layer
+ * slab coefficients, the mean of the two polarisations — at the band's centre frequency and the
+ * material's typical thickness. P.2040 makes that figure materially different from the old
+ * hand-tuned table (a 20 cm concrete wall is 14.6 dB at 2.4 GHz, not 6.4), which is the point:
+ * the table was a set of numbers and this is the model they were approximations of.
+ *
+ * Memoised, because the march asks per crossing.
+ */
+const flatCache = new Map<string, number>();
 export function getFlatAttenuation(id: WallMaterialId, band: Band = DEFAULT_BAND): number {
 	const m = WALL_MATERIALS[id] ?? customMaterials.find((material) => material.id === id);
-	return m ? m.dbPerMeter[band] * m.typicalThickness : 3;
+	if (!m) return 3;
+	const key = `${id}:${band}`;
+	const cached = flatCache.get(key);
+	if (cached !== undefined) return cached;
+	let value: number;
+	if (m.itu) {
+		value = ituWallLossDb(m.itu, BAND_FREQUENCY_GHZ[band], m.typicalThickness);
+	} else {
+		value = m.dbPerMeter[band] * m.typicalThickness;
+	}
+	flatCache.set(key, value);
+	return value;
 }
 
 /**
@@ -196,10 +237,12 @@ export function getMaterialDbTable(band: Band = DEFAULT_BAND): number[] {
 	// Indexed by id, so a custom material's row lands where a painted mask pixel points.
 	// An id nothing answers for costs what a plain drywall wall costs, not zero: a deleted
 	// material must not make the walls painted with it transparent.
-	const fallback = WALL_MATERIALS[0]!.dbPerMeter[band] * WALL_MATERIALS[0]!.typicalThickness;
+	const fallback = getFlatAttenuation(DEFAULT_MATERIAL, band);
 	for (const material of table) {
 		if (material.id >= 0 && material.id < 256) {
-			out[material.id] = material.dbPerMeter[band] * material.typicalThickness;
+			// The same figure as a single crossing, whichever way it was computed: the ITU
+			// model for a real material, `dbPerMeter × thickness` for a user's own.
+			out[material.id] = getFlatAttenuation(material.id, band);
 		}
 	}
 	for (let i = 0; i < out.length; i++) if (out[i] === undefined) out[i] = fallback;

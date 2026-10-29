@@ -83,9 +83,10 @@ describe('rayWallCrossings', () => {
 
 describe('loss', () => {
 	it('adds one figure per crossing, from the material row', () => {
-		// Drywall is 3 dB per crossing; two walls cost six.
+		// Drywall is 5.6 dB per crossing at this band since the figure is computed from the
+		// P.2040 slab model (12 mm plasterboard at 5.5 GHz), not read off a table.
 		const walls = [wall(3, -5, 3, 5, 0), wall(7, -5, 7, 5, 0)];
-		expect(rayWallLossDb({ x: 0, y: 0 }, { x: 10, y: 0 }, walls, BAND)).toBeCloseTo(6);
+		expect(rayWallLossDb({ x: 0, y: 0 }, { x: 10, y: 0 }, walls, BAND)).toBeCloseTo(11.2, 1);
 	});
 
 	it('charges nothing for a virtual partition', () => {
@@ -103,7 +104,7 @@ describe('loss', () => {
 		const breakdown = rayWallBreakdown({ x: 0, y: 0 }, { x: 10, y: 0 }, walls, BAND);
 		expect(breakdown.length).toBe(2);
 		expect(breakdown[0]!.at).toBeLessThan(breakdown[1]!.at);
-		expect(breakdown[0]!.db).toBeCloseTo(3);
+		expect(breakdown[0]!.db).toBeCloseTo(5.6, 1);
 		expect(breakdown[1]!.db).toBeGreaterThan(breakdown[0]!.db);
 	});
 });

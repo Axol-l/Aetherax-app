@@ -7,13 +7,23 @@
  * difference), and a systematic bias (means apart, absolute difference small).
  */
 import { describe, expect, it } from 'vitest';
+import { getFlatAttenuation } from '$canvas/materials.js';
 import { compareWallModels } from './wall-model-compare.js';
 import type { WallSegment } from './wall-crossings.js';
 
 const BAND = '5ghz' as const;
 const from = { x: 0, y: 0 };
 
-/** A vertical drywall wall at x = 5, three dB per crossing. */
+/**
+ * What one crossing of drywall costs at this band.
+ *
+ * The figure is computed now (P.2040 slab model), so the tests read it from the same table the
+ * model does instead of hard-coding a number that a physics change would invalidate: what they
+ * are about is whether the two paths agree, not what drywall costs.
+ */
+const DRYWALL_DB = getFlatAttenuation(0, BAND);
+
+/** A vertical drywall wall at x = 5, one crossing's loss. */
 const wall: WallSegment = { ax: 5, ay: -50, bx: 5, by: 50, material: 0 as WallSegment['material'] };
 
 /** Points on one side of the wall, spread out. */
@@ -31,8 +41,9 @@ describe('compareWallModels', () => {
 			band: BAND,
 			from,
 			points,
-			// The two rays that cross the wall pay 3 dB each, the two that do not pay nothing.
-			rasterLoss: (_from, to) => (to.x > 5 ? 3 : 0)
+			// The two rays that cross the wall pay one crossing each, the two that do not pay
+			// nothing.
+			rasterLoss: (_from, to) => (to.x > 5 ? DRYWALL_DB : 0)
 		});
 		expect(result.samples).toBe(4);
 		expect(result.meanAbsDb).toBeCloseTo(0);
@@ -53,8 +64,8 @@ describe('compareWallModels', () => {
 		});
 		// Three of the four sample points sit across the wall; the fourth is behind the source.
 		expect(result.disagreements).toBe(3);
-		expect(result.maxAbsDb).toBeCloseTo(3);
-		expect(result.vectorMeanDb).toBeCloseTo((3 + 3 + 3) / 4);
+		expect(result.maxAbsDb).toBeCloseTo(DRYWALL_DB);
+		expect(result.vectorMeanDb).toBeCloseTo((DRYWALL_DB * 3) / 4);
 		expect(result.rasterMeanDb).toBe(0);
 	});
 
@@ -65,7 +76,7 @@ describe('compareWallModels', () => {
 			from,
 			points,
 			// Off by 1 dB on every ray that crosses: mean difference 1, means 1 dB apart.
-			rasterLoss: (_from, to) => (to.x > 5 ? 4 : 0)
+			rasterLoss: (_from, to) => (to.x > 5 ? DRYWALL_DB + 1 : 0)
 		});
 		expect(result.meanAbsDb).toBeCloseTo(0.75);
 		expect(result.vectorMeanDb - result.rasterMeanDb).toBeCloseTo(-0.75);
