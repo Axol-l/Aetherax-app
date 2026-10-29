@@ -5,14 +5,6 @@ import { antennaRayLossDb } from '$lib/rf/antenna.js';
 import { surfaceHeightAt, deckCrossing } from '$lib/rf/surface-height.js';
 import { bestReflection } from '$lib/rf/reflection.js';
 import { diffractionLossDb, edgesOf } from '$lib/rf/diffraction.js';
-
-/**
- * Wall loss above which the direct path counts as blocked.
- *
- * Diffraction fills a shadow; beside a line-of-sight path the direct ray already carries the
- * energy. The same threshold the heatmap uses.
- */
-const DIFFRACTION_BLOCKED_DB = 6;
 import type { Band, ChannelWidth } from '@aetherax/channels';
 import { scheduleSave } from './persistence.svelte.js';
 import { t } from './i18n.svelte.js';
@@ -707,13 +699,14 @@ export async function updateCoverage(): Promise<void> {
 			const margin = coverageMarginDb(dist, ap.interferenceRadius) - dbLoss;
 			if (margin > bestMargin) bestMargin = margin;
 			/*
-			 * Diffraction around a wall end, only where the walls block this path.
+			 * Diffraction around a wall end, ramped in as the wall blocks more.
 			 *
-			 * The same knife-edge model and the same gate as the heatmap
-			 * (`rf/diffraction.ts`): a shadow is filled by the nearest edge, and beside a
-			 * line-of-sight path there is nothing to fill.
+			 * The same knife-edge model, the same ramp and the same memoised coefficients as
+			 * the heatmap (`rf/diffraction.ts`): a hard "blocked" threshold drew its contour
+			 * as a step in the figure, because the term appeared at a line instead of growing.
 			 */
-			if (wallLossDb >= DIFFRACTION_BLOCKED_DB && diffractionEdges.length > 0) {
+			const diffractionGate = Math.min(1, Math.max(0, (wallLossDb - 3) / 6));
+			if (diffractionGate > 0 && diffractionEdges.length > 0) {
 				const loss = diffractionLossDb(
 					{ x: ap.x - ox, y: ap.y - oy },
 					{ x: sample.x, y: sample.y },
@@ -725,7 +718,8 @@ export async function updateCoverage(): Promise<void> {
 						coverageMarginDb(dist, ap.interferenceRadius) -
 						(wallLossDb + loss) +
 						(dbLoss - wallLossDb);
-					if (diffractedMargin > bestMargin) bestMargin = diffractedMargin;
+					const blended = margin + diffractionGate * (diffractedMargin - margin);
+					if (blended > bestMargin) bestMargin = blended;
 				}
 			}
 			/*

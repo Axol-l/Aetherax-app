@@ -2,7 +2,7 @@
  * The image-source geometry, on cases whose answer can be seen without running anything.
  */
 import { describe, expect, it } from 'vitest';
-import { bestReflection, reflectionPowerRatio, specularReflection } from './reflection.js';
+import { bestReflection, reflectionPowerRatio, reflections, specularReflection } from './reflection.js';
 
 /** A vertical wall at x = 100 spanning y ∈ [0, 200], concrete (id 4). */
 const wall = { ax: 100, ay: 0, bx: 100, by: 200, material: 4 };
@@ -101,5 +101,29 @@ describe('bestReflection', () => {
 
 	it('finds nothing when there are no walls', () => {
 		expect(bestReflection({ x: 0, y: 100 }, { x: 60, y: 100 }, [], '5ghz')).toBeNull();
+	});
+
+	/**
+	 * The picture is summed, not chosen.
+	 *
+	 * "Strongest only" switched walls across a line in the room — the crease and the notches the
+	 * heatmap showed — so the module returns every return and the caller sums their power.
+	 */
+	it('returns every wall that reflects, strongest first', () => {
+		const from = { x: 0, y: 100 };
+		const to = { x: 60, y: 100 };
+		// Two walls on the same side, both with a valid specular point.
+		const all = reflections(from, to, [wall, { ...wall, ax: 100, ay: 300, bx: 100, by: 600 }], '5ghz');
+		expect(all.length).toBe(1); // the second wall has no point between these ends
+		expect(all[0]!.powerRatio).toBeGreaterThan(0);
+
+		const pair = reflections(
+			from,
+			to,
+			[wall, { ...wall, material: 2 }],
+			'5ghz'
+		);
+		expect(pair.length).toBe(2);
+		expect(pair[0]!.powerRatio).toBeGreaterThanOrEqual(pair[1]!.powerRatio);
 	});
 });

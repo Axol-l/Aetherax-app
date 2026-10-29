@@ -60,14 +60,14 @@ import {
 } from '../../rf/propagation.js';
 import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../rf/antenna.js';
 import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
-import { bestReflection, type ReflectingWall } from '../../rf/reflection.js';
+import { reflections, type ReflectingWall } from '../../rf/reflection.js';
 import { diffractionLossDb, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
 
 /**
  * Wall loss above which the direct path counts as blocked.
  *
- * Diffraction is a shadow-filling term; below this the ray reaches the texel directly and the
- * geometry does not call for a bend.
+ * Kept for documentation: the gate is now a ramp from 3 dB to 9 dB (see the loop), and a hard
+ * threshold at this figure drew the contour where it flipped as a visible notch.
  */
 const DIFFRACTION_BLOCKED_DB = 6;
 import { rampColorAt } from '../heatmap-ramp.js';
@@ -725,14 +725,22 @@ export class HeatmapLayer implements Layer {
 					 * the ray bounced off.
 					 */
 					if (walls.length > 0) {
-						const bounce = bestReflection(
+						/*
+						 * Every return that reaches here, not just the strongest.
+						 *
+						 * "Strongest only" switched walls across a line in the room and left a
+						 * crease there, plus a ring where the distance cull began; summing what
+						 * exists is continuous where the physics is continuous and only costs
+						 * a memoised coefficient per wall.
+						 */
+						const returns = reflections(
 							{ x: apX[i]!, y: apY[i]! },
 							{ x: wx, y: wy },
 							walls,
 							bands[i]!,
 							reflectionReach
 						);
-						if (bounce) {
+						for (const bounce of returns) {
 							const reflected =
 								apRefDb[i]! -
 								relativePathLossDb(bounce.length * metersPerWorldUnit) -
@@ -748,15 +756,15 @@ export class HeatmapLayer implements Layer {
 					}
 
 					/*
-					 * Diffraction, only where the direct path is blocked.
+					 * Diffraction, ramped in as the wall blocks more.
 					 *
-					 * A wall end is the one place a wave can bend around a segment, and the
-					 * loss it pays is the knife-edge figure from P.526. It fills the shadow a
-					 * wall casts — the room around the corner that the model used to call
-					 * silent — and is not added beside a line-of-sight path, where the direct ray
-					 * already carries the energy.
+					 * A hard "blocked at 6 dB" gate drew the contour where it flipped as a
+					 * visible notch: on one side the shadow was filled, on the other it was
+					 * not. The weight ramps from nothing at 3 dB to full at 9 dB, so the term
+					 * grows where the wall starts to occlude instead of appearing at a line.
 					 */
-					if (wallLoss >= DIFFRACTION_BLOCKED_DB && edges.length > 0) {
+					const diffractionGate = Math.min(1, Math.max(0, (wallLoss - 3) / 6));
+					if (diffractionGate > 0 && edges.length > 0) {
 						const loss = diffractionLossDb(
 							{ x: apX[i]!, y: apY[i]! },
 							{ x: wx, y: wy },
@@ -767,7 +775,9 @@ export class HeatmapLayer implements Layer {
 							const diffracted =
 								apRefDb[i]! - relativePathLossDb(dWu * metersPerWorldUnit) - loss -
 								antennaRayLossDb(apProfiles[i]!, gap, dx, dy);
-							if (diffracted > this.rssiFloor) reflectedMw += 10 ** (diffracted / 10);
+							if (diffracted > this.rssiFloor) {
+								reflectedMw += diffractionGate * 10 ** (diffracted / 10);
+							}
 						}
 					}
 				}

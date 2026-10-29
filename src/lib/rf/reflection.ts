@@ -131,7 +131,13 @@ export function specularReflection(
  * Zero for a material with no ITU equivalent. The virtual partition is a line in the mask that
  * divides rooms — it is not a surface, so it reflects nothing; the closed door is modelled by a
  * flat loss, so it has no coefficient to reflect with either.
+ *
+ * The coefficient changes slowly with angle, so it is memoised on a coarse angle bucket and on
+ * the material: the per-texel loop asks for it millions of times per image, and the complex
+ * arithmetic behind it (two square roots and two exponentials) is the expensive part of the
+ * whole term.
  */
+const coefficientCache = new Map<string, number>();
 export function reflectionPowerRatio(
 	wall: ReflectingWall,
 	band: Band,
@@ -139,6 +145,11 @@ export function reflectionPowerRatio(
 ): number {
 	const material = getMaterial(wall.material as WallMaterialId);
 	if (!material.itu) return 0;
+	const bucket = Math.round(Math.min(1, Math.max(0, cosTheta)) * 40);
+	const key = `${wall.material}:${band}:${bucket}`;
+	const cached = coefficientCache.get(key);
+	if (cached !== undefined) return cached;
+
 	const frequencyGhz = BAND_FREQUENCY_GHZ[band];
 	const { epsR, sigma } = ituEpsilon(material.itu, frequencyGhz);
 	const { rTe, rTm } = slabTransmission(
@@ -149,16 +160,56 @@ export function reflectionPowerRatio(
 		cosTheta
 	);
 	const power = (rTe.re * rTe.re + rTe.im * rTe.im + rTm.re * rTm.re + rTm.im * rTm.im) / 2;
-	return Math.min(1, Math.max(0, power));
+	const result = Math.min(1, Math.max(0, power));
+	coefficientCache.set(key, result);
+	return result;
+}
+
+/**
+ * Every reflection reaching `to`, strongest first, above `minRatio`.
+ *
+ * The picture is built from **all** of them rather than the strongest one.
+ *
+ * "Strongest only" looked wrong on a real plan, and the reason is geometric: which wall is the
+ * strongest *switches* across a line in the room, and at that line the picture jumps from one
+ * wall's path to another's — a sharp crease where the physics is continuous. It also left a
+ * visible edge where the distance cull and the −25 dB cutoff began. Summing the returns that
+ * exist removes both discontinuities, at the cost of a coefficient per wall (memoised on a
+ * coarse angle bucket, see `reflectionPowerRatio`).
+ */
+export function reflections(
+	from: { x: number; y: number },
+	to: { x: number; y: number },
+	walls: readonly ReflectingWall[],
+	band: Band,
+	maxDistance = Infinity,
+	minRatio = 1e-4
+): Reflection[] {
+	const out: Reflection[] = [];
+	const midX = (from.x + to.x) / 2;
+	const midY = (from.y + to.y) / 2;
+
+	for (const wall of walls) {
+		// Soft cull: a wall that only just misses the radius contributes almost nothing, and
+		// the fade keeps the radius from drawing a circle on the plan.
+		const reach = Math.hypot((wall.ax + wall.bx) / 2 - midX, (wall.ay + wall.by) / 2 - midY);
+		if (reach > maxDistance) continue;
+
+		const hit = specularReflection(from, to, wall);
+		if (!hit) continue;
+		const ratio = reflectionPowerRatio(wall, band, hit.cosTheta);
+		if (ratio <= minRatio) continue;
+		out.push({ ...hit, powerRatio: ratio });
+	}
+	out.sort((a, b) => b.powerRatio - a.powerRatio);
+	return out;
 }
 
 /**
  * The strongest single reflection reaching `to` from an access point, or null.
  *
- * `maxDistance` culls walls too far from the path to matter: a reflection's only hope is a short
- * detour, and per-texel cost has to stay bounded on a real plan. Walls are not sorted by
- * distance (that would cost more than it saves at these counts), so the cull is a plain
- * midpoint test.
+ * Kept for the coverage pass, which wants one number per sample rather than a picture: the
+ * margin of the best path.
  */
 export function bestReflection(
 	from: { x: number; y: number },
@@ -167,25 +218,6 @@ export function bestReflection(
 	band: Band,
 	maxDistance = Infinity
 ): Reflection | null {
-	let best: Reflection | null = null;
-	let bestDb = MIN_REFLECTION_DB;
-	const midX = (from.x + to.x) / 2;
-	const midY = (from.y + to.y) / 2;
-
-	for (const wall of walls) {
-		const wallX = (wall.ax + wall.bx) / 2;
-		const wallY = (wall.ay + wall.by) / 2;
-		if (Math.hypot(wallX - midX, wallY - midY) > maxDistance) continue;
-
-		const hit = specularReflection(from, to, wall);
-		if (!hit) continue;
-		const ratio = reflectionPowerRatio(wall, band, hit.cosTheta);
-		if (ratio <= 0) continue;
-		const db = 10 * Math.log10(ratio);
-		if (db > bestDb) {
-			bestDb = db;
-			best = { ...hit, powerRatio: ratio };
-		}
-	}
-	return best;
+	const all = reflections(from, to, walls, band, maxDistance);
+	return all.length > 0 ? all[0]! : null;
 }
