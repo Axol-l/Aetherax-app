@@ -146,6 +146,46 @@ for (let i = 0; i < 256; i++) {
 LUT[0] = 0;
 
 /**
+ * Separable 3×3 box blur over a level grid, twice, ignoring missing texels.
+ *
+ * The field the loop computes is exact per texel, which also means its shadow boundaries are
+ * exact lines and its colouring is piecewise constant: on a plan that reads as hard wedges and a
+ * staircase along every contour. Smoothing the levels — not the colours, which would blend
+ * across the ramp's hue wheel — is what makes the picture continuous, and NaN (a texel below the
+ * ramp floor) is skipped rather than averaged in as a level, so no bright fringe appears around
+ * the covered area.
+ */
+function boxBlurLevels(levels: Float32Array, cols: number, rows: number): Float32Array {
+	let source = levels;
+	for (let pass = 0; pass < 2; pass++) {
+		const target = new Float32Array(cols * rows).fill(Number.NaN);
+		for (let y = 0; y < rows; y++) {
+			const y0 = y > 0 ? y - 1 : 0;
+			const y1 = y < rows - 1 ? y + 1 : rows - 1;
+			for (let x = 0; x < cols; x++) {
+				const x0 = x > 0 ? x - 1 : 0;
+				const x1 = x < cols - 1 ? x + 1 : cols - 1;
+				let sum = 0;
+				let count = 0;
+				for (let sy = y0; sy <= y1; sy++) {
+					const row = sy * cols;
+					for (let sx = x0; sx <= x1; sx++) {
+						const value = source[row + sx]!;
+						if (!Number.isNaN(value)) {
+							sum += value;
+							count++;
+						}
+					}
+				}
+				target[y * cols + x] = count > 0 ? sum / count : Number.NaN;
+			}
+		}
+		source = target;
+	}
+	return source;
+}
+
+/**
  * Heatmap layer — synchronous main-thread rendering.
  *
  * Wall attenuation uses precomputed fields from rf/propagation.ts (O(1) lookup).
@@ -579,6 +619,8 @@ export class HeatmapLayer implements Layer {
 		const cctx = canvas.getContext('2d')!;
 		const imgData = cctx.createImageData(cols, rows);
 		const u32 = new Uint32Array(imgData.data.buffer);
+		/** Received level per texel, in dBm; NaN where the texel is below the ramp floor. */
+		const levels = new Float32Array(cols * rows).fill(Number.NaN);
 		// The raised-surface field, in the units this loop works in. Resolved once so the
 		// inner loop is a multiply and a lookup rather than a conversion per texel.
 		const surfaces = this.surfaces;
@@ -785,13 +827,38 @@ export class HeatmapLayer implements Layer {
 				// Power sum: the texel hears the direct ray and the reflected one.
 				const totalDb =
 					reflectedMw > 0 ? 10 * Math.log10(10 ** (bestDb / 10) + reflectedMw) : bestDb;
-				// totalDb is the level here in dBm. Map [rssiFloor, rampTop] onto the ramp;
-				// below the floor is transparent.
+				/*
+				 * The level is stored, not coloured, so it can be smoothed first.
+				 *
+				 * A per-texel field is piecewise constant and its shadow boundaries are exact
+				 * lines: colouring it directly gives the hard wedges and steps the picture showed.
+				 * Blurring the *levels* (below) is what turns those into gradients, and it is
+				 * what a planning tool's image looks like — no staircase, no seam between two
+				 * neighbouring slices of the same shadow.
+				 */
+				levels[rowOff + tx] = totalDb;
+			}
+		}
+
+		/*
+		 * Two box-blur passes over the level grid.
+		 *
+		 * Separable and small: a 3×3 kernel twice is nine reads per texel, which is nothing next
+		 * to the field march, and it removes the texel staircase as well as the seams between
+		 * adjacent angular slices. Missing levels (below the ramp floor) are left out of the
+		 * averages rather than treated as zero dBm, which would draw a bright fringe around the
+		 * covered area.
+		 */
+		const smooth = boxBlurLevels(levels, cols, rows);
+
+		for (let ty = 0; ty < rows; ty++) {
+			const rowOff = ty * cols;
+			for (let tx = 0; tx < cols; tx++) {
+				const totalDb = smooth[rowOff + tx]!;
 				const norm = (totalDb - this.rssiFloor) / span;
-				if (norm <= 0) continue;
+				if (!Number.isFinite(totalDb) || norm <= 0) continue;
 				const color = LUT[Math.min(255, (norm * 255) | 0)]!;
 				if (!color) continue;
-
 				u32[rowOff + tx] = color;
 			}
 		}

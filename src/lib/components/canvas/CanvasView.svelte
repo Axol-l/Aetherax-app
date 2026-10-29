@@ -405,6 +405,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		blobId?: number;
 		/** The drawn segment it was opened on, when it was one. */
 		wallId?: string;
+		/** The column it was opened on, when it was one. */
+		columnId?: string;
 		/** Opened from the wall toolbar: the choice sets the material for what is drawn next. */
 		tool?: boolean;
 	} | null>(null);
@@ -470,10 +472,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 		return true;
 	}
 
-	/** Right-click / long-press contextual handler: wall popup or room popup. */
+	/** Right-click / long-press contextual handler: wall, column, raster or room popup. */
 	function handleContextAction(screenX: number, screenY: number): boolean {
 		// A drawn segment first: it is the model, and the raster blob under it is only
-		// its shadow. Then the raster, then a room.
+		// its shadow. A column is the same kind of thing — a pier is a wall with no length —
+		// so it comes before the raster too. Then the raster, then a room.
+		if (handleVectorColumnContext(screenX, screenY)) return true;
 		if (handleVectorWallContext(screenX, screenY)) return true;
 		if (handleWallClick(screenX, screenY)) return true;
 		if (handleRoomClick(screenX, screenY)) return true;
@@ -486,6 +490,33 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * This is how a wall's material is set now that the paint brush is gone, so it has to
 	 * outrank the blob behind it — the segment is the wall, the blob is its rasterisation.
 	 */
+	/**
+	 * Right-click on a column: the popup edits *that column's* material.
+	 *
+	 * A column is drawn in the toolbar's current material and, until now, had no way back: a
+	 * pier drawn as drywall could not be made concrete without deleting and redrawing it. It is
+	 * the same popup as a wall's, keyed on the column instead.
+	 */
+	function handleVectorColumnContext(screenX: number, screenY: number): boolean {
+		if (!engine) return false;
+		const floor = currentFloor();
+		const columns = (floor?.columns ?? []) as VectorColumn[];
+		if (columns.length === 0) return false;
+		const world = engine.camera.screenToWorld({ x: screenX, y: screenY });
+		const column = columnAtPoint(columns, world);
+		if (!column) return false;
+		appState.wallColumnSelected = column.id;
+		appState.wallVectorSelected = null;
+		wallPopup = {
+			x: screenX,
+			y: screenY,
+			material: column.material as WallMaterialId,
+			columnId: column.id
+		};
+		engine.markDirty();
+		return true;
+	}
+
 	function handleVectorWallContext(screenX: number, screenY: number): boolean {
 		if (!engine) return false;
 		const floor = currentFloor();
@@ -593,6 +624,23 @@ import { wallState } from '$state/wall-state.svelte.js';
 			pushState();
 			floor.walls = (floor.walls ?? []).map((candidate) =>
 				candidate.id === wall.id ? { ...candidate, material: newMaterial } : candidate
+			);
+			syncVectorWallsToMask();
+			scheduleSave();
+			return;
+		}
+		/*
+		 * A column: the same rule as a wall — the material is the column's own, and the mask is
+		 * re-derived from it. The drawing shows it as the column's fill colour, so "assign a
+		 * material to a pier" is one action rather than delete-and-redraw.
+		 */
+		if (wallPopup.columnId) {
+			const floor = currentFloor();
+			const column = floor?.columns?.find((candidate) => candidate.id === wallPopup!.columnId);
+			if (!floor || !column) return;
+			pushState();
+			floor.columns = (floor.columns ?? []).map((candidate) =>
+				candidate.id === column.id ? { ...candidate, material: newMaterial } : candidate
 			);
 			syncVectorWallsToMask();
 			scheduleSave();
