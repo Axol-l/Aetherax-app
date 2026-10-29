@@ -122,6 +122,15 @@ function mergeRuns(runs: Run[], mergeGap: number): Run[] {
 	for (const run of sorted) {
 		const host = merged.find((candidate) => {
 			if (Math.abs(candidate.line - run.line) > mergeGap) return false;
+			/*
+			 * Only runs of the same material are one wall.
+			 *
+			 * Detection paints windows and doors into their own material, and merging across
+			 * materials turned a run of windows into the room's whole top wall: one long line at
+			 * the wall's material, with the openings gone. A window band stays a window segment,
+			 * and the wall it sits in stays the wall.
+			 */
+			if (candidate.material !== run.material) return false;
 			const overlap = Math.min(candidate.to, run.to) - Math.max(candidate.from, run.from);
 			const shortest = Math.min(candidate.to - candidate.from, run.to - run.from);
 			// The two cases this has to catch: the rows of one thick band overlap almost
@@ -335,7 +344,18 @@ export async function traceFloorWalls(floorId: string): Promise<number> {
 		decoded.materialMap,
 		decoded.width,
 		decoded.height,
-		floor.wallMaterial as WallMaterialId
+		floor.wallMaterial as WallMaterialId,
+		/*
+		 * Long enough to be a wall, not a piece of furniture.
+		
+		 * The default minimum is twelve pixels, which is right for a hand-painted mask (a brush
+		 * stroke's cross-section) but too permissive for a detected plan: a desk, a table or a
+		 * row of hatching in a drawing is a run of twenty or thirty pixels, and every one of them
+		 * became a wall — a stub in the drawing, and a narrow shadow in the heatmap. Twenty-four
+		 * pixels is about a door's width at the import's target size, so a real partition still
+		 * survives and furniture does not.
+		 */
+		{ minLength: 24 }
 	);
 	floor.walls = traced.map((wall) => ({
 		id: crypto.randomUUID(),

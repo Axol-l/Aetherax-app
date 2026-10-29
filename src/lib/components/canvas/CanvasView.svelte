@@ -1895,6 +1895,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	// Sync floorplan image to layer
+	let lastFittedUrl: string | null = null;
 	$effect(() => {
 		if (!floorplanLayer) return;
 		const url = floorplanState.floorplanUrl;
@@ -1906,15 +1907,21 @@ import { wallState } from '$state/wall-state.svelte.js';
 		floorplanLayer.offsetY = floor?.floorplanOffsetY ?? 0;
 		if (url) {
 			floorplanLayer.loadImage(url, () => {
-				// Auto-fit to floorplan bounds on load — single-floor view only.
-				//
-				// Switching floors re-runs this effect, so the callback fires again
-				// with the new floor's plan. In the tiled overview the floors are laid
-				// out in one world frame starting at the origin, which is also where
-				// every floor's own plan is drawn, so fitting here sent the camera
-				// onto the first tile's corner whichever card was clicked. The tiled
-				// view does its own fit, in `StatusBar`, from the sheet's bounds.
-				if (appState.floorView === 'single' && floorplanLayer.imageWidth > 0) {
+				/*
+				 * Auto-fit once per *image*, never per offset.
+				 *
+				 * This effect also re-runs when a floor is aligned (the offset is one of its
+				 * inputs), and `loadImage` calls back on a cache hit too — so every alignment
+				 * and every undo re-fitted the camera, which is precisely "the zoom went back
+				 * to fit" on both. A new image is the only event that should re-frame the view;
+				 * a moved one is a move the user just made.
+				 */
+				if (
+					url !== lastFittedUrl &&
+					appState.floorView === 'single' &&
+					floorplanLayer.imageWidth > 0
+				) {
+					lastFittedUrl = url;
 					const rect = engine.canvas.getBoundingClientRect();
 					engine.camera.fitToBounds(
 						[

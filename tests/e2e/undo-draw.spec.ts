@@ -15,13 +15,16 @@ test('ctrl+z removes the last segment while the wall tool is open, and keeps the
 	await page.getByRole('button', { name: 'Draw from Scratch' }).click();
 	await page.waitForTimeout(500);
 
-	// Zoom in first, so a reset to fit is visible.
+	// Zoom in first, so a reset to fit is visible. Read the status bar's own zoom, not any
+	// percentage on the page: the sidebar has "100%" opacity labels too.
 	const canvas = page.locator('canvas');
 	const box = (await canvas.boundingBox())!;
 	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
 	await page.mouse.wheel(0, -400);
 	await page.waitForTimeout(400);
-	const zoomBefore = (await page.locator('body').innerText()).match(/\d+%/)?.[0] ?? '';
+	const zoomOf = async (): Promise<string> =>
+		(await page.locator('.status-item.zoom').innerText()).trim();
+	const zoomBefore = await zoomOf();
 
 	await canvas.click({ position: { x: 200, y: 200 } });
 	await canvas.click({ position: { x: 500, y: 200 } });
@@ -40,6 +43,5 @@ test('ctrl+z removes the last segment while the wall tool is open, and keeps the
 	await expect.poll(savedWalls, { timeout: 20_000 }).toBe(0);
 
 	// The view must not jump: an undo is a geometry edit, not a re-frame.
-	const zoomAfter = (await page.locator('body').innerText()).match(/\d+%/)?.[0] ?? '';
-	expect(zoomAfter).toBe(zoomBefore);
+	expect(await zoomOf()).toBe(zoomBefore);
 });

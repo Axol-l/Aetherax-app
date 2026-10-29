@@ -89,7 +89,7 @@ test('an alignment drag leaves the floor where it was dropped', async ({ page })
 	await page.mouse.wheel(0, -500);
 	await page.waitForTimeout(400);
 	const zoomText = async (): Promise<string> =>
-		(await page.locator('body').innerText()).match(/(\d+)%/)?.[0] ?? '';
+		(await page.locator('.status-item.zoom').innerText()).trim();
 	const zoomBefore = await zoomText();
 	await page.mouse.move(box.x + box.width * 0.5, box.y + box.height * 0.5);
 	await page.mouse.down();
