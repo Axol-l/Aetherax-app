@@ -191,7 +191,6 @@
 	 * a restart, and remembering *within* one is not worth a store.
 	 */
 	let expanded = $state(false);
-	let showRows = $state(false);
 </script>
 
 {#if review}
@@ -223,56 +222,48 @@
 					doors: review.summary.doors
 				})}
 			</span>
-			<Icon name="chevron-down" size={12} class={expanded ? 'chev open' : 'chev'} />
+			<span class="chev" class:open={expanded}>
+				<Icon name="chevron-down" size={12} />
+			</span>
 		</button>
 
 		{#if expanded}
 			{#if rows.length > 0}
 				<!--
-					The second level. Each row carries four role buttons, so this list is the
-					bulk of the block and the rare reason to open it at all.
+					The list itself, no second fold.
+ 
+					It used to sit behind "Check the openings and anything unclassified", which
+					made the user open the block and then open it again to reach the only thing
+					in it. The block's own heading is the fold; inside it, the list is the block.
 				-->
-				<button class="review-sub toggle" aria-expanded={showRows} onclick={() => (showRows = !showRows)}>
-					<span class="toggle-label">
-						{t('Check the openings and anything unclassified')}
-						{#if rows.length > shown.length}
-							<span class="meta">
-								· {t('showing {shown} of {total}', { shown: shown.length, total: rows.length })}
+				<ul class="rows">
+					{#each shown as element (element.id)}
+						<li
+							class="row"
+							class:overridden={isOverridden(element.id)}
+							onmouseenter={() => highlight(element)}
+							onmouseleave={() => highlight(null)}
+							onfocusin={() => highlight(element)}
+							onfocusout={() => highlight(null)}
+						>
+							<span class="role" data-role={element.role}>{element.role}</span>
+							<span class="label" title={labelFor(element)}>{labelFor(element)}</span>
+							<span class="choices">
+								{#each CHOICES as choice (choice.role)}
+									<button
+										class="choice"
+										class:current={element.role === choice.role}
+										disabled={busy}
+										title={t('Treat this element as') + ' ' + t(choice.label)}
+										onclick={() => setRole(element.id, choice.role)}
+									>
+										{t(choice.label)}
+									</button>
+								{/each}
 							</span>
-						{/if}
-					</span>
-					<Icon name="chevron-down" size={11} class={showRows ? 'chev open' : 'chev'} />
-				</button>
-				{#if showRows}
-					<ul class="rows">
-						{#each shown as element (element.id)}
-							<li
-								class="row"
-								class:overridden={isOverridden(element.id)}
-								onmouseenter={() => highlight(element)}
-								onmouseleave={() => highlight(null)}
-								onfocusin={() => highlight(element)}
-								onfocusout={() => highlight(null)}
-							>
-								<span class="role" data-role={element.role}>{element.role}</span>
-								<span class="label" title={labelFor(element)}>{labelFor(element)}</span>
-								<span class="choices">
-									{#each CHOICES as choice (choice.role)}
-										<button
-											class="choice"
-											class:current={element.role === choice.role}
-											disabled={busy}
-											title={t('Treat this element as') + ' ' + t(choice.label)}
-											onclick={() => setRole(element.id, choice.role)}
-										>
-											{t(choice.label)}
-										</button>
-									{/each}
-								</span>
-							</li>
-						{/each}
-					</ul>
-				{/if}
+						</li>
+					{/each}
+				</ul>
 			{/if}
 
 			{#if failed}
@@ -371,26 +362,6 @@
 		transform: rotate(180deg);
 	}
 
-	button.toggle {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		width: 100%;
-		padding: 0;
-		font: inherit;
-		color: inherit;
-		text-align: left;
-		background: none;
-		border: 0;
-		cursor: pointer;
-	}
-
-	.toggle-label {
-		flex: 1 1 auto;
-		min-width: 0;
-	}
-
 	/*
 	 * The two actions, side by side and separated, instead of stacked full-width links.
 	 * Stacked they read as headings — the eye takes an underlined line starting at the
@@ -406,7 +377,6 @@
 		border-top: 1px solid var(--border-subtle);
 	}
 
-	button.toggle:hover,
 	button.review-head:hover .review-title {
 		color: var(--text-primary);
 	}
@@ -423,16 +393,6 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--text-primary);
-	}
-
-	.meta,
-	.review-sub {
-		font-size: var(--text-xs);
-		color: var(--text-tertiary);
-	}
-
-	.review-sub {
-		margin-top: var(--space-1);
 	}
 
 	.rows {
