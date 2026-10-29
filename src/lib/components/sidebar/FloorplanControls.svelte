@@ -22,7 +22,7 @@
 	import { compareWallModels, type WallModelComparison } from '$lib/rf/wall-model-compare.js';
 	import { rasterRayLossDb } from '$lib/rf/raster-ray.js';
 	import type { WallMaterialId } from '$canvas/materials.js';
-	import { traceFloorWalls } from '$state/wall-trace.js';
+	import { traceFloorWalls, setFloorWallsFromSegments } from '$state/wall-trace.js';
 	import { rasteriseWalls as rasteriseWallsToMasks } from '$state/wall-raster.js';
 	import { encodeMaterialMask } from '$canvas/region-labels.js';
 
@@ -387,7 +387,10 @@
 				if (floor) {
 					floor.walls = [];
 					floor.columns = [];
-					await traceFloorWalls(floor.id);
+					// Exact geometry from the drawing first; the mask is traced only when the
+					// elements were all curves, because that is the case a trace is for.
+					const written = setFloorWallsFromSegments(floor.id, detection.segments ?? []);
+					if (written === 0) await traceFloorWalls(floor.id);
 				}
 				scheduleSave();
 			}
@@ -465,8 +468,10 @@
 					// (a floor with segments derives its mask from them, not from the detection).
 					floor.walls = [];
 					floor.columns = [];
-					await traceWallsFromMaskOnFloor();
-					console.info(`[detect] traced ${floor.walls?.length ?? 0} segments`);
+					// Re-detect on a drawing with real geometry: read it, do not trace it.
+					const written = setFloorWallsFromSegments(floor.id, detection.segments ?? []);
+					if (written === 0) await traceWallsFromMaskOnFloor();
+					console.info(`[detect] ${floor.walls?.length ?? 0} segments`);
 				}
 				scheduleSave();
 			}

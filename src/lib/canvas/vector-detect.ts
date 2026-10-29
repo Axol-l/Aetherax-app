@@ -32,6 +32,7 @@
 
 import { WALL_MATERIALS, type WallMaterialId } from './materials.js';
 import { fillParallelGaps } from './morphology.js';
+import { segmentsFromSvg } from './svg-walls.js';
 import type { WallMaskData } from '$state/wall-state.svelte.js';
 import {
 	classifyVectorElements,
@@ -78,6 +79,14 @@ export interface VectorDetection {
 	summary: VectorDetectionSummary;
 	/** Every element the reader looked at, for the review panel. */
 	elements: ReviewableElement[];
+	/**
+	 * The walls as **geometry**, read from the drawing's own elements.
+	 *
+	 * In the mask's frame (mask pixels = world units), each with the material its role gives it.
+	 * Empty when the drawing's elements are all curves, which is the case the raster trace exists
+	 * for.
+	 */
+	segments: Array<{ ax: number; ay: number; bx: number; by: number; material: WallMaterialId }>;
 }
 
 /**
@@ -292,6 +301,28 @@ export async function detectVectorFloorplan(
 				}
 			: null;
 
+		/*
+		 * The walls as geometry, not only as a mask.
+		 *
+		 * `segmentsFromSvg` reads the drawing's own lines, so a diagonal survives and an opening
+		 * keeps its material — things the raster trace cannot do. Built here, where the roles,
+		 * the content box and the render scale are all in scope, and returned with the masks so a
+		 * caller can prefer the exact geometry and fall back to the mask only if there is none.
+		 */
+		const segments = segmentsFromSvg(svg as unknown as SVGElement, drawables, {
+			roles,
+			contentBox,
+			scale,
+			minLength: 2
+		}).map((segment) => {
+			const role = roles[segment.element] ?? 'unknown';
+			return {
+				...segment,
+				material:
+					role === 'window' ? WINDOW_MATERIAL : role === 'door' ? DOOR_MATERIAL : defaultMaterial
+			};
+		});
+
 		return {
 			wallMask: {
 				dataUrl: encodeBinary(wall, width, height),
@@ -302,7 +333,8 @@ export async function detectVectorFloorplan(
 			},
 			materialMask,
 			summary,
-			elements
+			elements,
+			segments
 		};
 	} finally {
 		host.remove();

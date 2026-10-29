@@ -3,7 +3,7 @@ import { floorplanState } from '$state/floorplan-state.svelte.js';
 import { floorState } from '$state/floor-state.svelte.js';
 import { wallState } from '$state/wall-state.svelte.js';
 import { scheduleSave } from '$state/persistence.svelte.js';
-import { traceFloorWalls } from '$state/wall-trace.js';
+import { traceFloorWalls, setFloorWallsFromSegments } from '$state/wall-trace.js';
 import { detectBoundary } from '$canvas/boundary-detect.js';
 import { detectFloorplanMasks } from '$canvas/detect-floorplan.js';
 
@@ -63,7 +63,11 @@ export async function importFloorplanFile(file: File): Promise<void> {
 			if (floor) {
 				floor.walls = [];
 				floor.columns = [];
-				await traceFloorWalls(floor.id);
+				// Exact geometry from the drawing when the vector reader got any; otherwise the
+				// mask is traced as before. Either way the floor ends up with segments, which is
+				// what the drawing shows.
+				const written = setFloorWallsFromSegments(floor.id, detection.segments ?? []);
+				if (written === 0) await traceFloorWalls(floor.id);
 			}
 		}
 		// What the vector reader saw, for the review panel. Cleared by a raster run so a

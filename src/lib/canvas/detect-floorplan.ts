@@ -60,6 +60,16 @@ export interface FloorplanDetection {
 	summary: VectorDetectionSummary | null;
 	/** Present only when `via === 'vector'`; everything the review panel needs. */
 	elements: ReviewableElement[] | null;
+	/**
+	 * The walls as geometry, when the vector reader could read them.
+	 *
+	 * Preferred over tracing the mask: exact, diagonals included, and each segment carries the
+	 * material its role gives it. Empty or null means the mask is all there is, and the caller
+	 * traces it as before.
+	 */
+	segments:
+		| Array<{ ax: number; ay: number; bx: number; by: number; material: number }>
+		| null;
 	/** The markup the vector reader was given, kept so an override can re-read it. */
 	source: string | null;
 	/** Present only when `via === 'raster'`: why the reader did not run. */
@@ -127,6 +137,7 @@ export async function detectFloorplanMasks(
 					via: 'vector',
 					summary: vector.summary,
 					elements: vector.elements,
+					segments: vector.segments,
 					source: markup,
 					rasterReason: null,
 					textMaskingFailed: false
@@ -142,11 +153,16 @@ export async function detectFloorplanMasks(
 	}
 
 	const image = await prepareSvgForDetection(url);
-	// OCR is for plans whose text is drawn pixels. An SVG's is either `<text>` (which
-	// `prepareSvgForDetection` strips, so OCR would find nothing) or outlines, where
-	// OCR damages the walls — measured at 90.6 % of wall pixels landing on ink without
-	// it and 0 % with it.
-	const wallMask = await detectWalls(image, targetWidth, { skipOcr: isSvgMarkup });
+	/*
+	 * No text masking on the default path.
+	 *
+	 * OCR existed to stop room labels being read as walls, and it loads its model from the
+	 * network — a planner that runs on a laptop in a basement never got it, and the failure was
+	 * silent. The tracing that now reads the mask keeps runs of a wall's length and drops the
+	 * twenty-odd-pixel strokes that lettering makes, which is the same job done locally. The code
+	 * is still there for a future "clean labels" pass; it is not on this path.
+	 */
+	const wallMask = await detectWalls(image, targetWidth, { skipOcr: true });
 	return {
 		image,
 		wallMask,
@@ -154,12 +170,10 @@ export async function detectFloorplanMasks(
 		via: 'raster',
 		summary: null,
 		elements: null,
+		segments: null,
 		source: null,
 		rasterReason: reason,
-		// Only meaningful when OCR was asked for: it loads its model from the network, and
-		// when that fails the text-masking step is skipped in silence and the room labels
-		// stay in the mask as walls. Reported so the sidebar can say exactly that.
-		textMaskingFailed: !isSvgMarkup && isOcrUnavailable()
+		textMaskingFailed: false
 	};
 }
 

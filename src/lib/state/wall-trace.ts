@@ -319,6 +319,31 @@ export function traceWallsFromMask(
 }
 
 /**
+ * Write a floor's walls from geometry a vector reader produced.
+ *
+ * The exact path: the drawing said where its walls are, so nothing is traced and nothing is
+ * approximated. Returns how many segments were written — zero means the caller should fall back to
+ * tracing the mask (a drawing whose elements are all curves).
+ */
+export function setFloorWallsFromSegments(
+	floorId: string,
+	segments: ReadonlyArray<{ ax: number; ay: number; bx: number; by: number; material: number }>
+): number {
+	const floor = floorState.floors.find((candidate) => candidate.id === floorId);
+	if (!floor) return 0;
+	floor.walls = segments.map((segment) => ({
+		id: crypto.randomUUID(),
+		ax: segment.ax,
+		ay: segment.ay,
+		bx: segment.bx,
+		by: segment.by,
+		material: segment.material as WallMaterialId
+	}));
+	floor.columns = [];
+	return floor.walls.length;
+}
+
+/**
  * Trace a floor's current mask into its wall segments.
  *
  * **Every** path that produces a mask has to run this, or the floor is left with geometry the
