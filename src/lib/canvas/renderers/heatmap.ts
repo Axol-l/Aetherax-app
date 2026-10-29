@@ -45,6 +45,7 @@ type HeatmapAp = AccessPoint & {
 	} | null;
 };
 import type { DecodedWallMask } from '../wall-detect.js';
+import { computeBuildingInterior } from '../morphology.js';
 import type { WallMaterialId } from '../materials.js';
 import { getMaterialDbTable, getFlatAttenuation } from '../materials.js';
 import type { Band } from '@aetherax/channels';
@@ -671,11 +672,41 @@ export class HeatmapLayer implements Layer {
 		// inner loop is a multiply and a lookup rather than a conversion per texel.
 		const surfaces = this.surfaces;
 		const surfaceScale = this.worldUnitsPerMeter;
-		// The outline the picture is clipped to, resolved once for the loop.
-		const clip =
+		/*
+		 * Where the picture is allowed to paint.
+		 *
+		 * A polygon outline when the plan has one, and — whether or not it does — the **interior
+		 * the walls enclose**, worked out here exactly as the "is this point inside" guard does
+		 * it. The polygon alone was not enough: a plan whose boundary was never detected (or was
+		 * rejected) had no clip at all, and every interior wall then threw its shadow across the
+		 * margin outside the building, which is the fan of dark wedges that keeps being reported
+		 * as spikes. The interior is derived from the wall mask, so it exists for any floor that
+		 * has walls at all.
+		 */
+		const outline =
 			this.clipPolygon && this.clipPolygon.length >= 3 && !this.isDragging
 				? this.clipPolygon
 				: null;
+		let interior: Uint8Array | null = null;
+		const maskForClip = this.wallMask;
+		if (maskForClip && !this.isDragging) {
+			const computed = computeBuildingInterior(
+				maskForClip.data,
+				maskForClip.width,
+				maskForClip.height,
+				{ maxDim: 400, dilateRatio: 0.04, minDilateR: 4, trimWallAdjacent: true }
+			).interior;
+			/*
+			 * Only if it actually encloses something.
+			 *
+			 * A plan whose walls do not close has no interior, and clipping to an empty region
+			 * would erase the picture instead of trimming its margin. Two percent of the mask is
+			 * a floor's worth of pixels and far more than a mis-detected outline produces.
+			 */
+			let enclosed = 0;
+			for (let i = 0; i < computed.length; i++) if (computed[i]) enclosed++;
+			if (enclosed > maskForClip.width * maskForClip.height * 0.02) interior = computed;
+		}
 		/*
 		 * One specular reflection per access point, as a power term.
 		 *
@@ -694,9 +725,17 @@ export class HeatmapLayer implements Layer {
 
 			for (let tx = 0; tx < cols; tx++) {
 				const wx = x0 + (tx + 0.5) * texel;
-				// Outside the building's own outline there is no floor to report a level for:
-				// the field would paint every wall's shadow across the margin instead.
-				if (clip && !pointInPolygon(wx, wy, clip)) continue;
+				// Outside the building there is no floor to report a level for: the field would
+				// paint every wall's shadow across the margin instead. Both tests are wanted
+				// when both exist — the polygon is the user's statement, the interior the walls'.
+				if (outline && !pointInPolygon(wx, wy, outline)) continue;
+				if (interior && maskForClip) {
+					const ix = Math.round(wx - maskForClip.originX);
+					const iy = Math.round(wy - maskForClip.originY);
+					const insideMask =
+						ix >= 0 && iy >= 0 && ix < maskForClip.width && iy < maskForClip.height;
+					if (!insideMask || interior[iy * maskForClip.width + ix] !== 1) continue;
+				}
 
 				/*
 				 * How high the client is here, in world units. Zero on the floor; a
