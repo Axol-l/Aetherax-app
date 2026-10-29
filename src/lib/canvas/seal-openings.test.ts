@@ -82,4 +82,26 @@ describe('sealOpenings', () => {
 		sealOpenings(door, W, H, 4);
 		expect(door).toEqual(copy);
 	});
+
+	/**
+	 * The size and radius a real plan produces.
+	 *
+	 * The closing used to paint a (2r+1)² square per set pixel — 820 × 839 at r ≈ 22 is 1.4
+	 * billion writes, measured at ~880 ms per call and called twice per wall edit, which froze
+	 * the app on every gesture. A square element is separable, so the same result costs two
+	 * passes of O(n·r). The bound is loose on purpose: it is there to catch a return to the
+	 * quadratic version, not to police milliseconds.
+	 */
+	it('closes a plan-sized mask in the time a gesture can afford', () => {
+		const w = 820;
+		const h = 839;
+		const mask = new Uint8Array(w * h);
+		for (let y = 40; y < h - 40; y += 60) {
+			for (let x = 40; x < w - 40; x++) mask[y * w + x] = 1;
+		}
+		const started = performance.now();
+		sealOpenings(mask, w, h, 22);
+		const elapsed = performance.now() - started;
+		expect(elapsed).toBeLessThan(200);
+	});
 });

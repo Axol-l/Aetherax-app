@@ -48,7 +48,26 @@ interface CachedInterior {
 
 const cache = new Map<string, CachedInterior>();
 
+/**
+ * The computation in flight per floor.
+ *
+ * Two callers asking at once — the effect that sets the notice runs on every AP write, and a
+ * wall edit can start it again before the first has finished — used to both miss the cache
+ * and both run the whole flood fill. Measured at ~900 ms each before the morphological
+ * passes were made separable, so the app did the work twice and blocked twice. They share
+ * one promise now.
+ */
+const inFlight = new Map<string, Promise<CachedInterior | null>>();
+
 async function interiorFor(floorId: string): Promise<CachedInterior | null> {
+	const pending = inFlight.get(floorId);
+	if (pending) return pending;
+	const run = computeInterior(floorId).finally(() => inFlight.delete(floorId));
+	inFlight.set(floorId, run);
+	return run;
+}
+
+async function computeInterior(floorId: string): Promise<CachedInterior | null> {
 	const decoded = await getFloorMask(floorId);
 	if (!decoded) return null;
 	const cached = cache.get(floorId);

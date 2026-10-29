@@ -76,24 +76,47 @@ export function sealOpenings(
 }
 
 /**
- * Dilate truthy pixels in a binary mask by a square radius.
- * Each truthy pixel expands to fill a (2r+1)×(2r+1) square.
+ * Dilate truthy pixels in a binary mask by a square radius — separable, O(n·r).
+ *
+ * A square structuring element is the outer product of two lines, so dilating by a square is
+ * a horizontal pass followed by a vertical one. The obvious version (for each pixel, paint
+ * its (2r+1)² square) costs r² per pixel: at the radius the sealing uses on a real plan —
+ * 820×839 with r ≈ 22 — that is 1.4 billion writes, measured at ~880 ms per call, twice per
+ * wall edit. Separable brings it to two passes of 30 million.
+ *
  * Returns a new mask (does not mutate input).
  */
 export function dilateMask(mask: Uint8Array, w: number, h: number, radius: number): Uint8Array {
-	const out = new Uint8Array(mask);
+	const r = Math.max(0, Math.round(radius));
+	if (r === 0) return new Uint8Array(mask);
+
+	// Horizontal: a pixel is set when anything within r of it on its row is set. A running
+	// count avoids a scan per pixel.
+	const rows = new Uint8Array(w * h);
 	for (let y = 0; y < h; y++) {
+		const base = y * w;
+		let count = 0;
+		for (let x = 0; x <= Math.min(w - 1, r); x++) count += mask[base + x]!;
 		for (let x = 0; x < w; x++) {
-			if (!mask[y * w + x]) continue;
-			const ylo = Math.max(0, y - radius);
-			const yhi = Math.min(h - 1, y + radius);
-			const xlo = Math.max(0, x - radius);
-			const xhi = Math.min(w - 1, x + radius);
-			for (let ny = ylo; ny <= yhi; ny++) {
-				for (let nx = xlo; nx <= xhi; nx++) {
-					out[ny * w + nx] = 1;
-				}
-			}
+			if (count > 0) rows[base + x] = 1;
+			const out = x - r;
+			const inn = x + r + 1;
+			if (out >= 0) count -= mask[base + out]!;
+			if (inn < w) count += mask[base + inn]!;
+		}
+	}
+
+	// Vertical: the same over columns of the horizontal result.
+	const out = new Uint8Array(w * h);
+	for (let x = 0; x < w; x++) {
+		let count = 0;
+		for (let y = 0; y <= Math.min(h - 1, r); y++) count += rows[y * w + x]!;
+		for (let y = 0; y < h; y++) {
+			if (count > 0) out[y * w + x] = 1;
+			const gone = y - r;
+			const added = y + r + 1;
+			if (gone >= 0) count -= rows[gone * w + x]!;
+			if (added < h) count += rows[added * w + x]!;
 		}
 	}
 	return out;
@@ -129,34 +152,61 @@ export function erodeMask(
 	radius: number,
 	oob: 'empty' | 'solid' = 'empty'
 ): Uint8Array {
-	const out = new Uint8Array(w * h);
 	const r = Math.max(0, Math.round(radius));
 	const outsideIsSolid = oob === 'solid';
+	if (r === 0) return new Uint8Array(mask);
+
+	// Separable, like the dilation: a pixel survives only where its whole square is set, so
+	// test the row window and then the column window. `'empty'` out-of-bounds means the
+	// clipped window is smaller — which is exactly "the missing cells are not set" — and
+	// `'solid'` means they are set, so only the in-range cells are counted either way.
+	const rows = new Uint8Array(w * h);
 	for (let y = 0; y < h; y++) {
+		const base = y * w;
+		let zeros = 0;
+		const xlo = 0;
+		const xhi = Math.min(w - 1, r);
+		for (let x = xlo; x <= xhi; x++) if (!mask[base + x]) zeros++;
 		for (let x = 0; x < w; x++) {
-			if (!mask[y * w + x]) continue;
-			let solid = true;
-			for (let ny = y - r; ny <= y + r && solid; ny++) {
-				if (ny < 0 || ny >= h) {
-					if (!outsideIsSolid) solid = false;
-					else continue;
-					break;
-				}
-				for (let nx = x - r; nx <= x + r; nx++) {
-					if (nx < 0 || nx >= w) {
-						if (!outsideIsSolid) {
-							solid = false;
-							break;
-						}
-						continue;
-					}
-					if (!mask[ny * w + nx]) {
-						solid = false;
-						break;
-					}
-				}
+			const lo = Math.max(0, x - r);
+			const hi = Math.min(w - 1, x + r);
+			// Rewind to this pixel's window: simpler than tracking, and the window moves by
+			// one per step so the recount is over at most two cells.
+			if (x === 0) {
+				rows[base] = zeros === 0 ? 1 : 0;
+			} else {
+				const drop = x - 1 - r;
+				const add = x + r;
+				if (drop >= 0 && !mask[base + drop]) zeros--;
+				if (add < w && !mask[base + add]) zeros++;
+				rows[base + x] = lo <= hi && zeros === 0 ? 1 : 0;
 			}
-			if (solid) out[y * w + x] = 1;
+		}
+	}
+
+	const out = new Uint8Array(w * h);
+	for (let x = 0; x < w; x++) {
+		let zeros = 0;
+		for (let y = 0; y <= Math.min(h - 1, r); y++) if (!rows[y * w + x]) zeros++;
+		for (let y = 0; y < h; y++) {
+			if (y === 0) {
+				out[x] = zeros === 0 ? 1 : 0;
+			} else {
+				const drop = y - 1 - r;
+				const add = y + r;
+				if (drop >= 0 && !rows[drop * w + x]) zeros--;
+				if (add < h && !rows[add * w + x]) zeros++;
+				out[y * w + x] = zeros === 0 ? 1 : 0;
+			}
+		}
+	}
+	if (!outsideIsSolid) {
+		// With out-of-bounds empty, the border band has a zero in its window whatever the
+		// mask says: clear it explicitly rather than pretend the clipped window is whole.
+		for (let y = 0; y < h; y++) {
+			for (let x = 0; x < w; x++) {
+				if (x < r || y < r || x >= w - r || y >= h - r) out[y * w + x] = 0;
+			}
 		}
 	}
 	return out;
