@@ -93,6 +93,28 @@ test('importing a floorplan file loads it', async ({ page }) => {
 	await page.waitForTimeout(15_000);
 	expect(await paintedPixels(page)).toBeGreaterThan(before * 4);
 	await expect(page.getByText('Floorplan loaded')).toBeVisible();
+
+	/*
+	 * The import also detects the walls, and the detection has to survive.
+	 *
+	 * A floor whose segment list is empty is exactly the case a detected raster mask exists for;
+	 * the mask was being emptied by the segment sync on the way in, so an import drew a plan with
+	 * no walls on it and Re-detect walls appeared to do nothing.
+	 */
+	await expect
+		.poll(
+			async () =>
+				page.evaluate(() => {
+					const raw = localStorage.getItem('aetherax:project');
+					if (!raw) return 0;
+					const project = JSON.parse(raw) as {
+						floors?: Array<{ wallMask?: { dataUrl?: string } | null }>;
+					};
+					return project.floors?.[0]?.wallMask?.dataUrl?.length ?? 0;
+				}),
+			{ timeout: 20_000 }
+		)
+		.toBeGreaterThan(1000);
 });
 
 test('a saved project round-trips through File → Save and Open', async ({ page }) => {

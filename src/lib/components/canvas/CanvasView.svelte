@@ -326,6 +326,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const walls = floor.walls ?? [];
 		const columns = floor.columns ?? [];
 		const frame = wallState.wallMask;
+		/*
+		 * No segments is not the same thing as no walls.
+		 *
+		 * The mask may be a *detected* raster — an imported plan, or Re-detect walls — which is
+		 * the only geometry that floor has. Emptying it here because the segment list is empty
+		 * threw the detection away, which is why an import stopped drawing walls and the
+		 * Re-detect button appeared to do nothing. The segment list is empty until the user draws
+		 * or traces; the detection owns the mask until then.
+		 */
+		if (walls.length === 0 && columns.length === 0) return;
 		const extent = frame
 			? {
 					width: frame.width,
@@ -334,15 +344,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					originY: frame.originY
 				}
 			: undefined;
-		// The last obstruction was deleted. The mask has to be emptied with it — otherwise
-		// every consumer keeps measuring walls that no longer exist — but the *frame* stays,
-		// so the room labels and the plan's coordinate system do not move.
-		const masks =
-			walls.length === 0 && columns.length === 0
-				? frame
-					? emptyWallMasks(extent!)
-					: null
-				: rasteriseWallsToMasks(
+		const masks = rasteriseWallsToMasks(
 						walls.map((wall) => ({
 							ax: wall.ax,
 							ay: wall.ay,
