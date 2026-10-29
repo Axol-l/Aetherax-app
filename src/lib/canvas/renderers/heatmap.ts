@@ -158,6 +158,52 @@ for (let i = 0; i < 256; i++) {
 LUT[0] = 0;
 
 /**
+ * Drop enclosed regions smaller than `minPixels`.
+ *
+ * The interior is whatever the walls enclose, and a drawing encloses more than rooms: the sliver
+ * between a wall's two strokes, a chase, the pocket behind a door frame. Each of those became a
+ * few painted texels *outside* the room — the small patches at wall ends and just beyond the wall
+ * line. A room is thousands of pixels; anything an order of magnitude smaller is not one.
+ */
+function dropSmallRegions(mask: Uint8Array, width: number, height: number, minPixels: number): void {
+	const seen = new Uint8Array(mask.length);
+	const stack: number[] = [];
+	const region: number[] = [];
+	for (let start = 0; start < mask.length; start++) {
+		if (!mask[start] || seen[start]) continue;
+		region.length = 0;
+		stack.length = 0;
+		stack.push(start);
+		seen[start] = 1;
+		while (stack.length > 0) {
+			const index = stack.pop()!;
+			region.push(index);
+			const x = index % width;
+			const y = (index - x) / width;
+			if (x > 0 && mask[index - 1] && !seen[index - 1]) {
+				seen[index - 1] = 1;
+				stack.push(index - 1);
+			}
+			if (x < width - 1 && mask[index + 1] && !seen[index + 1]) {
+				seen[index + 1] = 1;
+				stack.push(index + 1);
+			}
+			if (y > 0 && mask[index - width] && !seen[index - width]) {
+				seen[index - width] = 1;
+				stack.push(index - width);
+			}
+			if (y < height - 1 && mask[index + width] && !seen[index + width]) {
+				seen[index + width] = 1;
+				stack.push(index + width);
+			}
+		}
+		if (region.length < minPixels) {
+			for (const index of region) mask[index] = 0;
+		}
+	}
+}
+
+/**
  * Point in a closed polygon, by the crossing-number test.
  *
  * The clip is a floor's outline — a handful of corners — so the linear scan is the right
@@ -705,7 +751,12 @@ export class HeatmapLayer implements Layer {
 			 */
 			let enclosed = 0;
 			for (let i = 0; i < computed.length; i++) if (computed[i]) enclosed++;
-			if (enclosed > maskForClip.width * maskForClip.height * 0.02) interior = computed;
+			if (enclosed > maskForClip.width * maskForClip.height * 0.02) {
+				// Rooms, not the slivers a drawing encloses by accident: those were the small
+				// patches painted just outside the wall line and at wall ends.
+				dropSmallRegions(computed, maskForClip.width, maskForClip.height, 400);
+				interior = computed;
+			}
 		}
 		/*
 		 * One specular reflection per access point, as a power term.
@@ -725,16 +776,29 @@ export class HeatmapLayer implements Layer {
 
 			for (let tx = 0; tx < cols; tx++) {
 				const wx = x0 + (tx + 0.5) * texel;
-				// Outside the building there is no floor to report a level for: the field would
-				// paint every wall's shadow across the margin instead. Both tests are wanted
-				// when both exist — the polygon is the user's statement, the interior the walls'.
-				if (outline && !pointInPolygon(wx, wy, outline)) continue;
-				if (interior && maskForClip) {
-					const ix = Math.round(wx - maskForClip.originX);
-					const iy = Math.round(wy - maskForClip.originY);
-					const insideMask =
-						ix >= 0 && iy >= 0 && ix < maskForClip.width && iy < maskForClip.height;
-					if (!insideMask || interior[iy * maskForClip.width + ix] !== 1) continue;
+				/*
+				 * Paint where either region says the floor is.
+				 *
+				 * The clip used to be an AND: inside the outline **and** inside the walls. That
+				 * clipped a plan with an opening — the interior then stops at the doorway — and it
+				 * clipped the wall bands and the area between them, so the picture stopped short of
+				 * the plan the user was looking at. It is a union now: inside the drawn planning
+				 * area, or inside the walls, or the only one of the two that exists. Outside both is
+				 * the paper, and that is what the clip is for.
+				 */
+				if (outline || interior) {
+					let inOutline = true;
+					let inInterior = true;
+					if (outline) inOutline = pointInPolygon(wx, wy, outline);
+					if (interior && maskForClip) {
+						const ix = Math.round(wx - maskForClip.originX);
+						const iy = Math.round(wy - maskForClip.originY);
+						inInterior =
+							ix >= 0 && iy >= 0 && ix < maskForClip.width && iy < maskForClip.height
+								? interior[iy * maskForClip.width + ix] === 1
+								: false;
+					}
+					if (!inOutline && !inInterior) continue;
 				}
 
 				/*
