@@ -253,6 +253,34 @@ export function buildAttenField(
 		edgeAtten[a] = cumDb;
 	}
 
+	/*
+	 * A single-slice leak is not a shadow boundary: it is a hole.
+	 *
+	 * The march steps one pixel at a time along each 0.5° ray, so a one-pixel gap where two
+	 * walls meet — or a wall pixel the line pass rounded away — lets exactly one slice through
+	 * unattenuated. Interpolated between its two neighbours, that slice paints a thin bright
+	 * spike out of a corner, which is what the picture showed. A median of three neighbouring
+	 * angles removes a lone slice and leaves a real shadow, which is many slices wide, intact.
+	 */
+	const smoothed = new Float32Array(data.length);
+	for (let a = 0; a < angles; a++) {
+		const prev = (a + angles - 1) % angles;
+		const next = (a + 1) % angles;
+		const base = a * distBuckets;
+		const basePrev = prev * distBuckets;
+		const baseNext = next * distBuckets;
+		for (let d = 0; d < distBuckets; d++) {
+			const v0 = data[basePrev + d]!;
+			const v1 = data[base + d]!;
+			const v2 = data[baseNext + d]!;
+			// Median of three: min(max(a,b), max(min(a,b), c)).
+			const lo = v0 < v1 ? v0 : v1;
+			const hi = v0 < v1 ? v1 : v0;
+			smoothed[base + d] = v2 < lo ? lo : v2 > hi ? hi : v2;
+		}
+	}
+	data.set(smoothed);
+
 	return { data, angles, distBuckets, distStep, apX, apY, edgeAtten };
 }
 

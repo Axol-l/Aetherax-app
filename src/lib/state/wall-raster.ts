@@ -121,6 +121,34 @@ export function rasteriseWalls(
 				}
 			}
 		}
+
+		/*
+		 * Round caps, one disc at each end.
+		 *
+		 * The square above is stamped at rounded pixel centres, so two segments whose ends sit
+		 * within a pixel of each other can still leave a diagonal pinhole at the corner — and a
+		 * one-pixel hole is a hole a ray passes through, which paints a bright spike out of every
+		 * junction. A disc of the band's own radius at each endpoint closes the joint without
+		 * changing the band's width anywhere else.
+		 */
+		for (const end of [
+			{ x: segment.ax - originX, y: segment.ay - originY },
+			{ x: segment.bx - originX, y: segment.by - originY }
+		]) {
+			const ex = Math.round(end.x);
+			const ey = Math.round(end.y);
+			for (let dy = -radius; dy <= radius; dy++) {
+				for (let dx = -radius; dx <= radius; dx++) {
+					if (dx * dx + dy * dy > radius * radius) continue;
+					const x = ex + dx;
+					const y = ey + dy;
+					if (x < 0 || y < 0 || x >= width || y >= height) continue;
+					const index = y * width + x;
+					wall[index] = 1;
+					material[index] = segment.material;
+				}
+			}
+		}
 	}
 
 	// Columns are filled, not stroked: their whole footprint is obstruction.
