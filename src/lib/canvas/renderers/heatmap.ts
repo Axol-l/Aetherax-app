@@ -167,16 +167,6 @@ LUT[0] = 0;
  */
 const BAND_DB = 5;
 
-/** A contour line: the band's own colour, lifted towards white so the line reads on any band. */
-function lighten(color: number): number {
-	const a = (color >>> 24) & 0xff;
-	const b = (color >>> 16) & 0xff;
-	const g = (color >>> 8) & 0xff;
-	const r = color & 0xff;
-	const lift = (channel: number) => Math.min(255, Math.round(channel + (255 - channel) * 0.55));
-	return packColor(lift(r), lift(g), lift(b), Math.max(a, 190));
-}
-
 /**
  * Drop enclosed regions smaller than `minPixels`.
  *
@@ -258,7 +248,7 @@ function pointInPolygon(
  */
 function boxBlurLevels(levels: Float32Array, cols: number, rows: number): Float32Array {
 	let source = levels;
-	for (let pass = 0; pass < 2; pass++) {
+	for (let pass = 0; pass < 3; pass++) {
 		const target = new Float32Array(cols * rows).fill(Number.NaN);
 		for (let y = 0; y < rows; y++) {
 			const y0 = y > 0 ? y - 1 : 0;
@@ -1104,19 +1094,14 @@ export class HeatmapLayer implements Layer {
 				const color = LUT[colourAt]!;
 				if (!color) continue;
 				/*
-				 * A contour line wherever the band changes.
+				 * No drawn contour line.
 				 *
-				 * The band boundary is already visible as a colour change; the line is what makes it
-				 * readable at a glance on a plan with many bands, and it is drawn by lightening the
-				 * texel at the edge rather than by a second pass over a vector path — one band
-				 * pixel wide, which is how the reference tool draws it.
+				 * A one-texel outline on every band edge was the "mosaic, and messy" report: at a
+				 * three-world-unit texel the line is a staircase, and upscaled it breaks into dashes.
+				 * The band change itself is the contour — crisp, per band, and smooth once the level
+				 * grid is blurred — so the picture is left to the colour step.
 				 */
-				const left = tx > 0 ? levelBands[rowOff + tx - 1]! : band;
-				const right = tx < cols - 1 ? levelBands[rowOff + tx + 1]! : band;
-				const up = ty > 0 ? levelBands[rowOff - cols + tx]! : band;
-				const down = ty < rows - 1 ? levelBands[rowOff + cols + tx]! : band;
-				const edge = left !== band || right !== band || up !== band || down !== band;
-				u32[rowOff + tx] = edge ? lighten(color) : color;
+				u32[rowOff + tx] = color;
 			}
 		}
 

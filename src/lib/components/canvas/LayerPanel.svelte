@@ -48,9 +48,24 @@
 	 * there is nothing to show, which is exactly the information "no usable signal" carries.
 	 */
 	const floorDb = $derived(projectMeta.heatmapRssiFloor ?? -85);
-	const legendCells = $derived(
-		Array.from({ length: 24 }, (_, i) => rampCss(i / 23))
-	);
+	/**
+	 * The scale as bands, because the map is drawn as bands.
+	 *
+	 * A continuous bar next to a stepped map describes something the map is not. The bar is
+	 * divided every `LEGEND_BAND_DB` from the floor to 0 dBm and each block takes the ramp's colour
+	 * at its own middle — the same rule the heatmap uses for its bands, so a colour on the plan can
+	 * be found on the legend.
+	 */
+	const LEGEND_BAND_DB = 5;
+	const legendBands = $derived.by(() => {
+		const span = Math.max(LEGEND_BAND_DB, 0 - floorDb);
+		const count = Math.max(1, Math.ceil(span / LEGEND_BAND_DB));
+		return Array.from({ length: count }, (_, i) => ({
+			key: i,
+			color: rampCss((i + 0.5) / count),
+			from: Math.round(floorDb + i * LEGEND_BAND_DB)
+		}));
+	});
 	const legendTicks = $derived(
 		[0, 0.25, 0.5, 0.75, 1].map((r) => ({ key: r, label: Math.round(floorDb + r * (0 - floorDb)) }))
 	);
@@ -187,8 +202,11 @@
 						<span
 							class="scale-cell dead"
 							title={t('Below the floor: no usable signal')}></span>
-						{#each legendCells as color, i (i)}
-							<span class="scale-cell" style:background={color}></span>
+						{#each legendBands as band (band.key)}
+							<span
+								class="scale-cell band"
+								style:background={band.color}
+								title="{band.from} dBm"></span>
 						{/each}
 					</div>
 					<div class="scale-ticks">
@@ -362,6 +380,11 @@
 	.scale-cell {
 		flex: 1 1 0;
 		min-width: 0;
+	}
+
+	/* A band, not a gradient: the map paints bands, so the legend shows bands. */
+	.scale-cell.band {
+		border-right: 1px solid rgba(0, 0, 0, 0.35);
 	}
 
 	/* Below the floor the map paints nothing, so the legend shows nothing to paint. */
