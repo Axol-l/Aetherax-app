@@ -466,6 +466,7 @@ const zh: Record<string, string> = {
 	'Hall': '走廊',
 	'Stair': '楼梯',
 	'Raised surfaces': '抬升面',
+	'Floor properties': '楼层属性',
 	'{count} raised': '已抬升 {count} 处',
 	'Surface kind': '抬升面类型',
 	Platform: '高台',

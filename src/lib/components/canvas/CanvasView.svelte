@@ -320,12 +320,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * segments' bounding box — samples, texels and the interior are addressed in the plan's
 	 * frame, and a mask sized to the walls puts every one of them outside it.
 	 */
-	function syncVectorWallsToMask(): void {
+	function syncVectorWallsToMask(forceEmpty = false): void {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		if (!floor) return;
 		const walls = floor.walls ?? [];
 		const columns = floor.columns ?? [];
 		const frame = wallState.wallMask;
+		const noSegments = walls.length === 0 && columns.length === 0;
 		/*
 		 * No segments is not the same thing as no walls.
 		 *
@@ -334,8 +335,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 		 * threw the detection away, which is why an import stopped drawing walls and the
 		 * Re-detect button appeared to do nothing. The segment list is empty until the user draws
 		 * or traces; the detection owns the mask until then.
+		 *
+		 * `forceEmpty` is the caller saying the last segment was just deleted: then the mask must
+		 * be emptied, because otherwise every consumer keeps measuring a wall that is gone.
 		 */
-		if (walls.length === 0 && columns.length === 0) return;
+		if (noSegments && !forceEmpty) return;
 		const extent = frame
 			? {
 					width: frame.width,
@@ -344,26 +348,30 @@ import { wallState } from '$state/wall-state.svelte.js';
 					originY: frame.originY
 				}
 			: undefined;
-		const masks = rasteriseWallsToMasks(
-						walls.map((wall) => ({
-							ax: wall.ax,
-							ay: wall.ay,
-							bx: wall.bx,
-							by: wall.by,
-							material: wall.material
-						})),
-						DEFAULT_WALL_BAND,
-						8,
-						extent,
-						columns.map((column) => ({
-							shape: column.shape,
-							ax: column.ax,
-							ay: column.ay,
-							bx: column.bx,
-							by: column.by,
-							material: column.material
-						}))
-					);
+		const masks = noSegments
+			? frame
+				? emptyWallMasks(extent!)
+				: null
+			: rasteriseWallsToMasks(
+					walls.map((wall) => ({
+						ax: wall.ax,
+						ay: wall.ay,
+						bx: wall.bx,
+						by: wall.by,
+						material: wall.material
+					})),
+					DEFAULT_WALL_BAND,
+					8,
+					extent,
+					columns.map((column) => ({
+						shape: column.shape,
+						ax: column.ax,
+						ay: column.ay,
+						bx: column.bx,
+						by: column.by,
+						material: column.material
+					}))
+				);
 		if (!masks) return;
 		publishWallRaster({
 			data: masks.wall,
@@ -775,6 +783,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 					);
 					appState.wallColumnSelected = null;
 				}
+				// The last obstruction on the floor: the mask has to be emptied with it, in the
+				// frame it already has, or the model keeps charging a wall that no longer exists.
+				const segmentsLeft =
+					(floor!.walls ?? []).length + (floor!.columns ?? []).length === 0;
+				if (segmentsLeft) syncVectorWallsToMask(true);
 				scheduleSave();
 				engine.markDirty();
 				return;
@@ -2898,9 +2911,14 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// stalled every segment into one pass at the end.
 		if (appState.wallVectorMode) return;
 		if (wallsSyncTimer) clearTimeout(wallsSyncTimer);
+		// A floor that had segments and now has none: the last obstruction was deleted, and the
+		// mask has to be emptied with it — in the frame it already has, so the plan's coordinate
+		// system does not move. (A floor that never had segments keeps its detected mask; the
+		// early return above is what tells the two apart.)
+		const emptied = hadWalls && signature === '|';
 		wallsSyncTimer = setTimeout(() => {
 			wallsSyncTimer = null;
-			syncVectorWallsToMask();
+			syncVectorWallsToMask(emptied);
 		}, 120);
 	});
 

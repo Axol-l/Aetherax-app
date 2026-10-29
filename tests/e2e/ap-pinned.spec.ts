@@ -36,8 +36,18 @@ async function seed(page: Page): Promise<void> {
 			channelWidth: 20,
 			fixedChannel: null,
 			assignedChannel: null,
-			interferenceRadius: 1300,
-			power: 20,
+			/**
+			 * A reach that cannot cover the room with two units.
+			 *
+			 * The test is about the pinned constraint, and it needs a plan where the optimiser
+			 * *wants* to move something: with the wide reach this seed used, reflection and
+			 * diffraction now serve every sample from the free unit's original spot, coverage
+			 * arrived at 100 % and the optimiser correctly left both access points alone. A
+			 * tighter reach keeps some of the floor uncovered, so "the free AP moved and the
+			 * pinned one did not" still means what it says.
+			 */
+			interferenceRadius: 620,
+			power: 14,
 			modelId: null,
 			modelLabel: null,
 			mount: 'ceiling',
@@ -126,16 +136,23 @@ test('a pinned AP is not moved by the optimiser, and the others still are', asyn
 	await expect(page.getByText('Optimizing…', { exact: false })).toHaveCount(0, {
 		timeout: 150_000
 	});
-	// The result is applied and then saved on a debounce.
-	await page.waitForTimeout(3000);
-
-	const after = await savedAps(page);
+	// The result is applied and then saved on a debounce (five seconds since the save delay was
+	// lengthened, so a gesture does not trigger a write mid-drag), so poll rather than waiting a
+	// fixed three.
+	const after = await (async () => {
+		await expect
+			.poll(
+				async () => {
+					const now = await savedAps(page);
+					return Math.hypot(now['AP-2']!.x - before['AP-2']!.x, now['AP-2']!.y - before['AP-2']!.y);
+				},
+				{ timeout: 20_000 }
+			)
+			.toBeGreaterThan(10);
+		return savedAps(page);
+	})();
 	// Exactly where it was, to the world unit: not "close to" it.
 	expect(after['AP-1']!.x).toBe(before['AP-1']!.x);
 	expect(after['AP-1']!.y).toBe(before['AP-1']!.y);
 	expect(after['AP-1']!.pinned).toBe(true);
-	// And the free AP did move, so the run itself is what is being tested.
-	expect(
-		Math.hypot(after['AP-2']!.x - before['AP-2']!.x, after['AP-2']!.y - before['AP-2']!.y)
-	).toBeGreaterThan(10);
 });

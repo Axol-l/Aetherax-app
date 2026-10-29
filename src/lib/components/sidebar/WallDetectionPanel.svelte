@@ -216,28 +216,17 @@
 				<Icon name="sparkles" size={12} />
 				{t('Read from vector geometry')}
 			</span>
+			<span class="counts">
+				{t('{walls} walls · {windows} windows · {doors} doors', {
+					walls: review.summary.walls,
+					windows: review.summary.windows,
+					doors: review.summary.doors
+				})}
+			</span>
 			<Icon name="chevron-down" size={12} class={expanded ? 'chev open' : 'chev'} />
 		</button>
 
-		<span class="counts">
-			{t('{walls} walls · {windows} windows · {doors} doors', {
-				walls: review.summary.walls,
-				windows: review.summary.windows,
-				doors: review.summary.doors
-			})}
-		</span>
-
 		{#if expanded}
-			<span class="meta">
-				{t('{count} fixtures and labels left out of the mask', { count: review.summary.ignored })}
-				{#if review.overrides.size > 0}
-					<!-- An override usually moves an element out of this list (a door that is
-					     now a wall is not an opening), so without this the only sign that
-					     something changed is a count in a line above. -->
-					· {t('{count} changed by you', { count: review.overrides.size })}
-				{/if}
-			</span>
-
 			{#if rows.length > 0}
 				<!--
 					The second level. Each row carries four role buttons, so this list is the
@@ -289,23 +278,22 @@
 			{#if failed}
 				<span class="error">{t('That change left no walls at all — undo it or re-detect.')}</span>
 			{/if}
-		{/if}
 
-		<!--
-			The actions, in a row at the foot of the block rather than stacked under the
-			counts as bare underlined text: as two full-width links on their own lines they
-			read as headings for the sections below them. They stay outside the fold because
-			neither is detail — one undoes the user's own reclassifications, the other gives
-			up on the vector read entirely.
-		-->
-		<div class="review-actions">
-			{#if review.overrides.size > 0}
-				<button class="link" onclick={reset} disabled={busy}>{t('Reset')}</button>
-			{/if}
-			<button class="link" data-action="raster-detect" onclick={usePixels} disabled={busy}>
-				{t('Read walls from pixels instead')}
-			</button>
-		</div>
+			<!--
+				The actions, at the foot of the open block. Collapsed, the row is the title and the
+				counts and nothing else: the two actions give up on the vector read or undo the
+				user's own reclassifications, and neither is something to press by accident from a
+				folded block.
+			-->
+			<div class="review-actions">
+				{#if review.overrides.size > 0}
+					<button class="link" onclick={reset} disabled={busy}>{t('Reset')}</button>
+				{/if}
+				<button class="link" data-action="raster-detect" onclick={usePixels} disabled={busy}>
+					{t('Read walls from pixels instead')}
+				</button>
+			</div>
+		{/if}
 	</div>
 {/if}
 
@@ -554,13 +542,15 @@
 
 	.link {
 		align-self: flex-start;
-		margin-top: var(--space-1);
-		padding: 0;
+		margin-top: 0;
+		padding: 3px 8px;
+		font-family: inherit;
 		font-size: var(--text-xs);
-		color: var(--text-tertiary);
-		background: none;
-		border: none;
-		text-decoration: underline;
+		color: var(--text-secondary);
+		background: var(--bg-surface);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-sm);
+		text-decoration: none;
 		cursor: pointer;
 	}
 

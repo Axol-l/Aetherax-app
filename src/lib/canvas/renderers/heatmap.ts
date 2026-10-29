@@ -55,6 +55,7 @@ import {
 	relativePathLossDb,
 	getAttenField,
 	lookupAtten,
+	rayMarchWallAtten,
 	invalidateAttenCache,
 	type AttenField
 } from '../../rf/propagation.js';
@@ -700,7 +701,45 @@ export class HeatmapLayer implements Layer {
 					if (field) {
 						// Kept separate from `level`: it is also the test for whether this ray is
 						// blocked, which is when diffraction has something to fill.
-						wallLoss = lookupAtten(field, wx, wy);
+						/*
+						 * Exact march, not the polar lookup, for a same-floor path.
+						 *
+						 * The polar field stores attenuation per 0.5° slice, so a wall shadow's
+						 * boundary is quantised to slices: at a hundred metres out a slice is
+						 * several metres wide, and the interpolated result is the tapered spike
+						 * out of every corner that no amount of smoothing removed. Marching this
+						 * texel's own ray costs a pixel walk instead of a lookup, and it has no
+						 * angular quantisation at all. Cross-floor paths keep the field: their
+						 * split needs the prefix at the crossing, which is the field's own value.
+						 */
+						const mask = this.wallMask;
+						if (mask && !this.isDragging) {
+							wallLoss = rayMarchWallAtten(
+								mask.data,
+								mask.width,
+								mask.height,
+								this.materialMap,
+								matDbByBand.get(bands[i]!) ?? getMaterialDbTable(bands[i]!),
+								defaultDbByBand.get(bands[i]!) ?? getFlatAttenuation(this.defaultMaterial, bands[i]!),
+								apX[i]! - mask.originX,
+								apY[i]! - mask.originY,
+								wx - mask.originX,
+								wy - mask.originY,
+								/*
+								 * Two pixels per step, not one.
+								 *
+								 * The walls are a six-pixel band, so a two-pixel stride cannot step
+								 * over one, and it halves the cost of what is now a per-texel walk:
+								 * a 40 000-texel image with two APs is 80 000 marches, which at one
+								 * pixel per step is half a second on the frame the pointer is
+								 * released in.
+								 */
+								2,
+								this.defaultMaterial
+							);
+						} else {
+							wallLoss = lookupAtten(field, wx, wy);
+						}
 						level -= wallLoss;
 						if (crossFloor) {
 							// Split at the slab: undo the part of this floor's run that

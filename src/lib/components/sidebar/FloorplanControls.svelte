@@ -603,6 +603,8 @@
 	let wallsCollapsed = $state(false);
 	let surfacesCollapsed = $state(false);
 	let notesCollapsed = $state(false);
+	/** The floor-properties card (multi-storey only): read once per floor, then left alone. */
+	let propsCollapsed = $state(false);
 
 	/** Whether the floor's notes are listed. Open on first use, collapsible after. */
 	let notesOpen = $state(true);
@@ -1183,9 +1185,28 @@
 		the propagation model charges, and the alignment rows are meaningless until there is a
 		plan to line them up. So they follow the import and the calibration, in the order the
 		work is done — import, calibrate, align, then place access points and optimise.
+
+		A card like every other step, and collapsible like them: on a multi-storey plan these
+		rows are read once per floor and then left alone, and they used to sit loose between two
+		cards with no heading at all.
 	-->
 	{#if floorState.floors.length > 1}
-		<div class="floor-props">
+		<div class="planning-area">
+			<div class="planning-head">
+				<button
+					class="card-collapse"
+					aria-expanded={!propsCollapsed}
+					title={propsCollapsed ? t('Show the list') : t('Hide the list')}
+					onclick={() => (propsCollapsed = !propsCollapsed)}
+				>
+					<Icon name="chevron-down" size={11} />
+				</button>
+				<span class="planning-title">
+					<Icon name="stack" size={13} />
+					{t('Floor properties')}
+				</span>
+			</div>
+			<div class="floor-props">
 			<div class="prop-row">
 				<span class="prop-label">{t('Ceiling height')}</span>
 				<input
@@ -1262,6 +1283,7 @@
 					</Button>
 				</div>
 			{/if}
+			</div>
 		</div>
 	{/if}
 
@@ -1455,34 +1477,40 @@
 					and the reference tool puts every figure on its own row for the same
 					reason: a value with a unit is read once, not scanned in a grid.
 				-->
-				<label class="param-row">
+				<!--
+					Rows are divs, not labels. A label forwards every click inside it to its
+					control, so pressing "−" also focused the input and lit the whole row — the
+					"both buttons glow" report. Nothing here needs label semantics: the number
+					field carries its own accessible name.
+				-->
+				<div class="param-row">
 					<span class="param-label">{t('Attenuation')}</span>
 					<span class="param-control">
 						<NumberInput bind:value={appState.surfaceAttenuationDb} min={0} max={120} step={1} />
 						<span class="param-unit">dB</span>
 					</span>
-				</label>
-				<label class="param-row">
+				</div>
+				<div class="param-row">
 					<span class="param-label">{t('Upper height')}</span>
 					<span class="param-control">
 						<NumberInput bind:value={appState.surfaceTopHeightM} min={0} max={12} step={0.1} />
 						<span class="param-unit">m</span>
 					</span>
-				</label>
-				<label class="param-row">
+				</div>
+				<div class="param-row">
 					<span class="param-label">{t('Thickness')}</span>
 					<span class="param-control">
 						<NumberInput bind:value={appState.surfaceThicknessM} min={0} max={2} step={0.05} />
 						<span class="param-unit">m</span>
 					</span>
-				</label>
-				<label class="param-row">
+				</div>
+				<div class="param-row">
 					<span class="param-label">{appState.surfaceKind === 'platform' ? t('Height') : t('Lower height')}</span>
 					<span class="param-control">
 						<NumberInput bind:value={appState.surfaceHeightM} min={0} max={12} step={0.1} />
 						<span class="param-unit">m</span>
 					</span>
-				</label>
+				</div>
 				{#if appState.surfaceKind === 'stair'}
 					<!--
 						Derived, not stored: a stair's run is its rectangle, so the treads follow

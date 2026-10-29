@@ -520,14 +520,19 @@
 				The pin is a constraint on the optimiser, not on the user: a pinned AP can
 				still be dragged, and the optimiser then treats wherever it was left as the
 				place to keep. That is why the control sits with the position rather than in
-				the optimiser settings.
+				the optimiser settings — and it is a switch, the same one the raised-surface
+				card uses, rather than a checkbox: it is a state, not a tick-box on a form.
 			-->
-			<label class="pin-row">
-				<input
-					type="checkbox"
-					checked={singleAp.pinned}
-					onchange={handlePinnedChange}
-				/>
+			<button
+				class="pin-row"
+				class:on={singleAp.pinned}
+				role="switch"
+				aria-checked={singleAp.pinned}
+				onclick={() => {
+					pushState();
+					updateAp(singleAp.id, { pinned: !singleAp.pinned });
+				}}
+			>
 				<Tooltip
 					wrap
 					position="top"
@@ -535,7 +540,8 @@
 				>
 					<span>{t('Pin position')}</span>
 				</Tooltip>
-			</label>
+				<span class="toggle-track"><span class="toggle-knob"></span></span>
+			</button>
 		</div>
 
 		{#if interferers.length > 0}
@@ -821,16 +827,58 @@
 	.pin-row {
 		display: flex;
 		align-items: center;
-		gap: var(--space-1);
+		justify-content: space-between;
+		gap: var(--space-2);
+		width: 100%;
 		margin-top: var(--space-2);
+		padding: 4px 6px;
+		font-family: inherit;
 		font-size: var(--text-sm);
 		color: var(--text-secondary);
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
 		cursor: pointer;
 	}
 
-	.pin-row input {
-		accent-color: var(--accent-primary);
-		cursor: pointer;
+	.pin-row:hover {
+		background: var(--bg-hover);
+	}
+
+	.pin-row.on {
+		color: var(--text-primary);
+	}
+
+	/* The same switch the raised-surface card draws, so "a state" looks the same everywhere. */
+	.toggle-track {
+		position: relative;
+		width: 28px;
+		height: 16px;
+		border-radius: 999px;
+		background: var(--bg-surface);
+		border: 1px solid var(--border-default);
+		transition: background var(--transition-fast), border-color var(--transition-fast);
+	}
+
+	.pin-row.on .toggle-track {
+		background: var(--accent-primary);
+		border-color: var(--accent-primary);
+	}
+
+	.toggle-knob {
+		position: absolute;
+		top: 1px;
+		left: 1px;
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		background: var(--text-secondary);
+		transition: transform var(--transition-fast), background var(--transition-fast);
+	}
+
+	.pin-row.on .toggle-knob {
+		transform: translateX(12px);
+		background: #0b0d12;
 	}
 
 	.mount-height {
