@@ -334,6 +334,15 @@ export class HeatmapLayer implements Layer {
 	 */
 	reflectingWalls: ReflectingWall[] = [];
 	/**
+	 * The interior the clip uses, cached against the mask it was derived from.
+	 *
+	 * It is a function of the wall mask alone, and a drag or an AP move regenerates the image
+	 * dozens of times without touching the mask — so recomputing the flood fill and the
+	 * small-region filter every generation was pure waste. Keyed on the mask's signature, so a
+	 * re-derived mask (walls edited) invalidates it exactly when it should.
+	 */
+	private interiorCache: { key: string; data: Uint8Array } | null = null;
+	/**
 	 * The building's outline, when the plan has one, so the picture stops at the walls.
 	 *
 	 * Without it the field is painted over the whole sheet: every interior wall throws its shadow
@@ -775,28 +784,36 @@ export class HeatmapLayer implements Layer {
 		let interior: Uint8Array | null = null;
 		const maskForClip = this.wallMask;
 		if (maskForClip && !this.isDragging) {
-			const computed = computeBuildingInterior(
-				maskForClip.data,
-				maskForClip.width,
-				maskForClip.height,
-				{ maxDim: 400, dilateRatio: 0.04, minDilateR: 4, trimWallAdjacent: true }
-			).interior;
-			/*
-			 * Only if it actually encloses something.
-			 *
-			 * A plan whose walls do not close has no interior, and clipping to an empty region
-			 * would erase the picture instead of trimming its margin. Two percent of the mask is
-			 * a floor's worth of pixels and far more than a mis-detected outline produces.
-			 */
-			let enclosed = 0;
-			for (let i = 0; i < computed.length; i++) if (computed[i]) enclosed++;
-			if (enclosed > maskForClip.width * maskForClip.height * 0.02) {
-				// Rooms, not the slivers a drawing encloses by accident: those were the small
-				// patches painted just outside the wall line and at wall ends.
-				dropSmallRegions(computed, maskForClip.width, maskForClip.height, 400);
-				interior = computed;
+			const key = maskSignature(maskForClip);
+			if (this.interiorCache?.key === key) {
+				interior = this.interiorCache.data;
+			} else {
+				const computed = computeBuildingInterior(
+					maskForClip.data,
+					maskForClip.width,
+					maskForClip.height,
+					{ maxDim: 400, dilateRatio: 0.04, minDilateR: 4, trimWallAdjacent: true }
+				).interior;
+				/*
+				 * Only if it actually encloses something.
+				 *
+				 * A plan whose walls do not close has no interior, and clipping to an empty region
+				 * would erase the picture instead of trimming its margin. Two percent of the mask is
+				 * a floor's worth of pixels and far more than a mis-detected outline produces.
+				 */
+				let enclosed = 0;
+				for (let i = 0; i < computed.length; i++) if (computed[i]) enclosed++;
+				if (enclosed > maskForClip.width * maskForClip.height * 0.02) {
+					// Rooms, not the slivers a drawing encloses by accident: those were the small
+					// patches painted just outside the wall line and at wall ends.
+					dropSmallRegions(computed, maskForClip.width, maskForClip.height, 400);
+					interior = computed;
+				}
+				this.interiorCache = { key, data: interior ?? new Uint8Array(0) };
 			}
 		}
+		// An empty cached array means "this mask has no usable interior", not "no data".
+		if (interior && interior.length === 0) interior = null;
 		/*
 		 * One specular reflection per access point, as a power term.
 		 *
@@ -889,6 +906,19 @@ export class HeatmapLayer implements Layer {
 						const deck = deckCrossing(surfaces, wx, wy, gap / surfaceScale);
 						if (deck) level -= deck.lossDb;
 					}
+
+					/*
+					 * No point marching a ray that cannot reach this texel.
+					 *
+					 * `level` at this moment is the free-space level: path loss and the antenna's
+					 * cuts, with no wall, no deck and no reflection in it. Every term still to come
+					 * only *subtracts* — walls, the slab, a reflection's own coefficient plus its
+					 * longer path, diffraction's knife-edge loss — so an access point that is already
+					 * below the ramp's floor here cannot paint this texel however the walls fall. The
+					 * march is the expensive part of the loop, and this skips it for the far half of
+					 * a large plan instead of walking a ray to a colour that is then discarded.
+					 */
+					if (level <= this.rssiFloor) continue;
 
 					// Wall attenuation (precomputed field, O(1) lookup).
 					const field = fields[i];
