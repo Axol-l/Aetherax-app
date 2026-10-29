@@ -60,6 +60,7 @@ import {
 } from '../../rf/propagation.js';
 import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../rf/antenna.js';
 import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
+import { bestReflection, type ReflectingWall } from '../../rf/reflection.js';
 import { rampColorAt } from '../heatmap-ramp.js';
 import { maskSignature } from '../mask-registry.js';
 import { antennaProfileFor } from '$state/ap-state.svelte.js';
@@ -183,6 +184,15 @@ export class HeatmapLayer implements Layer {
 	defaultMaterial: WallMaterialId = 0;
 	/** Raised walking surfaces on the floor this image is for. See `HeatmapInput`. */
 	surfaces: ElevatableSurface[] = [];
+	/**
+	 * Wall segments, for the one specular reflection this renderer carries.
+	 *
+	 * Separate from `wallMask` on purpose: the mask is what blocks, the segments are what
+	 * reflects, and a reflection needs the segment's own line (a mask pixel has no normal).
+	 * Empty means no reflection, which is what a floor whose walls are still only a detected
+	 * raster gets — and what a drag gets, since a coarse image does not need the term.
+	 */
+	reflectingWalls: ReflectingWall[] = [];
 	isDragging = false;
 	/**
 	 * A wall mask is on its way for the floor now showing.
@@ -385,6 +395,11 @@ export class HeatmapLayer implements Layer {
 			// added is a different picture.
 			`|surf:${this.surfaces
 				.map((s) => `${s.kind}:${s.ax},${s.ay},${s.bx},${s.by}:${s.heightM}/${s.topHeightM}`)
+				.join(';')}` +
+			// The reflecting segments: their lines decide the bounce, so an edit moves the
+			// reflected term even when the derived mask happens to keep the same frame.
+			`|rw:${this.reflectingWalls
+				.map((w) => `${w.ax},${w.ay},${w.bx},${w.by}:${w.material}`)
 				.join(';')}`
 		);
 	}
@@ -455,6 +470,8 @@ export class HeatmapLayer implements Layer {
 		 * should, and the colour floor can be expressed in dBm.
 		 */
 		const apRefDb = new Float64Array(n);
+		/** Each AP's band, for the reflection coefficient's frequency. */
+		const bands: Band[] = [];
 		let rampTop = -Infinity;
 
 		const fields: (AttenField | null)[] = [];
@@ -475,6 +492,7 @@ export class HeatmapLayer implements Layer {
 			// The antenna's vertical cut. It is a function of the ray's elevation, which
 			// is per texel, so only the profile is resolved here.
 			apProfiles.push(antennaProfileFor(ap));
+			bands.push(ap.band);
 			floorDbThickness[i] = (ap.floorDbPerMeter ?? 0) * (ap.floorThickness ?? 0);
 			// pathLossDb(band, 1) is the 1 m reference loss PL0 for the band.
 			apRefDb[i] = ap.power - pathLossDb(ap.band, 1);
@@ -556,6 +574,15 @@ export class HeatmapLayer implements Layer {
 		// inner loop is a multiply and a lookup rather than a conversion per texel.
 		const surfaces = this.surfaces;
 		const surfaceScale = this.worldUnitsPerMeter;
+		/*
+		 * One specular reflection per access point, as a power term.
+		 *
+		 * Off while dragging: the coarse image a drag draws is about where the colour is, and
+		 * the reflection pass is the most expensive thing in this loop. Off too when the floor
+		 * has no segments — a mask-only floor has no wall lines to reflect off.
+		 */
+		const walls = this.isDragging ? [] : this.reflectingWalls;
+		const reflectionReach = 24 * this.worldUnitsPerMeter;
 
 		for (let ty = 0; ty < rows; ty++) {
 			const wy = y0 + (ty + 0.5) * texel;
@@ -574,8 +601,10 @@ export class HeatmapLayer implements Layer {
 
 				// Strongest received level at this texel, in dBm. Every term is
 				// already in dB so they simply add; there is no conversion to a
-				// linear power ratio anywhere in this loop.
+				// linear power ratio anywhere in this loop — except for the reflected
+				// term below, which is a power *sum* and has to be converted once.
 				let bestDb = -Infinity;
+				let reflectedMw = 0;
 				for (let i = 0; i < n; i++) {
 					const dx = wx - apX[i]!;
 					const dy = wy - apY[i]!;
@@ -668,11 +697,47 @@ export class HeatmapLayer implements Layer {
 					level -= slabDb;
 
 					if (level > bestDb) bestDb = level;
+
+					/*
+					 * The wall's mirror image: one specular bounce, added as power.
+					 *
+					 * The reflected ray travels access point → wall → texel, so it pays the
+					 * path loss of that longer distance and the wall's own reflection
+					 * coefficient (already a power ratio, ≤ 1). It does **not** pay the walls
+					 * between: both legs are on the same side of the reflecting wall by
+					 * construction, and charging crossings here would double-count the wall
+					 * the ray bounced off.
+					 */
+					if (walls.length > 0) {
+						const bounce = bestReflection(
+							{ x: apX[i]!, y: apY[i]! },
+							{ x: wx, y: wy },
+							walls,
+							bands[i]!,
+							reflectionReach
+						);
+						if (bounce) {
+							const reflected =
+								apRefDb[i]! -
+								relativePathLossDb(bounce.length * metersPerWorldUnit) -
+								antennaRayLossDb(
+									apProfiles[i]!,
+									gap,
+									bounce.x - apX[i]!,
+									bounce.y - apY[i]!
+								) +
+								10 * Math.log10(bounce.powerRatio);
+							if (reflected > this.rssiFloor) reflectedMw += 10 ** (reflected / 10);
+						}
+					}
 				}
 
-				// bestDb is the strongest received level here in dBm. Map
-				// [rssiFloor, rampTop] onto the ramp; below the floor is transparent.
-				const norm = (bestDb - this.rssiFloor) / span;
+				// Power sum: the texel hears the direct ray and the reflected one.
+				const totalDb =
+					reflectedMw > 0 ? 10 * Math.log10(10 ** (bestDb / 10) + reflectedMw) : bestDb;
+				// totalDb is the level here in dBm. Map [rssiFloor, rampTop] onto the ramp;
+				// below the floor is transparent.
+				const norm = (totalDb - this.rssiFloor) / span;
 				if (norm <= 0) continue;
 				const color = LUT[Math.min(255, (norm * 255) | 0)]!;
 				if (!color) continue;

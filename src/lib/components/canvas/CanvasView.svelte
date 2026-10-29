@@ -194,6 +194,21 @@ import { wallState } from '$state/wall-state.svelte.js';
 		};
 		wallLayer.mask = maskRef;
 		heatmapLayer.wallMask = maskRef;
+		/*
+		 * The segments, for the one specular reflection the heatmap carries.
+		 *
+		 * The mask blocks, the segments reflect: a reflection needs the segment's own line,
+		 * and a mask pixel has no normal. A floor whose walls are still a detected raster has
+		 * no segments, so it gets the direct field only — which is also what its edit path
+		 * used to do for walls in general.
+		 */
+		heatmapLayer.reflectingWalls = (currentFloor()?.walls ?? []).map((wall) => ({
+			ax: wall.ax,
+			ay: wall.ay,
+			bx: wall.bx,
+			by: wall.by,
+			material: wall.material
+		}));
 		cachedWallData = mat.data;
 		cachedMaterialData = mat.materialData;
 		cachedMaskOriginX = mat.originX;

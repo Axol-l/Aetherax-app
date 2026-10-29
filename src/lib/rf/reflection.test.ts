@@ -102,4 +102,30 @@ describe('bestReflection', () => {
 	it('finds nothing when there are no walls', () => {
 		expect(bestReflection({ x: 0, y: 100 }, { x: 60, y: 100 }, [], '5ghz')).toBeNull();
 	});
+
+	/**
+	 * The per-texel budget.
+	 *
+	 * The heatmap asks this once per texel per access point: a 4 000 × 4 000 world plan at the
+	 * fine texel is a few tens of thousands of texels, so a realistic run is a million calls.
+	 * If one call costs microseconds rather than tens of them, the term is affordable on the
+	 * frame the pointer is released in; if it ever costs more, the reflection pass needs a
+	 * different shape, not a faster machine.
+	 */
+	it('costs little enough to run per texel', () => {
+		const walls = Array.from({ length: 20 }, (_, i) => ({
+			ax: i * 50,
+			ay: 0,
+			bx: i * 50,
+			by: 400,
+			material: 4
+		}));
+		const started = performance.now();
+		const calls = 100_000;
+		for (let i = 0; i < calls; i++) {
+			bestReflection({ x: 10, y: 100 + (i % 200) }, { x: 300, y: 200 }, walls, '5ghz');
+		}
+		const perCall = (performance.now() - started) / calls;
+		expect(perCall).toBeLessThan(0.02);
+	});
 });

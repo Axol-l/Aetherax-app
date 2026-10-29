@@ -3,6 +3,7 @@ import { updateAp, beginMove } from './project.svelte.js';
 import { apHeightAboveFloor, apSplitFor, apVerticalOffsetTo, antennaProfileFor, getEffectiveWupm, type AccessPoint } from './ap-state.svelte.js';
 import { antennaRayLossDb } from '$lib/rf/antenna.js';
 import { surfaceHeightAt, deckCrossing } from '$lib/rf/surface-height.js';
+import { bestReflection } from '$lib/rf/reflection.js';
 import type { Band, ChannelWidth } from '@aetherax/channels';
 import { scheduleSave } from './persistence.svelte.js';
 import { t } from './i18n.svelte.js';
@@ -549,6 +550,21 @@ export async function updateCoverage(): Promise<void> {
 	 */
 	const surfaces = currentFloor().surfaces ?? [];
 	const surfaceWupm = getEffectiveWupm();
+	/*
+	 * The segments a ray can reflect off, and how far a reflection is worth looking for.
+	 *
+	 * Same term, same module, same band as the heatmap (`rf/reflection.ts`): one specular
+	 * bounce per access point, power-summed with the direct path. Empty for a floor whose
+	 * walls are still a detected raster, which has no segment lines to reflect off.
+	 */
+	const reflectingWalls = (currentFloor().walls ?? []).map((wall) => ({
+		ax: wall.ax,
+		ay: wall.ay,
+		bx: wall.bx,
+		by: wall.by,
+		material: wall.material
+	}));
+	const reflectionReach = 24 * surfaceWupm;
 	const coverageStarted = performance.now();
 	const sampleHeightWu = cachedSamples.map(
 		(sample) => surfaceHeightAt(surfaces, sample.x + ox, sample.y + oy) * surfaceWupm
@@ -674,6 +690,29 @@ export async function updateCoverage(): Promise<void> {
 			dbLoss += antennaRayLossDb(antennaProfileFor(ap), vertical, dx, dy);
 			const margin = coverageMarginDb(dist, ap.interferenceRadius) - dbLoss;
 			if (margin > bestMargin) bestMargin = margin;
+			/*
+			 * The wall's mirror image, as the heatmap adds it.
+			 *
+			 * A refracted-then-reflected path is not modelled; the reflected ray is a second way
+			 * to reach the sample, so it is judged on its own margin and the sample takes the
+			 * better of the two — which is what "covered if either path clears the threshold"
+			 * means for a client associating with the strongest server.
+			 */
+			if (reflectingWalls.length > 0) {
+				const bounce = bestReflection(
+					{ x: ap.x - ox, y: ap.y - oy },
+					{ x: sample.x, y: sample.y },
+					reflectingWalls,
+					ap.band as Band,
+					reflectionReach
+				);
+				if (bounce) {
+					const reflectedMargin =
+						coverageMarginDb(bounce.length, ap.interferenceRadius) +
+						10 * Math.log10(bounce.powerRatio);
+					if (reflectedMargin > bestMargin) bestMargin = reflectedMargin;
+				}
+			}
 		}
 		const w = sampleDensity[i] ?? 1;
 		// `coverageMarginDb` is measured over the association floor (-85 dBm), so
