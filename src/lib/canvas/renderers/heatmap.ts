@@ -158,6 +158,26 @@ for (let i = 0; i < 256; i++) {
 LUT[0] = 0;
 
 /**
+ * How wide one colour band is, in dB.
+ *
+ * Five is the step survey tools use: wide enough that a band is a readable area rather than a
+ * stripe, narrow enough that two bands apart is a real difference (3 dB is a doubling of power, and
+ * the difference between a comfortable signal and a marginal one). The number of bands follows from
+ * the ramp's own span, so changing the legend's floor or the AP power does not change the mapping.
+ */
+const BAND_DB = 5;
+
+/** A contour line: the band's own colour, lifted towards white so the line reads on any band. */
+function lighten(color: number): number {
+	const a = (color >>> 24) & 0xff;
+	const b = (color >>> 16) & 0xff;
+	const g = (color >>> 8) & 0xff;
+	const r = color & 0xff;
+	const lift = (channel: number) => Math.min(255, Math.round(channel + (255 - channel) * 0.55));
+	return packColor(lift(r), lift(g), lift(b), Math.max(a, 190));
+}
+
+/**
  * Drop enclosed regions smaller than `minPixels`.
  *
  * The interior is whatever the walls enclose, and a drawing encloses more than rooms: the sliver
@@ -1046,15 +1066,57 @@ export class HeatmapLayer implements Layer {
 		 */
 		const smooth = boxBlurLevels(levels, cols, rows);
 
+		/*
+		 * Contour bands, not a continuous ramp.
+		 *
+		 * A smooth gradient makes a planner read colour, and one colour next to another is a
+		 * judgement call; a band is a statement — "this area is between −65 and −60 dBm" — and it is
+		 * what a survey tool shows. The level is quantised into `BAND_DB` steps after the smoothing,
+		 * so each band is bounded by a smooth iso-line rather than by the texel grid.
+		 *
+		 * The colour is taken from the middle of each band on the same ramp the gradient used, so
+		 * the palette (and the legend beside it) keeps its meaning: same hues, same order, same
+		 * signal levels — the only change is that neighbouring texels inside a band are identical.
+		 */
+		const levelBands = new Int16Array(cols * rows).fill(-1);
+		/*
+		 * How many bands the ramp covers *here*.
+		 *
+		 * Derived from the span rather than fixed: the span is `rampTop − rssiFloor`, so a 20 dBm
+		 * access point and a 5 dBm one with the same floor get different counts and the *same*
+		 * colour for the same dBm. A constant would have put every level above 16 × 5 dB at the top
+		 * of the ramp, which is why a first attempt painted the whole plan in the last colour.
+		 */
+		const bandCount = Math.max(1, Math.ceil(span / BAND_DB));
+		for (let i = 0; i < levelBands.length; i++) {
+			const level = smooth[i]!;
+			if (!Number.isFinite(level) || level < this.rssiFloor) continue;
+			const index = Math.floor((level - this.rssiFloor) / BAND_DB);
+			levelBands[i] = Math.max(0, Math.min(bandCount - 1, index));
+		}
+
 		for (let ty = 0; ty < rows; ty++) {
 			const rowOff = ty * cols;
 			for (let tx = 0; tx < cols; tx++) {
-				const totalDb = smooth[rowOff + tx]!;
-				const norm = (totalDb - this.rssiFloor) / span;
-				if (!Number.isFinite(totalDb) || norm <= 0) continue;
-				const color = LUT[Math.min(255, (norm * 255) | 0)]!;
+				const band = levelBands[rowOff + tx]!;
+				if (band < 0) continue;
+				const colourAt = Math.round(((band + 0.5) / bandCount) * 255);
+				const color = LUT[colourAt]!;
 				if (!color) continue;
-				u32[rowOff + tx] = color;
+				/*
+				 * A contour line wherever the band changes.
+				 *
+				 * The band boundary is already visible as a colour change; the line is what makes it
+				 * readable at a glance on a plan with many bands, and it is drawn by lightening the
+				 * texel at the edge rather than by a second pass over a vector path — one band
+				 * pixel wide, which is how the reference tool draws it.
+				 */
+				const left = tx > 0 ? levelBands[rowOff + tx - 1]! : band;
+				const right = tx < cols - 1 ? levelBands[rowOff + tx + 1]! : band;
+				const up = ty > 0 ? levelBands[rowOff - cols + tx]! : band;
+				const down = ty < rows - 1 ? levelBands[rowOff + cols + tx]! : band;
+				const edge = left !== band || right !== band || up !== band || down !== band;
+				u32[rowOff + tx] = edge ? lighten(color) : color;
 			}
 		}
 
