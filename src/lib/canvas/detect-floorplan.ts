@@ -21,7 +21,7 @@
  */
 
 import { prepareSvgForDetection } from './boundary-detect.js';
-import { detectWalls, isOcrUnavailable, type WallMask } from './wall-detect.js';
+import { detectWalls, type WallMask } from './wall-detect.js';
 import type { ElementRole } from './vector-elements.js';
 import {
 	detectVectorFloorplan,

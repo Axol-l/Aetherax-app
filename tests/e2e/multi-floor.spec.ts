@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { enablePlaceMode } from './helpers';
+import { test, expect, type Page } from '@playwright/test';
+import { enablePlaceMode, waitForSavedProject } from './helpers';
 
 test.beforeEach(async ({ page }) => {
 	await page.addInitScript(() => localStorage.setItem('aetherax:welcomed', '1'));
@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 /** Ensure sidebar is open on the Floorplan tab. */
-async function openFloorplanTab(page: any) {
+async function openFloorplanTab(page: Page) {
 	// Already visible?
 	if (
 		await page
@@ -45,16 +45,13 @@ test.describe('Multi-floor', () => {
 		await enablePlaceMode(page);
 		const canvas = page.locator('canvas');
 		await canvas.click({ position: { x: 400, y: 400 } });
-		await page.waitForTimeout(3000);
 
-		const data = await page.evaluate(() => {
-			const raw = localStorage.getItem('aetherax:project');
-			return raw ? JSON.parse(raw) : null;
-		});
+		// The autosave is debounced; wait for the write, not for a guessed duration.
+		const data = await waitForSavedProject(page, (project) => project.aps.length === 1);
 
 		expect(data.version).toBe(3);
 		expect(data.floors).toHaveLength(1);
-		expect(data.aps[0].floorId).toBe(data.floors[0].id);
+		expect(data.aps[0]!.floorId).toBe(data.floors[0]!.id);
 	});
 
 	test('v2 migration adds floor and floorId', async ({ page }) => {
@@ -98,16 +95,18 @@ test.describe('Multi-floor', () => {
 		await enablePlaceMode(page);
 		const canvas = page.locator('canvas');
 		await canvas.click({ position: { x: 500, y: 500 } });
-		await page.waitForTimeout(3000);
 
-		const data = await page.evaluate(() => {
-			const raw = localStorage.getItem('aetherax:project');
-			return raw ? JSON.parse(raw) : null;
-		});
+		// The seeded file already has one AP, so the condition has to be the *migrated*
+		// record with the new AP in it — checking for "some record exists" would read the
+		// version 2 file back and call the migration done.
+		const data = await waitForSavedProject(
+			page,
+			(project) => project.version === 3 && project.aps.length === 2
+		);
 
 		expect(data.version).toBe(3);
 		expect(data.floors).toHaveLength(1);
-		expect(data.aps[0].floorId).toBeTruthy();
+		expect(data.aps[0]!.floorId).toBeTruthy();
 	});
 
 	// ─── Floor management ────────────────────────────────────────
@@ -185,14 +184,14 @@ test.describe('Multi-floor', () => {
 
 		await page.screenshot({ path: 'test-results/multi-floor/three-floors.png' });
 
-		const data = await page.evaluate(() => {
-			const raw = localStorage.getItem('aetherax:project');
-			return raw ? JSON.parse(raw) : null;
-		});
+		const data = await waitForSavedProject(
+			page,
+			(project) => project.floors.length === 3 && project.aps.length === 3
+		);
 
 		expect(data.floors).toHaveLength(3);
 		expect(data.aps).toHaveLength(3);
-		const floorIds = new Set(data.aps.map((ap: any) => ap.floorId));
+		const floorIds = new Set(data.aps.map((ap) => ap.floorId));
 		expect(floorIds.size).toBe(3);
 	});
 
@@ -262,7 +261,11 @@ test.describe('Multi-floor', () => {
 		await page.waitForTimeout(200);
 		await page.locator('.floor-name-input').fill('Attic');
 		await page.locator('.floor-name-input').press('Enter');
-		await page.waitForTimeout(3000);
+		// The rename has to reach storage before the reload, or it is testing nothing.
+		await waitForSavedProject(
+			page,
+			(project) => project.floors.length === 2 && project.floors[1]?.name === 'Attic'
+		);
 
 		await page.reload();
 		await page.waitForTimeout(1500);

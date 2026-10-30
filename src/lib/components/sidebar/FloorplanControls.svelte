@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { wallState } from '$state/wall-state.svelte.js';
+	import { debug } from '$lib/log.js';
+import { wallState } from '$state/wall-state.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
 	import { apState, getEffectiveWupm } from '$state/ap-state.svelte.js';
 	import {
@@ -14,6 +15,9 @@
 	import { FLOOR_MATERIALS } from '$canvas/floor-materials.js';
 	import Select from '$components/shared/Select.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
+	import FloorStrip from './FloorStrip.svelte';
+	import FloorplanNotes from './FloorplanNotes.svelte';
+	import FloorplanSurfaces from './FloorplanSurfaces.svelte';
 	import { setCalibrateMode } from '$state/app.svelte';
 	import { setPlanningDrawMode } from '$state/app.svelte';
 	import { wupmFromSegment } from '$state/calibrate.js';
@@ -43,49 +47,6 @@
 		confirmTitle = title;
 		confirmLabel = label;
 		confirmOpen = true;
-	}
-
-	let editingFloorId = $state<string | null>(null);
-	let editingFloorName = $state('');
-
-	function handleAddFloor() {
-		pushState();
-		const floor = addFloor();
-		switchFloor(floor.id);
-		scheduleSave();
-	}
-
-	function startRenameFloor(id: string, name: string) {
-		editingFloorId = id;
-		editingFloorName = name;
-	}
-
-	function commitRenameFloor() {
-		if (editingFloorId) {
-			const floor = floorState.floors.find((f) => f.id === editingFloorId);
-			if (floor) {
-				floor.name = editingFloorName.trim() || floor.name;
-				scheduleSave();
-			}
-		}
-		editingFloorId = null;
-	}
-
-	function moveFloor(id: string, direction: -1 | 1) {
-		const idx = floorState.floors.findIndex((f) => f.id === id);
-		const newIdx = idx + direction;
-		if (newIdx < 0 || newIdx >= floorState.floors.length) return;
-		// Swap levels
-		const a = floorState.floors[idx]!;
-		const b = floorState.floors[newIdx]!;
-		const tmpLevel = a.level;
-		a.level = b.level;
-		b.level = tmpLevel;
-		// Swap positions in array
-		floorState.floors[idx] = b;
-		floorState.floors[newIdx] = a;
-		floorState.floors = [...floorState.floors]; // trigger reactivity
-		scheduleSave();
 	}
 
 	/**
@@ -124,15 +85,8 @@
 		return displayLength(metres, lengthUnit(unitSystem)).value;
 	}
 
-	function handleDeleteFloor(id: string) {
-		if (floorState.floors.length <= 1) return;
-		showConfirm('Delete this floor and all its access points?', () => {
-			pushState();
-			apState.aps = apState.aps.filter((ap) => ap.floorId !== id);
-			removeFloor(id);
-			scheduleSave();
-		});
-	}
+
+
 	import { appState, setFloorAlignMode, notifyWalls, setSurfaceMode } from '$state/app.svelte.js';
 	import { updateCoverage } from '$state/optimizer.svelte.js';
 	import type { SurfaceKind } from '$lib/rf/surface-height.js';
@@ -471,7 +425,7 @@
 					// Re-detect on a drawing with real geometry: read it, do not trace it.
 					const written = setFloorWallsFromSegments(floor.id, detection.segments ?? []);
 					if (written === 0) await traceWallsFromMaskOnFloor();
-					console.info(`[detect] ${floor.walls?.length ?? 0} segments`);
+					debug(`[detect] ${floor.walls?.length ?? 0} segments`);
 				}
 				scheduleSave();
 			}
@@ -631,40 +585,8 @@
 	/** The cards that are worked in fold too: the step in use is not always the tallest. */
 	let floorplanCollapsed = $state(false);
 	let wallsCollapsed = $state(false);
-	let surfacesCollapsed = $state(false);
-	let notesCollapsed = $state(false);
 	/** The floor-properties card (multi-storey only): read once per floor, then left alone. */
 	let propsCollapsed = $state(false);
-
-	/** Whether the floor's notes are listed. Open on first use, collapsible after. */
-	let notesOpen = $state(true);
-
-	/** The note being edited, on the floor on screen. */
-	const selectedNote = $derived.by(() => {
-		const id = appState.noteSelectedId;
-		if (!id) return null;
-		return (currentFloor()?.notes ?? []).find((note) => note.id === id) ?? null;
-	});
-
-	function updateSelectedNote(text: string): void {
-		const floor = currentFloor();
-		const id = appState.noteSelectedId;
-		if (!floor || !id) return;
-		const note = (floor.notes ?? []).find((n) => n.id === id);
-		if (!note) return;
-		note.text = text;
-		scheduleSave();
-	}
-
-	function deleteSelectedNote(): void {
-		const floor = currentFloor();
-		const id = appState.noteSelectedId;
-		if (!floor || !id) return;
-		pushState();
-		floor.notes = (floor.notes ?? []).filter((note) => note.id !== id);
-		appState.noteSelectedId = null;
-		scheduleSave();
-	}
 
 	function clearVectorWalls(): void {
 		const floor = currentFloor();
@@ -672,56 +594,6 @@
 		pushState();
 		floor.walls = [];
 		appState.wallVectorSelected = null;
-		scheduleSave();
-	}
-
-	/** The three kinds of raised surface, in the order a plan usually needs them. */
-	const surfaceKinds = $derived<Array<{ id: SurfaceKind; label: string }>>([
-		{ id: 'platform', label: t('Platform') },
-		{ id: 'stair', label: t('Stair') },
-		{ id: 'ramp', label: t('Ramp') }
-	]);
-
-	/**
-	 * Pick the kind a new surface will be.
-	 *
-	 * A platform is level by definition, so choosing it copies the low height to the high
-	 * one rather than leaving a rise the drawing does not show; choosing a stair or a ramp
-	 * leaves the pair alone, because it already means something.
-	 */
-	function chooseSurfaceKind(kind: SurfaceKind): void {
-		appState.surfaceKind = kind;
-		if (kind === 'platform') {
-			appState.surfaceTopHeightM = appState.surfaceHeightM;
-		} else if (appState.surfaceTopHeightM <= appState.surfaceHeightM) {
-			// A stair with no rise is a platform with extra controls. Start it above the low
-			// end so the first one drawn already says what it is.
-			appState.surfaceTopHeightM = appState.surfaceHeightM + 1;
-		}
-	}
-
-	/** The step count a stair drawn now would get, from its rise at the standard tread. */
-	const previewStepCount = $derived(
-		stepCount({
-			ax: 0,
-			ay: 0,
-			bx: 0,
-			by: 0,
-			heightM: appState.surfaceHeightM,
-			topHeightM:
-				appState.surfaceKind === 'platform'
-					? appState.surfaceHeightM
-					: appState.surfaceTopHeightM
-		})
-	);
-
-	function clearSurfaces(): void {
-		const floor = currentFloor();
-		if (!floor) return;
-		pushState();
-		floor.surfaces = [];
-		appState.surfaceSelected = null;
-		void updateCoverage();
 		scheduleSave();
 	}
 
@@ -899,42 +771,7 @@
 </script>
 
 <div class="floorplan-controls">
-	<div class="floor-manager">
-		<div class="floor-strip">
-			{#each floorState.floors as floor}
-				{#if editingFloorId === floor.id}
-					<input
-						class="floor-name-input"
-						type="text"
-						bind:value={editingFloorName}
-						onblur={commitRenameFloor}
-						onkeydown={(e) => { if (e.key === 'Enter') commitRenameFloor(); if (e.key === 'Escape') { editingFloorId = null; } }}
-						autofocus
-					/>
-				{:else}
-					<button
-						class="floor-pill"
-						class:active={floor.id === floorState.currentFloorId}
-						onclick={() => switchFloor(floor.id)}
-						ondblclick={() => startRenameFloor(floor.id, floor.name)}
-						title={t('Click to switch, double-click to rename')}
-					>
-						{floor.name}
-						{#if floor.id === floorState.currentFloorId && floorState.floors.length > 1}
-							{#if floorState.floors.indexOf(floor) > 0}
-								<span class="floor-action" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); moveFloor(floor.id, -1); }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); moveFloor(floor.id, -1); } }}>&#9664;</span>
-							{/if}
-							{#if floorState.floors.indexOf(floor) < floorState.floors.length - 1}
-								<span class="floor-action" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); moveFloor(floor.id, 1); }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); moveFloor(floor.id, 1); } }}>&#9654;</span>
-							{/if}
-							<span class="floor-action delete" role="button" tabindex="0" onclick={(e) => { e.stopPropagation(); handleDeleteFloor(floor.id); }} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); handleDeleteFloor(floor.id); } }}>&times;</span>
-						{/if}
-					</button>
-				{/if}
-			{/each}
-			<button class="floor-pill add" onclick={handleAddFloor} aria-label={t('Add floor')}>+</button>
-		</div>
-	</div>
+	<FloorStrip />
 
 	{#if floorplanState.importNotice}
 		<!-- A dropped file this app cannot read. Said out loud, because a silent no-op on
@@ -1449,212 +1286,9 @@
 				{/if}
 			</div>
 
-			<!--
-				Raised surfaces: a mezzanine, a stair, a ramp.
+			<FloorplanSurfaces />
 
-				A plan is flat and the model used to be too. What this card states is a fact
-				the drawing cannot: the floor inside this rectangle is *not* the slab, so a
-				client there is a different distance from the ceiling — and from every AP. A
-				stair and a ramp are the same rectangle with two heights instead of one, which
-				is why the second field appears only when it means something.
-			-->
-			<div class="planning-area">
-				<div class="planning-head">
-					<button
-						class="card-collapse"
-						aria-expanded={!surfacesCollapsed}
-						title={surfacesCollapsed ? t('Show the list') : t('Hide the list')}
-						onclick={() => (surfacesCollapsed = !surfacesCollapsed)}
-					>
-						<Icon name="chevron-down" size={11} />
-					</button>
-					<span class="planning-title">
-						<Icon name="stack" size={13} />
-						{t('Raised surfaces')}
-					</span>
-					<span class="planning-state">
-						{t('{count} raised', { count: (currentFloor()?.surfaces ?? []).length })}
-					</span>
-				</div>
-				<div class="surface-kinds" role="group" aria-label={t('Surface kind')}>
-					{#each surfaceKinds as option (option.id)}
-						<button
-							class="surface-kind"
-							class:active={appState.surfaceKind === option.id}
-							onclick={() => chooseSurfaceKind(option.id)}
-						>
-							{option.label}
-						</button>
-					{/each}
-				</div>
-				<!--
-					The parameters, in full-width rows. Two number fields side by side in a
-					320 px sidebar did not fit — the second one ran past the card's border —
-					and the reference tool puts every figure on its own row for the same
-					reason: a value with a unit is read once, not scanned in a grid.
-				-->
-				<!--
-					Rows are divs, not labels. A label forwards every click inside it to its
-					control, so pressing "−" also focused the input and lit the whole row — the
-					"both buttons glow" report. Nothing here needs label semantics: the number
-					field carries its own accessible name.
-				-->
-				<div class="param-row">
-					<span class="param-label">{t('Attenuation')}</span>
-					<span class="param-control">
-						<NumberInput bind:value={appState.surfaceAttenuationDb} min={0} max={120} step={1} />
-						<span class="param-unit">dB</span>
-					</span>
-				</div>
-				<div class="param-row">
-					<span class="param-label">{t('Upper height')}</span>
-					<span class="param-control">
-						<NumberInput bind:value={appState.surfaceTopHeightM} min={0} max={12} step={0.1} />
-						<span class="param-unit">m</span>
-					</span>
-				</div>
-				<div class="param-row">
-					<span class="param-label">{t('Thickness')}</span>
-					<span class="param-control">
-						<NumberInput bind:value={appState.surfaceThicknessM} min={0} max={2} step={0.05} />
-						<span class="param-unit">m</span>
-					</span>
-				</div>
-				<div class="param-row">
-					<span class="param-label">{appState.surfaceKind === 'platform' ? t('Height') : t('Lower height')}</span>
-					<span class="param-control">
-						<NumberInput bind:value={appState.surfaceHeightM} min={0} max={12} step={0.1} />
-						<span class="param-unit">m</span>
-					</span>
-				</div>
-				{#if appState.surfaceKind === 'stair'}
-					<!--
-						Derived, not stored: a stair's run is its rectangle, so the treads follow
-						from the rise at the standard 0.3 m depth. The reference's "Auto" is the
-						same number, and a stored count could disagree with the shape.
-					-->
-					<div class="param-row readonly">
-						<span class="param-label">{t('N of steps')}</span>
-						<span class="param-value">
-							{t('Auto ({count} × 0.3 m)', { count: previewStepCount })}
-						</span>
-					</div>
-				{:else}
-					<button
-						class="param-toggle"
-						class:on={appState.surfaceSolidBase}
-						role="switch"
-						aria-checked={appState.surfaceSolidBase}
-						onclick={() => (appState.surfaceSolidBase = !appState.surfaceSolidBase)}
-					>
-						<span>{t('Solid base floor')}</span>
-						<span class="toggle-track"><span class="toggle-knob"></span></span>
-					</button>
-				{/if}
-				{#if appState.surfaceMode}
-					<p class="planning-hint">
-						{appState.surfaceDraft
-							? t('Click the opposite corner. Escape cancels.')
-							: t('Click one corner of the raised area, then the other.')}
-					</p>
-					<div class="planning-actions">
-						<Button variant="primary" size="sm" onclick={() => setSurfaceMode(false)}>
-							{t('Done')}
-						</Button>
-					</div>
-				{:else}
-					<div class="planning-actions">
-						<Button variant="secondary" size="sm" onclick={() => setSurfaceMode(true)}>
-							<Icon name="pencil" size={14} />
-							{t('Draw raised area')}
-						</Button>
-						{#if (currentFloor()?.surfaces ?? []).length > 0}
-							<Button variant="ghost" size="sm" onclick={clearSurfaces}>
-								{t('Clear raised areas')}
-							</Button>
-						{/if}
-					</div>
-				{/if}
-			</div>
-
-			<!--
-				Notes: pins with a sentence attached.
-
-				Half of what decides where an access point goes never made it into the CAD file
-				— the lift lobby's steel door, the rack that will be installed next month. A pin
-				holds that next to the place it is about, and the layer switch can take them off
-				the plan for a screenshot or a print.
-			-->
-			<div class="planning-area notes-block">
-				<div class="planning-head">
-					<button
-						class="card-collapse"
-						aria-expanded={!notesCollapsed}
-						title={notesCollapsed ? t('Show the list') : t('Hide the list')}
-						onclick={() => (notesCollapsed = !notesCollapsed)}
-					>
-						<Icon name="chevron-down" size={11} />
-					</button>
-					<span class="planning-title">
-						<Icon name="tag" size={13} />
-						{t('Notes')}
-					</span>
-					<span class="planning-state">{t('{count} on this floor', { count: (currentFloor()?.notes ?? []).length })}</span>
-				</div>
-
-				<!--
-					The list of this floor's notes, collapsed by default once there are some: a
-					plan's annotations are something you consult, not something that has to
-					take six rows of the sidebar while you are placing access points.
-				-->
-				{#if (currentFloor()?.notes ?? []).length > 0}
-					<button class="notes-toggle" onclick={() => (notesOpen = !notesOpen)} aria-expanded={notesOpen}>
-						<Icon name={notesOpen ? 'chevron-down' : 'chevron-down'} size={12} />
-						{notesOpen ? t('Hide the list') : t('Show the list')}
-					</button>
-					{#if notesOpen}
-						<ul class="notes-list">
-							{#each currentFloor()?.notes ?? [] as note (note.id)}
-								<li>
-									<button
-										class="note-row"
-										class:active={appState.noteSelectedId === note.id}
-										onclick={() => (appState.noteSelectedId = note.id)}
-									>
-										{note.text.trim() || t('(empty note)')}
-									</button>
-								</li>
-							{/each}
-						</ul>
-					{/if}
-				{/if}
-
-				{#if appState.noteMode}
-					<p class="planning-hint">{t('Click on the plan to place a note. Escape cancels.')}</p>
-					<div class="planning-actions">
-						<button class="skip-link" onclick={() => (appState.noteMode = false)}>{t('Cancel')}</button>
-					</div>
-				{:else if selectedNote}
-					<textarea
-						class="note-input"
-						rows="3"
-						placeholder={t('What should a reader know about this spot?')}
-						value={selectedNote.text}
-						oninput={(e) => updateSelectedNote((e.target as HTMLTextAreaElement).value)}
-					></textarea>
-					<div class="planning-actions">
-						<Button variant="secondary" size="sm" onclick={deleteSelectedNote}>{t('Delete note')}</Button>
-						<button class="skip-link" onclick={() => (appState.noteSelectedId = null)}>{t('Done')}</button>
-					</div>
-				{:else}
-					<div class="planning-actions">
-						<Button variant="secondary" size="sm" onclick={() => (appState.noteMode = true)}>
-							<Icon name="tag" size={14} />
-							{t('Add note')}
-						</Button>
-					</div>
-				{/if}
-			</div>
+						<FloorplanNotes />
 		{/if}
 	{/if}
 
@@ -1673,60 +1307,6 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-3);
-	}
-
-	.floor-strip {
-		display: flex;
-		gap: 4px;
-		overflow-x: auto;
-		overflow-y: hidden;
-		padding-bottom: var(--space-2);
-		border-bottom: 1px solid var(--border-subtle);
-		flex-wrap: nowrap;
-		min-width: 0;
-	}
-
-	.floor-pill {
-		padding: 4px 10px;
-		border: 1px solid var(--border-default);
-		border-radius: 999px;
-		background: var(--bg-surface);
-		color: var(--text-secondary);
-		font-family: var(--font-sans);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		white-space: nowrap;
-		flex: 0 0 auto;
-		transition: all var(--transition-fast);
-	}
-
-	.floor-pill:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
-	}
-
-	.floor-pill.active {
-		border-color: var(--accent-primary);
-		color: var(--accent-primary);
-		background: var(--accent-primary-glow);
-	}
-
-	.floor-pill.add {
-		border-style: dashed;
-		color: var(--text-tertiary);
-		min-width: 28px;
-		text-align: center;
-	}
-
-	.floor-pill.add:hover {
-		border-color: var(--accent-primary-dim);
-		color: var(--accent-primary);
-	}
-
-	.floor-manager {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-1);
 	}
 
 	.floor-props {
@@ -1781,35 +1361,6 @@
 		min-width: 0;
 		height: 24px;
 		justify-content: center;
-	}
-
-	.floor-action {
-		margin-left: 2px;
-		font-size: 10px;
-		line-height: 1;
-		opacity: 0.4;
-		cursor: pointer;
-		padding: 2px;
-	}
-
-	.floor-action:hover {
-		opacity: 1;
-	}
-
-	.floor-action.delete:hover {
-		color: var(--danger, #ef4444);
-	}
-
-	.floor-name-input {
-		padding: 3px 8px;
-		border: 1px solid var(--accent-primary);
-		border-radius: 999px;
-		background: var(--bg-surface);
-		color: var(--text-primary);
-		font-family: var(--font-sans);
-		font-size: var(--text-xs);
-		width: 80px;
-		outline: none;
 	}
 
 	.drop-zone {
@@ -1977,28 +1528,6 @@
 		gap: var(--space-2);
 	}
 
-	.note-input {
-		width: 100%;
-		padding: 6px 8px;
-		font-family: inherit;
-		font-size: var(--text-xs);
-		line-height: 1.5;
-		color: var(--text-primary);
-		background: var(--bg-surface);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-sm);
-		resize: vertical;
-	}
-
-	.note-input::placeholder {
-		color: var(--text-disabled);
-	}
-
-	.note-input:focus-visible {
-		outline: 2px solid var(--accent-primary);
-		outline-offset: 1px;
-	}
-
 	/*
 	 * Heads are a title and a fold control, nothing else. The right-aligned state text ("12
 	 * drawn", "1 px = 0.10m") made every head a two-column table and pushed the title off the
@@ -2054,135 +1583,6 @@
 	}
 
 	/* Raised surfaces: a segmented kind switch and one row per parameter. */
-	.surface-kinds {
-		display: flex;
-		width: 100%;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-sm);
-		overflow: hidden;
-	}
-
-	.surface-kind {
-		flex: 1;
-		padding: 5px 0;
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		background: transparent;
-		border: none;
-		cursor: pointer;
-	}
-
-	.surface-kind + .surface-kind {
-		border-left: 1px solid var(--border-subtle);
-	}
-
-	.surface-kind:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
-	}
-
-	.surface-kind.active {
-		background: var(--accent-primary);
-		color: #0b0d12;
-	}
-
-	.param-row {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		min-height: 26px;
-	}
-
-	.param-label {
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		white-space: nowrap;
-	}
-
-	.param-control {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		flex: none;
-		min-width: 0;
-	}
-
-	/*
-	 * The stepper is a whole control (minus, field, plus), and at its natural width it ran
-	 * past the card's right edge. Given the row a fixed budget it fits beside the label
-	 * even in a 320 px sidebar, and the unit stays on the line.
-	 */
-	.param-control :global(.number-input) {
-		width: 104px;
-		flex: none;
-	}
-
-	.param-control :global(.number-input input) {
-		width: 100%;
-		min-width: 0;
-		text-align: right;
-	}
-
-	.param-unit {
-		width: 18px;
-		font-size: var(--text-xs);
-		color: var(--text-tertiary, var(--text-secondary));
-	}
-
-	.param-value {
-		font-size: var(--text-xs);
-		color: var(--text-primary);
-	}
-
-	.param-row.readonly .param-label {
-		color: var(--text-secondary);
-	}
-
-	.param-toggle {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
-		width: 100%;
-		padding: 4px 0;
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		background: transparent;
-		border: none;
-		cursor: pointer;
-	}
-
-	.toggle-track {
-		position: relative;
-		width: 28px;
-		height: 16px;
-		border-radius: 8px;
-		background: var(--bg-surface);
-		border: 1px solid var(--border-default);
-		flex: none;
-	}
-
-	.toggle-knob {
-		position: absolute;
-		top: 2px;
-		left: 2px;
-		width: 10px;
-		height: 10px;
-		border-radius: 50%;
-		background: var(--text-secondary);
-		transition: transform var(--transition-fast), background var(--transition-fast);
-	}
-
-	.param-toggle.on .toggle-knob {
-		transform: translateX(12px);
-		background: var(--accent-primary);
-	}
-
-	.param-toggle.on {
-		color: var(--text-primary);
-	}
-
 	.measure-hint {
 		font-size: var(--text-xs);
 		color: var(--text-secondary);
@@ -2274,62 +1674,6 @@
 	 */
 	.planning-area:has(.card-collapse[aria-expanded='false']) > :not(.planning-head) {
 		display: none;
-	}
-
-	/* The floor's notes, listed: consultable, collapsible, one row per note. */
-	.notes-toggle {
-		display: inline-flex;
-		align-items: center;
-		gap: var(--space-1);
-		align-self: flex-start;
-		padding: 2px 6px;
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
-		background: transparent;
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-	}
-
-	.notes-toggle:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
-	}
-
-	.notes-list {
-		display: flex;
-		flex-direction: column;
-		gap: 2px;
-		max-height: 140px;
-		margin: 0;
-		padding: 0;
-		overflow-y: auto;
-		list-style: none;
-	}
-
-	.note-row {
-		width: 100%;
-		padding: 3px 6px;
-		font-size: var(--text-xs);
-		text-align: left;
-		color: var(--text-secondary);
-		background: transparent;
-		border: 1px solid transparent;
-		border-radius: var(--radius-sm);
-		cursor: pointer;
-		white-space: nowrap;
-		overflow: hidden;
-		text-overflow: ellipsis;
-	}
-
-	.note-row:hover {
-		background: var(--bg-hover);
-		color: var(--text-primary);
-	}
-
-	.note-row.active {
-		border-color: var(--accent-primary);
-		color: var(--text-primary);
 	}
 
 	.draw-scratch {

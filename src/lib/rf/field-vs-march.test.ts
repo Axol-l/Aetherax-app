@@ -1,3 +1,4 @@
+import { debug } from '$lib/log.js';
 import { describe, expect, it } from 'vitest';
 import { buildAttenField, lookupAtten, rayMarchWallAtten } from './propagation.js';
 
@@ -44,7 +45,7 @@ describe('the field against the march', () => {
 			);
 			const field = buildAttenField(20, 10, 160, mask, W, H, null, MATERIAL_DB, CONCRETE_DB, 3);
 			const fromField = lookupAtten(field, 150, 10);
-			console.log(
+			debug(
 				`MEASURE_FIELD perpendicular ${thickness} px: march ${marched.toFixed(2)} dB, field ${fromField.toFixed(2)} dB`
 			);
 			expect(marched).toBeCloseTo(CONCRETE_DB, 9);

@@ -12,6 +12,7 @@
  * Pure with respect to app state beyond the mask lookup, so it can be awaited from an
  * event handler without ordering surprises.
  */
+import { debug } from '$lib/log.js';
 import { computeBuildingInterior, sealOpenings } from '$canvas/morphology.js';
 import { maskSignature } from '$canvas/mask-registry.js';
 import { isVoidRoomType } from '$canvas/room-types.js';
@@ -105,7 +106,7 @@ async function computeInterior(floorId: string): Promise<CachedInterior | null> 
 	});
 	// Timed: the flood fill and the sealing run on the whole mask, and this recomputes
 	// whenever the walls change — on the same frame the user releases the pointer.
-	console.info(
+	debug(
 		`[interior] ${decoded.width}×${decoded.height} in ${Math.round(performance.now() - interiorStarted)} ms`
 	);
 	const roomTypes = decoded.roomTypeData;

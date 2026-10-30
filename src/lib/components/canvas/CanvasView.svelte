@@ -56,10 +56,14 @@
 		getEffectiveWupm,
 		radiusFromPower,
 		apHeightAboveFloor,
-		apSplitFor,
-		apVerticalOffsetTo,
 		type AccessPoint
 	} from '$state/ap-state.svelte.js';
+	import {
+		heatmapApsForFloor,
+		trackHeatmapInputs,
+		type HeatmapSourceAp
+	} from '$canvas/heatmap-sources.js';
+	import { handleShortcut } from '$canvas/shortcuts.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
 	
 import { wallState } from '$state/wall-state.svelte.js';
@@ -82,8 +86,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import {
 		solverState,
 		runSolver,
-		invalidateSolverMaskCache,
-		getFloorMask
+		invalidateSolverMaskCache
 	} from '$state/solver.svelte.js';
 	import { updateCoverage, optimizerState, floorCoverage, apsOutsideInterior } from '$state/optimizer.svelte.js';
 	import { hitTest } from '$canvas/hit-test.js';
@@ -97,7 +100,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		floorState,
 		currentFloor,
 		floorElevation,
-		getFloorSlabAttenuation,
 		translateFloor,
 		switchFloor,
 		type Floor
@@ -116,31 +118,50 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import { t, i18nState } from '$state/i18n.svelte';
 	import { displayLength, formatMeasure, lengthUnit } from '$lib/units.js';
 
+	import { MaskPipeline } from '$canvas/mask-pipeline.svelte.js';
+	import { CanvasGestures } from '$canvas/gestures.svelte.js';
+
+	const maskPipeline = new MaskPipeline({
+		layers: () => ({ wallLayer, heatmapLayer, roomLabelsLayer }),
+		markDirty: () => engine?.markDirty()
+	});
+
 	/**
-	 * The decoded wall mask the AP annotations are measured against.
+	 * The gesture state machine: pointer, touch, orbit and alignment drags.
 	 *
-	 * `$state` because the mask arrives asynchronously: the decode effect hands it
-	 * over from a promise callback, and that assignment is what tells the
-	 * annotation effect to measure again. It is assigned **only** from callbacks
-	 * and event handlers, never from an effect's own body — a reactive write
-	 * inside an effect re-runs that effect, and this one's "no mask" path has no
-	 * guard that could stop it, which is 1000 iterations of
-	 * `effect_update_depth_exceeded` rather than a wrong pixel. That is also why
-	 * the counter below is deliberately *not* reactive.
+	 * It owns when a click becomes a drag and which mode receives the click; the view
+	 * keeps what each of those actions *does* and hands them over as a GestureHost.
 	 */
-	let apWallMask = $state<DecodedWallMask | null>(null);
-	/**
-	 * A plain counter, bumped whenever the mask is republished, for the distance
-	 * transform's cache key.
-	 *
-	 * Identity is not enough. The wall editor's `materialize()` patches one raster
-	 * in place and hands back the same `Uint8Array` after every stroke and every
-	 * clear, so a brush stroke that erases a wall leaves the array looking exactly
-	 * as it did — and the transform measured from the walls that are no longer
-	 * there would be reused. The bump makes the annotation effect re-read this and
-	 * rebuild; being plain, it notifies nobody and cannot close a cycle.
-	 */
-	let apWallMaskRevision = 0;
+	const gestures = new CanvasGestures({
+		engine: () => engine,
+		select: () => selectHandler,
+		drag: () => dragHandler,
+		place: () => placeHandler,
+		stacked: () => stackedFloorsLayer,
+		tiles: () => floorTilesLayer,
+		reference: () => referenceFloorLayer,
+		wallClick: (x, y) => handleWallClick(x, y),
+		contextAction: (x, y) => handleContextAction(x, y),
+		commitSurface: (world) => commitSurfaceClick(world),
+		vectorWallClick: (world, shiftKey) => handleVectorWallClick(world, shiftKey),
+		addNote: (world) => addNoteAt(world),
+		eraseWall: (world) => eraseAt(world),
+		currentWalls: () => currentWalls(),
+		currentNotes: () => currentNotes(),
+		snapTolerance: () => snapToleranceWorld(),
+		noteTolerance: () => noteToleranceWorld(),
+		commitAlign: (dx, dy) => {
+			translateFloor(floorState.currentFloorId, dx, dy, apState.aps);
+			// An alignment is a project edit like any other: without this the floor moved on
+			// screen and nowhere else, and the next save wrote the old offsets back.
+			scheduleSave();
+			// The mask was re-derived in the old frame by anything that ran in between; make
+			// the derived geometry follow the segments now that they have moved.
+			syncVectorWallsToMask();
+			forgetInterior(floorState.currentFloorId);
+		}
+	});
+
 	const wallDistanceCache = createWallDistanceCache();
 	/**
 	 * The mask the cache above was last built for.
@@ -161,163 +182,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		wallProbeMask
 			? wallSnapFrom(wallDistanceCache.transform, wallProbeMask.originX, wallProbeMask.originY, x, y, getEffectiveWupm())
 			: null;
-
-	/** Publish a wall mask for the AP annotations, and invalidate their cache. */
-	function setApWallMask(mask: DecodedWallMask | null): void {
-		apWallMask = mask;
-		apWallMaskRevision++;
-	}
-
-	/**
-	 * Hand a materialised raster to the layers that draw walls.
-	 *
-	 * The decode effect does this for a mask that came off disk, but a mask the
-	 * user just edited never needs decoding — and after a clear it must not rely on
-	 * the decode effect firing at all, because that effect skips itself whenever the
-	 * URL and origin are unchanged and the decoded pixels are cached. The wall layer
-	 * would then keep drawing the raster it was handed before the clear.
-	 */
-	function applyMaskToRenderers(mat: {
-		data: Uint8Array;
-		materialData: Uint8Array | null;
-		width: number;
-		height: number;
-		originX: number;
-		originY: number;
-	}) {
-		const maskRef = {
-			data: mat.data,
-			width: mat.width,
-			height: mat.height,
-			originX: mat.originX,
-			originY: mat.originY
-		};
-		wallLayer.mask = maskRef;
-		heatmapLayer.wallMask = maskRef;
-		/*
-		 * The segments, for the one specular reflection the heatmap carries.
-		 *
-		 * The mask blocks, the segments reflect: a reflection needs the segment's own line,
-		 * and a mask pixel has no normal. A floor whose walls are still a detected raster has
-		 * no segments, so it gets the direct field only — which is also what its edit path
-		 * used to do for walls in general.
-		 */
-		heatmapLayer.reflectingWalls = (currentFloor()?.walls ?? []).map((wall) => ({
-			ax: wall.ax,
-			ay: wall.ay,
-			bx: wall.bx,
-			by: wall.by,
-			material: wall.material
-		}));
-		/*
-		 * The outline the heatmap is clipped to: the drawn planning area when there is one, the
-		 * detected boundary otherwise.
-		 *
-		 * Without it the field covers the whole sheet and every interior wall throws its shadow
-		 * into the margin outside the building, which is the row of dark wedges that was reported
-		 * as spikes. A planning tool reports the floor, not the paper around it.
-		 */
-		heatmapLayer.clipPolygon =
-			currentFloor()?.planningArea ??
-			floorplanState.floorplanBoundary ??
-			null;
-		cachedWallData = mat.data;
-		cachedMaterialData = mat.materialData;
-		cachedMaskOriginX = mat.originX;
-		cachedMaskOriginY = mat.originY;
-		wallLayer.materialMap = mat.materialData;
-		heatmapLayer.materialMap = mat.materialData;
-		heatmapLayer.materialVersion++;
-		wallLayer.invalidateCache();
-
-		setApWallMask(maskRef);
-	}
-
-	/**
-	 * Publish a materialised raster as the floor's wall mask.
-	 *
-	 * There is one way a mask changes now: the segments are rasterised and the result
-	 * becomes the mask. That used to be the wall editor's job, and it is kept as one
-	 * routine because the mask is not just a data URL: the layers draw the pixels that
-	 * were just written (the decode effect would skip a URL it has already seen), the
-	 * material popup needs the blob labels, the room types need the interior, and the
-	 * solver's decoded copy is now stale.
-	 */
-	function publishWallRaster(mat: {
-		data: Uint8Array;
-		materialData: Uint8Array | null;
-		width: number;
-		height: number;
-		originX: number;
-		originY: number;
-	}): boolean {
-		const { data, materialData, width, height, originX, originY } = mat;
-
-		// The mask is encoded whole on every edit, so its extent is worth watching.
-		// A mask far larger than any building is a bounds bug, not a large plan, and
-		// the symptom is the whole layer disappearing once the canvas size limit is
-		// passed.
-		if (width > 8000 || height > 8000) {
-			console.warn(
-				`[walls] mask is ${width}x${height} at origin ${originX},${originY}. ` +
-					'That is larger than any floorplan; expect slow edits and, past the ' +
-					'canvas size limit, a failed encode that wipes the layer.'
-			);
-		}
-
-		applyMaskToRenderers(mat);
-
-		const newWallUrl = encodeMask(data, width, height);
-		const newMatUrl = materialData ? encodeMaterialMask(materialData, width, height) : null;
-
-		// Update URLs and pre-set lastUrls so the async decode effect skips re-decode
-		wallState.wallMask = { dataUrl: newWallUrl, width, height, originX, originY };
-		lastWallMaskUrl = newWallUrl;
-		if (newMatUrl) {
-			wallState.materialMask = { dataUrl: newMatUrl, width, height, originX, originY };
-			lastMatMaskUrl = newMatUrl;
-		} else if (wallState.materialMask) {
-			// No material pixels left. Keeping the old material mask around means
-			// the next decode reads it back and the assignments reappear.
-			wallState.materialMask = null;
-			lastMatMaskUrl = null;
-		}
-
-		// Recompute blob labels so click-to-override works on the edited walls
-		cachedWallLabels = labelWallBlobs(data, width, height);
-
-		// Recompute interior + room labels for room type detection
-		const interiorResult = computeBuildingInterior(data, width, height, { maxDim: 400 });
-		cachedInterior = interiorResult.interior;
-		cachedRoomLabels = labelRooms(cachedInterior, width, height);
-
-		// Room type data may need resizing if mask dimensions changed
-		if (cachedRoomTypeData && cachedRoomTypeData.length !== width * height) {
-			cachedRoomTypeData = null;
-			wallState.roomTypeMask = null;
-		}
-		if (roomLabelsLayer) {
-			roomLabelsLayer.roomLabels = cachedRoomLabels;
-			roomLabelsLayer.roomTypeData = cachedRoomTypeData;
-			roomLabelsLayer.maskWidth = width;
-			roomLabelsLayer.maskHeight = height;
-			roomLabelsLayer.originX = originX;
-			roomLabelsLayer.originY = originY;
-			roomLabelsLayer.invalidateCache();
-		}
-
-		// Trigger re-solve (wallMaskVersion drives auto-solve key)
-		wallMaskVersion++;
-		invalidateSolverMaskCache();
-
-		heatmapLayer.markWallsDirty();
-		engine.markDirty();
-		// The walls are what decides what the floor covers, so the figure is re-measured
-		// rather than left standing from the geometry that was just replaced.
-		void updateCoverage();
-		scheduleSave();
-		return true;
-	}
 
 	/**
 	 * Make the drawn segments the floor's mask.
@@ -385,7 +249,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					}))
 				);
 		if (!masks) return;
-		publishWallRaster({
+		maskPipeline.publish({
 			data: masks.wall,
 			materialData: masks.material,
 			width: masks.width,
@@ -432,58 +296,45 @@ import { wallState } from '$state/wall-state.svelte.js';
 		/** Opened from the wall toolbar: the choice sets the material for what is drawn next. */
 		tool?: boolean;
 	} | null>(null);
-	let cachedWallLabels: ReturnType<typeof labelWallBlobs> | null = null;
-	let cachedMaterialData: Uint8Array | null = null;
-	let cachedWallData: Uint8Array | null = null;
-	let cachedMaskOriginX = 0;
-	let cachedMaskOriginY = 0;
 
 	// Room type popup state
 	let roomPopup = $state<{ x: number; y: number; typeId: number; density: number; customLabel: string; regionId: number } | null>(null);
-	let cachedInterior: Uint8Array | null = null;
-	let cachedRoomLabels: RegionLabels | null = null;
-	let cachedRoomTypeData: Uint8Array | null = null;
 	let roomLabelsLayer: RoomLabelsLayer;
 
-	// Long-press detection for mobile contextual actions
-	let longPressTimer: ReturnType<typeof setTimeout> | null = null;
-	const LONG_PRESS_MS = 500;
-	let longPressFired = false;
-
 	function handleWallClick(screenX: number, screenY: number): boolean {
-		if (!engine || !cachedWallData || !cachedWallLabels) return false;
+		if (!engine || !maskPipeline.wallData || !maskPipeline.wallLabels) return false;
 		const world = engine.camera.screenToWorld({ x: screenX, y: screenY });
-		const px = Math.round(world.x) - cachedMaskOriginX;
-		const py = Math.round(world.y) - cachedMaskOriginY;
+		const px = Math.round(world.x) - maskPipeline.originX;
+		const py = Math.round(world.y) - maskPipeline.originY;
 		const mask = wallState.wallMask;
 		if (!mask || px < 0 || px >= mask.width || py < 0 || py >= mask.height) return false;
 		const idx = py * mask.width + px;
-		if (!cachedWallData[idx]) return false;
+		if (!maskPipeline.wallData[idx]) return false;
 
-		const blobId = cachedWallLabels.labels[idx]!;
+		const blobId = maskPipeline.wallLabels.labels[idx]!;
 		if (blobId < 0) return false;
 
-		const matId = cachedMaterialData ? (cachedMaterialData[idx] ?? wallState.wallMaterial) : wallState.wallMaterial;
+		const matId = maskPipeline.materialData ? (maskPipeline.materialData[idx] ?? wallState.wallMaterial) : wallState.wallMaterial;
 		wallPopup = { x: screenX, y: screenY, material: matId as WallMaterialId, blobId };
 		return true;
 	}
 
 	function handleRoomClick(screenX: number, screenY: number): boolean {
-		if (!engine || !cachedInterior || !cachedRoomLabels) return false;
+		if (!engine || !maskPipeline.interior || !maskPipeline.roomLabels) return false;
 		const world = engine.camera.screenToWorld({ x: screenX, y: screenY });
-		const px = Math.round(world.x) - cachedMaskOriginX;
-		const py = Math.round(world.y) - cachedMaskOriginY;
+		const px = Math.round(world.x) - maskPipeline.originX;
+		const py = Math.round(world.y) - maskPipeline.originY;
 		const mask = wallState.wallMask;
 		if (!mask || px < 0 || px >= mask.width || py < 0 || py >= mask.height) return false;
 		const idx = py * mask.width + px;
 
 		// Must be an interior pixel (not a wall, not exterior)
-		if (!cachedInterior[idx]) return false;
+		if (!maskPipeline.interior[idx]) return false;
 
-		const regionId = cachedRoomLabels.labels[idx]!;
+		const regionId = maskPipeline.roomLabels.labels[idx]!;
 		if (regionId < 0) return false;
 
-		const typeId = cachedRoomTypeData ? (cachedRoomTypeData[idx] ?? 0) : 0;
+		const typeId = maskPipeline.roomTypeData ? (maskPipeline.roomTypeData[idx] ?? 0) : 0;
 		const floor = currentFloor();
 		const densityOverride = floor.roomDensityOverrides[String(regionId)];
 		const roomType = ROOM_TYPES.find(t => t.id === typeId);
@@ -562,7 +413,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	function handleContextMenu(e: MouseEvent) {
 		if (appState.floorAlignMode) {
 			e.preventDefault();
-			cancelAlignDrag();
+			gestures.cancelAlignDrag();
 			setFloorAlignMode(false);
 			return;
 		}
@@ -578,16 +429,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	async function handleRoomTypeSelect(typeId: number, density: number, customLabel?: string) {
-		if (!roomPopup || !cachedRoomLabels || !wallState.wallMask) return;
+		if (!roomPopup || !maskPipeline.roomLabels || !wallState.wallMask) return;
 		pushState();
 		const mask = wallState.wallMask;
 
 		// Create or clone room type mask
-		if (!cachedRoomTypeData) {
-			cachedRoomTypeData = new Uint8Array(mask.width * mask.height);
+		if (!maskPipeline.roomTypeData) {
+			maskPipeline.roomTypeData = new Uint8Array(mask.width * mask.height);
 		}
 
-		fillRegion(cachedRoomLabels.labels, cachedRoomTypeData, roomPopup.regionId, typeId);
+		fillRegion(maskPipeline.roomLabels.labels, maskPipeline.roomTypeData, roomPopup.regionId, typeId);
 
 		// Save per-region density override and custom label
 		const floor = currentFloor();
@@ -606,16 +457,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 		}
 
 		// Update renderer
-		roomLabelsLayer.roomTypeData = cachedRoomTypeData;
-		roomLabelsLayer.roomLabels = cachedRoomLabels;
+		roomLabelsLayer.roomTypeData = maskPipeline.roomTypeData;
+		roomLabelsLayer.roomLabels = maskPipeline.roomLabels;
 		roomLabelsLayer.densityOverrides = floor.roomDensityOverrides;
 		roomLabelsLayer.customLabels = floor.roomCustomLabels ?? {};
 		roomLabelsLayer.invalidateCache();
 		engine.markDirty();
 
 		// Encode and persist
-		const dataUrl = encodeMaterialMask(cachedRoomTypeData, mask.width, mask.height);
-		wallState.roomTypeMask = { dataUrl, width: mask.width, height: mask.height, originX: cachedMaskOriginX, originY: cachedMaskOriginY };
+		const dataUrl = encodeMaterialMask(maskPipeline.roomTypeData, mask.width, mask.height);
+		wallState.roomTypeMask = { dataUrl, width: mask.width, height: mask.height, originX: maskPipeline.originX, originY: maskPipeline.originY };
 		scheduleSave();
 
 		// Update coverage with new density weights
@@ -668,34 +519,34 @@ import { wallState } from '$state/wall-state.svelte.js';
 			scheduleSave();
 			return;
 		}
-		if (!cachedWallLabels || !wallState.wallMask || wallPopup.blobId === undefined) return;
+		if (!maskPipeline.wallLabels || !wallState.wallMask || wallPopup.blobId === undefined) return;
 		pushState(); // undo captures state before blob relabel
 		const mask = wallState.wallMask;
 		const blobId = wallPopup.blobId;
 
 		// Create or clone material mask
-		if (!cachedMaterialData) {
-			cachedMaterialData = new Uint8Array(mask.width * mask.height);
-			cachedMaterialData.fill(wallState.wallMaterial);
+		if (!maskPipeline.materialData) {
+			maskPipeline.materialData = new Uint8Array(mask.width * mask.height);
+			maskPipeline.materialData.fill(wallState.wallMaterial);
 		}
 
-		relabelBlob(cachedWallLabels.labels, cachedMaterialData, blobId, newMaterial);
+		relabelBlob(maskPipeline.wallLabels.labels, maskPipeline.materialData, blobId, newMaterial);
 
 		// Update renderers immediately
-		wallLayer.materialMap = cachedMaterialData;
+		wallLayer.materialMap = maskPipeline.materialData;
 		wallLayer.invalidateCache();
-		heatmapLayer.materialMap = cachedMaterialData;
+		heatmapLayer.materialMap = maskPipeline.materialData;
 		heatmapLayer.materialVersion++;
 		heatmapLayer.markWallsDirty();
 		engine.markDirty();
 
 		// Trigger solver re-run
-		wallMaskVersion++;
+		maskPipeline.maskVersion++;
 		invalidateSolverMaskCache();
 
 		// Encode and persist
-		const dataUrl = encodeMaterialMask(cachedMaterialData, mask.width, mask.height);
-		wallState.materialMask = { dataUrl, width: mask.width, height: mask.height, originX: cachedMaskOriginX, originY: cachedMaskOriginY };
+		const dataUrl = encodeMaterialMask(maskPipeline.materialData, mask.width, mask.height);
+		wallState.materialMask = { dataUrl, width: mask.width, height: mask.height, originX: maskPipeline.originX, originY: maskPipeline.originY };
 		scheduleSave();
 	}
 
@@ -716,14 +567,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let surfacesLayer: SurfacesLayer;
 	let notesLayer: NotesLayer;
 	let vectorWallsLayer: VectorWallsLayer;
-	/** Pointer position while drawing a wall, for the rubber band. */
-	let vectorCursor = $state<{ x: number; y: number } | null>(null);
-	/** The endpoint that click would snap to, ringed while the pointer is near it. */
-	let vectorSnap = $state<{ x: number; y: number } | null>(null);
-	/** True once the current eraser stroke has pushed its undo state. */
-	let eraserStrokePushed = false;
-	/** Pointer position while drawing the planning area; drives the rubber band. */
-	let planningCursor = $state<{ x: number; y: number } | null>(null);
 	let referenceFloorLayer: ReferenceFloorLayer;
 	let floorTilesLayer: FloorTilesLayer;
 	let stackedFloorsLayer: StackedFloorsLayer;
@@ -738,16 +581,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 */
 	const floorCards = new FloorCardCache();
 
-	// Floor-alignment drag. Screen-space deltas are kept because the camera works
-	// in screen space while `translateFloor` works in world units; the zoom is
-	// the conversion, and it can change mid-drag if the user scrolls.
-	let alignDragging = false;
-	let alignStartClientX = 0;
-	let alignStartClientY = 0;
-	let alignStartX = 0;
-	let alignStartY = 0;
-	let alignDxScreen = 0;
-	let alignDyScreen = 0;
 	let apLayer: ApLayer;
 	let wallLayer: WallLayer;
 	let autoSolveTimeout: ReturnType<typeof setTimeout> | null = null;
@@ -759,188 +592,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 			!floorplanState.floorplanUrl
 	);
 
+	/**
+	 * The keyboard map itself is in `canvas/shortcuts.ts`: the four gestures only this
+	 * view can perform are handed over, and everything else is a state a shortcut may touch.
+	 */
 	function handleKeyDown(e: KeyboardEvent) {
-		const target = e.target as HTMLElement;
-		const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT';
-		const mod = e.metaKey || e.ctrlKey;
-
-		/*
-		 * Undo and redo first, in every mode.
-		 *
-		 * They used to sit below the mode-specific branches, and a mode that consumed the key
-		 * first won: with the wall tool open, Ctrl+Z did nothing, and the workaround was to press
-		 * Done and then undo. Undo is a property of the project, not of the tool that happens to
-		 * be open, so it is handled before anything looks at the key for its own purposes.
-		 */
-		if (mod && (e.key === 'z' || e.key === 'Z')) {
-			e.preventDefault();
-			if (e.shiftKey) redo();
-			else undo();
-			// An undo changes the project, so it has to be written like any other edit —
-			// otherwise the storage still holds the state that was undone and the next reload
-			// brings it back.
-			scheduleSave();
-			engine?.markDirty();
-			return;
-		}
-
-		if (!isInput && appState.wallVectorMode && e.key === 'Escape') {
-			stopWallMode();
-			return;
-		}
-
-		if (
-			!isInput &&
-			(appState.wallVectorSelected || appState.wallColumnSelected) &&
-			(e.key === 'Delete' || e.key === 'Backspace')
-		) {
-			// A selected segment or column is a selected object: the same key that deletes an
-			// access point deletes it, and it must be consumed before the AP branch below.
-			const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-			const wallSelected =
-				!!appState.wallVectorSelected &&
-				!!floor?.walls?.some((wall) => wall.id === appState.wallVectorSelected);
-			const columnSelected =
-				!!appState.wallColumnSelected &&
-				!!floor?.columns?.some((column) => column.id === appState.wallColumnSelected);
-			if (wallSelected || columnSelected) {
-				e.preventDefault();
-				pushState();
-				if (wallSelected) {
-					floor!.walls = (floor!.walls ?? []).filter(
-						(wall) => wall.id !== appState.wallVectorSelected
-					);
-					appState.wallVectorSelected = null;
-				} else {
-					floor!.columns = (floor!.columns ?? []).filter(
-						(column) => column.id !== appState.wallColumnSelected
-					);
-					appState.wallColumnSelected = null;
-				}
-				// The last obstruction on the floor: the mask has to be emptied with it, in the
-				// frame it already has, or the model keeps charging a wall that no longer exists.
-				const segmentsLeft =
-					(floor!.walls ?? []).length + (floor!.columns ?? []).length === 0;
-				if (segmentsLeft) syncVectorWallsToMask(true);
-				scheduleSave();
-				engine.markDirty();
-				return;
-			}
-		}
-
-		if (!isInput && appState.planningDrawMode && e.key === 'Enter') {
-			commitPlanningDraft();
-			return;
-		}
-
-		if (!isInput && appState.planningDrawMode && (e.key === 'Backspace' || e.key === 'Delete')) {
-			// Before the AP delete below: in this mode Backspace means "that corner was
-			// wrong", which is the correction the user reaches for most often.
-			e.preventDefault();
-			if (appState.planningDraft.length > 0) {
-				appState.planningDraft = appState.planningDraft.slice(0, -1);
-			}
-			return;
-		}
-
-		if (!isInput && e.key === 'Escape' && appState.planningDrawMode) {
-			// Abandoning the loop: an unfinished outline is not a statement about the floor.
-			setPlanningDrawMode(false);
-			return;
-		}
-
-		if (!isInput && e.key === 'Escape' && appState.surfaceMode) {
-			// A half-drawn rectangle is not a surface; leaving the mode drops it.
-			setSurfaceMode(false);
-			return;
-		}
-
-		if (!isInput && appState.surfaceSelected && (e.key === 'Delete' || e.key === 'Backspace')) {
-			// A selected surface is a selected object, like a wall and like an AP.
-			const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-			if (floor?.surfaces?.some((surface) => surface.id === appState.surfaceSelected)) {
-				e.preventDefault();
-				pushState();
-				floor.surfaces = (floor.surfaces ?? []).filter(
-					(surface) => surface.id !== appState.surfaceSelected
-				);
-				appState.surfaceSelected = null;
-				void updateCoverage();
-				engine?.markDirty();
-				scheduleSave();
-				return;
-			}
-		}
-
-		if (!isInput && e.key === 'Escape' && appState.calibrateMode) {
-			// The measured line belongs to the mode, so leaving the mode drops it; the
-			// sidebar keeps the typed distance but not a line to apply it to.
-			setCalibrateMode(false);
-			return;
-		}
-
-		if (!isInput && e.key === 'Escape' && appState.floorAlignMode) {
-			// Escape is the conventional way out of a mode, and leaving it to the
-			// sidebar toggle alone makes a mode that looks stuck.
-			cancelAlignDrag();
-			setFloorAlignMode(false);
-			return;
-		}
-
-		if (!isInput && e.key === 'Escape' && appState.apPlaceMode) {
-			// Same reasoning: a mode that owns the canvas has to be escapable without
-			// reaching for the sidebar.
-			setApPlaceMode(false);
-			return;
-		}
-
-		if (mod && (e.key === 's' || e.key === 'S')) {
-			// The browser's own save dialog has nothing to do with a project: intercept it,
-			// write the project to the app's store, and answer visibly. Autosave is silent
-			// by design, but a key the user pressed has to say something.
-			e.preventDefault();
-			void saveNow();
-			return;
-		}
-
-		if (mod && e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
-			e.preventDefault();
-			redo();
-			engine?.markDirty();
-			return;
-		}
-
-		if (mod && (e.key === 'z' || e.key === 'Z')) {
-			e.preventDefault();
-			undo();
-			engine?.markDirty();
-			return;
-		}
-
-		if (e.key === 'Delete' || e.key === 'Backspace') {
-			if (canvasState.selectedApIds.length > 0) {
-				e.preventDefault();
-				removeAps([...canvasState.selectedApIds]);
-				clearSelection();
-			}
-		}
-
-		if (isInput || mod) return;
-
-		switch (e.key) {
-			case 'g':
-			case 'G':
-				appState.showGrid = !appState.showGrid;
-				break;
-			case 'w':
-			case 'W':
-				appState.showWalls = !appState.showWalls;
-				break;
-			case 'h':
-			case 'H':
-				appState.showHeatmap = !appState.showHeatmap;
-				break;
-		}
+		handleShortcut(e, { stopWallMode, commitPlanningDraft, cancelAlignDrag: gestures.cancelAlignDrag.bind(gestures), syncVectorWallsToMask });
 	}
 
 	/** The floor directly below the current one, by level. */
@@ -1114,7 +771,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * access point. Wall editing is excluded outright — every brush dab republishes
 	 * the mask, and the annotation is not what anyone is reading mid-stroke.
 	 *
-	 * Two dependencies, for two different arrivals. `apWallMask` is the decoded
+	 * Two dependencies, for two different arrivals. `maskPipeline.apWallMask` is the decoded
 	 * raster and lands from the decode's promise; `wallState.wallMask` is the
 	 * floor's declared mask and changes the moment a floor is switched or cleared,
 	 * before any decode has run. A mask is only measured against when the two
@@ -1133,8 +790,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		}
 
 		const declared = wallState.wallMask;
-		const decoded = apWallMask;
-		const revision = apWallMaskRevision;
+		const decoded = maskPipeline.apWallMask;
+		const revision = maskPipeline.revision;
 		// The origin is compared rounded because that is what the decode does to
 		// it: the stored value is an alignment offset and can be fractional, while
 		// the raster it addresses is made of whole pixels. Comparing the raw value
@@ -1263,7 +920,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		planningAreaLayer.area = visible ? (floor?.planningArea ?? null) : null;
 		planningAreaLayer.draft = visible ? appState.planningDraft : [];
-		planningAreaLayer.cursor = appState.planningDrawMode ? planningCursor : null;
+		planningAreaLayer.cursor = appState.planningDrawMode ? gestures.planningCursor : null;
 		engine.markDirty();
 	});
 
@@ -1288,248 +945,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			appState.floorView === 'single' && appState.showHeatmap && !canvasState.isDragging;
 		engine.markDirty();
 	});
-
-	/**
-	 * Everything the heatmap's AP list reads.
-	 *
-	 * Both effects that must re-run when any of it changes call this, so the
-	 * dependency list lives in one place rather than being spread over two.
-	 */
-	function trackHeatmapInputs(): void {
-		void floorState.currentFloorId;
-		for (const f of floorState.floors) {
-			void f.ceilingHeight;
-			void f.floorThickness;
-			void f.floorMaterial;
-			void f.level;
-			// Calibration is per floor and the coverage image's metres-per-world-unit
-			// comes from it, so re-calibrating any floor invalidates the tiles.
-			void f.calibration?.worldUnitsPerMeter;
-			// Masks are inputs too: an AP's own floor's walls are half of a
-			// cross-floor path, and editing or aligning that floor moves them.
-			void f.wallMask?.dataUrl;
-			void f.wallMask?.originX;
-			void f.wallMask?.originY;
-			void f.materialMask?.dataUrl;
-			// Room types carry the voids, and a void is a hole in the slab.
-			void f.roomTypeMask?.dataUrl;
-			void f.wallMaterial;
-		}
-		for (const ap of apState.aps) {
-			void ap.x;
-			void ap.y;
-			void ap.band;
-			void ap.channelWidth;
-			void ap.interferenceRadius;
-			void ap.assignedChannel;
-			void ap.power;
-			void ap.floorId;
-			// Where the AP is mounted is part of every path's geometry once the
-			// project models it, and the layer's own cache key carries the vertical
-			// offset it produces — so a change here has to rebuild the source list,
-			// not just the image.
-			void ap.mountHeightM;
-		}
-		void projectMeta.clientHeight;
-	}
-
-	/** An AP as the heatmap takes it: this floor's own, or another floor's as a fixed source. */
-	type HeatmapSourceAp = (typeof apState.aps)[0] & {
-		verticalOffset?: number;
-		floorDbPerMeter?: number;
-		floorThickness?: number;
-		crossFloor?: {
-			mask: { data: Uint8Array; width: number; height: number; originX: number; originY: number };
-			materialMap: Uint8Array | null;
-			defaultMaterial: WallMaterialId;
-			sourceT: number;
-			targetT: number;
-			slabRoomType: {
-				data: Uint8Array;
-				width: number;
-				height: number;
-				originX: number;
-				originY: number;
-			} | null;
-			slabT: number;
-		} | null;
-	};
-
-	/**
-	 * Every source that contributes to one floor's heatmap.
-	 *
-	 * The floor's own APs at full power, plus each other floor's APs as fixed sources
-	 * attenuated by the slab(s) between — with the wall split at each slab crossing
-	 * and the crossed slab's room types attached, so a void can waive the slab loss.
-	 *
-	 * Shared by the single-floor view and the tiled overview, which is the point: the
-	 * tiled overview used to hand `generateFor` only the floor's own APs, so a storey
-	 * with none of its own — an empty floor above a busy one — drew no heat at all
-	 * even with APs directly below it, and a floor with APs ignored every neighbour.
-	 */
-	async function heatmapApsForFloor(floorId: string): Promise<HeatmapSourceAp[]> {
-		const cur = floorState.floors.find((f) => f.id === floorId);
-		if (!cur) return [];
-
-		// Current floor's APs (full power). A same-floor path is flat while the
-		// project leaves mounting heights off — `apVerticalOffsetTo` returns 0 — and
-		// the AP-to-client height difference once they are on, which is the same
-		// term the optimiser and the worker use.
-		const localAps = apState.aps
-			.filter((ap) => ap.floorId === floorId)
-			.map((ap) => ({
-				...ap,
-				verticalOffset: apVerticalOffsetTo(ap, floorId, projectMeta.clientHeight)
-			}));
-
-		// Virtual APs from ALL other floors (attenuated through each slab between)
-		const otherFloors = floorState.floors.filter((f) => f.id !== floorId);
-		const sortedFloors = [...floorState.floors].sort((a, b) => a.level - b.level);
-		const virtualAps: Array<
-			HeatmapSourceAp & {
-				/** Floor this AP sits on; its mask is fetched after the first await. */
-				sourceFloorId: string;
-				sourceT: number;
-				targetT: number;
-				/**
-				 * Which of the two floors owns the slab this path crosses, or null when
-				 * the gap is more than one storey (several slabs, none modelled).
-				 */
-				slabOwner: 'source' | 'target' | null;
-				slabT: number;
-			}
-		> = [];
-		for (const adj of otherFloors) {
-			const adjAps = apState.aps.filter((ap) => ap.floorId === adj.id);
-			if (adjAps.length === 0) continue;
-
-			// Total slab thickness between the two floors, so the heatmap can be
-			// handed a dB-per-metre figure. `apVerticalOffsetTo` supplies the vertical
-			// term: it accounts for where the AP is actually mounted and the client
-			// being `clientHeight` above its floor, which the hand-rolled sum that
-			// used to be here did not.
-			const loLevel = Math.min(cur.level, adj.level);
-			const hiLevel = Math.max(cur.level, adj.level);
-			let totalSlabThickness = 0;
-			for (const f of sortedFloors) {
-				if (f.level < loLevel || f.level >= hiLevel) continue;
-				const upperIdx = sortedFloors.findIndex((s) => s.level === f.level + 1);
-				if (upperIdx >= 0) {
-					// The thickness counts whichever material the slab is: the dB figure
-					// comes from `getFloorSlabAttenuation`, which has its own fallback for
-					// a material id it does not know. Skipping the thickness when that
-					// lookup failed left the heatmap with no slab loss at all while the
-					// optimiser charged its fallback 20 dB.
-					totalSlabThickness += sortedFloors[upperIdx]!.floorThickness;
-				}
-			}
-			// A void is a hole in the *upper* floor's slab. Only a one-storey gap has a
-			// single slab to test; a taller one crosses several and the aggregate dB
-			// stands.
-			const oneStorey = Math.abs(adj.level - cur.level) === 1;
-			const slabOwner: 'source' | 'target' | null = !oneStorey
-				? null
-				: adj.level > cur.level
-					? 'source'
-					: 'target';
-
-			for (const ap of adjAps) {
-				const totalDb = getFloorSlabAttenuation(floorId, adj.id, ap.band as Band);
-				// Both of these are per AP: where the access point is mounted decides
-				// how far it is from the client and where its ray meets the floor
-				// planes, and two APs on one storey need not be mounted alike.
-				const totalVertGap = apVerticalOffsetTo(ap, floorId, projectMeta.clientHeight);
-				// Where this floor's rays change floors, so the wall loss can be charged
-				// to the floor each run actually passes through.
-				const split = apSplitFor(ap, floorId, projectMeta.clientHeight);
-				// The crossing nearest the client is where the slab is penetrated.
-				const slabT = split.targetT > 0 ? split.targetT : split.sourceT;
-				virtualAps.push({
-					...ap,
-					id: `virtual-${ap.id}`,
-					verticalOffset: totalVertGap,
-					floorDbPerMeter: totalSlabThickness > 0 ? totalDb / totalSlabThickness : 0,
-					floorThickness: totalSlabThickness,
-					sourceFloorId: adj.id,
-					sourceT: split.sourceT,
-					targetT: split.targetT,
-					slabOwner,
-					slabT
-				});
-			}
-		}
-
-		const allAps: HeatmapSourceAp[] = [...localAps, ...virtualAps];
-
-		// This floor's own masks: the grid the room type ids are read on, and the room
-		// types themselves for the case where this floor owns the crossed slab.
-		const self = await getFloorMask(floorId);
-
-		// Resolving a source floor's mask needs a decode, so the list is published once
-		// it is resolved rather than twice.
-		return Promise.all(
-			allAps.map(async (ap) => {
-				const extra = ap as HeatmapSourceAp & {
-					sourceFloorId?: string;
-					sourceT?: number;
-					targetT?: number;
-					slabOwner?: 'source' | 'target' | null;
-					slabT?: number;
-				};
-				const sourceFloorId = extra.sourceFloorId;
-				if (!sourceFloorId) return ap;
-				const decoded = await getFloorMask(sourceFloorId);
-				if (!decoded) return { ...ap, crossFloor: null };
-				const srcFloor = floorState.floors.find((f) => f.id === sourceFloorId);
-				// Room types of the floor whose slab the path crosses. A void there
-				// is a hole, so the slab loss is waived at that crossing. The AP's
-				// floor owns the slab when it is the upper one; otherwise it is this
-				// floor's own, whose room types share this mask's grid.
-				let slabRoomType: {
-					data: Uint8Array;
-					width: number;
-					height: number;
-					originX: number;
-					originY: number;
-				} | null = null;
-				if (extra.slabOwner === 'source' && decoded.roomTypeData) {
-					slabRoomType = {
-						data: decoded.roomTypeData,
-						width: decoded.width,
-						height: decoded.height,
-						originX: decoded.originX,
-						originY: decoded.originY
-					};
-				} else if (extra.slabOwner === 'target' && self?.roomTypeData) {
-					slabRoomType = {
-						data: self.roomTypeData,
-						width: self.width,
-						height: self.height,
-						originX: 0,
-						originY: 0
-					};
-				}
-				return {
-					...ap,
-					crossFloor: {
-						mask: {
-							data: decoded.wallData,
-							width: decoded.width,
-							height: decoded.height,
-							originX: decoded.originX,
-							originY: decoded.originY
-						},
-						materialMap: decoded.materialMap,
-						defaultMaterial: (srcFloor?.wallMaterial ?? 0) as WallMaterialId,
-						sourceT: extra.sourceT ?? 0,
-						targetT: extra.targetT ?? 0,
-						slabRoomType,
-						slabT: extra.slabT ?? 0
-					}
-				};
-			})
-		);
-	}
 
 	// Sync heatmap APs — current floor plus every other floor's, as fixed sources.
 	/** Guards the async mask lookup against a superseded run publishing late. */
@@ -1593,76 +1008,17 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	// Floor → legacy atoms: load current floor's data into legacy atoms on switch
+	// Reset the decode caches when the floor changes.
+	//
+	// There is nothing to copy here any more: `wallState` and `floorplanState` read through
+	// the current floor (see `state/wall-state.ts`), so switching floors switches their
+	// values. What has to be dropped is the state derived from the *previous* floor's mask.
 	let lastSyncedFloorId = '';
 	$effect(() => {
 		const id = floorState.currentFloorId;
 		if (id === lastSyncedFloorId) return;
 
-		// Before switching: save current legacy state back to the outgoing floor
-		if (lastSyncedFloorId) {
-			const outgoing = floorState.floors.find((f) => f.id === lastSyncedFloorId);
-			if (outgoing) {
-				outgoing.floorplanUrl = floorplanState.floorplanUrl;
-				outgoing.floorplanScale = floorplanState.floorplanScale;
-				outgoing.calibration = floorplanState.calibration;
-				outgoing.floorplanBoundary = floorplanState.floorplanBoundary;
-				outgoing.wallMask = wallState.wallMask;
-				outgoing.wallAttenuation = wallState.wallAttenuation;
-				outgoing.wallMaterial = wallState.wallMaterial;
-				outgoing.materialMask = wallState.materialMask;
-				outgoing.roomTypeMask = wallState.roomTypeMask;
-			}
-		}
-
-		// Load incoming floor's data into legacy atoms
-		const floor = currentFloor();
-		floorplanState.floorplanUrl = floor.floorplanUrl;
-		floorplanState.floorplanScale = floor.floorplanScale;
-		floorplanState.calibration = floor.calibration;
-		floorplanState.floorplanBoundary = floor.floorplanBoundary;
-		wallState.wallMask = floor.wallMask;
-		wallState.wallAttenuation = floor.wallAttenuation;
-		wallState.wallMaterial = floor.wallMaterial;
-		wallState.materialMask = floor.materialMask;
-		wallState.roomTypeMask = floor.roomTypeMask;
-
-		// Force wall mask re-decode on floor switch (prevent stale cache).
-		// Clear renderer references immediately so stale wall data from
-		// the previous floor doesn't render while the decode is in-flight.
-		lastWallMaskUrl = null;
-		lastMatMaskUrl = null;
-		lastRoomTypeMaskUrl = null;
-		// The origin markers are part of the same cache key and have to be cleared
-		// with the URLs, or the decode effect compares a fresh mask's origin
-		// against the previous floor's.
-		lastWallMaskOriginX = Number.NaN;
-		lastWallMaskOriginY = Number.NaN;
-		cachedWallData = null;
-		cachedMaterialData = null;
-		cachedWallLabels = null;
-		cachedInterior = null;
-		cachedRoomLabels = null;
-		cachedRoomTypeData = null;
-		if (wallLayer) {
-			wallLayer.mask = null;
-			wallLayer.materialMap = null;
-			wallLayer.invalidateCache();
-		}
-		if (heatmapLayer) {
-			heatmapLayer.wallMask = null;
-			heatmapLayer.materialMap = null;
-			// The incoming floor's mask is about to be decoded. Generating a heatmap
-			// against no walls in the meantime is a full, expensive image that the
-			// decode immediately replaces — see `maskPending` in the layer.
-			heatmapLayer.maskPending = floorState.floors.some((f) => f.id === id && !!f.wallMask);
-			heatmapLayer.markWallsDirty();
-		}
-		if (roomLabelsLayer) {
-			roomLabelsLayer.roomTypeData = null;
-			roomLabelsLayer.roomLabels = null;
-			roomLabelsLayer.invalidateCache();
-		}
+		maskPipeline.reset();
 
 		lastSyncedFloorId = id;
 		clearSelection();
@@ -1695,143 +1051,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	// Decode wall mask + material mask — tracks wallState URLs
-	let wallMaskVersion = 0;
-	let lastWallMaskUrl: string | null = null;
-	let lastMatMaskUrl: string | null = null;
-	// The decode effect used to key on the data URLs alone, so moving a floor
-	// (`translateFloor` shifts the mask origin without touching the pixels) left
-	// the wall layer rendering at the old origin. Track the origin too.
-	let lastWallMaskOriginX = Number.NaN;
-	let lastWallMaskOriginY = Number.NaN;
 	$effect(() => {
-		if (!wallLayer || !heatmapLayer) return;
-		const mask = wallState.wallMask;
-		const matMask = wallState.materialMask;
-
-		// Skip re-decode if the data URLs and the origin are all unchanged. The
-		// origin matters because aligning a floor moves the mask without changing
-		// a single pixel.
-		const wallUrl = mask?.dataUrl ?? null;
-		const matUrl = matMask?.dataUrl ?? null;
-		const originX = mask?.originX ?? 0;
-		const originY = mask?.originY ?? 0;
-		if (
-			wallUrl === lastWallMaskUrl &&
-			matUrl === lastMatMaskUrl &&
-			originX === lastWallMaskOriginX &&
-			originY === lastWallMaskOriginY &&
-			cachedWallData
-		)
-			return;
-		lastWallMaskUrl = wallUrl;
-		lastMatMaskUrl = matUrl;
-		lastWallMaskOriginX = originX;
-		lastWallMaskOriginY = originY;
-
-		console.info(
-			`[walls] decode start: mask ${mask?.width ?? 0}x${mask?.height ?? 0} at ${originX},${originY}`
-		);
-
-		wallMaskVersion++;
-		invalidateSolverMaskCache();
-		const thisVersion = wallMaskVersion;
-
-		if (!mask) {
-			wallLayer.mask = null;
-			heatmapLayer.wallMask = null;
-			// There is no mask coming: this floor has no plan, so a wall-less heatmap is
-			// the real answer and must not be suppressed.
-			heatmapLayer.maskPending = false;
-			cachedWallData = null;
-			cachedWallLabels = null;
-			cachedMaterialData = null;
-			cachedInterior = null;
-			cachedRoomLabels = null;
-			cachedRoomTypeData = null;
-			if (roomLabelsLayer) {
-				roomLabelsLayer.roomTypeData = null;
-				roomLabelsLayer.roomLabels = null;
-				roomLabelsLayer.invalidateCache();
-			}
-			engine.markDirty();
-			return;
-		}
-
-		const wallPromise = decodeMask(mask.dataUrl, mask.width, mask.height);
-		const matPromise = matMask ? decodeMaterialMask(matMask.dataUrl, matMask.width, matMask.height) : null;
-
-		wallPromise.then(async (decoded) => {
-			if (wallMaskVersion !== thisVersion) return;
-			const matData = matPromise ? await matPromise : null;
-			if (wallMaskVersion !== thisVersion) return;
-
-			// Propagate the stored origin to the decoded mask, snapped to whole
-			// pixels. The origin comes from the alignment offset, which is
-			// `dragDistance / zoom` and therefore fractional, but it is used as a
-			// pixel address: the renderer places the raster at it and every kernel
-			// reads it at it, so the two have to agree on one integer.
-			decoded.originX = Math.round(mask.originX ?? 0);
-			decoded.originY = Math.round(mask.originY ?? 0);
-
-			const defaultMat = wallState.wallMaterial;
-
-			wallLayer.mask = decoded;
-			wallLayer.materialMap = matData ?? null;
-			wallLayer.defaultMaterial = defaultMat;
-			heatmapLayer.wallMask = decoded;
-			heatmapLayer.materialMap = matData ?? null;
-			heatmapLayer.defaultMaterial = defaultMat;
-			heatmapLayer.wallAttenuation = wallState.wallAttenuation;
-			// The mask it was waiting for is here, so generation may proceed.
-			heatmapLayer.maskPending = false;
-			setApWallMask(decoded);
-
-			cachedWallData = decoded.data;
-			cachedMaskOriginX = decoded.originX;
-			cachedMaskOriginY = decoded.originY;
-			cachedWallLabels = labelWallBlobs(decoded.data, decoded.width, decoded.height);
-			cachedMaterialData = matData ?? null;
-
-			// Compute building interior + room labels for room type detection
-			const interiorResult = computeBuildingInterior(decoded.data, decoded.width, decoded.height, { maxDim: 400 });
-			cachedInterior = interiorResult.interior;
-			cachedRoomLabels = labelRooms(cachedInterior, decoded.width, decoded.height);
-
-			// Decode room type mask if persisted
-			const rtMask = wallState.roomTypeMask;
-			if (rtMask && rtMask.width === decoded.width && rtMask.height === decoded.height) {
-				const rtData = await decodeMaterialMask(rtMask.dataUrl, rtMask.width, rtMask.height);
-				if (wallMaskVersion !== thisVersion) return;
-				cachedRoomTypeData = rtData;
-			} else {
-				cachedRoomTypeData = null;
-			}
-
-			// Feed room data to renderer
-			if (roomLabelsLayer) {
-				roomLabelsLayer.roomTypeData = cachedRoomTypeData;
-				roomLabelsLayer.roomLabels = cachedRoomLabels;
-				roomLabelsLayer.maskWidth = decoded.width;
-				roomLabelsLayer.maskHeight = decoded.height;
-				roomLabelsLayer.originX = decoded.originX;
-				roomLabelsLayer.originY = decoded.originY;
-				roomLabelsLayer.densityOverrides = currentFloor().roomDensityOverrides;
-				roomLabelsLayer.customLabels = currentFloor().roomCustomLabels ?? {};
-				roomLabelsLayer.invalidateCache();
-			}
-
-			engine.markDirty();
-		}).catch((err) => {
-			// Without this the chain failed silently, so a plan whose walls never
-			// appeared arrived with no explanation of why the decode never finished.
-			console.error(
-				'[walls] floorplan decode failed. The plan then has no walls to measure ' +
-					'against, so coverage and the heatmap read as empty rather than as wrong.',
-				err
-			);
-		});
+		maskPipeline.syncWallMask();
 	});
-
 
 	$effect(() => {
 		if (!wallLayer) return;
@@ -1858,35 +1080,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	// Decode room type mask independently of wall mask (handles undo/redo, floor switch)
-	let lastRoomTypeMaskUrl: string | null = null;
 	$effect(() => {
-		if (!roomLabelsLayer) return;
-		const rtMask = wallState.roomTypeMask;
-		const rtUrl = rtMask?.dataUrl ?? null;
-		if (rtUrl === lastRoomTypeMaskUrl) return;
-		lastRoomTypeMaskUrl = rtUrl;
-
-		const mask = wallState.wallMask;
-		if (!rtMask || !mask || rtMask.width !== mask.width || rtMask.height !== mask.height) {
-			cachedRoomTypeData = null;
-			roomLabelsLayer.roomTypeData = null;
-			roomLabelsLayer.invalidateCache();
-			engine.markDirty();
-			return;
-		}
-
-		decodeMaterialMask(rtMask.dataUrl, rtMask.width, rtMask.height).then((rtData) => {
-			if (wallState.roomTypeMask?.dataUrl !== rtMask.dataUrl) return; // stale
-			cachedRoomTypeData = rtData;
-			roomLabelsLayer.roomTypeData = rtData;
-			roomLabelsLayer.roomLabels = cachedRoomLabels;
-			roomLabelsLayer.densityOverrides = currentFloor().roomDensityOverrides;
-			roomLabelsLayer.customLabels = currentFloor().roomCustomLabels ?? {};
-			roomLabelsLayer.invalidateCache();
-			engine.markDirty();
-		});
+		maskPipeline.syncRoomTypes();
 	});
-
 
 	$effect(() => {
 		if (!apLayer) return;
@@ -2376,7 +1572,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					`${ap.mountHeightM}:${antennaSignature(ap)}`
 			)
 			.join('|') +
-		`|wm:${wallMaskVersion}:${wallState.wallMaterial}` +
+		`|wm:${maskPipeline.maskVersion}:${wallState.wallMaterial}` +
 		// The client's height is the other end of every vertical term.
 		`|mh:${projectMeta.clientHeight}`
 	);
@@ -2442,433 +1638,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		coverageTimeout = setTimeout(() => updateCoverage(), 300);
 	});
 
-	// Track pending placement vs pan gesture
-	const DRAG_THRESHOLD = 5;
-	let pendingPlace = false;
-	let pendingPan = false;
-	let pointerStartX = 0;
-	let pointerStartY = 0;
-	let activeTouches = 0;
-
-	// Single-finger state
-	let touchStartX = 0;
-	let touchStartY = 0;
-	let touchMoved = false;
-	let touchStartedOnAp = false;
-
-	// Two-finger pinch state
-	let pinchLastDist = 0;
-	let pinchLastCx = 0;
-	let pinchLastCy = 0;
-	let pinchFrames = 0;
-
-	function handleTouchStart(e: TouchEvent) {
-		activeTouches = e.touches.length;
-
-		if (activeTouches === 1) {
-			const t = e.touches[0]!;
-			touchStartX = t.clientX;
-			touchStartY = t.clientY;
-			touchMoved = false;
-			touchStartedOnAp = false;
-			pendingPan = false;
-			longPressFired = false;
-
-			// Start long-press timer for contextual wall/room actions
-			if (longPressTimer) clearTimeout(longPressTimer);
-			const lpX = t.clientX;
-			const lpY = t.clientY;
-			longPressTimer = setTimeout(() => {
-				longPressTimer = null;
-				if (touchMoved || activeTouches !== 1) return;
-				if (!engine) return;
-				const rect = engine.canvas.getBoundingClientRect();
-				const sx = lpX - rect.left;
-				const sy = lpY - rect.top;
-				if (handleContextAction(sx, sy)) {
-					longPressFired = true;
-				}
-			}, LONG_PRESS_MS);
-		} else if (activeTouches >= 2) {
-			e.preventDefault();
-			// Cancel long-press and single-finger state
-			if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-			pendingPan = false;
-			touchStartedOnAp = false;
-			touchMoved = true;
-			dragHandler.handlePointerUp();
-			// Initialize pinch
-			pinchFrames = 0;
-			pinchLastDist = 0;
-		}
-	}
-
-	function handleTouchMove(e: TouchEvent) {
-		if (!engine) return;
-
-		// Two-finger: pinch zoom + pan
-		if (e.touches.length === 2) {
-			e.preventDefault();
-			const t0 = e.touches[0]!;
-			const t1 = e.touches[1]!;
-			const dist = Math.hypot(t1.clientX - t0.clientX, t1.clientY - t0.clientY);
-			const cx = (t0.clientX + t1.clientX) / 2;
-			const cy = (t0.clientY + t1.clientY) / 2;
-
-			pinchFrames++;
-			if (pinchFrames <= 2) {
-				// Baseline frames: record, don't apply
-				pinchLastDist = dist;
-				pinchLastCx = cx;
-				pinchLastCy = cy;
-				return;
-			}
-
-			// Zoom
-			if (pinchLastDist > 0) {
-				const factor = dist / pinchLastDist;
-				const rect = engine.canvas.getBoundingClientRect();
-				engine.camera.zoomAt({ x: cx - rect.left, y: cy - rect.top }, factor);
-			}
-
-			// Pan
-			engine.camera.pan(
-				(cx - pinchLastCx) / engine.camera.state.zoom,
-				(cy - pinchLastCy) / engine.camera.state.zoom
-			);
-
-			pinchLastDist = dist;
-			pinchLastCx = cx;
-			pinchLastCy = cy;
-			engine.markDirty();
-			return;
-		}
-
-		// Single-finger
-		if (e.touches.length !== 1) return;
-		const t = e.touches[0]!;
-
-		const dx = t.clientX - touchStartX;
-		const dy = t.clientY - touchStartY;
-
-		if (!touchMoved && !touchStartedOnAp && !pendingPan && dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
-			touchMoved = true;
-			if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-			const rect = engine.canvas.getBoundingClientRect();
-			const hit = hitTest({ x: touchStartX - rect.left, y: touchStartY - rect.top }, engine.camera, apState.aps.filter(ap => ap.floorId === floorState.currentFloorId));
-
-			if (hit) {
-				touchStartedOnAp = true;
-				const synth = new PointerEvent('pointerdown', { clientX: touchStartX, clientY: touchStartY, button: 0 });
-				selectHandler.handlePointerDown(synth);
-				dragHandler.handlePointerDown(synth);
-			} else {
-				pendingPan = true;
-				pointerStartX = touchStartX;
-				pointerStartY = touchStartY;
-			}
-		}
-
-		if (touchStartedOnAp && dragHandler.isDragging) {
-			dragHandler.handlePointerMove(new PointerEvent('pointermove', { clientX: t.clientX, clientY: t.clientY }));
-		} else if (pendingPan) {
-			engine.camera.pan(
-				(t.clientX - pointerStartX) / engine.camera.state.zoom,
-				(t.clientY - pointerStartY) / engine.camera.state.zoom
-			);
-			pointerStartX = t.clientX;
-			pointerStartY = t.clientY;
-			engine.markDirty();
-		}
-	}
-
-	function handleTouchEnd(e: TouchEvent) {
-		if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer = null; }
-
-		if (activeTouches === 1 && e.touches.length === 0) {
-			// Skip tap action if long-press already fired a contextual popup
-			if (!touchMoved && !longPressFired && engine) {
-				const rect = engine.canvas.getBoundingClientRect();
-				const sx = touchStartX - rect.left;
-				const sy = touchStartY - rect.top;
-				const hit = hitTest({ x: sx, y: sy }, engine.camera, apState.aps.filter(ap => ap.floorId === floorState.currentFloorId));
-
-				if (hit) {
-					selectHandler.handlePointerDown(new PointerEvent('pointerdown', { clientX: touchStartX, clientY: touchStartY, button: 0 }));
-				} else if (appState.apPlaceMode && !handleWallClick(sx, sy)) {
-					// Not an AP, not a wall — place AP. Touch follows the same mode as the
-					// mouse: a tap that was meant to dismiss something must not leave an AP.
-					placeHandler.handlePointerDown(new PointerEvent('pointerdown', { clientX: touchStartX, clientY: touchStartY, button: 0 }));
-				}
-			}
-			pendingPan = false;
-			touchStartedOnAp = false;
-			dragHandler.handlePointerUp();
-			selectHandler.handlePointerUp(new PointerEvent('pointerup'));
-		}
-		activeTouches = e.touches.length;
-		if (activeTouches === 0) {
-			pinchFrames = 0;
-			pinchLastDist = 0;
-		}
-	}
-
-	function processPointerDown(e: PointerEvent) {
-		if (!engine) return;
-		if (activeTouches >= 2) return;
-
-		const rect = engine.canvas.getBoundingClientRect();
-		const screenPoint = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-		const hit = hitTest(screenPoint, engine.camera, apState.aps.filter(ap => ap.floorId === floorState.currentFloorId));
-
-		if (hit) {
-			selectHandler.handlePointerDown(e);
-			dragHandler.handlePointerDown(e);
-			pendingPlace = false;
-			pendingPan = false;
-		} else if (e.shiftKey) {
-			selectHandler.handlePointerDown(e);
-			pendingPlace = false;
-			pendingPan = false;
-		} else {
-			// A drawn wall is an object: a click near one selects it — Delete removes it,
-			// right-click changes its material — instead of starting a marquee. Without
-			// this the only way to reach a wall was to have just drawn it.
-			const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-			const walls = (floor?.walls ?? []) as VectorWall[];
-			// A surface edge first: the outline is the only part of a mezzanine that is
-			// unambiguous, and the canvas inside it stays free for placing access points.
-			if (floor?.surfaces?.length) {
-				const world = engine.camera.screenToWorld(screenPoint);
-				const surface = surfaceEdgeNear(
-					floor.surfaces,
-					world.x,
-					world.y,
-					10 / (engine.camera.state.zoom || 1)
-				);
-				if (surface) {
-					appState.surfaceSelected = surface.id;
-					appState.wallVectorSelected = null;
-					pendingPlace = false;
-					pendingPan = false;
-					engine.markDirty();
-					return;
-				}
-			}
-			if (walls.length > 0) {
-				const world = engine.camera.screenToWorld(screenPoint);
-				const wall = wallNearPoint(world, walls, 12 / (engine.camera.state.zoom || 1));
-				if (wall) {
-					appState.wallVectorSelected = wall.id;
-					appState.wallColumnSelected = null;
-					pendingPlace = false;
-					pendingPan = false;
-					engine.markDirty();
-					return;
-				}
-			}
-			if ((floor?.columns ?? []).length > 0) {
-				const world = engine.camera.screenToWorld(screenPoint);
-				const column = columnAtPoint((floor?.columns ?? []) as VectorColumn[], world);
-				if (column) {
-					appState.wallColumnSelected = column.id;
-					appState.wallVectorSelected = null;
-					pendingPlace = false;
-					pendingPan = false;
-					engine.markDirty();
-					return;
-				}
-			}
-			if (appState.wallVectorSelected || appState.wallColumnSelected) {
-				appState.wallVectorSelected = null;
-				appState.wallColumnSelected = null;
-				engine.markDirty();
-			}
-			if (appState.surfaceSelected) {
-				appState.surfaceSelected = null;
-				engine.markDirty();
-			}
-			// A click on empty canvas adds an AP only in placement mode; otherwise it is
-			// a selection gesture (click to clear, drag to marquee), which is the same
-			// thing Shift+click does.
-			pointerStartX = e.clientX;
-			pointerStartY = e.clientY;
-			pendingPan = false;
-			if (appState.apPlaceMode) {
-				pendingPlace = true;
-			} else {
-				pendingPlace = false;
-				selectHandler.handlePointerDown(e);
-			}
-		}
-	}
-
-	/**
-	 * Abandon an alignment drag without moving the floor.
-	 *
-	 * During the drag the movement lives entirely in the camera, so undoing it is
-	 * just putting the camera back: the floor's own coordinates were never
-	 * touched. The ghost's compensation is cleared with it.
-	 */
-	function cancelAlignDrag(): void {
-		if (!alignDragging) return;
-		alignDragging = false;
-		if (engine) {
-			engine.camera.pan(
-				alignStartX - engine.camera.state.x,
-				alignStartY - engine.camera.state.y
-			);
-			engine.markDirty();
-		}
-		if (referenceFloorLayer) {
-			referenceFloorLayer.compensateX = 0;
-			referenceFloorLayer.compensateY = 0;
-		}
-	}
-
-	// Viewpoint drag for the stacked overview.
-	//
-	// A drag turns the view and a click picks a floor, so which one it was is decided
-	// on release by how far the pointer travelled — the same threshold the canvas
-	// already uses to tell a placement click from a pan.
-	//
-	// The angle is accumulated **incrementally**, one pointer step at a time, and
-	// clamped at each step. Accumulating from the drag's origin and clamping only the
-	// result looks identical until a limit is reached, and then it is wrong in a way
-	// that is easy to see and hard to place: the overshoot is remembered, so pulling
-	// back does nothing until the pointer has retraced it. Dragging past the limit now
-	// simply stops.
-	//
-	// 0.4°/px, and the plan **follows the pointer** on both axes: dragging right
-	// turns it with the hand (its front swings right, showing the left side), and
-	// dragging down brings its near edge down the screen, which means tilting *away*
-	// from the level view and back toward a plan view. That is the sign the yaw
-	// already used; having the two disagree made the same gesture turn one way and
-	// tilt the other.
-	const ORBIT_DEG_PER_PX = 0.4;
-	let orbitPointerId: number | null = null;
-	let orbitStartX = 0;
-	let orbitStartY = 0;
-	let orbitLastX = 0;
-	let orbitLastY = 0;
-	let orbitYaw = 0;
-	let orbitPitch = 0;
-	let orbitMoved = false;
-
-	/** Clamp to a range, for the drag's per-step limits. */
-	function clamp(value: number, lo: number, hi: number): number {
-		return Math.max(lo, Math.min(hi, value));
-	}
-
-	function handlePointerDown(e: PointerEvent) {
-		if (!engine) return;
-		if (e.button !== 0) return; // Only handle primary (left) button
-		if (e.pointerType === 'touch') return;
-		// In the overview views a click picks a floor; nothing edits geometry there,
-		// and a *drag* turns the view rather than picking.
-		if (appState.floorView !== 'single') {
-			orbitPointerId = e.pointerId;
-			orbitStartX = e.clientX;
-			orbitStartY = e.clientY;
-			orbitLastX = e.clientX;
-			orbitLastY = e.clientY;
-			orbitYaw = appState.stackYaw;
-			orbitPitch = appState.stackPitch;
-			orbitMoved = false;
-			return;
-		}
-		// Drawing vector walls: the first click starts a segment, the second commits it.
-		if (appState.wallVectorMode) {			const rect = engine.canvas.getBoundingClientRect();
-			const world = engine.camera.screenToWorld({
-				x: e.clientX - rect.left,
-				y: e.clientY - rect.top
-			});
-			handleVectorWallClick(world, e.shiftKey);
-			engine.markDirty();
-			e.preventDefault();
-			return;
-		}
-		// A note pin is a small target and it sits above everything: it takes the click before
-		// the selection logic, whether or not note mode is on, because clicking a pin to read
-		// it is the obvious gesture.
-		{
-			const world = engine.camera.screenToWorld({
-				x: e.clientX - engine.canvas.getBoundingClientRect().left,
-				y: e.clientY - engine.canvas.getBoundingClientRect().top
-			});
-			if (appState.noteMode) {
-				addNoteAt(world);
-				engine.markDirty();
-				e.preventDefault();
-				return;
-			}
-			const hit = appState.showNotes
-				? noteAtPoint(currentNotes(), world, noteToleranceWorld())
-				: null;
-			if (hit) {
-				appState.noteSelectedId = hit.id;
-				engine.markDirty();
-				e.preventDefault();
-				return;
-			}
-			// A click on the plan itself drops the note selection, like every other selection.
-			if (appState.noteSelectedId) appState.noteSelectedId = null;
-		}
-		// Drawing the planning area intercepts the primary click: each click is a corner of
-		// the loop the user is stating, and nothing else uses that gesture while it is on.
-		if (appState.planningDrawMode) {
-			const world = engine.camera.screenToWorld({
-				x: e.clientX - engine.canvas.getBoundingClientRect().left,
-				y: e.clientY - engine.canvas.getBoundingClientRect().top
-			});
-			addPlanningPoint({ x: world.x, y: world.y });
-			engine.markDirty();
-			e.preventDefault();
-			return;
-		}
-		// Drawing a raised surface: two clicks, opposite corners. The first states where it
-		// starts and the second commits it, exactly like a wall — the two gestures that
-		// shape the model should feel the same.
-		if (appState.surfaceMode) {
-			const world = engine.camera.screenToWorld({
-				x: e.clientX - engine.canvas.getBoundingClientRect().left,
-				y: e.clientY - engine.canvas.getBoundingClientRect().top
-			});
-			commitSurfaceClick(world);
-			engine.markDirty();
-			e.preventDefault();
-			return;
-		}
-		// Calibrating by measurement intercepts the primary click, before placement and
-		// before selection: while the mode is on, a click is a point of the measured line
-		// and nothing else.
-		if (appState.calibrateMode) {
-			const world = engine.camera.screenToWorld({
-				x: e.clientX - engine.canvas.getBoundingClientRect().left,
-				y: e.clientY - engine.canvas.getBoundingClientRect().top
-			});
-			addCalibrationPoint({ x: world.x, y: world.y });
-			engine.markDirty();
-			e.preventDefault();
-			return;
-		}
-		// Align mode intercepts the primary pointer. PanZoomHandler only pans on
-		// the middle button, so a left drag here does not fight it.
-		if (appState.floorAlignMode) {
-			alignDragging = true;
-			alignDxScreen = 0;
-			alignDyScreen = 0;
-			alignStartClientX = e.clientX;
-			alignStartClientY = e.clientY;
-			alignStartX = engine.camera.state.x;
-			alignStartY = engine.camera.state.y;
-			pushState();
-			e.preventDefault();
-			return;
-		}
-		processPointerDown(e);
-	}
-
 	/**
 	 * Register the project's custom wall materials with the material table.
 	 *
@@ -2911,8 +1680,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		vectorWallsLayer.selectedColumnId = appState.wallColumnSelected;
 		vectorWallsLayer.draft = appState.wallVectorDraft;
 		vectorWallsLayer.columnDraft = appState.columnDraft;
-		vectorWallsLayer.cursor = appState.wallVectorMode ? vectorCursor : null;
-		vectorWallsLayer.snapTarget = appState.wallVectorMode ? vectorSnap : null;
+		vectorWallsLayer.cursor = appState.wallVectorMode ? gestures.vectorCursor : null;
+		vectorWallsLayer.snapTarget = appState.wallVectorMode ? gestures.vectorSnap : null;
 		vectorWallsLayer.wupm = getEffectiveWupm();
 		engine.markDirty();
 	});
@@ -3044,8 +1813,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		appState.wallVectorMode = false;
 		appState.wallVectorDraft = null;
 		appState.columnDraft = null;
-		vectorCursor = null;
-		vectorSnap = null;
+		gestures.vectorCursor = null;
+		gestures.vectorSnap = null;
 		engine?.markDirty();
 	}
 
@@ -3262,7 +2031,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		if (!target) return;
 		target.planningArea = draft.map((point) => ({ x: point.x, y: point.y }));
 		setPlanningDrawMode(false);
-		planningCursor = null;
+		gestures.planningCursor = null;
 		forgetInterior(target.id);
 		scheduleSave();
 	}
@@ -3290,258 +2059,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		commitPlanningDraft();
 	}
 
-	function handlePointerMove(e: PointerEvent) {
-		if (!engine) return;
-		// Hovering a note pin shows its text, in every mode: reading a note is never the
-		// gesture the current mode is about.
-		if (appState.showNotes && appState.floorView === 'single') {
-			const rect = engine.canvas.getBoundingClientRect();
-			const world = engine.camera.screenToWorld({
-				x: e.clientX - rect.left,
-				y: e.clientY - rect.top
-			});
-			const hovered = noteAtPoint(currentNotes(), world, noteToleranceWorld());
-			if ((hovered?.id ?? null) !== appState.noteHoverId) {
-				appState.noteHoverId = hovered?.id ?? null;
-				engine.markDirty();
-			}
-		}
-		if (appState.wallVectorMode) {
-			const rect = engine.canvas.getBoundingClientRect();
-			vectorCursor = engine.camera.screenToWorld({
-				x: e.clientX - rect.left,
-				y: e.clientY - rect.top
-			});
-			/*
-			 * The eraser works as a stroke, not a click: whatever the brush passes over goes,
-			 * and one undo puts the whole stroke back. `buttons` is what says the pointer is
-			 * down — a move without it is a hover and must not delete anything.
-			 */
-			if (appState.wallTool === 'eraser') {
-				if ((e.buttons & 1) !== 0) {
-					if (!eraserStrokePushed) {
-						pushState();
-						eraserStrokePushed = true;
-					}
-					if (eraseAt(vectorCursor)) engine.markDirty();
-				}
-				vectorSnap = null;
-				engine.markDirty();
-				return;
-			}
-			if (appState.wallTool === 'line') {
-				// Where the click would land, so the ring can say "this will meet that wall".
-				const snapped = snapToWalls(vectorCursor, currentWalls(), snapToleranceWorld());
-				vectorSnap =
-					snapped.point.x !== vectorCursor.x || snapped.point.y !== vectorCursor.y
-						? snapped.point
-						: null;
-			} else {
-				vectorSnap = null;
-				// The pier or column follows the pointer from the first click, like a wall.
-				if (appState.columnDraft) {
-					appState.columnDraft = {
-						...appState.columnDraft,
-						bx: vectorCursor.x,
-						by: vectorCursor.y
-					};
-				}
-			}
-			engine.markDirty();
-			return;
-		}
-		if (appState.noteMode) return;
-		// Drawing a raised surface: the second corner follows the pointer, so the rectangle
-		// can be judged before the click that commits it.
-		if (appState.surfaceMode) {
-			const rect = engine.canvas.getBoundingClientRect();
-			const world = engine.camera.screenToWorld({
-				x: e.clientX - rect.left,
-				y: e.clientY - rect.top
-			});
-			if (appState.surfaceDraft) {
-				appState.surfaceDraft = { ...appState.surfaceDraft, bx: world.x, by: world.y };
-				engine.markDirty();
-			}
-			return;
-		}
-		// While drawing the planning area the pointer drives the rubber band: the next edge
-		// and the closing edge are previewed, so the shape can be judged before it is closed.
-		if (appState.planningDrawMode) {
-			const rect = engine.canvas.getBoundingClientRect();
-			planningCursor = engine.camera.screenToWorld({
-				x: e.clientX - rect.left,
-				y: e.clientY - rect.top
-			});
-			engine.markDirty();
-			return;
-		}
-		if (e.pointerType === 'touch') return;
-		// Turning the viewpoint of an overview, and which slab is under the pointer in the
-		// stacked one. Read-only and cheap: the layout is a few floors of arithmetic, and
-		// only a *change* marks the canvas dirty, so a moving pointer does not repaint per
-		// pixel.
-		if (appState.floorView === 'stacked' || appState.floorView === 'floor3d') {
-			// While the view is being dragged there is no hovering to report: the
-			// pointer is holding the camera, not pointing at a floor.
-			if (orbitPointerId === e.pointerId) {
-				const dx = e.clientX - orbitStartX;
-				const dy = e.clientY - orbitStartY;
-				if (!orbitMoved && Math.hypot(dx, dy) >= DRAG_THRESHOLD) {
-					orbitMoved = true;
-					if (stackedFloorsLayer) stackedFloorsLayer.hoverFloorId = null;
-					// Start accumulating from here, not from where the drag began:
-					// otherwise the threshold distance itself is applied as a turn on
-					// the first step, which reads as a small jump.
-					orbitLastX = e.clientX;
-					orbitLastY = e.clientY;
-				}
-				if (orbitMoved) {
-					orbitYaw = clamp(
-						orbitYaw - (e.clientX - orbitLastX) * ORBIT_DEG_PER_PX,
-						-STACK_YAW_LIMIT_DEG,
-						STACK_YAW_LIMIT_DEG
-					);
-					orbitPitch = clamp(
-						orbitPitch - (e.clientY - orbitLastY) * ORBIT_DEG_PER_PX,
-						STACK_MIN_PITCH_DEG,
-						STACK_MAX_PITCH_DEG
-					);
-					orbitLastX = e.clientX;
-					orbitLastY = e.clientY;
-					appState.stackYaw = orbitYaw;
-					appState.stackPitch = orbitPitch;
-					return;
-				}
-			}
-			if (appState.floorView === 'stacked' && stackedFloorsLayer) {
-				const rect = engine.canvas.getBoundingClientRect();
-				const world = engine.camera.screenToWorld({
-					x: e.clientX - rect.left,
-					y: e.clientY - rect.top
-				});
-				const hovered = stackedFloorsLayer.floorAt(world.x, world.y);
-				if (hovered !== stackedFloorsLayer.hoverFloorId) {
-					stackedFloorsLayer.hoverFloorId = hovered;
-					engine.markDirty();
-				}
-			}
-		}
-		if (alignDragging) {
-			// The camera carries the current floor, and the ghost is pushed back by
-			// the same amount so it stays anchored to the floor it belongs to. On
-			// release the camera returns and the floor's own coordinates take over
-			// the movement, so nothing jumps.
-			alignDxScreen = e.clientX - alignStartClientX;
-			alignDyScreen = e.clientY - alignStartClientY;
-			const cam = engine.camera;
-			cam.pan(alignStartX + alignDxScreen - cam.state.x, alignStartY + alignDyScreen - cam.state.y);
-			const zoom = cam.state.zoom || 1;
-			referenceFloorLayer.compensateX = -alignDxScreen / zoom;
-			referenceFloorLayer.compensateY = -alignDyScreen / zoom;
-			engine.markDirty();
-			return;
-		}
-		if (dragHandler.isDragging) {
-			dragHandler.handlePointerMove(e);
-			return;
-		}
-
-		if (pendingPlace) {
-			const dx = e.clientX - pointerStartX;
-			const dy = e.clientY - pointerStartY;
-			if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
-				// Moved beyond threshold: this is a pan, not a tap-to-place
-				pendingPlace = false;
-				pendingPan = true;
-				// Start panning from the original position
-				engine.canvas.style.cursor = 'grabbing';
-			}
-		}
-
-		if (pendingPan) {
-			const dx = (e.clientX - pointerStartX) / engine.camera.state.zoom;
-			const dy = (e.clientY - pointerStartY) / engine.camera.state.zoom;
-			engine.camera.pan(dx, dy);
-			pointerStartX = e.clientX;
-			pointerStartY = e.clientY;
-			engine.markDirty();
-			return;
-		}
-
-		selectHandler.handlePointerMove(e);
-	}
-
-	function handlePointerUp(e: PointerEvent) {
-		if (!engine) return;
-		if (e.button !== 0) return; // Only handle primary (left) button
-		// An eraser stroke ends with the pointer: the next one is its own undo step.
-		eraserStrokePushed = false;
-		// The overview's drag-vs-click decision, made on release.
-		if (orbitPointerId === e.pointerId) {
-			orbitPointerId = null;
-			if (!orbitMoved && appState.floorView !== 'single') {
-				const r = engine.canvas.getBoundingClientRect();
-				const world = engine.camera.screenToWorld({
-					x: e.clientX - r.left,
-					y: e.clientY - r.top
-				});
-				const picked =
-					appState.floorView === 'stacked'
-						? stackedFloorsLayer?.floorAt(world.x, world.y)
-						: floorTilesLayer?.tileAt(world.x, world.y);
-				if (picked) switchFloor(picked);
-			}
-			return;
-		}
-		if (alignDragging) {
-			alignDragging = false;
-			const zoom = engine.camera.state.zoom || 1;
-			const dxWorld = alignDxScreen / zoom;
-			const dyWorld = alignDyScreen / zoom;
-			// Restore the camera before moving the floor. The floor is about to
-			// carry the movement in its own coordinates, and the camera has been
-			// carrying it until now — leaving both in place would double it.
-			engine.camera.pan(
-				alignStartX - engine.camera.state.x,
-				alignStartY - engine.camera.state.y
-			);
-			referenceFloorLayer.compensateX = 0;
-			referenceFloorLayer.compensateY = 0;
-			if (dxWorld !== 0 || dyWorld !== 0) {
-				translateFloor(floorState.currentFloorId, dxWorld, dyWorld, apState.aps);
-				// An alignment is a project edit like any other: without this the floor moved on
-				// screen and nowhere else, and the next save wrote the old offsets back — which is
-				// the "dragged, and it went back" report.
-				scheduleSave();
-				// The mask was re-derived in the old frame by anything that ran in between; make
-				// the derived geometry follow the segments now that they have moved.
-				syncVectorWallsToMask();
-				forgetInterior(floorState.currentFloorId);
-			}
-			engine.markDirty();
-			return;
-		}
-		if (pendingPlace) {
-			pendingPlace = false;
-			// Check if click was on a wall pixel first (for material popup)
-			const rect = engine.canvas.getBoundingClientRect();
-			const sx = e.clientX - rect.left;
-			const sy = e.clientY - rect.top;
-			if (!handleWallClick(sx, sy)) {
-				// Not a wall click — place an AP
-				placeHandler.handlePointerDown(e);
-			}
-		}
-
-		if (pendingPan) {
-			pendingPan = false;
-			engine.canvas.style.cursor = '';
-		}
-
-		selectHandler.handlePointerUp(e);
-		dragHandler.handlePointerUp();
-	}
 </script>
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -3557,31 +2074,17 @@ import { wallState } from '$state/wall-state.svelte.js';
 		bind:this={canvasEl}
 		role="application"
 		aria-label={t('Channel planning canvas')}
-		onpointerdown={handlePointerDown}
-		onpointermove={handlePointerMove}
+		onpointerdown={(e) => gestures.handlePointerDown(e)}
+		onpointermove={(e) => gestures.handlePointerMove(e)}
 		ondblclick={handleCanvasDoubleClick}
 		class:drawing-area={appState.planningDrawMode}
-		onpointerup={handlePointerUp}
-		onpointerleave={() => {
-			// Leaving the canvas has to drop the stack highlight: the pointer move
-			// that would clear it never arrives.
-			if (stackedFloorsLayer?.hoverFloorId) {
-				stackedFloorsLayer.hoverFloorId = null;
-				engine?.markDirty();
-			}
-			if (vectorCursor) {
-				vectorCursor = null;
-				vectorSnap = null;
-				// A stroke that leaves the canvas has ended; the next one is its own undo step.
-				eraserStrokePushed = false;
-				engine?.markDirty();
-			}
-		}}
+		onpointerup={(e) => gestures.handlePointerUp(e)}
+		onpointerleave={() => gestures.handlePointerLeave()}
 		oncontextmenu={handleContextMenu}
-		ontouchstart={handleTouchStart}
-		ontouchmove={handleTouchMove}
-		ontouchend={handleTouchEnd}
-		ontouchcancel={handleTouchEnd}
+		ontouchstart={(e) => gestures.handleTouchStart(e)}
+		ontouchmove={(e) => gestures.handleTouchMove(e)}
+		ontouchend={(e) => gestures.handleTouchEnd(e)}
+		ontouchcancel={(e) => gestures.handleTouchEnd(e)}
 	></canvas>
 	<LayerPanel />
 	{#if appState.wallVectorMode}

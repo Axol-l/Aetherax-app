@@ -1,4 +1,4 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect } from '@playwright/test';
 
 /** Draw a segment and undo it without leaving the wall tool. */
 test('ctrl+z removes the last segment while the wall tool is open, and keeps the zoom', async ({

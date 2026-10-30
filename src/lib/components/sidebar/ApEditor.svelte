@@ -1,10 +1,13 @@
 <script lang="ts">
-	import { updateAp, removeAp, removeAps, radiusFromPower } from '$state/project.svelte';
 	import {
 		MOUNT_PRESETS,
 		apHeightAboveFloor,
 		defaultMountHeight,
 		getEffectiveWupm,
+		radiusFromPower,
+		removeAp,
+		removeAps,
+		updateAp,
 		type ApMount
 	} from '$state/ap-state.svelte.js';
 	import { MAX_BEAMWIDTH_DEG, MAX_AIM_DEG, normaliseBearing } from '$lib/rf/antenna.js';

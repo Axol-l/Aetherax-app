@@ -27,7 +27,7 @@
  * Regenerate with `UPDATE_GOLDEN=1` and **look at the diff images**. Updating a
  * golden without looking is how a regression gets committed as the baseline.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { savedMask } from './helpers';
@@ -280,7 +280,7 @@ test.describe('wall detection is pinned per plan', () => {
 });
 
 /** True once the saved project carries a non-empty wall mask. */
-async function detected(page: import('@playwright/test').Page): Promise<boolean> {
+async function detected(page: Page): Promise<boolean> {
 	return page.evaluate(() => {
 		const raw = localStorage.getItem('aetherax:project');
 		if (!raw) return false;

@@ -188,6 +188,22 @@ test('a narrower beam covers less, not more', async ({ page }) => {
 	await selectAp(page);
 
 	const beamwidth = page.getByLabel('Vertical beamwidth');
+	/*
+	 * Aim the pattern at the floor first.
+	 *
+	 * The antenna's default aim is 0° — level, which is where a ceiling mount's peak
+	 * points when nobody has said otherwise. At that aim the floor sits a few degrees
+	 * below the peak, inside the main lobe of *both* widths, so narrowing from 180° to
+	 * 40° changes the level by a few tenths of a dB and the covered area by nothing.
+	 * Pointing the peak down is what makes the comparison the test is about: the 40°
+	 * beam then spends its gain on a cone under the AP, and the 180° one on the whole
+	 * floor.
+	 */
+	const aim = page.getByLabel('Aim');
+	await aim.fill('90');
+	await aim.blur();
+	await page.waitForTimeout(2500);
+
 	await beamwidth.fill('180');
 	await beamwidth.blur();
 	await page.waitForTimeout(2500);

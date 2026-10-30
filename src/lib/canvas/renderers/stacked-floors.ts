@@ -1,7 +1,8 @@
 import type { Layer, RenderContext } from '../types.js';
 import { ACCENT_STROKE, ACCENT_TEXT } from '../accents.js';
 import { apMarkerColor } from './ap.js';
-import { FloorCardCache, type FloorCardSource } from './floor-card.js';
+import type { FloorCardCache} from './floor-card.js';
+import { type FloorCardSource } from './floor-card.js';
 
 /**
  * A parallel-projection camera for the stacked view: yaw around the vertical axis,

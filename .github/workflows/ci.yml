@@ -1,0 +1,55 @@
+# The gate every change has to pass.
+#
+# Only the frontend: `check` (svelte-check), `test` (the app plus the workspace packages,
+# one Vitest run), `lint` and the static build. The desktop bundle needs Rust and a
+# WebView2 toolchain and `pnpm verify:desktop` needs a built `aetherax.exe`, so those stay
+# a local, release-time check — the e2e suite is likewise local because it drives real
+# Chromium through OCR-heavy floorplan detection.
+#
+# Keep this list in step with `README.md` → Commands: anything added there and cheap enough
+# belongs here, or it will only ever run on the machine of whoever remembers.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# A second push to the same ref makes the first run pointless.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frontend:
+    name: Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm before setup-node, because the latter's cache needs `pnpm` on PATH.
+      # The version matches the README's requirement; the lockfile is v9, which pnpm 10 reads.
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm check
+
+      - name: Test
+        run: pnpm test
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Build
+        run: pnpm build

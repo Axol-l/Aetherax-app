@@ -1,37 +1,20 @@
+import { debug } from '$lib/log.js';
 import { apState } from './ap-state.svelte.js';
-import { wallState } from './wall-state.svelte.js';
 import { floorState } from './floor-state.svelte.js';
-import { floorplanState } from './floorplan-state.svelte.js';
 import type { AccessPoint } from './ap-state.svelte.js';
 import type { Floor } from './floor-state.svelte.js';
-import type { WallMaterialId } from '$canvas/materials.js';
 
 const MAX_HISTORY = 50;
 
+/**
+ * What a snapshot has to hold to restore a project.
+ *
+ * Only the floors and the AP list: the wall and underlay data is *on* the floor now (see
+ * `wall-state.ts`), so snapshotting it separately — which this used to do, and which needed
+ * a manual copy in both directions — was a second copy of the same bytes.
+ */
 interface Snapshot {
 	aps: AccessPoint[];
-	wallMask: {
-		dataUrl: string;
-		width: number;
-		height: number;
-		originX: number;
-		originY: number;
-	} | null;
-	materialMask: {
-		dataUrl: string;
-		width: number;
-		height: number;
-		originX: number;
-		originY: number;
-	} | null;
-	roomTypeMask: {
-		dataUrl: string;
-		width: number;
-		height: number;
-		originX: number;
-		originY: number;
-	} | null;
-	wallMaterial: WallMaterialId;
 	floors: Floor[];
 	currentFloorId: string;
 }
@@ -62,27 +45,8 @@ function cloneValue<T>(value: T): T {
 }
 
 function takeSnapshot(): Snapshot {
-	// Sync current floor's legacy atom state before snapshotting
-	// (floor data is normally only synced on floor switch)
-	const cur = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-	if (cur) {
-		cur.floorplanUrl = floorplanState.floorplanUrl;
-		cur.floorplanScale = floorplanState.floorplanScale;
-		cur.calibration = floorplanState.calibration;
-		cur.floorplanBoundary = floorplanState.floorplanBoundary;
-		cur.wallMask = wallState.wallMask;
-		cur.wallAttenuation = wallState.wallAttenuation;
-		cur.wallMaterial = wallState.wallMaterial;
-		cur.materialMask = wallState.materialMask;
-		cur.roomTypeMask = wallState.roomTypeMask;
-	}
-
 	return {
 		aps: cloneValue(apState.aps),
-		wallMask: wallState.wallMask ? { ...wallState.wallMask } : null,
-		materialMask: wallState.materialMask ? { ...wallState.materialMask } : null,
-		roomTypeMask: wallState.roomTypeMask ? { ...wallState.roomTypeMask } : null,
-		wallMaterial: wallState.wallMaterial,
 		floors: cloneValue(floorState.floors),
 		currentFloorId: floorState.currentFloorId
 	};
@@ -92,24 +56,6 @@ function applySnapshot(snap: Snapshot): void {
 	apState.aps = snap.aps;
 	floorState.floors = snap.floors;
 	floorState.currentFloorId = snap.currentFloorId;
-	// Sync current floor's wall data to legacy atoms
-	const cur = snap.floors.find((f) => f.id === snap.currentFloorId) ?? snap.floors[0];
-	if (cur) {
-		wallState.wallMask = cur.wallMask;
-		wallState.materialMask = cur.materialMask;
-		wallState.roomTypeMask = cur.roomTypeMask;
-		wallState.wallMaterial = cur.wallMaterial;
-		wallState.wallAttenuation = cur.wallAttenuation;
-		floorplanState.floorplanUrl = cur.floorplanUrl;
-		floorplanState.floorplanScale = cur.floorplanScale;
-		floorplanState.calibration = cur.calibration;
-		floorplanState.floorplanBoundary = cur.floorplanBoundary;
-	} else {
-		wallState.wallMask = snap.wallMask;
-		wallState.materialMask = snap.materialMask;
-		wallState.roomTypeMask = snap.roomTypeMask;
-		wallState.wallMaterial = snap.wallMaterial;
-	}
 }
 
 export function pushState(): void {
@@ -121,7 +67,7 @@ export function pushState(): void {
 	redoStack.length = 0;
 	// Timed: a snapshot copies the floors and the AP list, and it is taken at the start of
 	// every gesture (drag, draw, delete) — a place a stall is felt as "it hangs".
-	console.info(`[history] snapshot in ${Math.round(performance.now() - started)} ms`);
+	debug(`[history] snapshot in ${Math.round(performance.now() - started)} ms`);
 }
 
 export function undo(): void {

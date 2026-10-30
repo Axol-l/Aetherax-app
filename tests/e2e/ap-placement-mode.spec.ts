@@ -68,14 +68,24 @@ async function seedOneFloor(page: Page) {
 	});
 }
 
-/** AP count as the app last saved it. `scheduleSave` debounces by 2 s. */
+/** AP count as the app last saved it. */
 async function savedApCount(page: Page): Promise<number> {
-	await page.waitForTimeout(2600);
 	return page.evaluate(() => {
 		const raw = localStorage.getItem('aetherax:project');
 		const proj = raw ? (JSON.parse(raw) as { aps?: unknown[] }) : null;
 		return proj?.aps?.length ?? 0;
 	});
+}
+
+/**
+ * Wait for the debounced save to carry `expected` APs.
+ *
+ * `scheduleSave` waits five seconds after the last edit, so reading storage straight after a
+ * click sees the previous record — the helper used to sleep 2.6 s against a two-second
+ * debounce that has since been raised.
+ */
+async function waitForSavedApCount(page: Page, expected: number): Promise<void> {
+	await expect.poll(() => savedApCount(page), { timeout: 15_000 }).toBe(expected);
 }
 
 test('a canvas click only adds an AP while placement mode is on', async ({ page }) => {
@@ -92,6 +102,7 @@ test('a canvas click only adds an AP while placement mode is on', async ({ page 
 	// Off by default: two clicks on empty canvas add nothing.
 	await canvas.click({ position: { x: 400, y: 300 } });
 	await canvas.click({ position: { x: 500, y: 350 } });
+	await page.waitForTimeout(600);
 	expect(await savedApCount(page)).toBe(0);
 	await expect(placeToggle).toHaveAttribute('aria-pressed', 'false');
 	await page.screenshot({ path: 'test-results/place-mode/off.png' });
@@ -101,11 +112,12 @@ test('a canvas click only adds an AP while placement mode is on', async ({ page 
 	await expect(placeToggle).toHaveAttribute('aria-pressed', 'true');
 	await page.screenshot({ path: 'test-results/place-mode/on.png' });
 	await canvas.click({ position: { x: 400, y: 300 } });
-	expect(await savedApCount(page)).toBe(1);
+	await waitForSavedApCount(page, 1);
 
 	// Escape leaves the mode, so the next click adds nothing.
 	await page.keyboard.press('Escape');
 	await expect(placeToggle).toHaveAttribute('aria-pressed', 'false');
 	await canvas.click({ position: { x: 600, y: 400 } });
+	await page.waitForTimeout(600);
 	expect(await savedApCount(page)).toBe(1);
 });

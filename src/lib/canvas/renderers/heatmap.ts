@@ -1,3 +1,4 @@
+import { debug } from '$lib/log.js';
 import type { Layer, RenderContext } from '../types.js';
 import type { AccessPoint } from '$state/ap-state.svelte.js';
 
@@ -56,22 +57,15 @@ import {
 	relativePathLossDb,
 	getAttenField,
 	lookupAtten,
-	rayMarchWallAtten,
 	invalidateAttenCache,
 	type AttenField
 } from '../../rf/propagation.js';
 import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../rf/antenna.js';
+import { wallRunLoss } from '../../rf/link-budget.js';
 import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
 import { reflections, type ReflectingWall } from '../../rf/reflection.js';
 import { diffractionLossDb, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
 
-/**
- * Wall loss above which the direct path counts as blocked.
- *
- * Kept for documentation: the gate is now a ramp from 3 dB to 9 dB (see the loop), and a hard
- * threshold at this figure drew the contour where it flipped as a visible notch.
- */
-const DIFFRACTION_BLOCKED_DB = 6;
 import { rampColorAt } from '../heatmap-ramp.js';
 import { maskSignature } from '../mask-registry.js';
 import { antennaProfileFor } from '$state/ap-state.svelte.js';
@@ -425,7 +419,7 @@ export class HeatmapLayer implements Layer {
 		this.cacheTexel = generated?.texel ?? TEXEL_FINE;
 		// Timed: a generation is a full field sweep over the plan, and it runs on the frame a
 		// gesture ends — the one place a stall is felt as "the app froze when I let go".
-		console.info(`[heatmap] ${generated ? 'generated' : 'skipped'} in ${Math.round(performance.now() - started)} ms`);
+		debug(`[heatmap] ${generated ? 'generated' : 'skipped'} in ${Math.round(performance.now() - started)} ms`);
 	}
 
 	/**
@@ -939,28 +933,32 @@ export class HeatmapLayer implements Layer {
 						 */
 						const mask = this.wallMask;
 						if (mask && !this.isDragging) {
-							wallLoss = rayMarchWallAtten(
-								mask.data,
-								mask.width,
-								mask.height,
-								this.materialMap,
-								matDbByBand.get(bands[i]!) ?? getMaterialDbTable(bands[i]!),
-								defaultDbByBand.get(bands[i]!) ?? getFlatAttenuation(this.defaultMaterial, bands[i]!),
-								apX[i]! - mask.originX,
-								apY[i]! - mask.originY,
-								wx - mask.originX,
-								wy - mask.originY,
-								/*
-								 * Two pixels per step, not one.
-								 *
-								 * The walls are a six-pixel band, so a two-pixel stride cannot step
-								 * over one, and it halves the cost of what is now a per-texel walk:
-								 * a 40 000-texel image with two APs is 80 000 marches, which at one
-								 * pixel per step is half a second on the frame the pointer is
-								 * released in.
-								 */
-								2,
-								this.defaultMaterial
+							const band = bands[i]!;
+							/*
+							 * Two pixels per step, not one.
+							 *
+							 * The walls are a six-pixel band, so a two-pixel stride cannot step
+							 * over one, and it halves the cost of what is now a per-texel walk:
+							 * a 40 000-texel image with two APs is 80 000 marches, which at one
+							 * pixel per step is half a second on the frame the pointer is
+							 * released in.
+							 */
+							wallLoss = wallRunLoss(
+								{
+									mask: mask.data,
+									width: mask.width,
+									height: mask.height,
+									materialMask: this.materialMap,
+									materialDb: matDbByBand.get(band) ?? getMaterialDbTable(band),
+									fallbackDb:
+										defaultDbByBand.get(band) ?? getFlatAttenuation(this.defaultMaterial, band),
+									originX: mask.originX,
+									originY: mask.originY,
+									defaultMaterialId: this.defaultMaterial
+								},
+								{ x: apX[i]!, y: apY[i]! },
+								{ x: wx, y: wy },
+								2
 							);
 						} else {
 							wallLoss = lookupAtten(field, wx, wy);
@@ -1165,7 +1163,7 @@ export class HeatmapLayer implements Layer {
 		}
 
 		cctx.putImageData(imgData, 0, 0);
-		console.info(
+		debug(
 			`[heatmap] ${cols}x${rows} texels at ${texel} world units ` +
 				`(${((performance.now() - startedAt) | 0)} ms)`
 		);

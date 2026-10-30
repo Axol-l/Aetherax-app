@@ -8,6 +8,60 @@ export async function setupCleanState(page: Page): Promise<void> {
 	});
 }
 
+/** The shape the specs read back, loosely: a saved project is a JSON record. */
+export interface SavedProjectRecord {
+	version?: number;
+	name?: string;
+	floors: Array<{
+		id: string;
+		name: string;
+		wallMask?: { dataUrl?: string } | null;
+		walls?: unknown[];
+		surfaces?: unknown[];
+		notes?: Array<{ id: string; x: number; y: number; text: string }>;
+		[key: string]: unknown;
+	}>;
+	aps: Array<{ floorId: string; [key: string]: unknown }>;
+	[key: string]: unknown;
+}
+
+/** The saved project as it stands right now, or null when nothing has been written yet. */
+export async function savedProject(page: Page): Promise<SavedProjectRecord | null> {
+	const project = await page.evaluate(() => {
+		const raw = localStorage.getItem('aetherax:project');
+		return raw ? (JSON.parse(raw) as Record<string, unknown>) : null;
+	});
+	return project as SavedProjectRecord | null;
+}
+
+/**
+ * Wait until the debounced autosave has actually landed.
+ *
+ * The save runs `SAVE_DELAY` (5 s) after the last edit and then on an idle callback, so a
+ * fixed `waitForTimeout(3000)` reads storage before the write and sees null — which is how
+ * four multi-floor specs were failing while the app was working. Poll the record instead:
+ * that is the thing the assertion depends on, not a guess about how long it takes.
+ *
+ * `ready` is for a test that makes several edits: the first autosave can land before the
+ * last edit does, so "a record exists" is not the same as "the record describes what I just
+ * did". Pass the condition the assertion is about.
+ */
+export async function waitForSavedProject(
+	page: Page,
+	ready: (project: SavedProjectRecord) => boolean = () => true
+): Promise<SavedProjectRecord> {
+	await expect
+		.poll(
+			async () => {
+				const project = await savedProject(page);
+				return project !== null && ready(project);
+			},
+			{ timeout: 15_000 }
+		)
+		.toBe(true);
+	return (await savedProject(page))!;
+}
+
 /**
  * Pixels in the *saved* wall mask of one floor, or 0 when that floor has none.
  *

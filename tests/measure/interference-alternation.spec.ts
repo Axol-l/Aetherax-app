@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { setupCleanState } from '../e2e/helpers';
-import { conflictMatrix, markSampleConflicts, violatesAt } from '../../src/lib/rf/interference';
+import { violatesAt } from '../../src/lib/rf/interference';
 import { COVERAGE_MARGIN_DB, coverageMarginDb } from '../../src/lib/rf/propagation';
 
 /**

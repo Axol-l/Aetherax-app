@@ -38,9 +38,6 @@ interface Face {
 	stroke: string | null;
 }
 
-/** How much of the wall's colour survives in shadow, so a corner is visible. */
-const SHADE_MIN = 0.45;
-
 /**
  * The band a wall occupies on the plan, in world units.
  *
@@ -116,7 +113,6 @@ export class Floor3DLayer implements Layer {
 		const cosYaw = Math.cos(view.yaw);
 		const sinYaw = Math.sin(view.yaw);
 		const cosPitch = Math.cos(view.pitch);
-		const sinPitch = Math.sin(view.pitch);
 		const [a, b, c, d, e, f] = camera.getTransform();
 
 		ctx.save();

@@ -99,7 +99,7 @@ export function surfaceBox(surface: SurfaceRect): {
  * run at all and reports 0, which makes it level rather than dividing by zero.
  */
 export function runFraction(surface: SurfaceRect, x: number, y: number): number {
-	const { x0, y0, x1, y1, width, height } = surfaceBox(surface);
+	const { x0, y0, width, height } = surfaceBox(surface);
 	if (width === 0 && height === 0) return 0;
 	// A horizontal run is one that is wider than it is tall.
 	if (width >= height) {

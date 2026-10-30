@@ -1,10 +1,10 @@
+import { debug } from '$lib/log.js';
 import { buildInterferenceGraph } from '@aetherax/geometry';
 import { planningChannels, planningCandidates, estimateThroughput } from '@aetherax/channels';
 import type { ChannelWidth, ThroughputEstimate, ThroughputInput } from '@aetherax/channels';
 import type { Band } from '@aetherax/channels';
 import type { SolverResult, ComparisonResult } from '@aetherax/solver';
-import { updateAp, clearAssignments } from './project.svelte.js';
-import { appState } from './app.svelte.js';
+import { updateAp, clearAssignments } from './ap-state.svelte.js';
 import { SolverBridge } from '../workers/solver-bridge.js';
 import { floorState, getFloorSlabAttenuation } from './floor-state.svelte.js';
 import { getEffectiveWupm } from './ap-state.svelte.js';
@@ -15,8 +15,6 @@ import { makeOverlapLookup } from '../rf/channel-overlap.js';
 import { wallState } from './wall-state.svelte.js';
 import {
 	getFloorMask,
-	setLiveSolverMask,
-	invalidateSolverMaskCache,
 	type DecodedFloorMask
 } from './floor-mask.js';
 import { buildAssignmentConflictEdges } from './optimizer.svelte.js';
@@ -403,7 +401,7 @@ export async function runSolver(): Promise<void> {
 	try {
 		const graph = await buildSerializedGraph();
 		const fixedAssignments = getFixedAssignments();
-		console.info(`[solve] graph built in ${Math.round(performance.now() - started)} ms`);
+		debug(`[solve] graph built in ${Math.round(performance.now() - started)} ms`);
 
 		// Solve each band independently — different bands don't interfere
 		const bands = new Set(apState.aps.map((ap) => ap.band));
@@ -535,7 +533,7 @@ export async function runSolver(): Promise<void> {
 		// user's own edit has already scheduled.
 		scheduleSave(true);
 		computeThroughput();
-		console.info(`[solve] done in ${Math.round(performance.now() - started)} ms`);
+		debug(`[solve] done in ${Math.round(performance.now() - started)} ms`);
 	} catch (err) {
 		solverState.error = err instanceof Error ? err.message : 'Solver failed';
 	} finally {

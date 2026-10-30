@@ -5,6 +5,9 @@ WiFi coverage and channel planner, packaged as a desktop application.
 The frontend is the SvelteKit planner (static, no server, no account) and Tauri v2 is
 the shell around it: one window, one process, everything local.
 
+The layering, the data flows and where new code belongs are in
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
 ## Requirements
 
 | Need | Notes |
@@ -30,8 +33,9 @@ pnpm preview
 
 # Checks
 pnpm check            # svelte-check, expect 0 errors
-pnpm test             # app unit tests (vitest)
-pnpm test:packages    # the vendored workspace packages' own tests
+pnpm test             # everything: app + workspace package unit tests (vitest)
+pnpm test:packages    # only the workspace packages' own tests
+pnpm lint             # eslint over src/ and tests/, expect 0 problems
 pnpm test:e2e         # Playwright, builds and previews on 4183 first
 pnpm verify:desktop   # drives the built application over the WebView2 debugger
 

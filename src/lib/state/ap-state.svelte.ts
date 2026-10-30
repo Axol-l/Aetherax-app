@@ -3,9 +3,7 @@ import { pushState } from './history.svelte.js';
 import { scheduleSave } from './persistence.svelte.js';
 import { rangeFromPower } from '../rf/propagation.js';
 import { crossFloorSplitFor, crossFloorVerticalGap, floorState, getFloor } from './floor-state.svelte.js';
-import { projectMeta } from './project-meta.svelte.js';
 import {
-	antennaFloorDb,
 	antennaProfileForMount,
 	defaultAntenna,
 	normaliseBearing,

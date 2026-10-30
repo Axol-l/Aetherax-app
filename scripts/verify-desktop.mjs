@@ -53,8 +53,22 @@ const project = {
 			floorplanOffsetY: 0,
 			calibration: { worldUnitsPerMeter: 32.8084, areaSqm: 150 },
 			floorplanBoundary: null,
-			// A 10 px border of wall, as a 1-bit PNG the app can decode.
+			// A 10 px border of wall, as a 1-bit PNG the app can decode. The segments are
+			// what a plan drawn or traced in the app actually has; the mask stays as their
+			// frame, and `getFloorMask` derives the pixels from the segments. Seeding only
+			// the mask made the check open a plan with a raster wall layer and no vector
+			// walls — correct for that project, but not the path a user's plan takes.
 			wallMask: null,
+			walls: [
+				{ id: 'w-n', ax: 10, ay: 10, bx: 390, by: 10, material: 0 },
+				{ id: 'w-e', ax: 390, ay: 10, bx: 390, by: 390, material: 0 },
+				{ id: 'w-s', ax: 390, ay: 390, bx: 10, by: 390, material: 0 },
+				{ id: 'w-w', ax: 10, ay: 390, bx: 10, by: 10, material: 0 }
+			],
+			columns: [],
+			surfaces: [],
+			notes: [],
+			planningArea: null,
 			wallAttenuation: 5,
 			wallMaterial: 0,
 			materialMask: null,
@@ -161,15 +175,37 @@ try {
 		.getByText('Optimizing…', { exact: false })
 		.waitFor({ state: 'hidden', timeout: 180_000 });
 	check('the optimiser worker finishes', true);
-	await page.waitForTimeout(3000);
 
-	const saved = await page.evaluate(() => {
-		const raw = localStorage.getItem('aetherax:project');
-		return raw ? JSON.parse(raw) : null;
-	});
-	const ap = saved?.aps?.[0];
+	/*
+	 * Wait for the *save*, not for a guessed duration.
+	 *
+	 * The optimiser applies its result through `updateAp`, which schedules the debounced
+	 * autosave (`SAVE_DELAY`, five seconds, then an idle callback). This used to sleep
+	 * three seconds and read the seeded project back, which reported "moved 0 units" and
+	 * "edge 200.0" while the run itself had worked. On a machine still busy after the
+	 * build even twenty seconds was occasionally short, so the window is generous and the
+	 * failure says what was read.
+	 */
+	const readAp = () =>
+		page.evaluate(() => {
+			const raw = localStorage.getItem('aetherax:project');
+			if (!raw) return null;
+			return JSON.parse(raw).aps?.[0] ?? null;
+		});
+	let ap = null;
+	const deadline = Date.now() + 45_000;
+	while (Date.now() < deadline) {
+		ap = await readAp();
+		if (ap && Math.hypot((ap.x ?? 200) - 200, (ap.y ?? 200) - 200) > 0) break;
+		await page.waitForTimeout(500);
+	}
+
 	const moved = Math.hypot((ap?.x ?? 200) - 200, (ap?.y ?? 200) - 200);
-	check('the result was written back to the webview store', moved > 0, `moved ${moved.toFixed(0)} units`);
+	check(
+		'the result was written back to the webview store',
+		moved > 0,
+		ap ? `moved ${moved.toFixed(0)} units` : 'no project in storage'
+	);
 	const edge = Math.min(ap?.x ?? 0, ap?.y ?? 0, 400 - (ap?.x ?? 0), 400 - (ap?.y ?? 0));
 	check('a wall mount was placed on a wall', edge > 8 && edge < 20, `edge ${edge.toFixed(1)}`);
 

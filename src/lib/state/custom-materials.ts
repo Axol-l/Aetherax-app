@@ -26,18 +26,6 @@ export interface CustomMaterial {
 
 export const CUSTOM_MATERIAL_ID_BASE = 100;
 
-/** The colours a new material cycles through, so two customs are told apart at a glance. */
-const CUSTOM_COLORS: ReadonlyArray<[number, number, number]> = [
-	[214, 122, 74],
-	[122, 168, 214],
-	[168, 122, 214],
-	[122, 214, 150],
-	[214, 196, 96],
-	[196, 96, 150],
-	[96, 196, 196],
-	[150, 150, 160]
-];
-
 /** The next free id, given what is already taken. */
 export function nextCustomMaterialId(existing: readonly CustomMaterial[]): number {
 	let id = CUSTOM_MATERIAL_ID_BASE;

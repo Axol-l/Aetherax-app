@@ -1,6 +1,7 @@
 import type { Layer, RenderContext } from '../types.js';
 import { ACCENT_STROKE, ACCENT_TEXT } from '../accents.js';
-import { FloorCardCache, type FloorCardSource, type FloorHeatmap } from './floor-card.js';
+import type { FloorCardCache} from './floor-card.js';
+import { type FloorCardSource, type FloorHeatmap } from './floor-card.js';
 
 /** Gap between tiles, in world units. */
 const GAP = 120;

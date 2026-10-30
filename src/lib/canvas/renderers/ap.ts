@@ -1,5 +1,5 @@
 import type { Layer, RenderContext } from '../types.js';
-import type { AccessPoint } from '$state/project.svelte.js';
+import type { AccessPoint } from '$state/ap-state.svelte.js';
 import { channelColor } from '@aetherax/channels';
 import { ACCENT } from '../accents.js';
 

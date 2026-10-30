@@ -47,9 +47,6 @@ export interface Reflection {
 	powerRatio: number;
 }
 
-/** A reflection quieter than this is not worth the arithmetic or the texel's time. */
-const MIN_REFLECTION_DB = -25;
-
 /**
  * The specular reflection of `from` in `wall` that reaches `to`, or null.
  *

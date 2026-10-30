@@ -1,14 +1,12 @@
 import type { CanvasEngine } from '../engine.js';
-import { addAp } from '$state/project.svelte.js';
 import { floorState } from '$state/floor-state.svelte.js';
 import { isInsideInterior } from '$state/ap-interior.js';
 import { t } from '$state/i18n.svelte.js';
 import { selectAp } from '$state/canvas.svelte.js';
 import { appState } from '$state/app.svelte.js';
-import { getEffectiveWupm } from '$state/ap-state.svelte.js';
+import { addAp, apState, getEffectiveWupm } from '$state/ap-state.svelte.js';
 import { WALL_MOUNT_REACH_M, wallSnapForFloor } from '$state/wall-snap.js';
 import { projectMeta } from '$state/project-meta.svelte.js';
-import { apState } from '$state/ap-state.svelte.js';
 
 export class PlaceHandler {
 	private engine: CanvasEngine;

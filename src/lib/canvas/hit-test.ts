@@ -1,5 +1,5 @@
 import type { Point } from '@aetherax/geometry';
-import type { AccessPoint } from '$state/project.svelte.js';
+import type { AccessPoint } from '$state/ap-state.svelte.js';
 import type { Camera } from './camera.js';
 
 export interface HitResult {

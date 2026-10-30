@@ -17,6 +17,10 @@ export default defineConfig({
 	},
 	webServer: {
 		command: 'pnpm build && pnpm preview --port 4183 --host 127.0.0.1',
+		// Several specs detect the end of an optimiser run by counting its lines in the page
+		// console, and a production build silences `lib/log.ts` unless this is set. Test-only:
+		// `pnpm build` and `tauri build` do not see it.
+		env: { VITE_DEBUG_LOGS: '1' },
 		// `url` rather than `port`: the readiness probe must use the same IPv4
 		// address as baseURL, not `localhost`, which can resolve to ::1 first.
 		url: 'http://127.0.0.1:4183',

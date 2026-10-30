@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test';
+import { test, expect, type Page } from '@playwright/test';
 import { enablePlaceMode } from './helpers';
 
 test.beforeEach(async ({ page }) => {
@@ -9,7 +9,7 @@ test.beforeEach(async ({ page }) => {
 });
 
 /** Ensure sidebar is open on the APs tab. */
-async function openApsTab(page: any) {
+async function openApsTab(page: Page) {
 	const sidebarVisible = await page
 		.locator('aside[aria-label="Sidebar"]')
 		.isVisible({ timeout: 200 })
@@ -25,7 +25,7 @@ async function openApsTab(page: any) {
 }
 
 /** Ensure sidebar is open on the Floorplan tab. */
-async function openFloorplanTab(page: any) {
+async function openFloorplanTab(page: Page) {
 	const sidebarVisible = await page
 		.locator('aside[aria-label="Sidebar"]')
 		.isVisible({ timeout: 200 })

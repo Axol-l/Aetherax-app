@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { solverState, runComparison } from '$state/solver.svelte';
-	import { clearAssignments, updateAp } from '$state/project.svelte';
+	import { clearAssignments, updateAp } from '$state/ap-state.svelte.js';
 	import Button from '$components/shared/Button.svelte';
 
 	const algorithmNames: Record<string, string> = {

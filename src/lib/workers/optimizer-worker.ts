@@ -19,14 +19,13 @@ import {
 	setPathLossScenario,
 	type PathLossScenario
 } from '../rf/propagation.js';
-import { crossFloorSegments, slabLossFactor, type SlabCrossing } from '../rf/cross-floor.js';
-import { deckCrossing, surfaceHeightAt, type SurfaceRect } from '../rf/surface-height.js';
+import { crossFloorSegments, slabLossFactor } from '../rf/cross-floor.js';
+import { splitWallRunLoss, wallRunLoss, type WallRun } from '../rf/link-budget.js';
+import { deckCrossing, surfaceHeightAt } from '../rf/surface-height.js';
 import {
-	antennaLossDb,
 	antennaProfileForMount,
 	antennaRayLossDb,
 	azimuthLossDb,
-	defaultAntenna,
 	type AntennaProfile
 } from '../rf/antenna.js';
 import {
@@ -37,13 +36,11 @@ import {
 	conflictWeights,
 	interferenceAt,
 	markSampleConflicts,
-	resolveChannels,
-	type OverlapLookup
+	resolveChannels
 } from '../rf/interference.js';
 import { makeOverlapLookup } from '../rf/channel-overlap.js';
 import {
 	getMaterialDbTable,
-	isVirtualMaterial,
 	registerCustomMaterials,
 	type WallMaterialId
 } from '../canvas/materials.js';
@@ -57,166 +54,38 @@ import {
 	OPTIMIZER_PAYLOAD_VERSION,
 	assertApPayload
 } from './optimizer-protocol.js';
+import { mulberry32 } from './optimizer/random.js';
+import {
+	allowedForAp,
+	buildInteriorField,
+	buildSnapTarget,
+	buildWallPlacement,
+	createWallCache,
+	facingAt,
+	snapForAp,
+	snapToInterior
+} from './optimizer/placement.js';
+import type {
+	ApInput,
+	EvalContext,
+	ExactEval,
+	FixedApInput,
+	FixedPath,
+	MarginField,
+	Position,
+	PowerChoice,
+	WallCache,
+	WallPlacement
+} from './optimizer/types.js';
 
 /**
- * One placed access point, as this worker reads it.
+ * The message this worker accepts.
  *
- * The shape the *caller* is held to is `optimizer-protocol.ts`'s `ApInput`, derived
- * from the app's own `AccessPoint` so that a payload which forgets the mounting or the
- * facing does not compile. This declaration stays here as the receiving contract, with
- * the fields optional because the graph-only path and the tests build messages by hand;
- * `assertApPayload` is what catches a caller that bypasses the type.
+ * The AP shape is `optimizer-protocol.ts`'s `ApInput`, derived from the app's own
+ * `AccessPoint`, so a payload that forgets the mounting or the facing does not compile;
+ * `assertApPayload` catches a caller that bypasses the type. The fields are optional here
+ * because the graph-only path and the tests build messages by hand.
  */
-interface ApInput {
-	id: string;
-	x: number;
-	y: number;
-	interferenceRadius: number;
-	band: Band;
-	/**
-	 * The channel the solver gave this AP, or null when it has none.
-	 *
-	 * Used only by the interference term (see `rf/interference.ts`): placement and
-	 * assignment are physically coupled, and the coverage objective alone cannot
-	 * see a co-channel second server. When any source is unassigned the term falls
-	 * back to the all-co-channel worst case, which is what the plan is in until the
-	 * solver has run.
-	 */
-	assignedChannel?: number | null;
-	/**
-	 * A channel the user pinned. Pins are constraints on the in-worker colouring
-	 * rather than suggestions, so a pinned AP keeps its channel however the search
-	 * moves it — the same rule the main-thread solver applies.
-	 */
-	fixedChannel?: number | null;
-	/**
-	 * Channel width, for building the non-overlapping palette this AP may be given.
-	 * See `planningChannels`. Omitted ⇒ 20 MHz, the narrowest and the only width at
-	 * which every band's channels are mutually non-overlapping.
-	 */
-	channelWidth?: ChannelWidth;
-	/**
-	 * Vertical distance from this AP to the client, in world units.
-	 *
-	 * A same-floor path is not flat once the project models mounting heights: an AP
-	 * on a desk is 0.7 m below a client at 1.5 m, and the path loss reads the 3D
-	 * distance. The caller computes it — the worker has no floor geometry — and it
-	 * is index-aligned with this array, because the search moves a position but
-	 * never changes where its access point is mounted.
-	 *
-	 * Zero leaves the path flat, which is the model every figure recorded before
-	 * mounting heights existed was taken with.
-	 */
-	verticalGap?: number;
-	/**
-	 * −3 dB beamwidth of this AP's vertical antenna cut, in degrees.
-	 *
-	 * The pattern is a function of the ray's elevation, which changes per sample, so
-	 * the worker resolves it per sample from this and `aimDeg` — the same rolloff
-	 * the heatmap and the coverage pass use (`rf/antenna.ts`). Absent ⇒ the band's
-	 * default is *not* guessed here: the caller sends what the AP says.
-	 */
-	beamwidthDeg?: number;
-	aimDeg?: number;
-	/**
-	 * The mounting and, for a wall mount, which way it faces.
-	 *
-	 * Sent rather than inferred: a wall-mounted AP has a horizontal cut and an upright
-	 * omni does not, and the rule that decides it (`rf/antenna.ts`) has to see the
-	 * mount. Absent means an omni, which is what every caller before wall mounts sent.
-	 */
-	mount?: string;
-	facingDeg?: number;
-}
-
-/**
- * The wall mask of the floor an AP sits on, when that is not the floor being
- * optimised.
- *
- * A cross-floor path is two runs, not one: the ray leaves the AP through its own
- * storey, drops through the slab, and finishes in the storey below. Charging the
- * whole horizontal run against the client's floor — which is what the model did —
- * puts two thirds of a typical path (an AP 4.5 m above its client, slab crossed
- * two thirds along) against the wrong plan entirely.
- */
-interface SourceFloorMask {
-	data: Uint8Array;
-	width: number;
-	height: number;
-	materialMask: Uint8Array | null;
-	/** Material id this floor's unlabelled wall pixels carry. */
-	defaultMaterial: number;
-	/**
-	 * This mask's origin expressed in the optimised floor's mask frame.
-	 *
-	 * Everything the worker handles is in the optimised floor's mask pixels, and
-	 * the two floors' masks do not share an origin once a floor has been aligned,
-	 * so the source mask is handed over pre-shifted rather than making the worker
-	 * carry a second coordinate frame.
-	 */
-	originX: number;
-	originY: number;
-}
-
-interface FixedApInput {
-	x: number;
-	y: number;
-	interferenceRadius: number;
-	signalScale: number; // floor slab attenuation factor (0-1)
-	/**
-	 * Vertical distance from this AP to the floor being optimised, in world units.
-	 *
-	 * Cross-floor paths are 3D: an AP two storeys away is further away, not just
-	 * more attenuated. The heatmap always modelled this; the optimiser did not, so
-	 * the two disagreed about how far a cross-floor AP reaches.
-	 */
-	verticalGap: number;
-	band: Band;
-	/**
-	 * The antenna's vertical cut, in degrees. See `ApInput.beamwidthDeg`.
-	 *
-	 * A fixed AP's pattern matters as much as a placed one's: it is the term that
-	 * says an AP on the storey above reaches the floor below better out to the side
-	 * than straight down.
-	 */
-	beamwidthDeg?: number;
-	aimDeg?: number;
-	/** The mounting and facing of this fixed AP. See `ApInput.mount`. */
-	mount?: string;
-	facingDeg?: number;
-	/** Channel of this fixed AP, or null. See `ApInput.assignedChannel`. */
-	assignedChannel?: number | null;
-	/** Pinned channel, if the user set one. See `ApInput.fixedChannel`. */
-	fixedChannel?: number | null;
-	/**
-	 * Channel width, for building the non-overlapping palette this AP may be given.
-	 * See `planningChannels`. Omitted ⇒ 20 MHz, the narrowest and the only width at
-	 * which every band's channels are mutually non-overlapping.
-	 */
-	channelWidth?: ChannelWidth;
-	/**
-	 * The AP's own floor's wall mask, for splitting the path at the slab.
-	 *
-	 * Omitted (or null) when the caller has no mask for that floor; the path is
-	 * then charged against the optimised floor's walls alone, as it was before.
-	 */
-	source?: SourceFloorMask | null;
-	/** Fraction along the ray where it leaves the AP's own floor. See `cross-floor.ts`. */
-	sourceT?: number;
-	/** Fraction along the ray where it enters the optimised floor. */
-	targetT?: number;
-	/**
-	 * Every storey boundary this path crosses, with the room types of the floor
-	 * that owns each slab.
-	 *
-	 * A `Void / Atrium` label there is a hole in that slab, so the ray meets no
-	 * concrete at that crossing. Each entry carries the share of the path's
-	 * aggregate slab loss charged at that boundary, so a taller gap whose middle
-	 * storey is void waives that share rather than the whole figure. An empty list
-	 * leaves the slab loss in place everywhere, which is the conservative reading.
-	 */
-	slabs?: SlabCrossing[] | null;
-}
 
 interface OptimizeMessage {
 	type: 'optimize';
@@ -411,28 +280,6 @@ type InMessage = OptimizeMessage | CancelMessage;
 
 let cancelled = false;
 
-/**
- * Seeded PRNG (mulberry32).
- *
- * The optimiser used bare `Math.random()` in three places — the k-means++ seed
- * pick, the PSO position jitter and the PSO velocity update — with no way to
- * set or recover the stream. Two runs on identical input could therefore return
- * different placements, which makes every before/after comparison of a model
- * change meaningless: you cannot tell an improvement from a lucky draw.
- *
- * The seed actually used is reported back in the result message, so a run can be
- * repeated exactly by passing that seed in again.
- */
-function mulberry32(seed: number): () => number {
-	let a = seed >>> 0;
-	return () => {
-		a = (a + 0x6d2b79f5) >>> 0;
-		let t = a;
-		t = Math.imul(t ^ (t >>> 15), t | 1);
-		t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-		return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-	};
-}
 
 /** Random source for the current run; replaced at the start of every run. */
 let random: () => number = Math.random;
@@ -472,221 +319,11 @@ self.onmessage = (event: MessageEvent<InMessage>) => {
 	}
 };
 
-// ─── Precomputed wall-crossing cache ────────────────────────────────────
-// Built ONCE before optimization. Maps from a fixed grid of source
-// positions to sample points. AP positions snap to nearest grid source
-// via O(1) grid lookup (no linear scan).
 
-/**
- * Lazily-built wall attenuation cache.
- *
- * The previous implementation precomputed a row for EVERY interior grid cell
- * (a 8 px lattice, so interiorPixels/64 of them) crossed with every sample
- * point, iterating `for si ... for sj` before the search even started. On a
- * 1500x1200 floorplan that is several million full ray marches up front, which
- * is what parked the progress bar at 0 for so long.
- *
- * The search only ever visits a few hundred distinct quantised positions, so
- * rows are now computed on demand and memoised. Output is unchanged: the
- * position is still floored onto the same 8 px lattice before marching, and the
- * same stride-3 ray march is used.
- */
-interface WallCache {
-	/** dB from each sample to a source at (x, y), quantised to the source lattice. */
-	tableFor(x: number, y: number): Float32Array;
-	band: Band;
-}
-
-/** Source quantisation lattice, in mask pixels. */
-const SOURCE_GRID = 8;
-
-function createWallCache(
-	mask: Uint8Array,
-	w: number,
-	h: number,
-	samples: Array<{ x: number; y: number }>,
-	wallAttenuation: number,
-	band: Band,
-	materialMask: Uint8Array | null,
-	defaultMaterial: number
-): WallCache {
-	// Per-band material tables: the figure for one crossing of each material, which is what
-	// `rayMarchWallAtten` charges and what the heatmap's field charges for the same crossing.
-	const materialDb = getMaterialDbTable(band);
-	// Without a material mask every wall costs the same, so honour the project's
-	// explicit wall attenuation rather than substituting Drywall's value.
-	const defaultDb = materialMask
-		? (materialDb[defaultMaterial] ?? wallAttenuation)
-		: wallAttenuation;
-
-	const numSamples = samples.length;
-	const rows = new Map<string, Float32Array>();
-
-	return {
-		band,
-		tableFor(x: number, y: number): Float32Array {
-			const qx = Math.round(x / SOURCE_GRID);
-			const qy = Math.round(y / SOURCE_GRID);
-			const key = qx + ',' + qy;
-			const hit = rows.get(key);
-			if (hit) return hit;
-
-			const sx = qx * SOURCE_GRID;
-			const sy = qy * SOURCE_GRID;
-			const row = new Float32Array(numSamples);
-			for (let s = 0; s < numSamples; s++) {
-				// Stride-3 DDA; this is the approximation stage 3 later redoes exactly.
-				row[s] = rayMarchWallAtten(
-					mask,
-					w,
-					h,
-					materialMask,
-					materialDb,
-					defaultDb,
-					sx,
-					sy,
-					samples[s]!.x,
-					samples[s]!.y,
-					3,
-					defaultMaterial
-				);
-			}
-			rows.set(key, row);
-			return row;
-		}
-	};
-}
 
 // ─── Evaluation ─────────────────────────────────────────────────────────
 
-/**
- * Where a wall-mounted access point may sit, and which way the wall faces there.
- *
- * A wall mount is not a smaller interior — it is a different one. The placement
- * domain for the other mountings deliberately trims the ring of pixels against every
- * wall ("an AP against a wall face is not a placement", `computeBuildingInterior`),
- * which is exactly the ring a wall mount belongs in. So the band is built separately:
- * a breadth-first flood out of the wall pixels into the floor beside them, a bracket's
- * depth deep, carrying each pixel's direction *away* from the wall that reached it.
- *
- * That direction is the facing, quantised to one byte of 22.5° steps. It is what makes
- * a wall mount a search rather than a point: as the optimiser slides a unit along a
- * wall — and around its corners — the horizontal cut of its pattern turns with it, so
- * its profile has to be rebuilt from where it landed (`resolveApProfiles`).
- */
-interface WallPlacement {
-	/** 1 where a wall-mounted AP may sit. */
-	band: Uint8Array;
-	/** Snaps a stray position onto that band. */
-	field: InteriorField;
-	/** Facing in 22.5° steps, per mask pixel; 255 where the pixel is not in the band. */
-	facingStep: Uint8Array;
-}
 
-/** Facing of a band pixel, in degrees, or null when it is not in the band. */
-function facingAt(placement: WallPlacement, x: number, y: number, w: number, h: number): number | null {
-	const ix = Math.round(x);
-	const iy = Math.round(y);
-	if (ix < 0 || iy < 0 || ix >= w || iy >= h) return null;
-	const step = placement.facingStep[iy * w + ix]!;
-	return step === 255 ? null : step * 22.5;
-}
-
-/**
- * The band of floor beside the walls, and the facing each point on it looks in.
- *
- * `inside` is the *untrimmed* interior — the wall mask's complement within the
- * building — because the trimmed one has already given up the pixels this needs. The
- * flood is 8-connected and capped at `radiusWu` steps, so it costs one pass over the
- * band rather than a dilation of the whole mask.
- */
-function buildWallPlacement(
-	wallMask: Uint8Array,
-	inside: Uint8Array,
-	w: number,
-	h: number,
-	radiusWu: number,
-	/**
-	 * Materials per wall pixel and the floor's default, when the caller sent them.
-	 *
-	 * A **virtual partition** is a modelling line, not a surface: it attenuates nothing,
-	 * and a bracket cannot be screwed to it. Such pixels are not seeds here, so the band
-	 * never forms against one and a wall-mounted AP is never placed facing a line that
-	 * radiates both ways. See `wall-snap.ts`, which applies the same rule on the app side.
-	 */
-	materialMap: Uint8Array | null = null,
-	defaultMaterial = 0
-): WallPlacement | null {
-	const n = w * h;
-	const radius = Math.max(1, Math.min(64, Math.round(radiusWu)));
-	const band = new Uint8Array(n);
-	const facingStep = new Uint8Array(n).fill(255);
-	const dist = new Int16Array(n).fill(-1);
-	const seedX = new Int16Array(n);
-	const seedY = new Int16Array(n);
-	const queue = new Int32Array(n);
-	let head = 0;
-	let tail = 0;
-
-	for (let i = 0; i < n; i++) {
-		if (!wallMask[i]) continue;
-		if (materialMap) {
-			const material = materialMap[i] ?? defaultMaterial;
-			if (isVirtualMaterial(material as WallMaterialId)) continue;
-		}
-		dist[i] = 0;
-		queue[tail++] = i;
-	}
-	if (tail === 0) return null;
-
-	while (head < tail) {
-		const idx = queue[head++]!;
-		const d = dist[idx]!;
-		if (d >= radius) continue;
-		const x = idx % w;
-		const y = (idx / w) | 0;
-		for (let dy = -1; dy <= 1; dy++) {
-			const ny = y + dy;
-			if (ny < 0 || ny >= h) continue;
-			for (let dx = -1; dx <= 1; dx++) {
-				if (dx === 0 && dy === 0) continue;
-				const nx = x + dx;
-				if (nx < 0 || nx >= w) continue;
-				const nIdx = ny * w + nx;
-				if (dist[nIdx] !== -1) continue;
-				// The flood runs through floor only: a wall pixel is a seed, not a
-				// corridor, and starting one from another wall pixel would push the
-				// band through a thick wall into the room behind it.
-				if (!inside[nIdx]) continue;
-				dist[nIdx] = d + 1;
-				// The seed travels with the pixel, so the facing is away from the wall
-				// that actually reached it rather than away from some other wall.
-				const sx0 = d === 0 ? x : seedX[idx]!;
-				const sy0 = d === 0 ? y : seedY[idx]!;
-				seedX[nIdx] = sx0;
-				seedY[nIdx] = sy0;
-				band[nIdx] = 1;
-				const vx = nx - sx0;
-				const vy = ny - sy0;
-				if (vx !== 0 || vy !== 0) {
-					const deg = (Math.atan2(vy, vx) * 180) / Math.PI;
-					facingStep[nIdx] = Math.round((((deg % 360) + 360) % 360) / 22.5) % 16;
-				}
-				queue[tail++] = nIdx;
-			}
-		}
-	}
-
-	let any = false;
-	for (let i = 0; i < n; i++) {
-		if (band[i]) {
-			any = true;
-			break;
-		}
-	}
-	if (!any) return null;
-	return { band, field: buildInteriorField(band, w, h), facingStep };
-}
 
 /**
  * The antenna profile of every AP being placed, at one layout.
@@ -744,38 +381,6 @@ function antennaProfile(ap: {
  * is what the search moves, so every evaluation converts back through
  * `sourceMargin`.
  */
-interface Position {
-	id: string;
-	x: number;
-	y: number;
-	radius: number;
-	band: Band;
-}
-
-/**
- * The two runs a cross-floor AP's path is split into, per sample.
- *
- * A fixed AP never moves, so both runs are constant for a whole run: `source` is
- * the AP's own floor from the AP down to the slab crossing, `suffix` is the
- * optimised floor from the crossing to the sample. They are per *sample* rather
- * than per AP because the crossing moves with the sample.
- */
-interface SplitRows {
-	source: Float32Array;
-	suffix: Float32Array;
-}
-
-/** Everything about a fixed AP's path that does not depend on the search. */
-interface FixedPath {
-	/** Wall loss rows when the path is split at the slab; null = use the projected run. */
-	split: SplitRows | null;
-	/**
-	 * Multiplier on the aggregate slab loss, per sample: 1 everywhere by default,
-	 * less where a crossing is a hole. A share rather than a flag because a taller
-	 * gap crosses several slabs and only some of them may be void.
-	 */
-	slabFactor: Float32Array | null;
-}
 
 /**
  * Build the per-sample path data for every fixed AP that has a mask for its own
@@ -1166,233 +771,6 @@ function sourceHorizonToward(
  * With a single context object there is no way to supply part of the
  * configuration: either the whole thing is passed, or it does not typecheck.
  */
-interface EvalContext {
-	samples: Array<{ x: number; y: number }>;
-	mask: Uint8Array;
-	w: number;
-	h: number;
-	wallAttenuation: number;
-	fixedAps: FixedApInput[];
-	sampleDensity: number[];
-	materialMask: Uint8Array | null;
-	defaultMaterial: number;
-	/**
-	 * Per-fixed-AP path data: the wall split, and whether the slab loss applies at
-	 * each sample (a void is a hole in the slab).
-	 *
-	 * Built once per run by `buildFixedPaths` and carried here so every evaluation —
-	 * the Lloyd's loop, the PSO scoring, the final exact pass — reads the same
-	 * numbers instead of each deriving its own.
-	 */
-	fixedPaths: FixedPath[];
-	/**
-	 * Channels of every source the evaluators see, in the order they see them:
-	 * the candidate positions first, then `fixedAps`.
-	 *
-	 * Only the interference term reads these. `resolveChannels` has already
-	 * collapsed "any source unassigned" into the all-co-channel bound, so the
-	 * evaluators never branch on it.
-	 */
-	sourceChannels: number[];
-	/**
-	 * Channels each source may take, when the worker is to colour the layout
-	 * itself: candidates first, then `fixedAps`, matching `sourceChannels`. A
-	 * single-element list is a pin. Null when no regulatory domain was supplied,
-	 * in which case `sourceChannels` as given is used instead.
-	 */
-	sourceAllowed: number[][] | null;
-	/**
-	 * Band of every source, in the same order as `sourceChannels`.
-	 *
-	 * The interference term is per band: channel numbers repeat across bands (6
-	 * GHz uses 1/5/9/…, 2.4 GHz uses 1-13), so a pair can only be co-channel when
-	 * it is in the same band. See `violatesAt`.
-	 */
-	sourceBands: string[];
-	/**
-	 * Vertical distance from each access point being placed to the client, world
-	 * units, index-aligned with `positions`. Zero for every AP while the project
-	 * leaves mounting heights off. See `ApInput.verticalGap`.
-	 */
-	apGaps: Float64Array;
-	/**
-	 * How high the client stands at each sample, world units, index-aligned with
-	 * `samples`. Null when the floor has no raised surfaces, so a flat plan pays
-	 * nothing for the feature.
-	 *
-	 * This is the half of the gap that belongs to the *sample* rather than to the AP: a
-	 * mezzanine's client is closer to a ceiling-mounted unit than the floor's is, and a
-	 * stair climbs between the two. See `rf/surface-height.ts`.
-	 */
-	sampleLift: Float64Array | null;
-	/**
-	 * The raised surfaces themselves, for the deck test.
-	 *
-	 * `sampleLift` says how high the client is; this says whether the path from a source
-	 * below had to pass through a deck to reach it (and what that costs). Kept as geometry
-	 * because the answer depends on the *source's* height as well as the sample's.
-	 */
-	surfaces: SurfaceRect[];
-	/** World units per metre, for the deck's thickness against a gap in world units. */
-	wupm: number;
-	/**
-	 * Each placed access point's vertical antenna cut, index-aligned with
-	 * `positions` and `apGaps`. See `ApInput.beamwidthDeg`.
-	 */
-	apProfiles: AntennaProfile[];
-	/** The same, for the fixed APs, in `fixedAps` order. */
-	fixedProfiles: AntennaProfile[];
-	/**
-	 * Weight of the interference share in the objective. Zero restores the
-	 * coverage-only objective exactly, which is what the A/B measurement uses.
-	 */
-	interferenceWeight: number;
-	/**
-	 * How far below the coverage threshold a sample still earns utility, in dB.
-	 *
-	 * Zero is the hard threshold every measurement before 2026-09-23 was taken
-	 * with; see `DEFAULT_COVERAGE_SOFTNESS_DB` for why the objective wants a
-	 * transition there and what the measurement showed.
-	 */
-	coverageSoftnessDb: number;
-	/**
-	 * Vertical drop of a same-floor path, world units. The path *loss* treats a same-floor
-	 * path as 2D on purpose; the wall march cannot, because it charges the length of material
-	 * the ray passes through. See `OptimizeMessage.localVerticalDrop`.
-	 */
-	localVerticalDropWu: number;
-	/**
-	 * Covered share the result must reach, as a 0-1 fraction. Zero is no constraint.
-	 * See `COVERAGE_FLOOR_MULTIPLIER`.
-	 */
-	coverageFloor: number;
-	/**
-	 * Narrowest channel width in the run, in MHz.
-	 *
-	 * Sets the CCA threshold, because preamble detect scales with the width a receiver is
-	 * listening on: a station on a 20 MHz channel defers at −82 dBm regardless of what its
-	 * neighbours do with 80 MHz, so a mixed-width run is scored at the most sensitive
-	 * threshold present. See `ccaThresholdDbm`.
-	 */
-	minChannelWidthMhz: number;
-	/** True when `sourceChannels` are real assignments rather than the worst case. */
-	channelsKnown: boolean;
-	/**
-	 * Frequency overlap between two sources' assignments, for the graded
-	 * interference figure. Built once per run from the sources' bands and widths;
-	 * see `makeOverlapLookup` and `interferenceAt`.
-	 */
-	overlap: OverlapLookup;
-	/**
-	 * The APs as the caller sent them, index-aligned with `positions`.
-	 *
-	 * Kept so a wall-mounted unit's profile can be rebuilt from its own numbers when
-	 * the search moves it: see `resolveApProfiles`.
-	 */
-	apSources: ApInput[];
-	/**
-	 * Which of the placed APs are wall-mounted, index-aligned with `positions`.
-	 *
-	 * A wall mount is a different search: its positions are the band of floor along
-	 * the walls rather than the whole interior, and its pattern turns with the wall it
-	 * is on, so its antenna profile is a function of where it is.
-	 */
-	wallMounted: boolean[];
-	/**
-	 * The wall band: where a wall-mounted AP may sit, and which way the wall faces
-	 * there. Null when the run has no wall mounts, or the floor has no walls.
-	 */
-	wallPlacement: WallPlacement | null;
-}
-
-/** What one exact evaluation produces. */
-interface ExactEval {
-	/**
-	 * Density-weighted mean coverage utility *minus*
-	 * `interferenceWeight · interference` — the quantity being optimised.
-	 */
-	score: number;
-	/**
-	 * Density-weighted share of samples whose best server is degraded by a
-	 * co-channel secondary within `COCHANNEL_REUSE_DB` of it. Zero when no AP is
-	 * co-channel with any other, and zero-weighting it leaves `score` unchanged.
-	 */
-	interference: number;
-	/**
-	 * Density-weighted share of samples that are *covered*, i.e. whose best
-	 * source reached the coverage threshold.
-	 *
-	 * Counted as `best > 0` rather than by re-deriving the margin:
-	 * `coverageUtility` returns 0 at or below the threshold and rises above it,
-	 * so a positive best is exactly "covered". That keeps this figure on the same
-	 * definition `updateCoverage` reports without a second margin pipeline that
-	 * could drift from it.
-	 */
-	coverage: number;
-	/**
-	 * How far below the ε-constraint's floor the plan fell, as a 0-1 fraction. Zero
-	 * when there is no floor or the floor is met.
-	 */
-	shortfall: number;
-	/** Samples the figure was computed from, before density weighting. */
-	samples: number;
-	/**
-	 * Share of the floor where two APs on overlapping channels are both above the CCA
-	 * threshold — airtime the plan shares, whether or not their levels are far enough
-	 * apart for the interference term to care. Reported, not optimised, and zero
-	 * unless the caller asked for it. See `contentionShare`, `ROADMAP.md` B4/B5.
-	 */
-	contention: number;
-}
-
-/**
- * Every source's margin at every sample, and the conflict graph those margins
- * imply. One definition, two consumers.
- *
- * Split out of `evaluateExactDetailed` for the assignment graph
- * (`buildConflictGraph`): the main-thread solver has to colour the *same* graph
- * the objective scores, and the only way to guarantee that is for both to read
- * this one field. Duplicating the loop instead would let the margin formula, the
- * horizon test or the band filter drift between the two paths, which is exactly
- * the fault this split exists to fix — the solver used to build its edges from
- * circle overlap plus an AP-to-AP distance heuristic while the objective used
- * these margins, and the two disagreed about the same placement.
- *
- * A margin is `-Infinity` outside its source's coverage reach, so a source that
- * cannot serve a sample cannot be its interference either.
- */
-interface MarginField {
-	/** `samples.length * count`, one row of `count` per sample, in the coverage domain. */
-	allMargins: Float64Array;
-	/**
-	 * The same margins, kept down to `CCA_BELOW_THRESHOLD_DB` below the coverage
-	 * threshold instead of clipped at it.
-	 *
-	 * Only the contention figure reads this. The objective's domain is the coverage
-	 * circle — a sample nobody covers earns no utility and no interference term — but
-	 * airtime is shared outside it, so the report needs the wider set and the score
-	 * must not have it.
-	 */
-	ccaMargins: Float64Array;
-	/** `count x count`, 1 where a pair must not share a channel. See `markSampleConflicts`. */
-	conflicts: Uint8Array;
-	/**
-	 * The same pairs, weighted by how many density-weighted samples they spoil.
-	 *
-	 * Read by the colourer, which has to decide *which* conflict to leave standing when
-	 * the palette is short. See `conflictWeights`.
-	 */
-	weights: Float32Array;
-	/** Best margin at each sample, i.e. the best server. */
-	bestBySample: Float64Array;
-	/**
-	 * Margin the coverage utility reads at each sample; the same value as
-	 * `bestBySample`.
-	 */
-	utilityMargin: Float64Array;
-	/** Sources the field covers: the positions, then the fixed APs. */
-	count: number;
-}
 
 function fillMargins(positions: Position[], ctx: EvalContext): MarginField {
 	const {
@@ -1421,21 +799,21 @@ function fillMargins(positions: Position[], ctx: EvalContext): MarginField {
 		materialMask ? (tablesFor(band)[defaultMaterial] ?? wallAttenuation) : wallAttenuation;
 
 
+	/** This worker's own mask, in its own coordinates, as a run the march takes. */
+	const targetRun = (band: Band): WallRun => ({
+		mask,
+		width: w,
+		height: h,
+		materialMask,
+		materialDb: tablesFor(band),
+		fallbackDb: defaultDbFor(band),
+		originX: 0,
+		originY: 0,
+		defaultMaterialId: defaultMaterial
+	});
+
 	const lossFor = (band: Band, x0: number, y0: number, x1: number, y1: number): number =>
-		rayMarchWallAtten(
-			mask,
-			w,
-			h,
-			materialMask,
-			tablesFor(band),
-			defaultDbFor(band),
-			x0,
-			y0,
-			x1,
-			y1,
-			1,
-			defaultMaterial
-		);
+		wallRunLoss(targetRun(band), { x: x0, y: y0 }, { x: x1, y: y1 }, 1);
 
 	/**
 	 * Wall loss from a fixed AP to one sample, split at the slab when the AP's own
@@ -1443,49 +821,37 @@ function fillMargins(positions: Position[], ctx: EvalContext): MarginField {
 	 *
 	 * Marched at stride 1 like everything else in this pass, so the split is as
 	 * exact as the single-floor path it replaces rather than inheriting the fast
-	 * pass's stride-3 approximation.
+	 * pass's stride-3 approximation. The split itself (`splitWallRunLoss`) is shared
+	 * with the coverage pass and the heatmap.
 	 */
 	const fixedLossFor = (fap: FixedApInput, sx: number, sy: number): number => {
 		const src = fap.source;
-		const seg = src
-			? crossFloorSegments(fap.sourceT ?? 0, fap.targetT ?? 0, fap.x, fap.y, sx, sy)
-			: null;
-		if (!src || !seg) return lossFor(fap.band, fap.x, fap.y, sx, sy);
+		if (!src) return lossFor(fap.band, fap.x, fap.y, sx, sy);
 
 		const tables = tablesFor(fap.band);
 		const sourceDefault = src.materialMask
 			? (tables[src.defaultMaterial] ?? wallAttenuation)
 			: wallAttenuation;
-		return (
-			rayMarchWallAtten(
-				src.data,
-				src.width,
-				src.height,
-				src.materialMask,
-				tables,
-				sourceDefault,
-				seg.source.from.x - src.originX,
-				seg.source.from.y - src.originY,
-				seg.source.to.x - src.originX,
-				seg.source.to.y - src.originY,
-				1,
-				src.defaultMaterial
-			) +
-			rayMarchWallAtten(
-				mask,
-				w,
-				h,
-				materialMask,
-				tables,
-				defaultDbFor(fap.band),
-				seg.target.from.x,
-				seg.target.from.y,
-				seg.target.to.x,
-				seg.target.to.y,
-				1,
-				defaultMaterial
-			)
+		const split = splitWallRunLoss(
+			{
+				mask: src.data,
+				width: src.width,
+				height: src.height,
+				materialMask: src.materialMask,
+				materialDb: tables,
+				fallbackDb: sourceDefault,
+				originX: src.originX,
+				originY: src.originY,
+				defaultMaterialId: src.defaultMaterial
+			},
+			targetRun(fap.band),
+			fap.sourceT ?? 0,
+			fap.targetT ?? 0,
+			{ x: fap.x, y: fap.y },
+			{ x: sx, y: sy },
+			1
 		);
+		return split ?? lossFor(fap.band, fap.x, fap.y, sx, sy);
 	};
 
 	// Density weighting is the scorer's business, not the field's: the margins and
@@ -1792,12 +1158,6 @@ function evaluateExactDetailed(positions: Position[], ctx: EvalContext, report =
 	return scoreMargins(fillMargins(positions, ctx), ctx, report);
 }
 
-/** One AP's power after the TPC pass, in dBm, with the radius it implies. */
-interface PowerChoice {
-	id: string;
-	power: number;
-	radius: number;
-}
 
 /**
  * Lower transmit power where that pays, one AP at a time (B4).
@@ -1900,170 +1260,7 @@ function evaluateExact(positions: Position[], ctx: EvalContext): number {
  * snapping only decides where a search step lands when it leaves the building,
  * and stage 3 re-validates every candidate exactly against `interior`.
  */
-interface InteriorField {
-	nearest: Int32Array; // pixel index of the nearest interior pixel, or -1
-	w: number;
-	h: number;
-}
 
-function buildInteriorField(interior: Uint8Array, w: number, h: number): InteriorField {
-	const n = w * h;
-	const nearest = new Int32Array(n).fill(-1);
-	const queue = new Int32Array(n);
-	let head = 0;
-	let tail = 0;
-
-	// Seed: every interior pixel is its own nearest neighbour.
-	for (let i = 0; i < n; i++) {
-		if (interior[i]) {
-			nearest[i] = i;
-			queue[tail++] = i;
-		}
-	}
-
-	// Multi-source BFS. Each pixel is enqueued at most once, so a queue of size
-	// n is sufficient.
-	while (head < tail) {
-		const idx = queue[head++]!;
-		const src = nearest[idx]!;
-		const x = idx % w;
-		const y = (idx / w) | 0;
-		for (let dy = -1; dy <= 1; dy++) {
-			const ny = y + dy;
-			if (ny < 0 || ny >= h) continue;
-			for (let dx = -1; dx <= 1; dx++) {
-				if (dx === 0 && dy === 0) continue;
-				const nx = x + dx;
-				if (nx < 0 || nx >= w) continue;
-				const nIdx = ny * w + nx;
-				if (nearest[nIdx] !== -1) continue;
-				nearest[nIdx] = src;
-				queue[tail++] = nIdx;
-			}
-		}
-	}
-
-	return { nearest, w, h };
-}
-
-/**
- * Snap a position onto the building interior.
- *
- * The clamp is essential. The BFS field covers every in-mask pixel, so a
- * *clamped* lookup always resolves to an interior pixel. Without the clamp, a
- * point outside the mask was returned unchanged — and PSO's initial jitter
- * (`+/- max(w,h) * 0.2`, applied to positions that may already sit near an
- * edge) produces such points readily. Stage 3 only accepts moves that land on
- * an interior pixel and skips out-of-bounds candidates, so an AP placed outside
- * by PSO could never move back in. That is how optimised APs ended up off-plan.
- */
-function snapToInterior(
-	x: number,
-	y: number,
-	field: InteriorField,
-	allowOutside: boolean
-): { x: number; y: number } {
-	if (allowOutside) return { x: Math.round(x), y: Math.round(y) };
-
-	const ix = Math.min(field.w - 1, Math.max(0, Math.round(x)));
-	const iy = Math.min(field.h - 1, Math.max(0, Math.round(y)));
-	const src = field.nearest[iy * field.w + ix]!;
-	if (src >= 0) return { x: src % field.w, y: (src / field.w) | 0 };
-	// Only reachable when the mask has no interior at all, which the caller
-	// guards against before starting.
-	return { x: ix, y: iy };
-}
-
-/**
- * The single place that decides whether an AP may occupy a position.
- *
- * The bounds test is deliberately kept even though `interior` is available:
- * for a negative x, `y * w + x` aliases into the previous row and can read a
- * genuine interior pixel, so an out-of-range coordinate would be accepted as
- * legal if the bounds check were dropped. Centralising the policy here replaces
- * the ad-hoc `nx < 0 || nx >= w` tests that were scattered through the search.
- */
-function isPositionAllowed(
-	x: number,
-	y: number,
-	interior: Uint8Array | null,
-	w: number,
-	h: number,
-	allowOutside: boolean,
-	voidMask: Uint8Array | null = null
-): boolean {
-	if (x < 0 || x >= w || y < 0 || y >= h) return false;
-	// A void is a hole in the floor — an atrium, a stairwell — with nothing to mount
-	// an AP to. That is a physical fact rather than a preference about rooms, so it
-	// does not become legal because the user allowed APs outside rooms.
-	if (voidMask && voidMask[y * w + x] === 1) return false;
-	if (allowOutside || !interior) return true;
-	return interior[y * w + x] === 1;
-}
-
-/**
- * Snap a candidate position for one AP into the domain that AP is allowed in.
- *
- * A wall-mounted AP's domain is the band along the walls rather than the interior: an
- * AP against a wall face is exactly what the interior was trimmed to exclude. The band
- * is a bracket's depth wide, so a position the search puts there is already on a wall;
- * the caller then puts it exactly on the face when it applies the result.
- */
-function snapForAp(
-	a: number,
-	x: number,
-	y: number,
-	wallMounted: boolean[],
-	snapTarget: { field: InteriorField; free: boolean },
-	wallPlacement: WallPlacement | null
-): { x: number; y: number } {
-	if (wallMounted[a] && wallPlacement) return snapToInterior(x, y, wallPlacement.field, false);
-	return snapToInterior(x, y, snapTarget.field, snapTarget.free);
-}
-
-/** Whether an AP may occupy a position — the same split as `snapForAp`. */
-function allowedForAp(
-	a: number,
-	x: number,
-	y: number,
-	wallMounted: boolean[],
-	wallPlacement: WallPlacement | null,
-	interior: Uint8Array | null,
-	w: number,
-	h: number,
-	allowOutside: boolean,
-	voidMask: Uint8Array | null
-): boolean {
-	if (wallMounted[a] && wallPlacement) {
-		if (x < 0 || x >= w || y < 0 || y >= h) return false;
-		// A void is a hole in the floor: there is no wall to mount to over a shaft,
-		// whatever the mask says around it.
-		if (voidMask && voidMask[y * w + x] === 1) return false;
-		return wallPlacement.band[y * w + x] === 1;
-	}
-	return isPositionAllowed(x, y, interior, w, h, allowOutside, voidMask);
-}
-
-/**
- * Where an AP may be snapped to, and whether snapping happens at all.
- *
- * With `allowOutside` the answer used to be "anywhere", which put APs over atriums.
- * When the floor has voids the target becomes "anywhere that is not a hole"
- * instead: the nearest pixel with a floor, which may well be outside a room.
- */
-function buildSnapTarget(
-	interior: Uint8Array,
-	voidMask: Uint8Array | null,
-	w: number,
-	h: number,
-	allowOutside: boolean
-): { field: InteriorField; free: boolean } {
-	if (!allowOutside) return { field: buildInteriorField(interior, w, h), free: false };
-	if (!voidMask) return { field: buildInteriorField(interior, w, h), free: true };
-	const solid = new Uint8Array(w * h);
-	for (let i = 0; i < solid.length; i++) solid[i] = voidMask[i] === 1 ? 0 : 1;
-	return { field: buildInteriorField(solid, w, h), free: false };
-}
 
 // ─── Yield to event loop for cancel checks ──────────────────────────────
 

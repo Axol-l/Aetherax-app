@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { removeAps } from '$state/project.svelte';
 	import { canvasState, selectAp, selectAps, clearSelection } from '$state/canvas.svelte';
 	import { solverState } from '$state/solver.svelte';
 	import { appState } from '$state/app.svelte';
@@ -8,7 +7,7 @@
 	import Icon from '$components/shared/Icon.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
 	import { t } from '$state/i18n.svelte';
-	import { apState } from '$state/ap-state.svelte.js';
+	import { apState, removeAps } from '$state/ap-state.svelte.js';
 
 	let confirmOpen = $state(false);
 	let confirmMessage = $state('');

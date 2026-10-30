@@ -17,8 +17,32 @@ const host = process.env.TAURI_DEV_HOST;
 export default defineConfig(() => ({
 	plugins: [sveltekit()],
 	test: {
-		include: ['src/**/*.test.ts'],
-		passWithNoTests: true
+		/*
+		 * One command, every test.
+		 *
+		 * The app's suite is the first project; each workspace package brings its own
+		 * `vitest.config.ts`. They used to be two commands (`test` and `test:packages`),
+		 * which is how a change under `packages/*` could pass the gate everyone ran.
+		 *
+		 * `extends: true` is what keeps the SvelteKit plugin — and with it the `$state`,
+		 * `$canvas` and `$components` aliases — on the app project. The packages need no
+		 * plugin, so their own configs stay authoritative.
+		 */
+		projects: [
+			{
+				// `as const`: the literal widens to `boolean` inside the array, and Vitest's
+				// type only accepts `true` (inherit) or a path string.
+				extends: true as const,
+				test: {
+					name: 'app',
+					include: ['src/**/*.test.ts'],
+					passWithNoTests: true
+				}
+			},
+			'packages/channels',
+			'packages/geometry',
+			'packages/solver'
+		]
 	},
 	// The optimiser worker is a module worker; Vite has to emit it as one. `as const`
 	// because this config is returned from a function, which widens the literal to

@@ -2,7 +2,6 @@ import { decodeMask } from '$canvas/wall-detect.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
 import { rasteriseWalls, DEFAULT_WALL_BAND } from './wall-raster.js';
 import { floorState } from './floor-state.svelte.js';
-import { wallState } from './wall-state.svelte.js';
 
 /**
  * Decoded wall masks, cached per floor.
@@ -141,8 +140,8 @@ export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | 
 	const walls = floor?.walls ?? [];
 	const columns = floor?.columns ?? [];
 	if (walls.length > 0 || columns.length > 0) {
-		const stored = floorId === floorState.currentFloorId ? wallState.wallMask ?? floor?.wallMask : floor?.wallMask;
-		const rtMask = floorId === floorState.currentFloorId ? wallState.roomTypeMask ?? floor?.roomTypeMask : floor?.roomTypeMask;
+		const stored = floor?.wallMask;
+		const rtMask = floor?.roomTypeMask;
 		// An empty list is not an identity: `floor.columns ?? []` is a new array on every
 		// call, so keying on it would miss the cache forever.
 		const key = `${floorId}:walls${wallsId(walls)}:cols${columns.length > 0 ? wallsId(columns) : 0}:${stored ? `${stored.width}x${stored.height}@${stored.originX ?? 0},${stored.originY ?? 0}` : 'own'}:rt${maskId(rtMask)}`;
@@ -192,32 +191,14 @@ export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | 
 		}
 	}
 
-	// For current floor, prefer wallState (always up-to-date) over floor entity (synced on switch)
-	if (floorId === floorState.currentFloorId && wallState.wallMask) {
-		const wm = wallState.wallMask;
-		const rtMask = wallState.roomTypeMask;
-		const key = `${floorId}:${wm.width}x${wm.height}:${wm.originX ?? 0},${wm.originY ?? 0}:${wallState.wallMaterial}:rt${maskId(rtMask)}`;
-		const cached = floorMaskCache.get(floorId);
-		if (cached && cached.sourceKey === key) return cached;
-
-		const decoded = await decodeMask(wm.dataUrl, wm.width, wm.height);
-		const mm = wallState.materialMask;
-		const matMask = mm ? await decodeMaterialMask(mm.dataUrl, mm.width, mm.height) : null;
-		const entry: DecodedFloorMask = {
-			wallData: decoded.data,
-			materialMap: matMask,
-			roomTypeData: await decodeRoomTypes(rtMask, wm.width, wm.height),
-			width: decoded.width,
-			height: decoded.height,
-			originX: wm.originX ?? 0,
-			originY: wm.originY ?? 0,
-			sourceKey: key
-		};
-		floorMaskCache.set(floorId, entry);
-		return entry;
-	}
-
-	// Other floors: decode from floor entity
+	/*
+	 * The floor's stored mask, for a floor whose walls are not segments.
+	 *
+	 * This used to have a branch of its own for the current floor, reading the
+	 * `wallState` copy because that was "always up to date" while the floor was only
+	 * synced on a switch. `wallState` *is* the current floor now (see `wall-state.ts`),
+	 * so the two branches were the same code against the same object.
+	 */
 	if (!floor?.wallMask) return null;
 	const wm = floor.wallMask;
 	const rtMask = floor.roomTypeMask;

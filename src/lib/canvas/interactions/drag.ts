@@ -1,10 +1,9 @@
 import type { CanvasEngine } from '../engine.js';
 import { hitTest } from '../hit-test.js';
-import { moveAp, faceAp, beginMove } from '$state/project.svelte.js';
 import { scheduleSave } from '$state/persistence.svelte.js';
 import { canvasState, isSelected } from '$state/canvas.svelte.js';
 import { facingFollowsWall, type WallSnap } from '$state/wall-snap.js';
-import { apState } from '$state/ap-state.svelte.js';
+import { apState, beginMove, faceAp, moveAp } from '$state/ap-state.svelte.js';
 
 /**
  * The nearest wall to a world point, as the view can answer it on every frame.
