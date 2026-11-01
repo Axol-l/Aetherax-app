@@ -1,5 +1,5 @@
 import type { FloorMaterialId } from '$canvas/floor-materials.js';
-import type { WallMaterialId } from '$canvas/materials.js';
+import type { WallMaterialId } from '$lib/domain/materials.js';
 import { FLOOR_MATERIALS } from '$canvas/floor-materials.js';
 import { crossFloorSplit } from '$lib/rf/cross-floor.js';
 import type { ElevatedSurface } from '$lib/rf/surface-height.js';

@@ -10,7 +10,7 @@
  *
  * That also makes the change reversible in one action: re-detect to go back to the drawing.
  */
-import type { WallMaterialId } from '../canvas/materials.js';
+import type { WallMaterialId } from '$lib/domain/materials.js';
 
 export interface RasterWall {
 	ax: number;

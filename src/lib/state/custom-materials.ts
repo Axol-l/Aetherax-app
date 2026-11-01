@@ -12,7 +12,7 @@
  * two numbers from disagreeing, and a wall of that material costs exactly the figure the
  * user typed.
  */
-import { WALL_MATERIALS, type WallMaterial, type WallMaterialId } from '$canvas/materials.js';
+import { WALL_MATERIALS, type WallMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 
 export interface CustomMaterial {
 	/** Ids from 100 up, so they never collide with the built-in table. */

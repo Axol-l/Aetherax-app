@@ -1,6 +1,6 @@
 import type { Layer, RenderContext } from '../types.js';
 import type { VectorColumn, VectorWall } from '../../state/vector-walls.js';
-import { getMaterial, type WallMaterialId } from '../materials.js';
+import { getMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 
 /**
  * Walls drawn as line segments, over the plan.

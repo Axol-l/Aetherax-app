@@ -17,7 +17,7 @@
  * premise), so this needs nothing but the two masks that already exist.
  */
 
-import { isVoidRoomType } from '../canvas/room-types.js';
+import { isVoidRoomType } from '$lib/domain/room-types.js';
 
 /**
  * Fractions along the AP -> client ray at which the path changes floor.

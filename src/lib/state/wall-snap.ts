@@ -16,7 +16,7 @@
  * the wall suggests a direction, it does not own it.
  */
 import { normaliseBearing, wrap180 } from '../rf/antenna.js';
-import { isVirtualMaterial, type WallMaterialId } from '$canvas/materials.js';
+import { isVirtualMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 import { wallDistanceTransform, type WallDistanceTransform } from '$canvas/wall-distance.js';
 import { getFloorMask } from './floor-mask.js';
 import { floorState } from './floor-state.svelte.js';

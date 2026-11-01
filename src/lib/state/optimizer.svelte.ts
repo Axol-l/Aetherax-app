@@ -17,7 +17,7 @@ import { scheduleSave } from './persistence.svelte.js';
 import { t } from './i18n.svelte.js';
 import { buildRoomDomain } from '$canvas/rooms.js';
 import type { SlabCrossing } from '$lib/rf/cross-floor.js';
-import { isVoidRoomType } from '$canvas/room-types.js';
+import { isVoidRoomType } from '$lib/domain/room-types.js';
 import { OptimizerBridge, type OptimizeProgress } from '../workers/optimizer-bridge.js';
 import { floorState, getFloor, getFloorSlabAttenuation } from './floor-state.svelte.js';
 import { getFloorMask } from './floor-mask.js';

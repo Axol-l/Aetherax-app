@@ -8,7 +8,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { composeRoleMasks, DOOR_MATERIAL, WINDOW_MATERIAL } from './vector-detect.js';
-import { DEFAULT_MATERIAL } from './materials.js';
+import { DEFAULT_MATERIAL } from '$lib/domain/materials.js';
 
 const bytes = (...values: number[]) => Uint8Array.from(values);
 

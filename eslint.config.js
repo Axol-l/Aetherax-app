@@ -46,5 +46,38 @@ export default [
 		rules: {
 			'no-console': 'off'
 		}
+	},
+	{
+		/*
+		 * The layer rule `docs/ARCHITECTURE.md` states, enforced rather than described.
+		 *
+		 * `rf/` is the model: no DOM, no `$state`, no components. It used to import the wall
+		 * material table and the room types out of `canvas/`, which is how a rendering folder
+		 * became a dependency of the physics — and nothing said so, because the rule was one
+		 * sentence in a document. Both tables live in `domain/` now, so importing anything that
+		 * draws from below it is a lint error rather than a review comment.
+		 */
+		files: ['src/lib/rf/**/*.ts', 'src/lib/domain/**/*.ts'],
+		rules: {
+			'no-restricted-imports': [
+				'error',
+				{
+					patterns: [
+						{
+							group: [
+								'**/canvas/*',
+								'$canvas/*',
+								'**/state/*',
+								'$state/*',
+								'**/components/*',
+								'$components/*'
+							],
+							message:
+								'rf/ and domain/ sit below the app: import from domain/ or rf/, not from the layers that draw.'
+						}
+					]
+				}
+			]
+		}
 	}
 ];

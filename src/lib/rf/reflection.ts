@@ -20,7 +20,7 @@
  * where most of the energy in a room is after the direct ray.
  */
 import type { Band } from '@aetherax/channels';
-import { getMaterial, type WallMaterialId } from '$canvas/materials.js';
+import { getMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 import {
 	BAND_FREQUENCY_GHZ,
 	ituEpsilon,

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { ROOM_TYPES, DEFAULT_ROOM_TYPE_ID, type BuildingCategory } from '$canvas/room-types.js';
+	import { ROOM_TYPES, DEFAULT_ROOM_TYPE_ID, type BuildingCategory } from '$lib/domain/room-types.js';
 	import CanvasPopup from './CanvasPopup.svelte';
 	import { t } from '$state/i18n.svelte';
 

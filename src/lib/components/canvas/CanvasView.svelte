@@ -95,7 +95,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import { importFloorplanFile } from '$canvas/import-floorplan.js';
 	import { labelWallBlobs, relabelBlob, labelRooms, fillRegion, encodeMaterialMask, decodeMaterialMask } from '$canvas/region-labels.js';
 	import type { RegionLabels } from '$canvas/region-labels.js';
-	import { WALL_MATERIALS, registerCustomMaterials, type WallMaterialId } from '$canvas/materials.js';
+	import { WALL_MATERIALS, registerCustomMaterials, type WallMaterialId } from '$lib/domain/materials.js';
 	import {
 		floorState,
 		currentFloor,
@@ -109,7 +109,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import { scheduleSave } from '$state/persistence.svelte.js';
 	import { computeBuildingInterior } from '$canvas/morphology.js';
 	import { RoomLabelsLayer } from '$canvas/renderers/room-labels.js';
-	import { ROOM_TYPES } from '$canvas/room-types.js';
+	import { ROOM_TYPES } from '$lib/domain/room-types.js';
 	import LayerPanel from '$components/canvas/LayerPanel.svelte';
 	import WallMaterialPopup from '$components/canvas/WallMaterialPopup.svelte';
 	import WallToolbar from '$components/canvas/WallToolbar.svelte';

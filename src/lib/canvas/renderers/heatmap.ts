@@ -47,8 +47,8 @@ type HeatmapAp = AccessPoint & {
 };
 import type { DecodedWallMask } from '../mask-codec.js';
 import { computeBuildingInterior } from '../morphology.js';
-import type { WallMaterialId } from '../materials.js';
-import { getMaterialDbTable, getFlatAttenuation } from '../materials.js';
+import type { WallMaterialId } from '$lib/domain/materials.js';
+import { getMaterialDbTable, getFlatAttenuation } from '$lib/domain/materials.js';
 import type { Band } from '@aetherax/channels';
 import { crossFloorSegments, pointAlong, slabIsVoid } from '$lib/rf/cross-floor.js';
 import { heatmapRegion } from './heatmap-region.js';

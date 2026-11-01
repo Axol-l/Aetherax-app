@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROOM_TYPES } from '../canvas/room-types.js';
+import { ROOM_TYPES } from '$lib/domain/room-types.js';
 import {
 	crossFloorLoss,
 	crossFloorSegments,

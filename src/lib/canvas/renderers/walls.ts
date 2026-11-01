@@ -1,6 +1,6 @@
 import type { Layer, RenderContext } from '../types.js';
 import type { DecodedWallMask } from '../mask-codec.js';
-import { getMaterial, isVirtualMaterial, type WallMaterialId } from '../materials.js';
+import { getMaterial, isVirtualMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 
 export class WallLayer implements Layer {
 	id = 'walls';

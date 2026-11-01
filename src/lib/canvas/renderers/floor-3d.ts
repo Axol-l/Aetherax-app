@@ -25,7 +25,7 @@ import {
 } from './stacked-floors.js';
 import type { FloorCardCache, FloorCardSource } from './floor-card.js';
 import { apMarkerColor } from './ap.js';
-import { getMaterial, type WallMaterialId } from '../materials.js';
+import { getMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 import { surfaceBox, surfaceThickness, stepCount, type ElevatedSurface } from '$lib/rf/surface-height.js';
 import type { VectorColumn, VectorWall } from '$state/vector-walls.js';
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ROOM_TYPES, getRoomType, isVoidRoomType } from './room-types.js';
+import { ROOM_TYPES, getRoomType, isVoidRoomType } from '$lib/domain/room-types.js';
 
 /**
  * Room type ids are the contract.

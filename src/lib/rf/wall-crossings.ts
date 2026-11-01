@@ -15,7 +15,7 @@
  * over segments and nothing else.
  */
 import type { Band } from '@aetherax/channels';
-import { getFlatAttenuation, type WallMaterialId } from '../canvas/materials.js';
+import { getFlatAttenuation, type WallMaterialId } from '$lib/domain/materials.js';
 
 export interface WallSegment {
 	ax: number;

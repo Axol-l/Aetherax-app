@@ -16,7 +16,7 @@
  * a cross-floor source needs, all in world units except the slab figures.
  */
 import type { Band } from '@aetherax/channels';
-import type { WallMaterialId } from './materials.js';
+import type { WallMaterialId } from '$lib/domain/materials.js';
 import { apState, apSplitFor, apVerticalOffsetTo } from '$state/ap-state.svelte.js';
 import { floorState, getFloorSlabAttenuation } from '$state/floor-state.svelte.js';
 import { getFloorMask } from '$state/floor-mask.js';

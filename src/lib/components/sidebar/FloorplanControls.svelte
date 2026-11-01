@@ -25,7 +25,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import { getFloorMask } from '$state/floor-mask.js';
 	import { compareWallModels, type WallModelComparison } from '$lib/rf/wall-model-compare.js';
 	import { rasterRayLossDb } from '$lib/rf/raster-ray.js';
-	import type { WallMaterialId } from '$canvas/materials.js';
+	import type { WallMaterialId } from '$lib/domain/materials.js';
 	import { traceFloorWalls, setFloorWallsFromSegments } from '$state/wall-trace.js';
 	import { rasteriseWalls as rasteriseWallsToMasks } from '$state/wall-raster.js';
 	import { encodeMaterialMask } from '$canvas/region-labels.js';

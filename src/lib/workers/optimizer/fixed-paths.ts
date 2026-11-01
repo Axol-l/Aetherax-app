@@ -9,7 +9,7 @@
  */
 import { crossFloorSegments, slabLossFactor } from '../../rf/cross-floor.js';
 import { wallRunLoss, type WallRun } from '../../rf/link-budget.js';
-import { getMaterialDbTable } from '../../canvas/materials.js';
+import { getMaterialDbTable } from '$lib/domain/materials.js';
 import type { FixedApInput, FixedPath } from './types.js';
 /**
  * Build the per-sample path data for every fixed AP that has a mask for its own

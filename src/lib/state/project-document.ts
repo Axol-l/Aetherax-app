@@ -27,7 +27,7 @@
  */
 import type { Band, ChannelWidth, RegulatoryDomain } from '@aetherax/channels';
 import type { FloorMaterialId } from '$canvas/floor-materials.js';
-import type { WallMaterialId } from '$canvas/materials.js';
+import type { WallMaterialId } from '$lib/domain/materials.js';
 import { defaultAntenna } from '../rf/antenna.js';
 import {
 	DEFAULT_COVERAGE_SOFTNESS_DB,

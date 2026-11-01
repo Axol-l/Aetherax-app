@@ -10,7 +10,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { traceWallsFromMask } from './wall-trace.js';
-import type { WallMaterialId } from '../canvas/materials.js';
+import type { WallMaterialId } from '$lib/domain/materials.js';
 
 const DEFAULT = 0 as WallMaterialId;
 

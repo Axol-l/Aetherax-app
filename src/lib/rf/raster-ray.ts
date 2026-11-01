@@ -9,7 +9,7 @@
  * It is deliberately labelled as a re-implementation rather than "the march": when the real
  * switch goes in, the harness should be handed the real one, and this can go.
  */
-import { getFlatAttenuation, type WallMaterialId } from '../canvas/materials.js';
+import { getFlatAttenuation, type WallMaterialId } from '$lib/domain/materials.js';
 import type { Band } from '@aetherax/channels';
 
 /**

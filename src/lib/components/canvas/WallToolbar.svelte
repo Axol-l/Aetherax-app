@@ -12,7 +12,7 @@
 	 * between the two clicks.
 	 */
 	import { t } from '$state/i18n.svelte';
-	import { getMaterial, type WallMaterialId } from '$canvas/materials.js';
+	import { getMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 	import { allWallMaterials } from '$state/custom-materials.js';
 	import { projectMeta } from '$state/project-meta.svelte';
 	import Icon from '$components/shared/Icon.svelte';

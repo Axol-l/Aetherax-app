@@ -17,7 +17,7 @@
  *
  * Everything here is in mask pixels, which are world units; the caller adds the mask origin.
  */
-import type { WallMaterialId } from '../canvas/materials.js';
+import type { WallMaterialId } from '$lib/domain/materials.js';
 import { getFloorMask } from './floor-mask.js';
 import { floorState } from './floor-state.svelte.js';
 

@@ -1,6 +1,6 @@
 import type { Layer, RenderContext } from '../types.js';
 import type { RegionLabels } from '../region-labels.js';
-import { ROOM_TYPES, type RoomType } from '../room-types.js';
+import { ROOM_TYPES, type RoomType } from '$lib/domain/room-types.js';
 import { t } from '../../state/i18n.svelte';
 
 interface RoomLabelInfo {

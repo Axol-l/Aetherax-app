@@ -15,7 +15,7 @@
 
 import { apMarkerColor } from './ap.js';
 import { colorizeWalls } from './walls.js';
-import type { WallMaterialId } from '../materials.js';
+import type { WallMaterialId } from '$lib/domain/materials.js';
 
 /** Underlay width in world units. Matches `FloorplanLayer` so plans scale alike. */
 export const CARD_PLAN_WIDTH = 800;

@@ -30,7 +30,7 @@
  * alpha passes have no such question — a pixel is in a role or it is not.
  */
 
-import { WALL_MATERIALS, type WallMaterialId } from './materials.js';
+import { WALL_MATERIALS, type WallMaterialId } from '$lib/domain/materials.js';
 import { fillParallelGaps } from './morphology.js';
 import { segmentsFromSvg, collapseOpenings, mergeOpeningsIntoWalls } from './svg-walls.js';
 import type { WallMaskData } from '$state/wall-state.svelte.js';

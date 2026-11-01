@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { getFlatAttenuation, type WallMaterialId } from '$canvas/materials.js';
+	import { getFlatAttenuation, type WallMaterialId } from '$lib/domain/materials.js';
 	import CanvasPopup from './CanvasPopup.svelte';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';

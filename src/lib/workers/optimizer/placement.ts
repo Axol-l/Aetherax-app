@@ -6,7 +6,7 @@
  * cluster of helpers in the worker and the least dependent on it.
  */
 import type { Band } from '@aetherax/channels';
-import { getMaterialDbTable, isVirtualMaterial, type WallMaterialId } from '$canvas/materials.js';
+import { getMaterialDbTable, isVirtualMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 import { rayMarchWallAtten } from '../../rf/propagation.js';
 import type { InteriorField, WallCache, WallPlacement } from './types.js';
 

@@ -1,4 +1,4 @@
-import type { WallMaterialId } from '$canvas/materials.js';
+import type { WallMaterialId } from '$lib/domain/materials.js';
 import type { RasterReason } from '$canvas/detect-floorplan.js';
 import type { ElementRole } from '$canvas/vector-elements.js';
 import type { ReviewableElement, VectorDetectionSummary } from '$canvas/vector-detect.js';

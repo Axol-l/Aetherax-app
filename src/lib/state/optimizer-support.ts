@@ -14,7 +14,7 @@ import { decodeMaterialMask } from '$canvas/region-labels.js';
 import { buildRoomDomain } from '$canvas/rooms.js';
 import type { SlabCrossing } from '$lib/rf/cross-floor.js';
 import { crossingSlabsFor as crossingSlabsForFloors } from '$lib/rf/slab-crossings.js';
-import { ROOM_TYPES, isVoidRoomType } from '$canvas/room-types.js';
+import { ROOM_TYPES, isVoidRoomType } from '$lib/domain/room-types.js';
 import { floorState, boundarySlabLossDb, floorElevation, floorsByLevel, type Floor } from './floor-state.svelte.js';
 import { getFloorMask } from './floor-mask.js';
 import { projectMeta } from './project-meta.svelte.js';

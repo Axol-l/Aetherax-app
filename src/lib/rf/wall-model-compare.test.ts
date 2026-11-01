@@ -7,7 +7,7 @@
  * difference), and a systematic bias (means apart, absolute difference small).
  */
 import { describe, expect, it } from 'vitest';
-import { getFlatAttenuation } from '$canvas/materials.js';
+import { getFlatAttenuation } from '$lib/domain/materials.js';
 import { compareWallModels } from './wall-model-compare.js';
 import type { WallSegment } from './wall-crossings.js';
 

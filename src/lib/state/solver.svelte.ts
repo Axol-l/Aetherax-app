@@ -8,7 +8,7 @@ import { updateAp, clearAssignments } from './ap-state.svelte.js';
 import { SolverBridge } from '../workers/solver-bridge.js';
 import { floorState, getFloorSlabAttenuation } from './floor-state.svelte.js';
 import { getEffectiveWupm } from './ap-state.svelte.js';
-import { getMaterialDbTable, getFlatAttenuation, type WallMaterialId } from '$canvas/materials.js';
+import { getMaterialDbTable, getFlatAttenuation, type WallMaterialId } from '$lib/domain/materials.js';
 import { rayMarchWallAtten } from '../rf/propagation.js';
 import { balanceAssignment, widenAssignment } from '../rf/interference.js';
 import { makeOverlapLookup } from '../rf/channel-overlap.js';

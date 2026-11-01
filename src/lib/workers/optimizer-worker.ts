@@ -2,7 +2,7 @@
 
 import { buildRoomDomain } from '../canvas/rooms.js';
 import { clipInteriorToPlanningArea } from '../state/planning-area.js';
-import { isVoidRoomType } from '../canvas/room-types.js';
+import { isVoidRoomType } from '$lib/domain/room-types.js';
 import {
 	COVERAGE_MARGIN_DB,
 	COVERAGE_THRESHOLD_DBM,
@@ -41,7 +41,7 @@ import {
 	getMaterialDbTable,
 	registerCustomMaterials,
 	type WallMaterialId
-} from '../canvas/materials.js';
+} from '$lib/domain/materials.js';
 import {
 	planningCandidates,
 	type Band,

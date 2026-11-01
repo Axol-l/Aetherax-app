@@ -38,9 +38,10 @@ step with the code by the refactors it describes — if a module moves, its sect
 These are the rules the refactors established; breaking one is how the codebase got its
 earlier problems.
 
-1. **`rf/` is pure.** No `$state`, no canvas, no DOM. It may import `canvas/room-types.js`
-   (a data table) and nothing else from the app. Everything time-dependent or cacheable
-   lives in the caller.
+1. **`rf/` is pure.** No `$state`, no canvas, no DOM. It may import `domain/` (the wall
+   material table, the room types) and nothing else from the app. Everything time-dependent or
+   cacheable lives in the caller. `/rf/` and `/domain/` are enforced by `no-restricted-imports`
+   in `eslint.config.js`, not by this sentence.
 2. **Renderers draw, they do not decide.** `canvas/renderers/*` may import state for *types*
    and the current-floor views, but a click handler or a save belongs in `CanvasView`,
    `canvas/interactions/*` (controller-style) or the state layer.

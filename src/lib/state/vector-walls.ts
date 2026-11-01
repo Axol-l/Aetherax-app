@@ -15,7 +15,7 @@
  * to an existing endpoint, locking to an axis. Nothing here touches the raster mask
  * machinery, so the two can coexist while the propagation is moved over.
  */
-import type { WallMaterialId } from '../canvas/materials.js';
+import type { WallMaterialId } from '$lib/domain/materials.js';
 
 export interface VectorWall {
 	id: string;

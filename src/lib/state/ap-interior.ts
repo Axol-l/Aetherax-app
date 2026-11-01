@@ -16,7 +16,7 @@ import { debug } from '$lib/log.js';
 import { sealOpenings } from '$canvas/morphology.js';
 import { buildRoomDomain } from '$canvas/rooms.js';
 import { maskSignature } from '$canvas/mask-registry.js';
-import { isVoidRoomType } from '$canvas/room-types.js';
+import { isVoidRoomType } from '$lib/domain/room-types.js';
 import { getEffectiveWupm } from './ap-state.svelte.js';
 import { getFloorMask } from './floor-mask.js';
 import { minRoomRadiusWu } from './room-domain.js';
