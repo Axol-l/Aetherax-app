@@ -47,6 +47,18 @@ const bridge = new OptimizerBridge();
 const graphBridge = new OptimizerBridge();
 
 /**
+ * Set for the duration of a run, and aborted by `cancelOptimizer`.
+ *
+ * Cancellation used to be one `bridge.cancel()` and nothing else: the worker stopped the
+ * request it was executing, `optimizeFloor` turned the rejection into `ok: false`, and every
+ * loop above it read that as "this restart bought nothing" and carried on — so the remaining
+ * restarts, floors and passes ran to completion and the panel kept saying it was running.
+ *
+ * One controller per run, so a cancel from the last run cannot stop the next one.
+ */
+let runAbort: AbortController | null = null;
+
+/**
  * Run one floor's optimisation.
  *
  * `floorId` is explicit rather than read from `floorState.currentFloorId`
@@ -55,7 +67,11 @@ const graphBridge = new OptimizerBridge();
  * attenuation, room types, density overrides — is read from that floor rather
  * than from the `wallState` properties, which describe the current one.
  */
-async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promise<FloorOutcome> {
+async function optimizeFloor(
+	floorId: string,
+	opts: FloorRunOptions = {},
+	signal?: AbortSignal
+): Promise<FloorOutcome> {
 	const apply = opts.apply !== false;
 	const floor = getFloor(floorId);
 	const nothing: FloorOutcome = {
@@ -71,6 +87,9 @@ async function optimizeFloor(floorId: string, opts: FloorRunOptions = {}): Promi
 	};
 
 	if (apState.aps.length === 0) return nothing;
+	// Asked before the expensive part — the mask decode, the density map and the payload
+	// assembly — so a cancel does not spend one more floor's work to find out it was one.
+	if (signal?.aborted) return nothing;
 	/*
 	 * The floor's geometry, from whichever model states it.
 	 *
@@ -707,20 +726,25 @@ export async function buildAssignmentConflictEdges(): Promise<{
  * all-floor run calls that repeatedly — a guard down there would abort the run
  * on its second floor.
  */
-async function withOptimizerRun(body: () => Promise<unknown>): Promise<void> {
+async function withOptimizerRun(body: (signal: AbortSignal) => Promise<unknown>): Promise<void> {
 	if (optimizerState.isRunning) return;
 	optimizerState.isRunning = true;
 	optimizerState.progress = 0;
 	optimizerState.score = 0;
 	optimizerState.error = null;
 	optimizerState.status = '';
+	const abort = new AbortController();
+	runAbort = abort;
 	try {
-		await body();
+		await body(abort.signal);
 		// Stamped here rather than inside `body`, so it dates *any* completed run —
 		// the single-floor button and the all-floor one alike. The placement advice
-		// panel keys off this to know a fresh measurement exists to advise on.
-		optimizerState.lastRunAt = Date.now();
+		// panel keys off this to know a fresh measurement exists to advise on. A
+		// cancelled run is not one: it stopped wherever it had got to, and what it
+		// left on the plan is not what the last figure describes.
+		if (!abort.signal.aborted) optimizerState.lastRunAt = Date.now();
 	} finally {
+		if (runAbort === abort) runAbort = null;
 		optimizerState.isRunning = false;
 		optimizerState.status = '';
 	}
@@ -771,12 +795,13 @@ async function optimizeFloorBest(
 	floorId: string,
 	restarts: number,
 	apply: boolean,
-	extra: FloorRunOptions = {}
+	extra: FloorRunOptions = {},
+	signal?: AbortSignal
 ): Promise<FloorOutcome | null> {
 	const n = Math.max(1, Math.floor(restarts));
 
 	if (n === 1) {
-		const one = await optimizeFloor(floorId, { ...extra, apply });
+		const one = await optimizeFloor(floorId, { ...extra, apply }, signal);
 		if (!one.ok) return null;
 		if (apply) commitFloorOutcome(floorId, one);
 		return one;
@@ -785,10 +810,11 @@ async function optimizeFloorBest(
 	const scores: number[] = [];
 	let best: FloorOutcome | null = null;
 	for (let i = 0; i < n; i++) {
+		if (signal?.aborted) break;
 		optimizerState.status = t('Restart {index} of {count}', { index: i + 1, count: n });
 		// Seeds are 1..n rather than random, so a multi-start run is exactly as
 		// reproducible as a single-start one.
-		const outcome = await optimizeFloor(floorId, { ...extra, seed: i + 1, apply: false });
+		const outcome = await optimizeFloor(floorId, { ...extra, seed: i + 1, apply: false }, signal);
 		if (!outcome.ok) continue;
 		scores.push(outcome.score);
 		if (!best || outcome.score > best.score) best = outcome;
@@ -810,8 +836,8 @@ async function optimizeFloorBest(
 
 /** Optimise the floor currently on screen. */
 export async function runOptimizer(): Promise<void> {
-	await withOptimizerRun(() =>
-		optimizeFloorBest(floorState.currentFloorId, optimizerState.restarts, true)
+	await withOptimizerRun((signal) =>
+		optimizeFloorBest(floorState.currentFloorId, optimizerState.restarts, true, {}, signal)
 	);
 }
 
@@ -829,7 +855,7 @@ export async function runOptimizer(): Promise<void> {
  * shares, weighted by the samples each floor contributed, so a small floor does
  * not count for as much as a large one.
  */
-async function runAlternatingPasses(): Promise<void> {
+async function runAlternatingPasses(signal: AbortSignal): Promise<void> {
 	const order = [...floorState.floors].sort((a, b) => a.level - b.level);
 	const runnable = order.filter(
 		(f) => f.wallMask && apState.aps.some((ap) => ap.floorId === f.id)
@@ -848,11 +874,13 @@ async function runAlternatingPasses(): Promise<void> {
 	let passes = 0;
 
 	for (let pass = 1; pass <= MAX_PASSES; pass++) {
+		if (signal.aborted) break;
 		let weighted = 0;
 		let weight = 0;
 		const perFloor: Array<{ id: string; name: string; coverage: number }> = [];
 
 		for (let i = 0; i < runnable.length; i++) {
+			if (signal.aborted) break;
 			const f = runnable[i]!;
 			optimizerState.status = t('Pass {pass}/{total} · {floor} ({index}/{count})', {
 				pass,
@@ -864,7 +892,13 @@ async function runAlternatingPasses(): Promise<void> {
 			// The same per-floor path the single-floor button uses, so restarts apply
 			// here too. The readout is refreshed by `commitFloorOutcome` from the very
 			// figure the objective uses, so the panel and the run cannot disagree.
-			const outcome = await optimizeFloorBest(f.id, optimizerState.restarts, true);
+			const outcome = await optimizeFloorBest(
+				f.id,
+				optimizerState.restarts,
+				true,
+				{},
+				signal
+			);
 			if (!outcome) continue;
 
 			perFloor.push({ id: f.id, name: f.name, coverage: outcome.coverage });
@@ -906,6 +940,7 @@ async function runAlternatingPasses(): Promise<void> {
 	// has to be the *building's* weakest floor to mean anything, and inside a pass nobody
 	// knows which floor that is until every floor has been scored.
 	if (
+		!signal.aborted &&
 		projectMeta.coverageFloorEveryFloor &&
 		projectMeta.coverageFloorPct > 0 &&
 		optimizerState.worstFloor
@@ -919,9 +954,13 @@ async function runAlternatingPasses(): Promise<void> {
 						`${projectMeta.coverageFloorPct}% requirement — one more pass with it as the ε`
 				);
 				optimizerState.status = t('Per-floor floor · {floor}', { floor: target.name });
-				const outcome = await optimizeFloorBest(target.id, optimizerState.restarts, true, {
-					floorPct: projectMeta.coverageFloorPct
-				});
+				const outcome = await optimizeFloorBest(
+					target.id,
+					optimizerState.restarts,
+					true,
+					{ floorPct: projectMeta.coverageFloorPct },
+					signal
+				);
 				if (outcome) {
 					optimizerState.worstFloor = {
 						id: target.id,
@@ -941,6 +980,9 @@ async function runAlternatingPasses(): Promise<void> {
 		}
 	}
 
+	// A cancel stops here too: the figures the panel shows describe the plan on screen, and
+	// a run that stopped half way has not finished producing them.
+	if (signal.aborted) return;
 	optimizerState.passes = passes;
 	optimizerState.progress = 100;
 	scheduleSave();
@@ -948,11 +990,20 @@ async function runAlternatingPasses(): Promise<void> {
 
 /** Optimise every floor, alternating until the building figure stops improving. */
 export async function optimizeAllFloors(): Promise<void> {
-	await withOptimizerRun(() => runAlternatingPasses());
+	await withOptimizerRun((signal) => runAlternatingPasses(signal));
 }
 
+/**
+ * Stop the run in flight.
+ *
+ * Three things, because cancellation lives at three levels: the worker that is searching,
+ * the loops on this thread that would otherwise treat a cancelled floor as "this restart
+ * bought nothing" and start the next one, and the graph request a run may be waiting on.
+ */
 export function cancelOptimizer(): void {
+	runAbort?.abort();
 	bridge.cancel();
+	graphBridge.cancel();
 }
 
 
