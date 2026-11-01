@@ -14,7 +14,7 @@
 	import { floorState, addFloor, removeFloor, switchFloor } from '$state/floor-state.svelte.js';
 	import { apState } from '$state/ap-state.svelte.js';
 	import { pushState } from '$state/history.svelte.js';
-	import { scheduleSave } from '$state/persistence.svelte.js';
+	import { scheduleSave, forgetFloorplan } from '$state/persistence.svelte.js';
 	import { t } from '$state/i18n.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
 
@@ -77,6 +77,9 @@
 			pushState();
 			apState.aps = apState.aps.filter((ap) => ap.floorId !== id);
 			removeFloor(id);
+			// The floor's stored underlay is a key of its own and outlives the floor:
+			// nothing else knows it exists once the floor is gone from `floorState`.
+			void forgetFloorplan(id);
 			scheduleSave();
 		});
 	}

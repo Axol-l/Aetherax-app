@@ -23,6 +23,18 @@ export interface KeyValueStore {
 	readonly backend: StorageBackend;
 	read(key: string): Promise<string | null>;
 	write(key: string, value: string): Promise<void>;
+	/**
+	 * Write without handing back a promise, for the one caller that cannot await.
+	 *
+	 * A window that is being destroyed does not get to finish a promise chain: the page
+	 * gets one synchronous turn and then it is gone. That is the whole reason this exists
+	 * — see `persistence.flushSaveSync`, which is its only caller.
+	 *
+	 * Optional, because a backend may not be able to honour it. IndexedDB cannot: its
+	 * transaction commits when it commits, and there is no synchronous write. A caller
+	 * that needs one has to check for it instead of assuming.
+	 */
+	writeSync?(key: string, value: string): void;
 	remove(key: string): Promise<void>;
 	/** Every key this store holds, for migration and for a project list. */
 	keys(): Promise<string[]>;
@@ -35,6 +47,9 @@ export const localStore: KeyValueStore = {
 		return localStorage.getItem(key);
 	},
 	async write(key, value) {
+		localStorage.setItem(key, value);
+	},
+	writeSync(key, value) {
 		localStorage.setItem(key, value);
 	},
 	async remove(key) {
@@ -68,6 +83,9 @@ export function memoryStore(): KeyValueStore {
 			return map.get(key) ?? null;
 		},
 		async write(key, value) {
+			map.set(key, value);
+		},
+		writeSync(key, value) {
 			map.set(key, value);
 		},
 		async remove(key) {
