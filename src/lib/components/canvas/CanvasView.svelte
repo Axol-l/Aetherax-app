@@ -1576,7 +1576,17 @@ import { wallState } from '$state/wall-state.svelte.js';
 					`${ap.mountHeightM}:${antennaSignature(ap)}`
 			)
 			.join('|') +
-		`|wm:${maskPipeline.maskVersion}:${wallState.wallMaterial}` +
+		/*
+		 * The walls, by mask identity rather than by a counter.
+		 *
+		 * `maskPipeline.maskVersion` was here and is not reactive on purpose (it is bumped
+		 * inside the decode, so making it `$state` re-armed the solver on its own writes), which
+		 * meant a drawn or erased wall changed the geometry and left the solver's channels where
+		 * they were. The mask object is a `$state` read and changes exactly when the geometry
+		 * does — a new object per edit, none per decode — so it re-arms on what it is supposed to
+		 * and on nothing else. See `canvas/mask-registry.ts`.
+		 */
+		`|wm:${maskTag(wallState.wallMask)}:${wallState.wallMaterial}` +
 		// The client's height is the other end of every vertical term.
 		`|mh:${projectMeta.clientHeight}`
 	);
@@ -1637,6 +1647,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const _key = autoSolveKey;
 		const _mask = wallState.wallMask;
 		const _rtMask = wallState.roomTypeMask;
+		/*
+		 * The channels are an input to the interference half of the figure, and they are
+		 * deliberately not in `autoSolveKey` (the solver writes them, and a key that noticed
+		 * would re-arm itself). Tracked here instead, so a channel set by hand in the AP editor
+		 * re-measures the figure rather than leaving the number the last assignment produced.
+		 */
+		for (const ap of apState.aps) void ap.assignedChannel;
 		if (apState.aps.length === 0 || !_mask) return;
 		if (coverageTimeout) clearTimeout(coverageTimeout);
 		coverageTimeout = setTimeout(() => updateCoverage(), 300);
