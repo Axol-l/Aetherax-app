@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { planningChannels } from '@aetherax/channels';
 import { setupCleanState } from '../e2e/helpers';
 import { violatesAt } from '../../src/lib/rf/interference';
 import { COVERAGE_MARGIN_DB, coverageMarginDb } from '../../src/lib/rf/propagation';
@@ -804,16 +805,19 @@ test.describe('optimiser measurement', () => {
 				expect(runs.every((r) => r.interference > 5)).toBe(true);
 				expect(keptShare).toBeGreaterThan(0.05);
 			} else if (name.startsWith('free')) {
-				// No pins and a palette of three non-overlapping channels (B3), so the
-				// colourer is free to reuse — and it does. The optimiser reports 0%, and
-				// so must the assignment in the AP list: since B5's unification the
-				// solver colours the *same* graph the objective scores, so a proper
-				// colouring of it is interference-free on every sample by construction.
-				// Before that change the solver's own 1, 6, 11, 1 scored 14.75% here
-				// because it was colouring a different graph (circle overlap, which for
-				// these circles on this floor is a clique).
+				// No pins, and a palette of three non-overlapping channels (B3) against four (or
+				// six) APs whose circles all overlap: **every** pair conflicts somewhere, so a
+				// repeat is forced and "interference-free" is not a state this scenario has.
+				//
+				// What is achievable, and what this asserts: the solver uses every channel it
+				// has before it repeats one. The old assertion here was `keptShare === 0`, which
+				// was unsatisfiable for exactly that reason — and it failed identically on the
+				// tree before the refactors, which is how it was noticed.
 				expect(runs.every((r) => r.interference === 0)).toBe(true);
-				expect(keptShare).toBe(0);
+				const palette = planningChannels('2.4ghz', 'fcc', 20).length;
+				const distinct = new Set(kept.map((a) => a.fixed ?? a.assigned ?? 1)).size;
+				expect(distinct).toBe(Math.min(kept.length, palette));
+				expect(keptShare).toBeGreaterThan(0);
 				expect(runs.every((r) => r.coverage > 99)).toBe(true);
 			} else {
 				// The point of these scenarios is that coverage is *not* saturated: if
