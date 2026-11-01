@@ -4,7 +4,7 @@
 >
 > 它不是"代码写得不好"的清单。现状是健康的：`src/` 里 0 个 `any`、0 个 `@ts-ignore`、0 个 TODO，全仓只有 51 个 `$effect`，50 个单测 + 29 个 e2e，而且大文件在稳定缩小（`CanvasView` 3384 → 2247 行，`optimizer.svelte.ts` 2047 → 918）。下面的每一条，都是**已经在正确方向上的工作还没走完的那一步**。
 >
-> **进度**：01–04、06、07、08、09、11、12、15 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（618 单测 + 106 e2e）。其余条目待做。
+> **进度**：01–04、06、07、08、09、11、12、15、17、18 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（618 单测 + 106 e2e）。其余条目待做。
 
 ---
 
@@ -864,7 +864,7 @@ interface LayerSpec {
 
 ---
 
-### 17 · 渲染循环存在三份
+### 17 · 渲染循环存在三份 ✅ 已实现
 
 **位置**：`canvas/engine.ts:104-110`、`export/png.ts:45-52`、`export/pdf.ts:610-616`
 
@@ -887,7 +887,7 @@ interface Layer {
 
 ---
 
-### 18 · `wall-detect.ts` 还兼着一个编解码器（OCR 那半已删除）
+### 18 · `wall-detect.ts` 还兼着一个编解码器（OCR 那半已删除）✅ 已实现
 
 **位置**：`src/lib/canvas/wall-detect.ts`
 
