@@ -4,7 +4,7 @@
 >
 > 它不是"代码写得不好"的清单。现状是健康的：`src/` 里 0 个 `any`、0 个 `@ts-ignore`、0 个 TODO，全仓只有 51 个 `$effect`，50 个单测 + 29 个 e2e，而且大文件在稳定缩小（`CanvasView` 3384 → 2247 行，`optimizer.svelte.ts` 2047 → 918）。下面的每一条，都是**已经在正确方向上的工作还没走完的那一步**。
 >
-> **进度**：19 条里 **17 条已落地**（01–04、06–18，含 OCR 删除与两处死代码清理），**16 条部分完成**（结构性危害已消，effect 收拢未做），**19 条未做**（领域数据表搬迁），**05 条受环境限制**（CSP，需要能 `tauri build` 的机器）。门禁：`pnpm check / test / lint / build / test:e2e / test:measure` 全绿（630 单测 + 106 e2e + 16 测量场景）。**还没做完的小事与顺序，见 §6b。**
+> **进度**：19 条里 **17 条已落地**（01–04、06–18，含 OCR 删除与两处死代码清理），**16 条部分完成**（结构性危害已消，effect 收拢未做），**19 条未做**（领域数据表搬迁），**05 条受环境限制**（CSP，需要能 `tauri build` 的机器）。门禁：`pnpm check / test / lint / build / test:e2e / test:measure` 全绿（637 单测 + 106 e2e + 16 测量场景）。**还没做完的小事与顺序，见 §6b。**
 
 ---
 
@@ -1004,23 +1004,23 @@ src/lib/domain/materials.test.ts ← 补一个（现在没有）
 
 ## 6b. 做完 19 条之后，还剩下什么
 
-先给结论：**19 条里 17 条已落地，1 条部分（16），1 条未做（19），1 条受环境限制（05）。** 下面按"性价比"排，前六条都是**小改动**，后面才是大件。
+先给结论：**19 条里 17 条已落地，1 条部分（16），1 条未做（19），1 条受环境限制（05）。** 下面按"性价比"排，标注了哪些这一轮已经做掉（`5f712e8`）。
 
 ### 值得做的小事（每条 ≤ 半天，风险低）
 
 1. **19 · 领域数据表还在 `canvas/` 里**（唯一完全没动的一条）。`canvas/materials.ts` 被 30 个模块 import、`canvas/room-types.ts` 12 个，`rf/` 和 worker 都在用。它们没有 DOM、没有 state。挪到 `src/lib/domain/`，`ARCHITECTURE.md` 那条"rf 只能 import room-types"才守得住 —— 而且可以用一行 grep 进 CI。**这轮唯一"该做但没做"的条目。**
-2. **`shape-preview` 和 `review-highlight` 会进导出图**。它们是瞬态覆盖层（正在画的形状、审阅高亮），但没标 `exportable: false`；`grid` 和 `selection-rect` 标了。各一行。
-3. **`restoreFromStorage()` 在 `onMount` 里没 await**（`CanvasView:638`）。启动后几十毫秒内的编辑可能被随后的加载覆盖。改成"加载完成前忽略编辑"或者把首个渲染挂在加载之后。
-4. **`migrate` 接受 `version >= 2` 却按 v3 重写**（`project-document.ts:313`）。旧版本打开新文件会**静默截断**。改成"高于当前版本就拒绝并提示"。
-5. **`forgetFloorplan` 只挂在两个 UI 入口上**（`FloorStrip`、`FloorplanControls`）。第三条删楼层的路径（未来任何脚本/对话框）都会漏掉底图的存储键。可以改成在 `removeFloor` 里发一个事件，或者让 `persistence` 订阅楼层列表。
-6. **多 restart 时没有进度**。`optimizer.svelte.ts` 里 `if (!apply) return;`（进度回调），而 restart 循环用的正是 `apply: false` —— 于是"Restart 3 of 4"期间进度条不动。把它改成"只在最后一次提交时抑制 UI 写入，但进度照报"。
+2. **`shape-preview` 和 `review-highlight` 会进导出图**。它们是瞬态覆盖层（正在画的形状、审阅高亮），但没标 `exportable: false`；`grid` 和 `selection-rect` 标了。各一行。**（未做；这次没碰导出路径。）**
+3. **`restoreFromStorage()` 在 `onMount` 里没 await**（`CanvasView:638`）。启动后几十毫秒内的编辑可能被随后的加载覆盖。改成"加载完成前忽略编辑"或者把首个渲染挂在加载之后。**（未做；要动启动顺序，值得单独一轮 + e2e。）**
+4. ✅ **`migrate` 接受 `version >= 2` 却按 v3 重写** —— 现在高于 `DOCUMENT_VERSION` 一律拒绝，且**存储里那条记录不再被删除**（原来"读不了"会 `remove`，等于把"打不开"变成"没了"）。导入文件时也会报出实际版本号而不是"invalid"。
+5. ✅ **`forgetFloorplan` 只挂在两个 UI 入口上** —— 改成 `floor-state` 的 `onFloorRemoved` 回调，`persistence` 注册（它读 `floor-state`，反向 import 会成环）。任何删楼层路径都会带走底图的存储键。
+6. ✅ **多 restart 时没有进度** —— 进度回调不再因 `apply: false` 提前返回：进度跟着每个 pass 走，**分数**仍然只由会被保留的那个 pass 写。
 
 ### 中件（各需一轮）
 
 7. **16 的后半**：`CanvasView` 那 40 个 effect 的模板收拢（`LayerSpec`）。结构性危害已经消掉（见 16），剩下的是"读三个字段 → 赋给图层 → markDirty"这类重复；每一条都要人工核对语义，e2e 未必抓得住漏同步。
-8. **`OptimizeMessage` / `OptimizeResult` 两边各声明一次**，桥那边还是无类型字面量，编译器不互校（12 条末尾记着）。从 `optimizer-protocol.ts` 派生一份，让 worker 与桥共用。
-9. **`optimizer-worker.ts` 仍是 2300 行**：评估器 / 搜索 / 汇报三段的缝还在（13、14 都碰过它，但没拆）。拆出来才谈得上单测。
-10. **`decodeMask` / `encodeMask` 现在可测但没测**（独立成 `mask-codec.ts` 之后）。需要一点 canvas 垫片。
+8. ✅ **`OptimizeMessage` / `OptimizeResult` 两边各声明一次** —— `OptimizeMessage`/`WireMessage`/`OptimizeResult`/`OptimizeProgress`/`WorkerReply` 全部收进 `optimizer-protocol.ts`。**顺带修掉一个真 bug**：桥的 `optimize()` 参数原本是自己写的一份弱类型（id/位置/半径/频段/信道），调用方可以传一个**没有天线字段**的 AP，worker 就会按"直立全向"打分 —— 现在参数类型是 `ApInput`，缺字段编译不过。
+9. ⚠️ **`optimizer-worker.ts` 拆了第一刀**：`buildFixedPaths`（109 行，每样本每固定 AP 的行）搬进 `workers/optimizer/fixed-paths.ts`，worker 从 2317 行降到 2103 行。评估器/搜索/汇报三段的大缝还在 —— 它们共用 `runOptimization` 的二十几个局部变量和模块级的状态机，下一刀要从那里切，不是纯搬家。
+10. ✅ **`decodeMask` / `encodeMask` 现在有测试** —— 用最小 canvas 垫片（`mask-codec.test.ts`，4 条）：红通道 > 128 算墙、alpha 被写、装不出来的图当空平面而不是报错。
 
 ### 仪器类（不影响产品，但影响"敢不敢改"）
 
