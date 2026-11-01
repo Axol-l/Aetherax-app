@@ -230,7 +230,13 @@ describe('project document', () => {
 		expect(written.customMaterials).toEqual([
 			{ id: 100, name: 'Lead door', dbPerCrossing: 30, thicknessM: 0.05, color: [10, 20, 30] }
 		]);
-		expect(written.floorCoverage).toEqual({ 'floor-a': { coverage: 87, samples: 400 } });
+		/*
+		 * Coverage is not carried: it is a measurement of the plan, not a property of the
+		 * project. A file that carried it would print a figure for a building that no longer
+		 * exists, and a reload would restore it as if it were data — see `toDocument` and
+		 * `coverageBasis`.
+		 */
+		expect(written.floorCoverage).toEqual({});
 
 		// The interface reads the underlay through the current floor.
 		expect(floorState.floors[0]!.floorplanUrl).toBe(FLOORPLAN);

@@ -206,11 +206,18 @@ export interface ApplyDocumentOptions {
  * why `floorplanImage` is optional on `DocumentFloor`.
  */
 export function toDocument(options: ToDocumentOptions = {}): ProjectDocumentV3 {
+	/*
+	 * Coverage is not in the document.
+	 *
+	 * It is a measurement of the plan as it stands, not a property of the project, and a file
+	 * that carries it outlives the plan it describes: the report then prints a figure for a
+	 * building that no longer exists, and a reload restores it as if it were data. The field
+	 * stays in the *reader* (`migrate` still accepts files that have it) so old projects open;
+	 * nothing writes it, and nothing applies it. See `coverageBasis` for how a figure is
+	 * invalidated in memory instead.
+	 */
 	const floorCoverage: Record<string, FloorCoverageEntry> = {};
-	for (const floor of floorState.floors) {
-		const entry = options.floorCoverage?.get(floor.id);
-		if (entry) floorCoverage[floor.id] = { coverage: entry.coverage, samples: entry.samples };
-	}
+	void options.floorCoverage;
 
 	return {
 		version: DOCUMENT_VERSION,
@@ -547,7 +554,15 @@ export function applyDocument(
 	setPathLossScenario(projectMeta.pathLossScenario);
 	refreshApRanges();
 
-	if (options.floorCoverage) writeCoverage(options.floorCoverage, doc.floorCoverage, floors);
+	/*
+	 * No coverage is applied, even when the file carries it.
+	 *
+	 * A figure from the file was measured by a previous session against a plan this one has
+	 * not verified, and applying it means the panel and the report show a number for a
+	 * building that may not be the one now open. The pass that runs after this produces a
+	 * real one; until then the interface says it has none.
+	 */
+	void options.floorCoverage;
 }
 
 /* ── Shared helpers ───────────────────────────────────────────────────────────────────── */
@@ -594,15 +609,4 @@ function filterCoverage(
 		};
 	}
 	return out;
-}
-
-function writeCoverage(
-	sink: CoverageSink,
-	coverage: Record<string, FloorCoverageEntry>,
-	floors: ReadonlyArray<{ id: string }>
-): void {
-	sink.clear();
-	for (const [floorId, entry] of Object.entries(filterCoverage(coverage, floors))) {
-		sink.set(floorId, entry);
-	}
 }

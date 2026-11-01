@@ -32,7 +32,7 @@ import { minRoomRadiusWu } from './room-domain.js';
 import { clipInteriorToPlanningArea, isUsablePlanningArea } from './planning-area.js';
 import { apState } from '$state/ap-state.svelte.js';
 import { canvasState } from '$state/canvas.svelte.js';
-import { optimizerState, floorCoverage } from './optimizer-state.svelte.js';
+import { coverageBasis, dropStaleCoverage, optimizerState, floorCoverage } from './optimizer-state.svelte.js';
 import { buildDensityMap, crossingSlabsFor, sourceFloorMaskFor } from './optimizer-support.js';
 
 
@@ -191,6 +191,20 @@ async function ensureCoverageCache(): Promise<boolean> {
 
 /** Compute real-time coverage score from current AP positions */
 export async function updateCoverage(): Promise<void> {
+	/*
+	 * Every stored figure is checked against the plan it claims to describe, before this pass
+	 * adds one of its own.
+	 *
+	 * A coverage figure is a measurement, not a property of the project, and nothing used to
+	 * invalidate it: move a wall, delete an access point or undo either, and the panel, the
+	 * building mean and the PDF report kept printing the previous measurement — including
+	 * after a save and a reload, because the number was persisted with the document. It is
+	 * dropped now the moment its basis no longer matches (see `coverageBasis`), and a figure
+	 * restored from a file arrives with no basis at all, so a project opens with no coverage
+	 * figure rather than a stale one, and the first pass produces a real one.
+	 */
+	dropStaleCoverage();
+
 	/*
 	 * Not while an access point is being dragged.
 	 *
@@ -614,6 +628,9 @@ export async function updateCoverage(): Promise<void> {
 	// Cache per-floor coverage (weighted by sample count as area proxy)
 	floorCoverage.set(curFloorId, {
 		coverage: optimizerState.coverage,
-		samples: cachedSamples.length
+		samples: cachedSamples.length,
+		// The plan this figure describes: the basis is what lets a later pass drop a figure
+		// measured against walls that have since moved. See `coverageBasis`.
+		basis: coverageBasis(curFloorId)
 	});
 }

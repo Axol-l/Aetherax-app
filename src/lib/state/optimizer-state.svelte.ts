@@ -6,8 +6,8 @@
  * The per-floor coverage cache lives here for the same reason.
  */
 import { SvelteMap } from 'svelte/reactivity';
-import { apState } from './ap-state.svelte.js';
-import { currentFloor } from './floor-state.svelte.js';
+import { apState, getEffectiveWupm } from './ap-state.svelte.js';
+import { currentFloor, floorState } from './floor-state.svelte.js';
 import { isInsideInterior } from './ap-interior.js';
 import { projectMeta } from './project-meta.svelte.js';
 import { isUsablePlanningArea, pointInPlanningArea } from './planning-area.js';
@@ -90,7 +90,84 @@ export const optimizerState = $state({
  * no dependency, so after "Optimise all floors" the per-floor rows were right while the
  * building row and the weakest-floor line kept the values from the first render.
  */
-export const floorCoverage = new SvelteMap<string, { coverage: number; samples: number }>();
+export const floorCoverage = new SvelteMap<string, FloorCoverageEntry>();
+
+/**
+ * A coverage figure and the plan it was measured on.
+ *
+ * `basis` is what makes the figure usable: without it the panel, the building mean and the
+ * PDF report all keep printing a measurement of a plan that no longer exists. It is
+ * deliberately not persisted (`toDocument` writes the figure and its sample count only), so a
+ * figure that comes back from disk arrives without one and is dropped on the next pass —
+ * which is the honest reading, because it was measured by a previous session against a state
+ * this one has not verified.
+ */
+export interface FloorCoverageEntry {
+	coverage: number;
+	samples: number;
+	/** The plan the figure describes. Absent on anything restored from a file. */
+	basis?: string;
+}
+
+/** Identity of a mask object, for the basis below. */
+const maskIds = new WeakMap<object, number>();
+let nextMaskId = 1;
+function maskId(mask: object | null | undefined): string {
+	if (!mask) return '0';
+	let id = maskIds.get(mask);
+	if (id === undefined) {
+		id = nextMaskId++;
+		maskIds.set(mask, id);
+	}
+	return String(id);
+}
+
+/**
+ * The plan a floor's coverage figure is a measurement *of*.
+ *
+ * Everything the pass reads, in one string: the walls and the mask they were rasterised into,
+ * where that mask sits, the materials, the calibration (the figure is an area share, and the
+ * area comes from the scale), and every access point on the floor with the power and channel
+ * the pass scored it at. Two states with the same basis produce the same figure, which is the
+ * whole point — a changed one produces a new string and the old figure is dropped.
+ */
+export function coverageBasis(floorId: string): string {
+	const floor = floorState.floors.find((f) => f.id === floorId);
+	if (!floor) return 'missing';
+	const aps = apState.aps
+		.filter((ap) => ap.floorId === floorId)
+		.map(
+			(ap) =>
+				`${ap.id}:${Math.round(ap.x)},${Math.round(ap.y)}:${ap.power}:` +
+				`${ap.band}:${ap.channelWidth}:${ap.assignedChannel ?? ''}:${ap.mount}`
+		)
+		.sort()
+		.join('|');
+	const mask = floor.wallMask;
+	return [
+		maskId(mask),
+		mask ? `${mask.width}x${mask.height}@${mask.originX ?? 0},${mask.originY ?? 0}` : 'no-mask',
+		maskId(floor.materialMask),
+		maskId(floor.roomTypeMask),
+		floor.wallMaterial,
+		Math.round(getEffectiveWupm() * 100),
+		aps
+	].join('~');
+}
+
+/**
+ * Forget every coverage figure that no longer describes the plan.
+ *
+ * Called at the start of each pass. Only the current floor can be edited — its walls, its
+ * calibration, the access points standing on it — so a sweep at every recomputation covers
+ * every floor that could have changed, and a floor that was never visited has no entry to
+ * drop.
+ */
+export function dropStaleCoverage(): void {
+	for (const [floorId, entry] of floorCoverage) {
+		if (entry.basis !== coverageBasis(floorId)) floorCoverage.delete(floorId);
+	}
+}
 
 /**
  * The access points that sit outside their floor's detected interior, by name.

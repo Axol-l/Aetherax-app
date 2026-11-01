@@ -27,7 +27,7 @@ import { minRoomRadiusWu } from './room-domain.js';
 import { isUsablePlanningArea } from './planning-area.js';
 import type { ApInput } from '../workers/optimizer-protocol.js';
 import { apState } from '$state/ap-state.svelte.js';
-import { optimizerState, floorCoverage } from './optimizer-state.svelte.js';
+import { coverageBasis, optimizerState, floorCoverage } from './optimizer-state.svelte.js';
 import { applyPositions, applyPowers, buildDensityMap, crossingSlabsFor, localVerticalDropFor, powerLevelsFor, sourceFloorMaskFor, toApInput, type FloorOutcome, type FloorRunOptions } from './optimizer-support.js';
 
 
@@ -763,7 +763,9 @@ function commitFloorOutcome(floorId: string, outcome: FloorOutcome): void {
 	}
 	floorCoverage.set(floorId, {
 		coverage: Math.round(outcome.coverage * 100),
-		samples: outcome.samples
+		samples: outcome.samples,
+		// The run measured this floor, so its figure describes the plan it just committed.
+		basis: coverageBasis(floorId)
 	});
 	scheduleSave();
 }
