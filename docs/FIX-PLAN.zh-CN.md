@@ -4,7 +4,7 @@
 >
 > 它不是"代码写得不好"的清单。现状是健康的：`src/` 里 0 个 `any`、0 个 `@ts-ignore`、0 个 TODO，全仓只有 51 个 `$effect`，50 个单测 + 29 个 e2e，而且大文件在稳定缩小（`CanvasView` 3384 → 2247 行，`optimizer.svelte.ts` 2047 → 918）。下面的每一条，都是**已经在正确方向上的工作还没走完的那一步**。
 >
-> **进度**：01–04、06、09、11、12、15 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（606 单测 + 106 e2e）。其余条目待做。
+> **进度**：01–04、06、07、09、11、12、15 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（611 单测 + 106 e2e）。其余条目待做。
 
 ---
 
@@ -369,9 +369,15 @@ export function maskCacheKey(mask: Mask | null): string {
 
 ---
 
-### 07 · "建筑内部/房间编号"被算了两遍
+### 07 · "建筑内部/房间编号"被算了两遍 ✅ 已实现（编号稳定性除外）
 
 **位置**：`src/lib/canvas/mask-pipeline.svelte.ts:203-210`、`src/lib/state/optimizer-support.ts:83-91`、`src/lib/canvas/region-labels.ts:18-23`
+
+**结论（实现后）**：七个调用点现在都走 `canvas/rooms.ts` 的 `buildRoomDomain`，参数只在这里定义。每个调用方保留唯一一个真正该由它决定的选项：**是否裁掉贴墙的一圈**（放置域裁，画面和密度图不裁）。其余（工作分辨率、闭运算半径、最小房间半径）全部共享——**画布的房间编号现在和密度图一致**，这就是用户设的密度能落到正确房间的原因。
+
+关键取舍：**所有调用点都保持原来的参数**，所以优化器、覆盖率、点击守卫、worker 算出来的数字一个都没变；变的是画布自己的分区（那本来就是错的那一半）。
+
+**仍未做**：编号**不是稳定的**——画一道墙就可能重排房间号，这也是为什么覆盖值属于"房间"而不是"位置"。要真稳定需要给房间一个几何 key，并改项目文件格式。
 
 **用户看到的现象**：在某个房间里把"人员密度"调高，优化器却不往那个房间多放 AP；有时它甚至像去照顾了隔壁房间。
 
@@ -443,14 +449,9 @@ export const COVERAGE = { maxDim: 400, minDilateR: 4, minRegionRadius: ... };   
 **机制**：
 `floorCoverage`（每层覆盖率）是**测量结果**，不是用户输入，但它被写进了项目文档（`project-document.ts:150`）。
 
-它有两个写入者，定义还不一样：
+它有两个写入者，精度不同（实时那道最多 140 个采样点，运行那道最多 400 个）。**这本身不算缺陷**——每个写入者都把"数字"和"它来自多少样本"配对写入，所以加权是自洽的。真正的缺陷是下面这条：
 
-- 实时那道：`cachedSamples.length`（最多 140 个采样点）；
-- 优化跑完那道：`outcome.samples`（最多 400 个）。
-
-而 `getBuildingCoverage` 是按"样本数"加权的（`optimizer-state.svelte.ts:130-139`），所以整栋楼的数字其实是**两种不同精度测量的混合**。
-
-更麻烦的是没有任何东西让它失效：改墙不重算、删 AP 不重算、撤销不回滚（`history.svelte.ts:55-59` 只快照 floors + aps）。于是数字、图表、PDF 报告都指向一个已经不存在的方案。
+没有任何东西让它失效：改墙不重算、删 AP 不重算、撤销不回滚（`history.svelte.ts:55-59` 只快照 floors + aps）。于是数字、图表、PDF 报告都指向一个已经不存在的方案，而这个数字还被存进了项目文件。
 
 **怎么改**（推荐"派生，不存"）：
 
