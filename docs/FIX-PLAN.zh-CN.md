@@ -828,7 +828,7 @@ export function setTool(tool: Tool): void {
 
 ---
 
-### 16 · CanvasView 手写同步 15 个图层
+### 16 · CanvasView 手写同步 15 个图层 —— 进行中（顺序与可见性已收敛，effect 未动）
 
 **位置**：`src/lib/components/canvas/CanvasView.svelte`（2247 行，全仓变更最频繁的文件：34/92 次提交）
 
