@@ -1,9 +1,9 @@
 import { debug } from '$lib/log.js';
 import { floorCoverage as floorCoverageState } from './optimizer.svelte.js';
-import { floorState } from './floor-state.svelte.js';
+import { floorState, onFloorRemoved } from './floor-state.svelte.js';
 import { appState } from './app.svelte.js';
 import { t } from './i18n.svelte.js';
-import { applyDocument, migrate, toDocument } from './project-document.js';
+import { applyDocument, isFromNewerVersion, migrate, toDocument } from './project-document.js';
 import {
 	indexDbStore,
 	localStore,
@@ -273,7 +273,23 @@ export async function restoreFromStorage(): Promise<boolean> {
 		const raw = await store.read(STORAGE_KEY);
 		if (!raw) return false;
 
-		const doc = migrate(JSON.parse(raw));
+		/*
+		 * A document from a newer build is kept, not removed.
+		 *
+		 * `migrate` cannot read it — it does not know the fields — and rewriting it would drop
+		 * them. Removing it, which is what the corrupt case does, would turn "this build cannot
+		 * open your project" into "your project is gone", so the record stays exactly where it is
+		 * and the notice says why nothing loaded.
+		 */
+		const parsed: unknown = JSON.parse(raw);
+		if (isFromNewerVersion(parsed)) {
+			appState.storageNotice = t(
+				'This project was saved by a newer version of the app. It has been left untouched — update the app to open it.'
+			);
+			return false;
+		}
+
+		const doc = migrate(parsed);
 		if (!doc) {
 			await store.remove(STORAGE_KEY);
 			await store.remove(FLOORPLAN_KEY);
@@ -340,6 +356,14 @@ export async function forgetFloorplan(floorId: string): Promise<void> {
 		// removal that has already happened in memory.
 	}
 }
+/*
+ * A floor that goes away takes its underlay with it.
+ *
+ * Registered rather than called from the UI: the storage keys are this module's business, and a
+ * caller remembering to ask is a caller that eventually does not. `floor-state` cannot import this
+ * module (this one reads it), so it calls back instead.
+ */
+onFloorRemoved((floorId) => void forgetFloorplan(floorId));
 
 /**
  * Save now, because the user asked — and say so.

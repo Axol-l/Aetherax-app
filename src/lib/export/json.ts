@@ -16,7 +16,13 @@ import { clearSelection } from '$state/canvas.svelte.js';
 import { floorState } from '$state/floor-state.svelte.js';
 import { floorCoverage } from '$state/optimizer.svelte.js';
 import { projectMeta } from '$state/project-meta.svelte.js';
-import { applyDocument, migrate, toDocument } from '$state/project-document.js';
+import {
+	applyDocument,
+	DOCUMENT_VERSION,
+	isFromNewerVersion,
+	migrate,
+	toDocument
+} from '$state/project-document.js';
 
 /** The underlay as a PNG data URL, so the file is self-contained. */
 async function floorplanToDataUrl(url: string | null): Promise<string | undefined> {
@@ -74,6 +80,13 @@ export function deserialize(json: string): void {
 	const version = (parsed as { version?: unknown } | null)?.version;
 	if (typeof version !== 'number' || version < 2) {
 		throw new Error('Unsupported file version');
+	}
+	// Newer than this build: say which, rather than "invalid". The file on disk is the user's
+	// and is not touched — only storage deletion has that power, and it is guarded too.
+	if (isFromNewerVersion(parsed)) {
+		throw new Error(
+			`This project was saved by a newer version of the app (file version ${String(version)}, this build reads ${DOCUMENT_VERSION}).`
+		);
 	}
 
 	const doc = migrate(parsed);

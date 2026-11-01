@@ -3,9 +3,12 @@ import {
 	clearSavedState,
 	flushSaveSync,
 	forgetFloorplan,
+	restoreFromStorage,
 	saveNow,
 	scheduleSave
 } from './persistence.svelte.js';
+import { appState } from './app.svelte.js';
+import { DOCUMENT_VERSION } from './project-document.js';
 
 /*
  * The save path, against a `localStorage` this file controls.
@@ -121,6 +124,33 @@ describe('persistence', () => {
 
 			expect(storage.has(`${FLOORPLAN_KEY}:gone`)).toBe(false);
 			expect(storage.get(`${FLOORPLAN_KEY}:stays`)).toBe('y');
+		});
+	});
+
+	/*
+	 * What restore does with a record it cannot use.
+	 *
+	 * "Cannot read" and "written by a newer build" look the same to `migrate` and must not act
+	 * the same: one is rubbish, the other is the user's project. Deleting the second is the only
+	 * way the app can destroy work it never opened.
+	 */
+	describe('restoreFromStorage', () => {
+		it('keeps a document from a newer version, and says why nothing loaded', async () => {
+			const newer = JSON.stringify({ version: DOCUMENT_VERSION + 1, name: 'future', floors: [] });
+			storage.set(PROJECT_KEY, newer);
+
+			await expect(restoreFromStorage()).resolves.toBe(false);
+
+			expect(storage.get(PROJECT_KEY)).toBe(newer);
+			expect(appState.storageNotice).toMatch(/newer version/);
+		});
+
+		it('removes a record it cannot read at all', async () => {
+			storage.set(PROJECT_KEY, JSON.stringify({ version: DOCUMENT_VERSION }));
+
+			await expect(restoreFromStorage()).resolves.toBe(false);
+
+			expect(storage.has(PROJECT_KEY)).toBe(false);
 		});
 	});
 });

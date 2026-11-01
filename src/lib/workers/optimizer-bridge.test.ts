@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { OptimizerBridge, type OptimizeResult } from './optimizer-bridge.js';
+import type { ApInput } from './optimizer-protocol.js';
 /*
  * The bridge's half of the worker protocol.
  *
@@ -50,7 +51,8 @@ class FakeWorker {
 	}
 }
 
-function aps() {
+/** A complete payload entry: the bridge takes `ApInput`, the antenna fields included. */
+function aps(): ApInput[] {
 	return [
 		{
 			id: 'a1',
@@ -59,7 +61,13 @@ function aps() {
 			interferenceRadius: 40,
 			band: '5ghz' as const,
 			assignedChannel: 36,
-			channelWidth: 20 as const
+			fixedChannel: null,
+			channelWidth: 20 as const,
+			beamwidthDeg: 360,
+			aimDeg: 0,
+			mount: 'ceiling' as const,
+			facingDeg: 0,
+			verticalGap: 0
 		}
 	];
 }

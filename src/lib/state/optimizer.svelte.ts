@@ -430,8 +430,17 @@ async function optimizeFloor(
 				// floor's samples, so the number here is always that floor's own.
 				coverageFloor: (opts.floorPct ?? projectMeta.coverageFloorPct) / 100,
 				onProgress: (p: OptimizeProgress) => {
-					if (!apply) return; // a restart being scored is not the run on screen
+					/*
+					 * The bar follows every pass; the score only the pass that will be kept.
+					 *
+					 * A restart is scored with `apply: false`, and the old guard returned before
+					 * touching anything — so during a four-restart run the bar stood still for
+					 * four whole searches, which reads as a hang rather than as work. Progress is
+					 * the run's progress, whichever restart produced it; the score is not, because
+					 * a restart that loses is not the run on screen.
+					 */
 					optimizerState.progress = Math.round((p.iteration / p.totalIterations) * 100);
+					if (!apply) return;
 					optimizerState.score = Math.round(p.score * 100);
 				},
 				seed: opts.seed,

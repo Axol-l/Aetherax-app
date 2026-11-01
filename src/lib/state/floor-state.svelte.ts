@@ -205,6 +205,22 @@ export function setProjectCalibration(calibration: { worldUnitsPerMeter: number 
 	for (const f of floorState.floors) f.calibration = calibration;
 }
 
+/**
+ * Something outside this module has to hear about a floor going away.
+ *
+ * Removing a floor has a second side to it — the underlay stored under that floor's own key —
+ * and the storage layer is the only thing that knows about keys. It cannot be imported here
+ * (`persistence` reads this module, so the import would close a cycle), so it registers instead
+ * and `removeFloor` calls it. The alternative was what the code had: two UI call sites that
+ * each remembered, which is two places to forget.
+ */
+type FloorRemovedHook = (floorId: string) => void;
+let floorRemovedHook: FloorRemovedHook | null = null;
+
+export function onFloorRemoved(hook: FloorRemovedHook): void {
+	floorRemovedHook = hook;
+}
+
 /** Remove a floor by ID. Cannot remove the last floor. Caller should clean up APs. */
 export function removeFloor(id: string): void {
 	if (floorState.floors.length <= 1) return;
@@ -213,6 +229,7 @@ export function removeFloor(id: string): void {
 	if (floorState.currentFloorId === id) {
 		floorState.currentFloorId = floorState.floors[0]!.id;
 	}
+	floorRemovedHook?.(id);
 }
 
 /** Switch to a floor. */

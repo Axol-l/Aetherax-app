@@ -315,11 +315,27 @@ function toDocumentAp(ap: AccessPoint): AccessPoint {
  * into the one floor of a version 3 document. Anything older than 2 (or with no version at
  * all) is refused, which is what both callers already did.
  */
+/**
+ * Was this document written by a version of the app that is newer than this one?
+ *
+ * `migrate` cannot read such a document, and the caller must not treat it as corrupt: deleting it
+ * is the difference between "this build cannot open your project" and "your project is gone". The
+ * check is separate from `migrate` because the two answers lead to different actions — one removes
+ * the record, the other keeps it and says why.
+ */
+export function isFromNewerVersion(raw: unknown): boolean {
+	if (!raw || typeof raw !== 'object') return false;
+	const version = (raw as RawDocument).version;
+	return typeof version === 'number' && version > DOCUMENT_VERSION;
+}
 export function migrate(raw: unknown): ProjectDocumentV3 | null {
 	if (!raw || typeof raw !== 'object') return null;
 	const data = raw as RawDocument;
 	const version = typeof data.version === 'number' ? data.version : 0;
-	if (version < 2) return null;
+	// Anything outside 2..CURRENT is not a document this build can honestly rewrite: below 2 there
+	// is no migration, and above it the fields are unknown, so writing back would drop them.
+	const documentVersion = DOCUMENT_VERSION;
+	if (version < 2 || version > documentVersion) return null;
 
 	const storedFloors: StoredFloor[] =
 		version === 2

@@ -20,6 +20,7 @@ import { wallState } from './wall-state.svelte.js';
 import {
 	DOCUMENT_VERSION,
 	applyDocument,
+	isFromNewerVersion,
 	migrate,
 	toDocument,
 	type FloorCoverageEntry,
@@ -321,5 +322,25 @@ describe('project document', () => {
 		expect(migrate({})).toBeNull();
 		expect(migrate({ version: 1 })).toBeNull();
 		expect(migrate({ version: 3, floors: [] })).toBeNull();
+	});
+
+	/*
+	 * A newer document is not a broken one.
+	 *
+	 * The two answers have to be distinguishable, because the callers act differently: a
+	 * corrupt record is deleted from storage, a newer one is left alone and reported. Reading it
+	 * with this build's field list and writing it back drops whatever the newer build added —
+	 * silently, and on the user's only copy.
+	 */
+	it('refuses a document from a newer version, and says that is what it is', () => {
+		const newer = { version: DOCUMENT_VERSION + 1, floors: [{ id: 'f1', name: 'F', level: 0 }] };
+		expect(migrate(newer)).toBeNull();
+		expect(isFromNewerVersion(newer)).toBe(true);
+
+		// Everything this build can read is not "newer": the guard is the version, not the parse.
+		expect(isFromNewerVersion({ version: DOCUMENT_VERSION })).toBe(false);
+		expect(isFromNewerVersion({ version: 2 })).toBe(false);
+		expect(isFromNewerVersion(null)).toBe(false);
+		expect(isFromNewerVersion({ floors: [] })).toBe(false);
 	});
 });

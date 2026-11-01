@@ -15,10 +15,9 @@ import {
 	rangeFromPower,
 	reachAtMargin,
 	slabDbOf,
-	setPathLossScenario,
-	type PathLossScenario
+	setPathLossScenario
 } from '../rf/propagation.js';
-import { crossFloorSegments, slabLossFactor } from '../rf/cross-floor.js';
+import { slabLossFactor } from '../rf/cross-floor.js';
 import { splitWallRunLoss, wallRunLoss, type WallRun } from '../rf/link-budget.js';
 import { deckCrossing, surfaceHeightAt } from '../rf/surface-height.js';
 import {
@@ -46,13 +45,16 @@ import {
 import {
 	planningCandidates,
 	type Band,
-	type ChannelWidth,
-	type RegulatoryDomain
+	type ChannelWidth
 } from '@aetherax/channels';
 import {
 	OPTIMIZER_PAYLOAD_VERSION,
-	assertApPayload
+	assertApPayload,
+	type OptimizeMessage,
+	type WireGeometry,
+	type WireMessage
 } from './optimizer-protocol.js';
+import { buildFixedPaths } from './optimizer/fixed-paths.js';
 import { GeometryCache } from './optimizer/geometry.js';
 import { mulberry32 } from './optimizer/random.js';
 import {
@@ -70,7 +72,6 @@ import type {
 	EvalContext,
 	ExactEval,
 	FixedApInput,
-	FixedPath,
 	MarginField,
 	Position,
 	PowerChoice,
@@ -78,207 +79,7 @@ import type {
 	WallPlacement
 } from './optimizer/types.js';
 
-/**
- * The message this worker accepts.
- *
- * The AP shape is `optimizer-protocol.ts`'s `ApInput`, derived from the app's own
- * `AccessPoint`, so a payload that forgets the mounting or the facing does not compile;
- * `assertApPayload` catches a caller that bypasses the type. The fields are optional here
- * because the graph-only path and the tests build messages by hand.
- */
 
-interface OptimizeMessage {
-	type: 'optimize';
-	/**
-	 * Identity of this request, echoed on every reply it produces.
-	 *
-	 * Without it the bridge had no way to tell a reply from the run it is waiting on from a
-	 * reply from an earlier run that outran its cancellation, and resolved whichever promise
-	 * happened to be outstanding.
-	 */
-	runId: string;
-	aps: ApInput[];
-	fixedAps: FixedApInput[];
-	wallMask: Uint8Array;
-	maskWidth: number;
-	maskHeight: number;
-	wallAttenuation: number;
-	/** Decoded per-pixel wall material ids, or null when unlabelled. */
-	materialMask: Uint8Array | null;
-	/** Material id used for pixels that carry no explicit material label. */
-	defaultMaterial: number;
-	/** World units per metre, for coverage and association ranges. 0 = uncalibrated. */
-	metersPerPixel: number;
-	/**
-	 * When false (the default) APs are constrained to the detected building
-	 * interior. When true they may sit anywhere on the plan.
-	 */
-	allowOutside: boolean;
-	/** Per-pixel device density (devices/sqm). -1 = unlabeled. Null = no room data. */
-	densityMap: Float32Array | null;
-	/** Median density of labeled rooms — used as baseline for unlabeled pixels. */
-	medianDensity: number;
-	/**
-	 * Raw room type ids, same dims as the wall mask. Carries the voids: a hole
-	 * contributes no density, so it cannot be recovered from the density map.
-	 */
-	roomTypeMask: Uint8Array | null;
-	/**
-	 * PRNG seed. Omit to get a random one. Either way the seed that was used
-	 * comes back on the result message, so a run is repeatable after the fact.
-	 */
-	seed?: number;
-	/**
-	 * Weight of the co-channel interference share in the objective:
-	 * `score = coverageUtility − interferenceWeight · interferenceShare`.
-	 *
-	 * Zero reduces the objective to coverage alone, which is what the optimiser
-	 * did before the term existed, so the setting doubles as the A/B switch for
-	 * measuring what the term is worth.
-	 */
-	interferenceWeight?: number;
-	/**
-	 * Regulatory domain, so the worker can colour the layout itself.
-	 *
-	 * The interference term is only meaningful against a *plausible* assignment:
-	 * scoring it against the channels the layout had before the search would ask
-	 * the optimiser to avoid interference the new layout may not even have. With
-	 * this, every evaluation re-colours the layout it is scoring (see
-	 * `colourConflicts`), which is the alternating structure `MODEL_NOTES.md` §6
-	 * describes. Omitted ⇒ the worker falls back to the assignment in the payload,
-	 * or to the all-co-channel bound.
-	 */
-	regulatoryDomain?: RegulatoryDomain;
-	/**
-	 * How far below the coverage threshold a sample still earns utility, in dB.
-	 * Omitted ⇒ `DEFAULT_COVERAGE_SOFTNESS_DB`. Zero is the old hard threshold.
-	 */
-	coverageSoftnessDb?: number;
-	/**
-	 * ITU-R P.1238 environment the distance term assumes for this run. Omitted means the
-	 * default (`closedPlan`), which is what every figure recorded before the setting was
-	 * taken with.
-	 */
-	pathLossScenario?: PathLossScenario;
-	/**
-	 * Transmit power levels this run may give each AP, in dBm, descending, one list
-	 * per AP in payload order (see `ApInput`).
-	 *
-	 * Omitted ⇒ power is not a decision variable and every AP keeps the radius the
-	 * payload gave it, which is the behaviour before B4. The caller builds the lists
-	 * because it knows each AP's configured power: the first entry is that AP's own,
-	 * so the pass can only *reduce* power — raising it above what the user configured
-	 * would be inventing a device capability, and 802.11h's TPC is a reduction.
-	 */
-	powerLevelsDbm?: number[][];
-	/**
-	 * World units per metre, for turning a power level into a coverage radius.
-	 *
-	 * This is the reciprocal of the main thread's `metersPerPixel` and has to agree with
-	 * `radiusFromPower`, or the plan would change shape the next time the app re-derives
-	 * radii on load. Zero or absent ⇒ power is left alone.
-	 */
-	worldUnitsPerMeter?: number;
-	/**
-	 * Vertical drop of a same-floor path, world units: `(ceilingHeight − clientHeight) ×
-	 * worldUnitsPerMeter`.
-	 *
-	 * A ray descending through a wall crosses `1/cos φ` as much material as its plan path, so
-	 * a march handed plan coordinates only under-charges it — 1.8× at 1 m for a 3 m ceiling
-	 * and a 1.5 m client, 1.04× at 5 m (`PHYSICAL_MODELS.md` §B1). The path *loss* treats a
-	 * same-floor path as 2D on purpose; the wall march cannot. Zero leaves it uncorrected.
-	 */
-	localVerticalDrop?: number;
-	/**
-	 * How deep the band of floor along a wall is, in world units — the domain a
-	 * wall-mounted AP may be placed in.
-	 *
-	 * Sent rather than assumed because it is a physical length and this realm has no
-	 * calibration: four world units is a bracket's depth on a plan drawn at the default
-	 * scale, and a plan calibrated differently would get a band of a different width.
-	 * See `buildWallPlacement`.
-	 */
-	wallBandWu?: number;
-	/**
-	 * Smallest inscribed radius an enclosed region may have and still be placed in, in
-	 * world units. See `computeBuildingInterior`'s `minRegionRadius` and `room-domain.ts`.
-	 *
-	 * Omitted means zero: every enclosed region counts, which is the behaviour before
-	 * cavities were understood to be a bug — the domain then includes a plan's wall
-	 * cavities and drawing gaps, and an access point placed in one is what a user sees as
-	 * "outside the room". The caller sends a physical length because this realm has no
-	 * calibration of its own.
-	 */
-	minRoomRadiusWu?: number;
-	/**
-	 * The planning area in mask coordinates, when the user has drawn one.
-	 *
-	 * The placement domain is clipped to it below the void exclusion — the same rule the
-	 * app's own guard applies, on the same shape — so "draw where the floor is" reaches the
-	 * optimiser instead of only silencing the warnings. Omitted means not drawn, which is
-	 * the inferred-interior path every plan used before the polygon existed.
-	 */
-	planningArea?: Array<{ x: number; y: number }> | null;
-	/**
-	 * Raised walking surfaces on this floor, in mask coordinates.
-	 *
-	 * A mezzanine's client is closer to a ceiling-mounted AP than the floor's is, and a
-	 * stair climbs between the two, so the vertical gap is per *sample* as well as per
-	 * AP. Geometry rather than per-sample heights because the worker builds its own
-	 * sample grid. See `rf/surface-height.ts`.
-	 */
-	surfaces?: Array<{
-		ax: number;
-		ay: number;
-		bx: number;
-		by: number;
-		heightM: number;
-		topHeightM: number;
-		thicknessM?: number;
-		attenuationDb?: number;
-	}>;
-	/**
-	 * The user's custom wall materials.
-	 *
-	 * Registered at the start of every run — the worker is long-lived and serves whatever
-	 * project is loaded — so a wall painted with one of them is charged the figure the user
-	 * typed instead of the built-in fallback.
-	 */
-	customMaterials?: Array<{
-		id: number;
-		name: string;
-		dbPerMeter: Record<string, number>;
-		typicalThickness: number;
-		color: [number, number, number];
-	}>;
-	/**
-	 * The protocol version the message was built against. See `optimizer-protocol.ts`.
-	 *
-	 * Optional so a hand-built message in a test stays simple, and checked when present:
-	 * a bundle left in a browser cache while the app around it moved on then fails
-	 * loudly instead of scoring a different model.
-	 */
-	payloadVersion?: number;
-	/**
-	 * ε-constraint (F3): the covered share the result must reach, as a 0-1 fraction.
-	 *
-	 * A weighted sum walks the convex part of the coverage/interference front; a floor
-	 * states the requirement the other way round, and is the only way to reach a
-	 * non-convex stretch. Zero (the default) is no constraint, which is the objective
-	 * every figure before this was measured on.
-	 */
-	coverageFloor?: number;
-	/**
-	 * Return the conflict graph instead of placing anything.
-	 *
-	 * Set by the main-thread solver, which has to colour the *same* graph the
-	 * objective scores: the margins and the edges come from `fillMargins` either
-	 * way, so the assignment the app hands the user cannot disagree with the
-	 * figure the objective reports for it. Nothing is searched, nothing is
-	 * applied, and the positions in the payload are read as given.
-	 */
-	graphOnly?: boolean;
-}
 
 interface CancelMessage {
 	type: 'cancel';
@@ -325,27 +126,6 @@ function reply(runId: string, payload: Record<string, unknown>): void {
  */
 const DEFAULT_OPTIMIZER_SEED = 20260921;
 
-/**
- * The heavy half of a payload: the masks and the cross-floor sources.
- *
- * Sent once per plan and reused across the restarts of a floor and the repeats of a run; the
- * bridge identifies it by the identity of the arrays it is made of, so a changed plan is a
- * changed id and a fresh send.
- */
-type WireGeometry = Pick<
-	OptimizeMessage,
-	| 'wallMask'
-	| 'maskWidth'
-	| 'maskHeight'
-	| 'materialMask'
-	| 'densityMap'
-	| 'medianDensity'
-	| 'roomTypeMask'
-	| 'fixedAps'
->;
-
-type WireMessage = Omit<OptimizeMessage, keyof WireGeometry> &
-	Partial<WireGeometry> & { geometryId?: string; geometryReused?: boolean };
 
 /**
  * The plan this worker was last sent.
@@ -489,105 +269,7 @@ function antennaProfile(ap: {
  * `sourceMargin`.
  */
 
-/**
- * Build the per-sample path data for every fixed AP that has a mask for its own
- * floor, or room types for the slab it crosses.
- *
- * Computed once per run, alongside the per-band caches, and reused by every
- * evaluation — the search moves the optimised floor's APs, and none of this
- * depends on where they are.
- */
-function buildFixedPaths(
-	fixedAps: readonly FixedApInput[],
-	samples: ReadonlyArray<{ x: number; y: number }>,
-	mask: Uint8Array,
-	w: number,
-	h: number,
-	materialMask: Uint8Array | null,
-	defaultMaterial: number,
-	wallAttenuation: number
-): FixedPath[] {
-	const numSamples = samples.length;
-	return fixedAps.map((fap) => {
-		// Slab loss can be waived at a hole even when there is no wall split to make
-		// (an AP ceiling-mounted on the storey below crosses the slab at its own
-		// position), so this is built independently of `source`.
-		let slabFactor: Float32Array | null = null;
-		const slabs = fap.slabs;
-		if (slabs && slabs.length > 0) {
-			slabFactor = new Float32Array(numSamples);
-			for (let s = 0; s < numSamples; s++) {
-				const sample = samples[s]!;
-				// One multiplier per sample over *all* the crossings: each void share
-				// is subtracted, so N storeys with k holes waive exactly k/N of a
-				// uniform aggregate. See `slabLossFactor`.
-				slabFactor[s] = slabLossFactor(slabs, fap.x, fap.y, sample.x, sample.y);
-			}
-		}
 
-		const src = fap.source;
-		if (!src) return { split: null, slabFactor };
-		const sourceT = fap.sourceT ?? 0;
-		const targetT = fap.targetT ?? 0;
-		// Nothing to split: the AP is on this floor, or level with its client, so the
-		// caller's single-floor path is already the right one.
-		if (sourceT <= 0 && targetT <= 0) return { split: null, slabFactor };
-
-		const db = getMaterialDbTable(fap.band);
-		// Without a material map every wall costs the same, so honour each floor's
-		// own project-level attenuation rather than substituting Drywall's value.
-		const targetDefault = materialMask ? (db[defaultMaterial] ?? wallAttenuation) : wallAttenuation;
-		const sourceDefault = src.materialMask
-			? (db[src.defaultMaterial] ?? wallAttenuation)
-			: wallAttenuation;
-
-		const sourceRow = new Float32Array(numSamples);
-		const suffixRow = new Float32Array(numSamples);
-		/*
-		 * Two runs, and the shared march charges them.
-		 *
-		 * This used to call `rayMarchWallAtten` twice, subtracting each mask's origin itself and
-		 * picking the default material out of the table by hand — a copy of what
-		 * `rf/link-budget.ts` does for the coverage pass, the heatmap and the solver. The numbers
-		 * were the same; the arrangement was not, and a layer that four places re-implement is a
-		 * layer where one of them eventually differs. Both halves are marched from the crossing
-		 * rather than as "the whole run minus its prefix": the marcher's step follows the
-		 * segment length, so a prefix march is not a prefix of the full one and the subtraction
-		 * could move a thin wall across a step boundary.
-		 */
-		const sourceRun: WallRun = {
-			mask: src.data,
-			width: src.width,
-			height: src.height,
-			materialMask: src.materialMask,
-			materialDb: db,
-			fallbackDb: sourceDefault,
-			originX: src.originX,
-			originY: src.originY,
-			defaultMaterialId: src.defaultMaterial
-		};
-		// The run's own mask is in the frame its positions are in, so its origin is zero here.
-		const targetRun: WallRun = {
-			mask,
-			width: w,
-			height: h,
-			materialMask,
-			materialDb: db,
-			fallbackDb: targetDefault,
-			originX: 0,
-			originY: 0,
-			defaultMaterialId: defaultMaterial
-		};
-		for (let s = 0; s < numSamples; s++) {
-			const sample = samples[s]!;
-			const seg = crossFloorSegments(sourceT, targetT, fap.x, fap.y, sample.x, sample.y);
-			if (!seg) continue;
-			sourceRow[s] = wallRunLoss(sourceRun, seg.source.from, seg.source.to, 3);
-			suffixRow[s] = wallRunLoss(targetRun, seg.target.from, seg.target.to, 3);
-		}
-		return { split: { source: sourceRow, suffix: suffixRow }, slabFactor };
-	});
-}
 
 /**
  * The loss a deck costs a path that crosses it.

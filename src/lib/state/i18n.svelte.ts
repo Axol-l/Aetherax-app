@@ -548,6 +548,7 @@ const zh: Record<string, string> = {
 	'Exported as a PDF file': '已导出 PDF 文档',
 	'A wall-mounted access point has to sit on a wall: click within a metre of one, or pick another mounting.': '壁挂 AP 必须放在墙上：请在离墙 1 m 以内点击，或换一种安装方式。',
 	'The project could not be saved: the browser storage is full or unavailable. Export it to a file (File → Export JSON), then remove a floorplan or a floor to make room.': '项目无法保存：浏览器存储已满或不可用。请先用「File → Export JSON」导出到文件，再删掉一张图纸或一层来腾出空间。',
+	'This project was saved by a newer version of the app. It has been left untouched — update the app to open it.': '这个项目是被更新版本的应用保存的。它的数据没有被改动 —— 请更新应用后再打开。',
 	'Facing': '平面朝向',
 	'° in plan': '° 平面',
 	'Which way the unit looks in the plan: 0° is +x (right), 90° is +y (down). A wall mount radiates forwards and is attenuated behind, so this is the direction its coverage goes.': '设备在平面里朝哪边：0° 是 +x（右），90° 是 +y（下）。壁挂机向前辐射、背后衰减很大，所以这个方向就是覆盖方向。',

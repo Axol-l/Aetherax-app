@@ -2,112 +2,15 @@ import type { Band, ChannelWidth, RegulatoryDomain } from '@aetherax/channels';
 import type { PathLossScenario } from '../rf/propagation.js';
 import { debug } from '../log.js';
 import { OPTIMIZER_PAYLOAD_VERSION } from './optimizer-protocol.js';
-
-export interface OptimizeResult {
-	positions: Array<{ id: string; x: number; y: number }>;
-	score: number;
-	improvement: number;
-	/**
-	 * Set when the run could not do its job (for example no enclosed interior was
-	 * detected). The positions are then the inputs, unchanged. Callers must
-	 * surface this — silently keeping the old positions looks like the optimiser
-	 * simply did nothing.
-	 */
-	error?: string;
-	/**
-	 * PRNG seed this run actually used. Pass it back through `options.seed` to
-	 * repeat the run exactly — the optimiser is stochastic, so without this an
-	 * A/B comparison of two model versions cannot be distinguished from noise.
-	 */
-	seed: number;
-	/**
-	 * Share of density-weighted floor area that is covered, on the same definition
-	 * the coverage readout uses. Reported per floor so a multi-floor run can build
-	 * a building-wide figure and name the weakest floor without a second
-	 * implementation of that definition.
-	 */
-	coverage: number;
-	/**
-	 * Share of density-weighted floor area whose best server is degraded by a
-	 * co-channel secondary within `COCHANNEL_REUSE_DB` of it. The complement of
-	 * coverage in "quality" terms: the objective trades the two off. Absent on the
-	 * error paths, which report no layout.
-	 */
-	interference?: number;
-	/**
-	 * Share of the floor where two APs on overlapping channels are both above the CCA
-	 * threshold (≈ −82 dBm at 20 MHz): airtime the plan shares, whatever the
-	 * signal-to-interference ratios are. Reported, not optimised — it is the half of
-	 * "interference" a purely relative criterion cannot see. See `ROADMAP.md` B4/B5.
-	 */
-	contention?: number;
-	/**
-	 * How far below the ε-constraint's floor the chosen plan fell, as a 0-1 fraction.
-	 * Zero when no floor was set, or when the floor was met. See
-	 * `projectMeta.coverageFloorPct`.
-	 */
-	shortfall?: number;
-	/**
-	 * False when `interference` was measured against the all-co-channel bound
-	 * because some AP has no channel yet. The figure is then an upper bound.
-	 */
-	channelsKnown?: boolean;
-	/** How many samples the coverage figure came from, used to weight floors. */
-	sampleCount: number;
-	/**
-	 * True when the search produced a layout scoring worse than its input on the
-	 * exact evaluator, so the input was kept instead. Stages 1 and 2 optimise a
-	 * grid-snapped approximation, so this does happen; without the guard the worse
-	 * layout would be applied and the run would report a negative improvement.
-	 */
-	reverted: boolean;
-	/**
-	 * The conflict graph the payload's own positions imply, present only on a
-	 * `graphOnly` request. Edge indices are the payload's sources in order — its
-	 * `aps` first, then its `fixedAps` — so the caller can name both ends.
-	 *
-	 * The graph is the one the objective scores, built by the same margin pass
-	 * (`fillMargins`), which is what lets the main-thread solver colour what the
-	 * optimiser will afterwards measure. See `optimizer-worker.ts`.
-	 */
-	graph?: {
-		pairs: Array<[number, number]>;
-		count: number;
-		/**
-		 * How much each pair costs, row-major `count × count`, the same indexing as the
-		 * pairs: the density-weighted number of samples at which one source is within
-		 * the reuse threshold of the other. See `conflictWeights`.
-		 */
-		weights?: number[];
-	};
-	/**
-	 * Transmit power the run settled on, per AP, when the caller offered power
-	 * levels. See `refinePower`; a caller that applies positions must apply these
-	 * too, or the plan it shows is not the one that was scored.
-	 */
-	powers?: Array<{ id: string; power: number; radius: number }>;
-}
-
-export interface OptimizeProgress {
-	positions: Array<{ id: string; x: number; y: number }>;
-	score: number;
-	iteration: number;
-	totalIterations: number;
-}
-
-/**
- * What the worker sends back.
- *
- * Every reply carries the id of the run that produced it. Before it did, the bridge resolved
- * whichever promise happened to be outstanding when a message arrived, so a run that outran
- * its cancellation delivered its layout into the next run's promise — and the layout came
- * back labelled with the next run's seed.
- */
-type WorkerReply =
-	| ({ type: 'progress'; runId: string } & OptimizeProgress)
-	| ({ type: 'result'; runId: string } & OptimizeResult)
-	| { type: 'cancelled'; runId: string }
-	| { type: 'busy'; runId: string };
+import type {
+	ApInput,
+	OptimizeProgress,
+	OptimizeResult,
+	WireGeometry,
+	WireMessage,
+	WorkerReply
+} from './optimizer-protocol.js';
+export type { OptimizeProgress, OptimizeResult } from './optimizer-protocol.js';
 
 /** A request in flight, and who to tell when the worker answers. */
 interface PendingRun {
@@ -187,20 +90,16 @@ export class OptimizerBridge {
 		this.pending = null;
 	}
 
+	/*
+	 * `ApInput`, not a shape of its own.
+	 *
+	 * This parameter used to restate a subset of the payload — id, position, radius, band, the
+	 * channels — so a caller could hand the bridge an access point with no antenna on it, and the
+	 * worker would score an upright omni the panel never showed. The type the message declares is
+	 * the type the caller has to satisfy.
+	 */
 	optimize(
-		aps: Array<{
-			id: string;
-			x: number;
-			y: number;
-			interferenceRadius: number;
-			band: Band;
-			/** Channel from the solver, or null. Read by the interference term. */
-			assignedChannel?: number | null;
-			/** Pinned channel, if the user set one. A constraint on the colouring. */
-			fixedChannel?: number | null;
-			/** Channel width, for the non-overlapping palette. See `planningChannels`. */
-			channelWidth?: ChannelWidth;
-		}>,
+		aps: ApInput[],
 		wallMask: Uint8Array,
 		maskWidth: number,
 		maskHeight: number,
@@ -415,7 +314,7 @@ export class OptimizerBridge {
 			 */
 			const reuse = geometryId === this.loadedGeometry;
 			const transferable: ArrayBuffer[] = [];
-			let geometry: Record<string, unknown> = {};
+			let geometry: Partial<WireGeometry> = {};
 
 			if (!reuse) {
 				// Copy buffers so we can transfer them
@@ -472,8 +371,8 @@ export class OptimizerBridge {
 				};
 			}
 
-			const msg = {
-				type: 'optimize' as const,
+			const msg: WireMessage = {
+				type: 'optimize',
 				runId,
 				geometryId,
 				geometryReused: reuse,
