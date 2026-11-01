@@ -32,6 +32,21 @@ export interface Floor {
 		originX: number;
 		originY: number;
 	} | null;
+	/**
+	 * What a wall costs, in dB, when the material under it cannot be resolved.
+	 *
+	 * Not "the attenuation of every wall on this floor", which is what the name and the
+	 * comments at the handful of places that pass it along suggest. A wall's cost comes from
+	 * the material painted under it (`canvas/materials.ts`), and this number is charged only
+	 * when that material id has no row in the table — which happens when a user paints walls
+	 * with a custom material and then deletes it: the id is still in the material mask, and
+	 * without a fallback those walls would cost nothing at all.
+	 *
+	 * Nothing in the interface sets it any more; it is carried through the document, the
+	 * payload and the coverage pass so an existing project keeps the cost its author chose.
+	 * Removing it needs a decision about what a wall with a deleted material should cost, and
+	 * a document migration — not a deletion.
+	 */
 	wallAttenuation: number;
 	wallMaterial: WallMaterialId;
 	materialMask: {

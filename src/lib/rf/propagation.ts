@@ -95,6 +95,12 @@ export function rayMarchWallAtten(
 				// One charge per material segment: entering the wall, or crossing into a
 				// differently painted part of it.
 				if (matId !== runMaterial) {
+					/*
+					 * `defaultDb` is the cost of a wall whose material id no longer resolves —
+					 * a custom material that has since been deleted, with its id still painted
+					 * into the mask. It is not a floor-wide attenuation: a wall that has a
+					 * material is charged that material's figure, always.
+					 */
 					total += materialDb[matId] ?? defaultDb;
 					runMaterial = matId;
 				}
