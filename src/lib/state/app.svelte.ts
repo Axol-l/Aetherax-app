@@ -4,6 +4,22 @@ export type SidebarPanel = 'floorplan' | 'aps';
 export type FloorView = 'single' | 'tiled' | 'stacked' | 'floor3d';
 
 /**
+ * The editing tool, if one is armed.
+ *
+ * One value, so two tools cannot be armed at once — they all own the same bare-canvas click,
+ * and two of them armed means one click doing two things.
+ */
+export type ToolKind =
+	| 'none'
+	| 'wall'
+	| 'note'
+	| 'align'
+	| 'calibrate'
+	| 'planning'
+	| 'surface'
+	| 'place-ap';
+
+/**
  * Limits of the stacked view's angles, in degrees.
  *
  * Shared by the panel's sliders and the canvas drag so the two cannot drift: the
@@ -59,13 +75,36 @@ export const appState = $state({
 	/** Notes left on the plan: pins anyone can read, in the layer switch like any other. */
 	showNotes: true,
 	/**
+	 * The editing tool, if one is armed.
+	 *
+	 * One field rather than seven booleans, because the seven are mutually exclusive by
+	 * nature: every one of them owns the same bare-canvas click, so two armed at once means
+	 * one click doing two things. That used to be maintained by hand — each setter cleared
+	 * the ones written before it, which is O(n) per mode and easy to forget — and two of the
+	 * modes were written straight into the state by the components that toggled them, so
+	 * they were never in that scheme at all: the wall tool and note mode could be armed on
+	 * top of the planning area, and were.
+	 *
+	 * The `*Mode` accessors below are views over this field. Every existing reader and
+	 * writer keeps working, and none of them can bypass the exclusivity any more:
+	 * `appState.noteMode = true` *is* `setTool('note')`.
+	 */
+	tool: 'none' as ToolKind,
+
+	/**
 	 * Drawing walls as line segments.
 	 *
-	 * Its own mode, next to the raster brush, because the two are different models of the
+	 * Its own tool, next to the raster brush, because the two are different models of the
 	 * same thing and a plan should be drawn in one of them at a time. The first click of a
 	 * wall lands in `wallVectorDraft`; the second commits the segment.
 	 */
-	wallVectorMode: false,
+	get wallVectorMode(): boolean {
+		return this.tool === 'wall';
+	},
+	set wallVectorMode(on: boolean) {
+		if (on) setTool('wall');
+		else if (this.tool === 'wall') setTool('none');
+	},
 	/**
 	 * Which shape the wall tool draws: a line, a rectangular pier, or a round column.
 	 *
@@ -91,11 +130,17 @@ export const appState = $state({
 	/**
 	 * Note editing: a click on the plan drops a note.
 	 *
-	 * A mode rather than a modifier key, because the canvas already uses ctrl/cmd for
+	 * A tool rather than a modifier key, because the canvas already uses ctrl/cmd for
 	 * selection and alt for panning, and because leaving it on by accident would litter a
 	 * plan with notes.
 	 */
-	noteMode: false,
+	get noteMode(): boolean {
+		return this.tool === 'note';
+	},
+	set noteMode(on: boolean) {
+		if (on) setTool('note');
+		else if (this.tool === 'note') setTool('none');
+	},
 	/** The note under the pointer, for the hover bubble. */
 	noteHoverId: null as string | null,
 	/** The note being edited, if any. */
@@ -110,17 +155,34 @@ export const appState = $state({
 	 * Drag on the canvas moves the whole current floor instead of panning or
 	 * selecting. Used to bring one floor onto another.
 	 */
-	floorAlignMode: false,
+	get floorAlignMode(): boolean {
+		return this.tool === 'align';
+	},
+	set floorAlignMode(on: boolean) {
+		if (on) setTool('align');
+		else if (this.tool === 'align') setTool('none');
+	},
 	/** Picking two points on the plan to calibrate the scale from a measured line. */
-	calibrateMode: false,
+	get calibrateMode(): boolean {
+		return this.tool === 'calibrate';
+	},
+	set calibrateMode(on: boolean) {
+		if (on) setTool('calibrate');
+		else if (this.tool === 'calibrate') setTool('none');
+	},
 	/**
 	 * Drawing the planning area: a click adds a vertex, Enter closes it.
 	 *
-	 * A mode like the others, and exclusive with them, because it owns the bare-canvas
-	 * click. The draft lives here rather than in the canvas so the sidebar can show what is
-	 * being drawn and offer to finish it.
+	 * Its own tool because it owns the bare-canvas click. The draft lives here rather than
+	 * in the canvas so the sidebar can show what is being drawn and offer to finish it.
 	 */
-	planningDrawMode: false,
+	get planningDrawMode(): boolean {
+		return this.tool === 'planning';
+	},
+	set planningDrawMode(on: boolean) {
+		if (on) setTool('planning');
+		else if (this.tool === 'planning') setTool('none');
+	},
 	planningDraft: [] as Array<{ x: number; y: number }>,
 	/**
 	 * Drawing a raised surface: a mezzanine, a stair, a ramp.
@@ -130,7 +192,13 @@ export const appState = $state({
 	 * heights live here too, so the sidebar's controls and the canvas preview cannot
 	 * disagree about what is about to be drawn.
 	 */
-	surfaceMode: false,
+	get surfaceMode(): boolean {
+		return this.tool === 'surface';
+	},
+	set surfaceMode(on: boolean) {
+		if (on) setTool('surface');
+		else if (this.tool === 'surface') setTool('none');
+	},
 	surfaceDraft: null as { ax: number; ay: number; bx: number; by: number } | null,
 	surfaceKind: 'platform' as SurfaceKind,
 	/** Height of the walking surface at the low end, metres above the floor's own. */
@@ -155,7 +223,13 @@ export const appState = $state({
 	 * Selecting and dragging APs is unaffected — this only decides what a click on
 	 * *nothing* does.
 	 */
-	apPlaceMode: false,
+	get apPlaceMode(): boolean {
+		return this.tool === 'place-ap';
+	},
+	set apPlaceMode(on: boolean) {
+		if (on) setTool('place-ap');
+		else if (this.tool === 'place-ap') setTool('none');
+	},
 	/**
 	 * `single` draws the current floor on its own, `tiled` draws a read-only card
 	 * per floor side by side, and `stacked` draws the same cards stacked by their
@@ -187,47 +261,60 @@ export const appState = $state({
 let alignOwnsGhost = false;
 
 /**
- * Enter or leave floor-alignment mode.
+ * Arm one tool, or none.
  *
- * Owns the ghost as well as the mode. The ghost is the only way to see what you
- * are aligning to, so entering the mode switches it on; leaving switches it back
- * off — unless the user had already turned it on for their own reasons, in which
- * case it is left alone.
- *
- * This lives here rather than in the sidebar because the mode can also be left
- * with Escape or a right-click on the canvas, and every exit path has to put the
- * ghost back. Having only the sidebar know about it was the bug: the mode closed
- * and the ghost of the floor below stayed on the canvas with nothing to explain
- * it.
+ * The single place that decides what is armed, so exclusivity is a property of the type
+ * rather than a list every setter has to repeat. It also owns the two things a tool can
+ * drag along with it: floor alignment switches the ghost of the floor below on (it is the
+ * only way to see what you are aligning to) and puts it back on the way out unless the user
+ * had it on for their own reasons, and a tool that collects a draft drops it when the tool
+ * changes — an abandoned loop or half-drawn rectangle is not a decision.
  */
-export function setFloorAlignMode(on: boolean): void {
-	if (appState.floorAlignMode === on) return;
-	appState.floorAlignMode = on;
-	if (on) {
-		// Both modes own what a bare canvas drag does, so they cannot both be on.
-		appState.apPlaceMode = false;
-		alignOwnsGhost = !appState.showFloorBelow;
-		appState.showFloorBelow = true;
-	} else if (alignOwnsGhost) {
+export function setTool(tool: ToolKind): void {
+	const current = appState.tool;
+	if (current === tool) return;
+
+	if (current === 'align' && alignOwnsGhost) {
 		appState.showFloorBelow = false;
 		alignOwnsGhost = false;
 	}
+	if (current === 'calibrate') appState.calibrationPoints = [];
+	if (current === 'planning') appState.planningDraft = [];
+	if (current === 'surface') appState.surfaceDraft = null;
+
+	appState.tool = tool;
+
+	if (tool === 'align') {
+		alignOwnsGhost = !appState.showFloorBelow;
+		appState.showFloorBelow = true;
+	}
+	if (tool === 'calibrate') appState.calibrationPoints = [];
+}
+
+/**
+ * Enter or leave floor-alignment mode.
+ *
+ * Kept as a named entry point because the mode can also be left with Escape or a
+ * right-click on the canvas, and every exit path has to put the ghost back. Having only the
+ * sidebar know about it was the bug: the mode closed and the ghost of the floor below
+ * stayed on the canvas with nothing to explain it.
+ */
+export function setFloorAlignMode(on: boolean): void {
+	if (on) setTool('align');
+	else if (appState.tool === 'align') setTool('none');
 }
 
 /**
  * Turn AP placement on or off.
  *
- * A mode rather than a permanent state of the canvas: while it is on, a click on
- * empty canvas creates an AP and nothing else uses that gesture. Leaving it on by
- * default meant every stray click — deselecting, starting a marquee, fumbling a
- * pan — dropped an AP on the plan.
- *
- * Exclusive with floor alignment, which also owns the bare-canvas drag.
+ * A tool rather than a permanent state of the canvas: while it is on, a click on empty
+ * canvas creates an AP and nothing else uses that gesture. Leaving it on by default meant
+ * every stray click — deselecting, starting a marquee, fumbling a pan — dropped an AP on
+ * the plan.
  */
 export function setApPlaceMode(on: boolean): void {
-	if (appState.apPlaceMode === on) return;
-	appState.apPlaceMode = on;
-	if (on) setFloorAlignMode(false);
+	if (on) setTool('place-ap');
+	else if (appState.tool === 'place-ap') setTool('none');
 }
 
 /**
@@ -236,20 +323,12 @@ export function setApPlaceMode(on: boolean): void {
  * The area route asks for the floorplan's total area and divides it into the outline the
  * detector found, which is only as good as that outline. Measuring asks something the user
  * can read off the drawing — this wall is twelve metres — and works on a plan whose
- * outline is open or which is a detail of one room.
- *
- * The mode owns the same bare-canvas click that placement mode does, so it is exclusive
- * with both other modes; the points live here rather than in the panel because the canvas
- * is what collects them and the panel is what consumes them.
+ * outline is open or which is a detail of one room. The points live here rather than in the
+ * panel because the canvas is what collects them and the panel is what consumes them.
  */
 export function setCalibrateMode(on: boolean): void {
-	if (appState.calibrateMode === on) return;
-	appState.calibrateMode = on;
-	appState.calibrationPoints = [];
-	if (on) {
-		setApPlaceMode(false);
-		setFloorAlignMode(false);
-	}
+	if (on) setTool('calibrate');
+	else if (appState.tool === 'calibrate') setTool('none');
 }
 
 /**
@@ -267,19 +346,12 @@ export function addCalibrationPoint(point: { x: number; y: number }): void {
 /**
  * Drawing the planning area, one click per corner.
  *
- * Exclusive with the other modes for the same reason they are exclusive with each other:
- * they all own the bare-canvas click, and two of them armed at once means one click does two
- * things. Leaving the mode throws the draft away — an abandoned loop is not a decision.
+ * Leaving the mode throws the draft away — an abandoned loop is not a decision. See
+ * `setTool`, which also drops the draft.
  */
 export function setPlanningDrawMode(on: boolean): void {
-	if (appState.planningDrawMode === on) return;
-	appState.planningDrawMode = on;
-	appState.planningDraft = [];
-	if (on) {
-		setApPlaceMode(false);
-		setFloorAlignMode(false);
-		setCalibrateMode(false);
-	}
+	if (on) setTool('planning');
+	else if (appState.tool === 'planning') setTool('none');
 }
 
 export function addPlanningPoint(point: { x: number; y: number }): void {
@@ -289,21 +361,12 @@ export function addPlanningPoint(point: { x: number; y: number }): void {
 /**
  * Drawing a raised surface.
  *
- * Exclusive with the other modes that own a bare-canvas click, for the same reason they
- * are exclusive with each other: two of them armed at once means one click does two
- * things. Leaving the mode drops a half-drawn rectangle rather than keeping it — an
- * unfinished shape is not a statement about the floor.
+ * Leaving the mode drops a half-drawn rectangle rather than keeping it — an unfinished
+ * shape is not a statement about the floor. See `setTool`.
  */
 export function setSurfaceMode(on: boolean): void {
-	if (appState.surfaceMode === on) return;
-	appState.surfaceMode = on;
-	appState.surfaceDraft = null;
-	if (on) {
-		setApPlaceMode(false);
-		setFloorAlignMode(false);
-		setCalibrateMode(false);
-		setPlanningDrawMode(false);
-	}
+	if (on) setTool('surface');
+	else if (appState.tool === 'surface') setTool('none');
 }
 
 /**
