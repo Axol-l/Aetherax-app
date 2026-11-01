@@ -89,6 +89,14 @@ import type {
 
 interface OptimizeMessage {
 	type: 'optimize';
+	/**
+	 * Identity of this request, echoed on every reply it produces.
+	 *
+	 * Without it the bridge had no way to tell a reply from the run it is waiting on from a
+	 * reply from an earlier run that outran its cancellation, and resolved whichever promise
+	 * happened to be outstanding.
+	 */
+	runId: string;
 	aps: ApInput[];
 	fixedAps: FixedApInput[];
 	wallMask: Uint8Array;
@@ -274,15 +282,38 @@ interface OptimizeMessage {
 
 interface CancelMessage {
 	type: 'cancel';
+	/** The run being cancelled. A cancel that names no run in flight is ignored. */
+	runId: string;
 }
 
 type InMessage = OptimizeMessage | CancelMessage;
 
-let cancelled = false;
+type Run = { runId: string; cancelled: boolean };
 
+/**
+ * The run this worker is executing, or null.
+ *
+ * A second `optimize` while a run is still executing is answered `busy` instead of quietly
+ * taking over. That is what makes the module-level `random` and `runSeed` below
+ * unambiguous — with two runs interleaved, the second one's seed became the first one's
+ * PRNG and the first run's result came back labelled with it.
+ *
+ * A cancelled run may still be finishing, so it keeps its own `Run` object: a check inside
+ * it reads *its* flag, not whichever run was started afterwards.
+ */
+let running: Run | null = null;
 
-/** Random source for the current run; replaced at the start of every run. */
-let random: () => number = Math.random;
+/**
+ * Send a message to the caller, tagged with the run it belongs to.
+ *
+ * Every reply goes through here, and the id is passed in rather than read from `running`:
+ * a cancelled run that is still unwinding must answer with its *own* id, so the caller can
+ * tell it apart from the run that replaced it. A reply without an id was the bug behind a
+ * layout being reported with the next run's seed.
+ */
+function reply(runId: string, payload: Record<string, unknown>): void {
+	self.postMessage({ ...payload, runId });
+}
 
 /**
  * Seed used when the caller does not supply one.
@@ -294,29 +325,39 @@ let random: () => number = Math.random;
  */
 const DEFAULT_OPTIMIZER_SEED = 20260921;
 
-/** Seed of the run in flight, echoed back on the result message. */
-let runSeed = 0;
-
 self.onmessage = (event: MessageEvent<InMessage>) => {
 	const msg = event.data;
 	if (msg.type === 'cancel') {
-		cancelled = true;
+		// Only the run it names. A cancel can arrive after its run has already finished —
+		// the caller aborted and moved on — and taking it would stop the run that replaced
+		// it, which is a run the user has just asked for.
+		if (running && running.runId === msg.runId) running.cancelled = true;
 		return;
 	}
-	if (msg.type === 'optimize') {
-		cancelled = false;
-		runSeed = (msg.seed ?? DEFAULT_OPTIMIZER_SEED) >>> 0;
-		random = mulberry32(runSeed);
-		runOptimization(msg).catch((err) => {
-			self.postMessage({
+	if (msg.type !== 'optimize') return;
+
+	if (running && !running.cancelled) {
+		reply(msg.runId, { type: 'busy' });
+		return;
+	}
+
+	const run: Run = { runId: msg.runId, cancelled: false };
+	running = run;
+	runOptimization(msg, run)
+		.catch((err) => {
+			reply(msg.runId, {
 				type: 'result',
 				positions: msg.aps.map((a) => ({ id: a.id, x: a.x, y: a.y })),
 				score: 0,
 				improvement: 0,
 				error: String(err)
 			});
+		})
+		.finally(() => {
+			// Only the run that still owns the slot clears it: a cancelled run finishing
+			// after its replacement started must not make the worker look idle.
+			if (running === run) running = null;
 		});
-	}
 };
 
 
@@ -1270,7 +1311,7 @@ function yieldToEventLoop(): Promise<void> {
 
 // ─── Main optimization pipeline ─────────────────────────────────────────
 
-async function runOptimization(msg: OptimizeMessage): Promise<void> {
+async function runOptimization(msg: OptimizeMessage, run: Run): Promise<void> {
 	const {
 		aps,
 		fixedAps,
@@ -1285,6 +1326,17 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 		medianDensity,
 		roomTypeMask
 	} = msg;
+
+	/*
+	 * This run's seed and PRNG, owned by the run rather than by the worker.
+	 *
+	 * A cancelled run is not stopped dead: it notices at its next yield point and unwinds. If
+	 * the seed and the PRNG were module state, the run that replaced it would have its draws
+	 * consumed by the old one's last chunk — the same seed then produces a different layout,
+	 * which is exactly the guarantee the reported seed is supposed to give.
+	 */
+	const runSeed = (msg.seed ?? DEFAULT_OPTIMIZER_SEED) >>> 0;
+	const random = mulberry32(runSeed);
 
 	/*
 	 * The payload's shape is declared in `optimizer-protocol.ts` and derived from the
@@ -1360,8 +1412,8 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 		clipInteriorToPlanningArea(interior, w, h, 0, 0, planningArea);
 	}
 
-	if (cancelled) {
-		self.postMessage({ type: 'cancelled' });
+	if (run.cancelled) {
+		reply(msg.runId, { type: 'cancelled' });
 		return;
 	}
 
@@ -1371,7 +1423,7 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 	}
 
 	if (aps.length === 0) {
-		self.postMessage({ type: 'result', positions: [], score: 0, improvement: 0, seed: runSeed });
+		reply(msg.runId, { type: 'result', positions: [], score: 0, improvement: 0, seed: runSeed });
 		return;
 	}
 
@@ -1381,7 +1433,7 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 	// APs untouched and report nothing, so the user saw "the optimiser left my
 	// APs outside" with no explanation. Say so instead.
 	if (interiorPixels.length === 0 && !allowOutside) {
-		self.postMessage({
+		reply(msg.runId, {
 			type: 'result',
 			positions: aps.map((a) => ({ id: a.id, x: a.x, y: a.y })),
 			score: 0,
@@ -1647,7 +1699,7 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 	// stage is now O(1) instead of millions of ray marches.
 	// Material losses are band dependent, so a single 5 GHz table would be wrong
 	// for any AP on another band.
-	self.postMessage({
+	reply(msg.runId, {
 		type: 'progress',
 		positions: [],
 		score: 0,
@@ -1676,8 +1728,8 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 
 	// Yield to let cancel message arrive
 	await yieldToEventLoop();
-	if (cancelled) {
-		self.postMessage({ type: 'cancelled' });
+	if (run.cancelled) {
+		reply(msg.runId, { type: 'cancelled' });
 		return;
 	}
 
@@ -1701,7 +1753,7 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 				if (field.conflicts[i * field.count + j]) pairs.push([i, j]);
 			}
 		}
-		self.postMessage({
+		reply(msg.runId, {
 			type: 'result',
 			positions: aps.map((a) => ({ id: a.id, x: a.x, y: a.y })),
 			score: 0,
@@ -1763,8 +1815,8 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 
 	// Lloyd's iterations
 	for (let iter = 0; iter < 30; iter++) {
-		if (cancelled) {
-			self.postMessage({ type: 'cancelled' });
+		if (run.cancelled) {
+			reply(msg.runId, { type: 'cancelled' });
 			return;
 		}
 
@@ -1865,7 +1917,7 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 	}
 
 	const lloydsScore = evaluateCoverage(positions, caches, ctx);
-	self.postMessage({
+	reply(msg.runId, {
 		type: 'progress',
 		positions: positions.map((p) => ({ id: p.id, x: p.x, y: p.y })),
 		score: lloydsScore,
@@ -1875,8 +1927,8 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 	});
 
 	await yieldToEventLoop();
-	if (cancelled) {
-		self.postMessage({ type: 'cancelled' });
+	if (run.cancelled) {
+		reply(msg.runId, { type: 'cancelled' });
 		return;
 	}
 
@@ -1937,8 +1989,8 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 		// Yield every 5 iterations so cancel messages can arrive
 		if (iter % 5 === 0) {
 			await yieldToEventLoop();
-			if (cancelled) {
-				self.postMessage({ type: 'cancelled' });
+			if (run.cancelled) {
+				reply(msg.runId, { type: 'cancelled' });
 				return;
 			}
 		}
@@ -1999,7 +2051,7 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 			for (let a = 0; a < numAps; a++) {
 				gPositions.push({ id: aps[a]!.id, x: gBest[a * 2]!, y: gBest[a * 2 + 1]! });
 			}
-			self.postMessage({
+			reply(msg.runId, {
 				type: 'progress',
 				positions: gPositions,
 				score: gBestScore,
@@ -2013,8 +2065,8 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 	// ─── Stage 3: Coordinate Descent Polish ─────────────────────────────────
 
 	await yieldToEventLoop();
-	if (cancelled) {
-		self.postMessage({ type: 'cancelled' });
+	if (run.cancelled) {
+		reply(msg.runId, { type: 'cancelled' });
 		return;
 	}
 
@@ -2050,8 +2102,8 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 	const MAX_POLISH_PASSES = 40;
 	while (polishStep >= minStep && polishPass < MAX_POLISH_PASSES) {
 		await yieldToEventLoop();
-		if (cancelled) {
-			self.postMessage({ type: 'cancelled' });
+		if (run.cancelled) {
+			reply(msg.runId, { type: 'cancelled' });
 			return;
 		}
 		let improved = false;
@@ -2100,7 +2152,7 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 
 		// Stage 3 previously reported no progress at all, so the bar stalled at
 		// the end of stage 2 for the whole (slowest) polish phase.
-		self.postMessage({
+		reply(msg.runId, {
 			type: 'progress',
 			positions: finalPositions.map((p) => ({ id: p.id, x: Math.round(p.x), y: Math.round(p.y) })),
 			score: bestScore,
@@ -2165,7 +2217,7 @@ async function runOptimization(msg: OptimizeMessage): Promise<void> {
 	const improvement =
 		initialEval.score > 0 ? ((chosenEval.score - initialEval.score) / initialEval.score) * 100 : 0;
 
-	self.postMessage({
+	reply(msg.runId, {
 		type: 'result',
 		positions: chosen.map((p) => ({ id: p.id, x: Math.round(p.x), y: Math.round(p.y) })),
 		score: chosenEval.score,

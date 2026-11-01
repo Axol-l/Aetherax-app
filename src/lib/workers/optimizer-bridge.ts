@@ -94,35 +94,61 @@ export interface OptimizeProgress {
 	totalIterations: number;
 }
 
+/**
+ * What the worker sends back.
+ *
+ * Every reply carries the id of the run that produced it. Before it did, the bridge resolved
+ * whichever promise happened to be outstanding when a message arrived, so a run that outran
+ * its cancellation delivered its layout into the next run's promise — and the layout came
+ * back labelled with the next run's seed.
+ */
+type WorkerReply =
+	| ({ type: 'progress'; runId: string } & OptimizeProgress)
+	| ({ type: 'result'; runId: string } & OptimizeResult)
+	| { type: 'cancelled'; runId: string }
+	| { type: 'busy'; runId: string };
+
+/** A request in flight, and who to tell when the worker answers. */
+interface PendingRun {
+	runId: string;
+	resolve: (value: OptimizeResult) => void;
+	reject: (reason: unknown) => void;
+	onProgress: ((progress: OptimizeProgress) => void) | null;
+}
+
 export class OptimizerBridge {
 	private worker: Worker | null = null;
-	private pendingResolve: ((value: OptimizeResult) => void) | null = null;
-	private pendingReject: ((reason: unknown) => void) | null = null;
-	private onProgress: ((progress: OptimizeProgress) => void) | null = null;
+	private pending: PendingRun | null = null;
 
 	private getWorker(): Worker {
 		if (!this.worker) {
 			this.worker = new Worker(new URL('./optimizer-worker.ts', import.meta.url), {
 				type: 'module'
 			});
-			this.worker.onmessage = (event) => {
-				const { data } = event;
-				if (data.type === 'result' && this.pendingResolve) {
-					this.pendingResolve(data as OptimizeResult);
-					this.cleanup();
-				} else if (data.type === 'progress' && this.onProgress) {
-					this.onProgress(data as OptimizeProgress);
-				} else if (data.type === 'cancelled') {
-					if (this.pendingReject) {
-						this.pendingReject(new Error('Cancelled'));
-					}
-					this.cleanup();
+			this.worker.onmessage = (event: MessageEvent<WorkerReply>) => {
+				const message = event.data;
+				const pending = this.pending;
+				/*
+				 * A reply nobody is waiting for belongs to a run that has already been
+				 * superseded or cancelled. Dropping it is the whole point of the id: the
+				 * alternative was delivering one run's result to another run's caller.
+				 */
+				if (!pending || message.runId !== pending.runId) return;
+				if (message.type === 'progress') {
+					pending.onProgress?.(message);
+					return;
 				}
+				if (message.type === 'cancelled') {
+					pending.reject(new Error('Cancelled'));
+				} else if (message.type === 'busy') {
+					pending.reject(new Error('Another optimisation is still running'));
+				} else {
+					pending.resolve(message);
+				}
+				this.cleanup();
 			};
 			this.worker.onerror = (err) => {
-				if (this.pendingReject) {
-					this.pendingReject(err);
-				}
+				this.pending?.reject(err);
 				this.cleanup();
 			};
 		}
@@ -130,9 +156,7 @@ export class OptimizerBridge {
 	}
 
 	private cleanup(): void {
-		this.pendingResolve = null;
-		this.pendingReject = null;
-		this.onProgress = null;
+		this.pending = null;
 	}
 
 	optimize(
@@ -322,13 +346,20 @@ export class OptimizerBridge {
 			coverageFloor?: number;
 		}
 	): Promise<OptimizeResult> {
+		const runId = crypto.randomUUID();
 		return new Promise((resolve, reject) => {
-			if (this.pendingReject) {
-				this.pendingReject(new Error('Superseded'));
+			const previous = this.pending;
+			if (previous) {
+				/*
+				 * Superseded on purpose: tell the worker to stop the run it is executing, and
+				 * stop waiting for it. Its replies are dropped by the id check rather than
+				 * landing in this promise.
+				 */
+				this.pending = null;
+				this.getWorker().postMessage({ type: 'cancel', runId: previous.runId });
+				previous.reject(new Error('Superseded'));
 			}
-			this.pendingResolve = resolve;
-			this.pendingReject = reject;
-			this.onProgress = options?.onProgress ?? null;
+			this.pending = { runId, resolve, reject, onProgress: options?.onProgress ?? null };
 
 			// Copy buffers so we can transfer them
 			const maskCopy = new Uint8Array(wallMask);
@@ -373,6 +404,7 @@ export class OptimizerBridge {
 
 			const msg = {
 				type: 'optimize' as const,
+				runId,
 				aps,
 				fixedAps,
 				wallMask: maskCopy,
@@ -411,8 +443,20 @@ export class OptimizerBridge {
 		});
 	}
 
+	/**
+	 * Stop the run in flight, and stop waiting for it.
+	 *
+	 * The promise is rejected here rather than when the worker acknowledges, so the caller
+	 * (whose loops check the same cancellation) unwinds immediately instead of after a round
+	 * trip. A cancel that names no run is dropped: sending it anyway would stop whichever run
+	 * the worker had started in the meantime — the one the user has just asked for.
+	 */
 	cancel(): void {
-		this.getWorker().postMessage({ type: 'cancel' });
+		const pending = this.pending;
+		if (!pending) return;
+		this.pending = null;
+		this.getWorker().postMessage({ type: 'cancel', runId: pending.runId });
+		pending.reject(new Error('Cancelled'));
 	}
 
 	terminate(): void {
