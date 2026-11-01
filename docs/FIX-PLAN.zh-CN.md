@@ -4,7 +4,7 @@
 >
 > 它不是"代码写得不好"的清单。现状是健康的：`src/` 里 0 个 `any`、0 个 `@ts-ignore`、0 个 TODO，全仓只有 51 个 `$effect`，50 个单测 + 29 个 e2e，而且大文件在稳定缩小（`CanvasView` 3384 → 2247 行，`optimizer.svelte.ts` 2047 → 918）。下面的每一条，都是**已经在正确方向上的工作还没走完的那一步**。
 >
-> **进度**：01–04、06、09 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（593 单测 + 106 e2e）。其余条目待做。
+> **进度**：01–04、06、09、11、12 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（599 单测 + 106 e2e）。其余条目待做。
 
 ---
 
@@ -550,9 +550,11 @@ for (let i = 0; i < out.length; i++) if (out[i] === undefined) out[i] = fallback
 
 ## 4. P2：取消、协议、重复实现
 
-### 11 · Cancel 是装饰性的
+### 11 · Cancel 是装饰性的 ✅ 已实现
 
 **位置**：`src/lib/state/optimizer.svelte.ts:954`、`:791-792`
+
+**结论（实现后）**：一次运行现在有自己的 `AbortSignal`，循环在 restart 前、楼层前、额外 ε pass 前、以及 `optimizeFloor` 干重活（解掩膜、装 payload）之前都检查它；`cancelOptimizer` 同时 abort 信号和两个 worker（运行的那个 + 图的那个）。被取消的运行也不再更新 `lastRunAt`——"有了一次新鲜测量"这句话对半途而废的运行不成立。
 
 **用户看到的现象**：点"优化所有楼层"，跑了 30 秒还没完，点 Cancel —— 按钮灰了，但风扇还在转，十几秒后才停。
 
@@ -606,9 +608,13 @@ export function cancelOptimizer() {
 
 ---
 
-### 12 · worker 协议分不清两次请求
+### 12 · worker 协议分不清两次请求 ✅ 已实现
 
 **位置**：`src/lib/workers/optimizer-bridge.ts:98-121`、`optimizer-worker.ts:281-309`
+
+**结论（实现后）**：每条请求带 `runId`、每条回复原样带回，桥只接受匹配当前请求的回复；worker 在运行中收到第二条 `optimize` 直接回 `busy`（桥译成"另一个优化还在跑"）；`cancel` 按 runId 生效，且在无请求在飞时什么都不发（否则会停掉用户刚点的下一次）；`cancel` 立即 reject，不等 worker 确认。顺手把 seed/PRNG 从模块级挪进"这一趟运行"——被取消的运行还没停时，它的抽样不能来自接替它的那一趟，否则报告的 seed 复现不了结果。
+
+**仍未做**：`OptimizeMessage` / `OptimizeResult` 两边各声明一次，桥那边还是无类型字面量，编译器不互校——这需要单独一次改动。
 
 **用户看到的现象**：偶尔一次运行的结果"不像这次该有的"（分数和屏幕上完全不匹配），或者卡住一直转圈。
 
