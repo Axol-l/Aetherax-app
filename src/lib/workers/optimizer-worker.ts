@@ -54,6 +54,7 @@ import {
 	OPTIMIZER_PAYLOAD_VERSION,
 	assertApPayload
 } from './optimizer-protocol.js';
+import { GeometryCache } from './optimizer/geometry.js';
 import { mulberry32 } from './optimizer/random.js';
 import {
 	allowedForAp,
@@ -325,7 +326,60 @@ function reply(runId: string, payload: Record<string, unknown>): void {
  */
 const DEFAULT_OPTIMIZER_SEED = 20260921;
 
-self.onmessage = (event: MessageEvent<InMessage>) => {
+/**
+ * The heavy half of a payload: the masks and the cross-floor sources.
+ *
+ * Sent once per plan and reused across the restarts of a floor and the repeats of a run; the
+ * bridge identifies it by the identity of the arrays it is made of, so a changed plan is a
+ * changed id and a fresh send.
+ */
+type WireGeometry = Pick<
+	OptimizeMessage,
+	| 'wallMask'
+	| 'maskWidth'
+	| 'maskHeight'
+	| 'materialMask'
+	| 'densityMap'
+	| 'medianDensity'
+	| 'roomTypeMask'
+	| 'fixedAps'
+>;
+
+type WireMessage = Omit<OptimizeMessage, keyof WireGeometry> &
+	Partial<WireGeometry> & { geometryId?: string; geometryReused?: boolean };
+
+/**
+ * The plan this worker was last sent.
+ *
+ * One slot, because one run executes at a time (see `running`) and the caller waits for each
+ * result. The bridge clears its own idea of what is loaded whenever it creates or terminates a
+ * worker, which is the only way the two can legitimately disagree — and a disagreement is
+ * refused rather than scored, because a run against another plan's masks produces a believable
+ * layout of the wrong floor. See `workers/optimizer/geometry.js`.
+ */
+const geometryCache = new GeometryCache<WireGeometry>();
+
+/** The geometry a message needs, from the message itself or from what this worker holds. */
+function geometryFor(msg: WireMessage): WireGeometry | null {
+	const carried =
+		msg.wallMask && msg.maskWidth !== undefined && msg.maskHeight !== undefined
+			? {
+					id: msg.geometryId ?? '',
+					geometry: {
+						wallMask: msg.wallMask,
+						maskWidth: msg.maskWidth,
+						maskHeight: msg.maskHeight,
+						materialMask: msg.materialMask ?? null,
+						densityMap: msg.densityMap ?? null,
+						medianDensity: msg.medianDensity ?? 0,
+						roomTypeMask: msg.roomTypeMask ?? null,
+						fixedAps: msg.fixedAps ?? []
+					}
+				}
+			: null;
+	return geometryCache.resolve(carried, msg.geometryId, msg.geometryReused);
+}
+self.onmessage = (event: MessageEvent<InMessage | WireMessage>) => {
 	const msg = event.data;
 	if (msg.type === 'cancel') {
 		// Only the run it names. A cancel can arrive after its run has already finished —
@@ -342,8 +396,21 @@ self.onmessage = (event: MessageEvent<InMessage>) => {
 	}
 
 	const run: Run = { runId: msg.runId, cancelled: false };
+	const geometry = geometryFor(msg);
+	if (!geometry) {
+		// The message expected this worker to be holding a plan it is not. Reported rather than
+		// scored: running against no masks would produce a believable layout of the wrong plan.
+		reply(msg.runId, {
+			type: 'result',
+			positions: msg.aps.map((a) => ({ id: a.id, x: a.x, y: a.y })),
+			score: 0,
+			improvement: 0,
+			error: 'the optimiser worker was not given this plan'
+		});
+		return;
+	}
 	running = run;
-	runOptimization(msg, run)
+	runOptimization(msg, run, geometry)
 		.catch((err) => {
 			reply(msg.runId, {
 				type: 'result',
@@ -1227,7 +1294,7 @@ function refinePower(
 	positions: Position[],
 	aps: ApInput[],
 	ctx: EvalContext,
-	msg: OptimizeMessage
+	msg: Pick<OptimizeMessage, 'powerLevelsDbm' | 'worldUnitsPerMeter'>
 ): PowerChoice[] | null {
 	const levels = msg.powerLevelsDbm;
 	const wupm = msg.worldUnitsPerMeter ?? 0;
@@ -1311,21 +1378,26 @@ function yieldToEventLoop(): Promise<void> {
 
 // ─── Main optimization pipeline ─────────────────────────────────────────
 
-async function runOptimization(msg: OptimizeMessage, run: Run): Promise<void> {
+async function runOptimization(
+	msg: WireMessage,
+	run: Run,
+	geometry: WireGeometry
+): Promise<void> {
+	const { aps, wallAttenuation, defaultMaterial, allowOutside } = msg;
+	/*
+	 * The plan comes from the geometry the worker holds, not from this message: it was sent
+	 * once and reused. Anything reading the masks reads them here.
+	 */
 	const {
-		aps,
 		fixedAps,
 		wallMask: mask,
 		maskWidth: w,
 		maskHeight: h,
-		wallAttenuation,
 		materialMask,
-		defaultMaterial,
-		allowOutside,
 		densityMap,
 		medianDensity,
 		roomTypeMask
-	} = msg;
+	} = geometry;
 
 	/*
 	 * This run's seed and PRNG, owned by the run rather than by the worker.

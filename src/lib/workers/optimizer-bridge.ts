@@ -1,5 +1,6 @@
 import type { Band, ChannelWidth, RegulatoryDomain } from '@aetherax/channels';
 import type { PathLossScenario } from '../rf/propagation.js';
+import { debug } from '../log.js';
 import { OPTIMIZER_PAYLOAD_VERSION } from './optimizer-protocol.js';
 
 export interface OptimizeResult {
@@ -116,15 +117,42 @@ interface PendingRun {
 	onProgress: ((progress: OptimizeProgress) => void) | null;
 }
 
+/**
+ * Identity of an input array, for `geometryIdentity`.
+ *
+ * Object identity, not contents: the caller caches its decodes, so "the same plan" and "the
+ * same array" are the same statement — and hashing a nine-megabyte mask to find that out would
+ * cost more than sending it.
+ */
+const inputIds = new WeakMap<object, number>();
+let nextInputId = 1;
+function inputId(value: object | null | undefined): number {
+	if (!value) return 0;
+	let id = inputIds.get(value);
+	if (id === undefined) {
+		id = nextInputId++;
+		inputIds.set(value, id);
+	}
+	return id;
+}
+
 export class OptimizerBridge {
 	private worker: Worker | null = null;
 	private pending: PendingRun | null = null;
+	/**
+	 * The geometry the worker is holding, or null when it is holding none.
+	 *
+	 * A fresh worker has been sent nothing, so this is cleared with it — the one case where the
+	 * cache would otherwise be wrong rather than merely useless.
+	 */
+	private loadedGeometry: string | null = null;
 
 	private getWorker(): Worker {
 		if (!this.worker) {
 			this.worker = new Worker(new URL('./optimizer-worker.ts', import.meta.url), {
 				type: 'module'
 			});
+			this.loadedGeometry = null;
 			this.worker.onmessage = (event: MessageEvent<WorkerReply>) => {
 				const message = event.data;
 				const pending = this.pending;
@@ -347,6 +375,18 @@ export class OptimizerBridge {
 		}
 	): Promise<OptimizeResult> {
 		const runId = crypto.randomUUID();
+		/*
+		 * The geometry is the expensive half of a payload and the half that does not change
+		 * between the restarts of one floor or the repeated runs of one plan: a wall mask, a
+		 * material mask, the room types, the density map and every cross-floor source mask, on
+		 * a 3000² plan tens of megabytes, copied and transferred for each of them.
+		 *
+		 * It is identified by the *identity* of the arrays it is made of, which the caller
+		 * caches per floor (`state/floor-mask.ts`, `optimizer-support.ts`). Same arrays, same
+		 * plan: the worker keeps what it was sent last time and this message carries the
+		 * parameters only.
+		 */
+		const geometryId = this.geometryIdentity(wallMask, options);
 		return new Promise((resolve, reject) => {
 			const previous = this.pending;
 			if (previous) {
@@ -361,63 +401,88 @@ export class OptimizerBridge {
 			}
 			this.pending = { runId, resolve, reject, onProgress: options?.onProgress ?? null };
 
-			// Copy buffers so we can transfer them
-			const maskCopy = new Uint8Array(wallMask);
-			const densityCopy = options?.densityMap ? new Float32Array(options.densityMap) : null;
-			const materialCopy =
-				options?.materialMask != null ? new Uint8Array(options.materialMask) : null;
-			const roomTypeCopy =
-				options?.roomTypeMask != null ? new Uint8Array(options.roomTypeMask) : null;
-			const transferable: ArrayBuffer[] = [maskCopy.buffer];
-			if (densityCopy) transferable.push(densityCopy.buffer);
-			if (materialCopy) transferable.push(materialCopy.buffer);
-			if (roomTypeCopy) transferable.push(roomTypeCopy.buffer);
+			/*
+			 * The worker first. Creating one clears what it is holding, and that has to happen
+			 * before the decision below reads it — otherwise the very first call remembers its
+			 * geometry and then immediately forgets it again.
+			 */
+			const worker = this.getWorker();
 
-			// Cross-floor source masks. Copied rather than transferred in place: the
-			// caller caches decoded masks per floor, so handing the buffer over would
-			// neuter a cache entry that the next run still expects to read. Room-type
-			// ids appear once per *floor* in the caller's data but once per *crossing*
-			// here, so a floor a path crosses twice is copied twice — never shared,
-			// because transfer detaches the buffer.
-			const fixedAps = (options?.fixedAps ?? []).map((fap) => {
-				const src = fap.source;
-				const slabs = fap.slabs;
-				if (!src && (!slabs || slabs.length === 0)) return fap;
-				const srcMaskCopy = src ? new Uint8Array(src.data) : null;
-				const srcMaterialCopy = src?.materialMask != null ? new Uint8Array(src.materialMask) : null;
-				if (srcMaskCopy) transferable.push(srcMaskCopy.buffer);
-				if (srcMaterialCopy) transferable.push(srcMaterialCopy.buffer);
-				const slabCopies = (slabs ?? []).map((slab) => {
-					const copy = slab.roomTypes ? new Uint8Array(slab.roomTypes) : null;
-					if (copy) transferable.push(copy.buffer);
-					return { ...slab, roomTypes: copy };
+			/*
+			 * `reuse` says the worker already holds this exact geometry. It cannot while it is
+			 * fresh — a new worker has been sent nothing — which is why the flag is cleared
+			 * whenever one is created or terminated.
+			 */
+			const reuse = geometryId === this.loadedGeometry;
+			const transferable: ArrayBuffer[] = [];
+			let geometry: Record<string, unknown> = {};
+
+			if (!reuse) {
+				// Copy buffers so we can transfer them
+				const maskCopy = new Uint8Array(wallMask);
+				const densityCopy = options?.densityMap ? new Float32Array(options.densityMap) : null;
+				const materialCopy =
+					options?.materialMask != null ? new Uint8Array(options.materialMask) : null;
+				const roomTypeCopy =
+					options?.roomTypeMask != null ? new Uint8Array(options.roomTypeMask) : null;
+				transferable.push(maskCopy.buffer);
+				if (densityCopy) transferable.push(densityCopy.buffer);
+				if (materialCopy) transferable.push(materialCopy.buffer);
+				if (roomTypeCopy) transferable.push(roomTypeCopy.buffer);
+
+				// Cross-floor source masks. Copied rather than transferred in place: the
+				// caller caches decoded masks per floor, so handing the buffer over would
+				// neuter a cache entry that the next run still expects to read. Room-type
+				// ids appear once per *floor* in the caller's data but once per *crossing*
+				// here, so a floor a path crosses twice is copied twice — never shared,
+				// because transfer detaches the buffer.
+				const fixedAps = (options?.fixedAps ?? []).map((fap) => {
+					const src = fap.source;
+					const slabs = fap.slabs;
+					if (!src && (!slabs || slabs.length === 0)) return fap;
+					const srcMaskCopy = src ? new Uint8Array(src.data) : null;
+					const srcMaterialCopy =
+						src?.materialMask != null ? new Uint8Array(src.materialMask) : null;
+					if (srcMaskCopy) transferable.push(srcMaskCopy.buffer);
+					if (srcMaterialCopy) transferable.push(srcMaterialCopy.buffer);
+					const slabCopies = (slabs ?? []).map((slab) => {
+						const copy = slab.roomTypes ? new Uint8Array(slab.roomTypes) : null;
+						if (copy) transferable.push(copy.buffer);
+						return { ...slab, roomTypes: copy };
+					});
+					return {
+						...fap,
+						source:
+							src && srcMaskCopy
+								? { ...src, data: srcMaskCopy, materialMask: srcMaterialCopy }
+								: null,
+						slabs: slabCopies.length > 0 ? slabCopies : null
+					};
 				});
-				return {
-					...fap,
-					source:
-						src && srcMaskCopy
-							? { ...src, data: srcMaskCopy, materialMask: srcMaterialCopy }
-							: null,
-					slabs: slabCopies.length > 0 ? slabCopies : null
+
+				geometry = {
+					fixedAps,
+					wallMask: maskCopy,
+					maskWidth,
+					maskHeight,
+					materialMask: materialCopy,
+					densityMap: densityCopy,
+					medianDensity: options?.medianDensity ?? 0,
+					roomTypeMask: roomTypeCopy
 				};
-			});
+			}
 
 			const msg = {
 				type: 'optimize' as const,
 				runId,
+				geometryId,
+				geometryReused: reuse,
+				...geometry,
 				aps,
-				fixedAps,
-				wallMask: maskCopy,
-				maskWidth,
-				maskHeight,
 				wallAttenuation,
-				materialMask: materialCopy,
 				defaultMaterial: options?.defaultMaterial ?? 0,
 				metersPerPixel: options?.metersPerPixel ?? 0,
 				allowOutside: options?.allowOutside ?? false,
-				densityMap: densityCopy,
-				medianDensity: options?.medianDensity ?? 0,
-				roomTypeMask: roomTypeCopy,
 				seed: options?.seed,
 				interferenceWeight: options?.interferenceWeight,
 				regulatoryDomain: options?.regulatoryDomain,
@@ -439,8 +504,49 @@ export class OptimizerBridge {
 				payloadVersion: OPTIMIZER_PAYLOAD_VERSION,
 				coverageFloor: options?.coverageFloor
 			};
-			this.getWorker().postMessage(msg, transferable);
+			if (reuse) {
+				// Reported because it is the difference between a hundred bytes and a hundred
+				// megabytes, and because a wrong reuse is otherwise invisible.
+				debug(`[optimizer] reusing the plan the worker holds (${geometryId})`);
+			} else {
+				this.loadedGeometry = geometryId;
+			}
+			worker.postMessage(msg, transferable);
 		});
+	}
+
+	/**
+	 * Identity of the geometry a run needs, without looking inside it.
+	 *
+	 * The arrays are the caller's cached decodes, so the same plan hands over the same objects
+	 * on every restart and every repeat. Anything the caller rebuilds per call simply misses
+	 * the cache and is sent again — the wrong answer here costs a copy, never a wrong plan.
+	 */
+	private geometryIdentity(
+		wallMask: Uint8Array,
+		options:
+			| {
+					materialMask?: Uint8Array | null;
+					roomTypeMask?: Uint8Array | null;
+					densityMap?: Float32Array | null;
+					fixedAps?: ReadonlyArray<{
+						source?: { data: Uint8Array; materialMask?: Uint8Array | null } | null;
+						slabs?: ReadonlyArray<{ roomTypes?: Uint8Array | null }> | null;
+					}>;
+				}
+			| undefined
+	): string {
+		const parts = [
+			inputId(wallMask),
+			inputId(options?.materialMask),
+			inputId(options?.roomTypeMask),
+			inputId(options?.densityMap)
+		];
+		for (const fixed of options?.fixedAps ?? []) {
+			parts.push(inputId(fixed.source?.data), inputId(fixed.source?.materialMask));
+			for (const slab of fixed.slabs ?? []) parts.push(inputId(slab.roomTypes));
+		}
+		return parts.join(',');
 	}
 
 	/**
@@ -462,6 +568,8 @@ export class OptimizerBridge {
 	terminate(): void {
 		this.worker?.terminate();
 		this.worker = null;
+		// The next worker is born empty, whatever this one was holding.
+		this.loadedGeometry = null;
 		this.cleanup();
 	}
 }

@@ -1,6 +1,5 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { OptimizerBridge, type OptimizeResult } from './optimizer-bridge.js';
-
 /*
  * The bridge's half of the worker protocol.
  *
@@ -14,7 +13,8 @@ import { OptimizerBridge, type OptimizeResult } from './optimizer-bridge.js';
  */
 
 interface Posted {
-	message: { type: string; runId?: string };
+	message: { type: string; runId?: string; geometryId?: string; wallMask?: unknown; geometryReused?: boolean };
+	transfer: unknown[];
 }
 
 class FakeWorker {
@@ -27,8 +27,8 @@ class FakeWorker {
 		FakeWorker.instances.push(this);
 	}
 
-	postMessage(message: { type: string; runId?: string }): void {
-		this.posted.push({ message });
+	postMessage(message: Posted['message'], transfer: unknown[] = []): void {
+		this.posted.push({ message, transfer });
 	}
 
 	terminate(): void {}
@@ -45,7 +45,7 @@ class FakeWorker {
 	}
 
 	/** The last message of a kind the bridge posted. */
-	lastOfType(type: string): { type: string; runId?: string } | undefined {
+	lastOfType(type: string): Posted['message'] | undefined {
 		return this.posted.filter((p) => p.message.type === type).at(-1)?.message;
 	}
 }
@@ -163,5 +163,58 @@ describe('OptimizerBridge protocol', () => {
 		worker.reply({ type: 'busy', runId });
 
 		await expect(run).rejects.toThrow('Another optimisation is still running');
+	});
+
+	it('sends the plan once, and the parameters on every run after it', async () => {
+		const bridge = new OptimizerBridge();
+		const mask = new Uint8Array(16);
+
+		const first = bridge
+			.optimize(aps(), mask, 4, 4, 5, { seed: 1 })
+			.catch((error: Error) => error);
+		const worker = FakeWorker.latest();
+		const firstMessage = worker.lastOfType('optimize')!;
+		worker.reply(result(firstMessage.runId!, 1));
+		await first;
+
+		// The same mask array is the same plan: a multi-start run must not ship nine megabytes
+		// of walls per restart.
+		const second = bridge.optimize(aps(), mask, 4, 4, 5, { seed: 2 });
+		const secondMessage = worker.lastOfType('optimize')!;
+		expect(secondMessage.wallMask).toBeUndefined();
+		expect(secondMessage.geometryReused).toBe(true);
+		expect(secondMessage.geometryId).toBe(firstMessage.geometryId);
+		expect(worker.posted.at(-1)!.transfer).toEqual([]);
+		worker.reply(result(secondMessage.runId!, 2));
+		await second;
+
+		// A different plan is a different geometry, and it is sent.
+		const third = bridge.optimize(aps(), new Uint8Array(16), 4, 4, 5, { seed: 3 });
+		const thirdMessage = worker.lastOfType('optimize')!;
+		expect(thirdMessage.geometryReused).toBe(false);
+		expect(thirdMessage.wallMask).toBeInstanceOf(Uint8Array);
+		worker.reply(result(thirdMessage.runId!, 3));
+		await third;
+	});
+
+	it('sends the plan again to a worker that was restarted', async () => {
+		const bridge = new OptimizerBridge();
+		const mask = new Uint8Array(16);
+
+		const first = bridge.optimize(aps(), mask, 4, 4, 5, { seed: 1 });
+		const worker = FakeWorker.latest();
+		worker.reply(result(worker.lastOfType('optimize')!.runId!, 1));
+		await first;
+
+		bridge.terminate();
+
+		// A new worker has been sent nothing, so "the geometry is still there" would be a lie
+		// and the run would be scored against whatever the new one had — which is nothing.
+		const second = bridge.optimize(aps(), mask, 4, 4, 5, { seed: 2 });
+		const resent = FakeWorker.latest().lastOfType('optimize')!;
+		expect(resent.geometryReused).toBe(false);
+		expect(resent.wallMask).toBeInstanceOf(Uint8Array);
+		FakeWorker.latest().reply(result(resent.runId!, 2));
+		await second;
 	});
 });

@@ -92,6 +92,29 @@ test.describe('Optimizer', () => {
 		// Coverage should improve (APs spread out from stacked corner)
 		expect(coverageAfter).toBeGreaterThanOrEqual(coverageBefore);
 		await page.screenshot({ path: 'test-results/optimizer/after-optimize.png' });
+
+		/*
+		 * A second run on the same plan.
+		 *
+		 * The worker is sent a floor's geometry once and reuses it for every later run against
+		 * the same masks (see `workers/optimizer/geometry.ts`), so this is the case that would
+		 * break silently if the reuse were wrong: the run would either score another plan's
+		 * walls or answer "the optimiser worker was not given this plan".
+		 */
+		const consoleLines: string[] = [];
+		page.on('console', (message) => consoleLines.push(message.text()));
+
+		await optimizeBtn.click();
+		await page.waitForTimeout(15000);
+
+		const coverageSecond = await page.evaluate(() => {
+			const el = document.querySelector('.metric-value');
+			return el ? parseInt(el.textContent || '0') : 0;
+		});
+		expect(coverageSecond).toBeGreaterThan(0);
+		await expect(page.getByText(/not given this plan/i)).toHaveCount(0);
+		// The bridge says so when it takes the reuse path, so the path is not merely assumed.
+		expect(consoleLines.some((line) => line.includes('reusing the plan'))).toBe(true);
 	});
 
 	test('optimizer shows error with no floorplan', async ({ page }) => {
