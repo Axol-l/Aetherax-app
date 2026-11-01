@@ -4,7 +4,7 @@
 >
 > 它不是"代码写得不好"的清单。现状是健康的：`src/` 里 0 个 `any`、0 个 `@ts-ignore`、0 个 TODO，全仓只有 51 个 `$effect`，50 个单测 + 29 个 e2e，而且大文件在稳定缩小（`CanvasView` 3384 → 2247 行，`optimizer.svelte.ts` 2047 → 918）。下面的每一条，都是**已经在正确方向上的工作还没走完的那一步**。
 >
-> **进度**：01–04 已实现（`canvas/engine.ts`、`state/persistence.svelte.ts`、`state/storage.ts`、`src-tauri/src/lib.rs`，配 11 个单测）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）；`pnpm check / test / lint / build / test:e2e` 全绿（591 单测 + 106 e2e）。其余条目待做。
+> **进度**：01–04、06、09 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（593 单测 + 106 e2e）。其余条目待做。
 
 ---
 
@@ -305,9 +305,11 @@ private loop = (): void => {
 
 这一组是**架构层最实在的问题**：不是代码丑，而是有两个地方都能改同一个东西，于是迟早不一致。
 
-### 06 · 掩膜换了原点，缓存以为什么都没变
+### 06 · 掩膜换了原点，缓存以为什么都没变 ✅ 已实现
 
 **位置**：`src/lib/state/floor-state.svelte.ts:427-431`、`src/lib/canvas/renderers/heatmap.ts:977`、`src/lib/state/optimizer-coverage.svelte.ts:96`
+
+**结论（实现后）**：根因是 `translateFloor` 就地改 origin，违反 `mask-registry.ts` 自己写下的规则。现在三个掩膜通过 `shiftMask` 换成新对象；另外两处"按 dataUrl / 按楼层 id 建键"的缓存也把 origin 纳进了键（`heatmapMaskTag`、覆盖率的 `cachedMaskOriginX/Y`）。`translate-floor.test.ts` 钉住了"移动后是新对象、旧对象不动"。
 
 **用户看到的现象**：用"对齐楼层"把一层整体挪到另一层上，覆盖率/热力图开始和墙对不上；把楼层切走再切回来（强制重算）又好了。
 
@@ -462,9 +464,11 @@ export const COVERAGE = { maxDim: 400, minDilateR: 4, minRegionRadius: ... };   
 
 ---
 
-### 09 · 撤销没有"文档边界"
+### 09 · 撤销没有"文档边界" ✅ 已实现
 
 **位置**：`src/lib/export/json.ts:88`、`src/lib/state/history.svelte.ts`
+
+**结论（实现后）**：`clearHistory()` 移进 `applyDocument`（所有加载都走这扇门），`persistence` 里重复的那次调用删掉了；新建项目对话框不经过 `applyDocument`（它是逐字段重置状态），所以它自己那次调用保留。`project-document.test.ts` 钉住"应用一份新文档后撤销/重做都是空的"。
 
 **用户看到的现象**：File → Import 打开别人的项目，手滑按了一下 Ctrl+Z —— 项目名、频段、单位还是别人的，平面图和 AP 变回了**你上一个项目**的。
 
@@ -929,8 +933,8 @@ src/lib/domain/materials.test.ts ← 补一个（现在没有）
 
 | 位置 | 问题 | 成本 |
 | --- | --- | --- |
-| `state/floor-mask.ts:58-85` | `setLiveSolverMask` 已导出、已被 `solver.svelte.ts:105` re-export，**全仓无人调用**；但 `getFloorMask:130` 还留着分支，会返回 `originX:0, originY:0` 和 `roomTypeData:null` | 15 行删除 |
-| `canvas/shortcuts.ts:191-203` | 两条 `mod+z` 分支永远到不了（前面已经接住了） | 10 行删除 |
+| `state/floor-mask.ts:58-85` | ✅ 已删：`setLiveSolverMask` 全仓无人调用，`getFloorMask` 里那个分支会返回 `originX:0, originY:0` | 15 行删除 |
+| `canvas/shortcuts.ts:191-203` | ✅ 已删：两条 `mod+z` 分支永远到不了（前面已经接住了，且这两条不存盘） | 10 行删除 |
 | `components/canvas/CanvasView.svelte:638` | `restoreFromStorage()` 没 await，启动瞬间的编辑可能被加载覆盖 | 1 行 |
 | `state/project-document.ts:313` | `migrate` 接受任何 `version >= 2`，却按当前版本重写；旧版打开新文件会静默截断数据 | 半天（加严格校验） |
 | `state/i18n.svelte.ts` | 644 行单文件，92 次提交里改了 26 次（和 CanvasView 共同变更 14 次）；约 1/3 条目已无法从 `src/` 触达。`t("Don't show this again")` 用双引号，目录测试的正则看不见它 | 1 天（按面板拆文件 + 校验双向） |
