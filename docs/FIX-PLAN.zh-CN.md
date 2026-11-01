@@ -828,7 +828,16 @@ export function setTool(tool: Tool): void {
 
 ---
 
-### 16 · CanvasView 手写同步 15 个图层 —— 进行中（顺序与可见性已收敛，effect 未动）
+### 16 · CanvasView 手写同步 15 个图层 —— 结构性危害已消除，effect 数量未动
+
+**结论（部分实现）**：这条的两个**真实危害**都处理掉了，剩下的"40 个 effect"是数量问题，不是正确性问题。
+
+1. **绘制顺序**从 20 次 `addLayer` 变成 `engine.setLayers([...])` —— 顺序即数据，在一个地方读完。
+2. **"只有单层视图才显示"** 从 14 份手写比较变成一个有名字的 `singleFloorView`。
+3. **图层不再是"挂载后才存在"**：16 个图层在组件初始化时就建好（`const`），25 个 `if (!layer) return` 守卫全部删除。那个守卫不是防御性代码，它问的是一个只有 Svelte 的 effect 刷新顺序才能回答的问题 —— 而守卫失败不会抛错，它只会让那个 effect 永久失效。
+4. **"楼层切换的 reset 必须先跑"** 这条不变量消失了：`MaskPipeline` 自己记住缓存属于哪一层，在 `syncWallMask` 开头自己清。原来它靠"这个 effect 声明在解码 effect 上面"维持 —— 在一个 2247 行的文件里把一个块往上挪一次就会静默画错楼层。
+
+**仍未做**：把几十个"读三个字段 → 赋给图层 → markDirty"的 effect 收进一个 `LayerSpec` 注册表。这是模板化的重复，改了能少几百行，但每一条都得手工核对语义，而且 e2e 未必抓得住某个字段漏同步 —— 建议单独一轮，专门做这个。
 
 **位置**：`src/lib/components/canvas/CanvasView.svelte`（2247 行，全仓变更最频繁的文件：34/92 次提交）
 
