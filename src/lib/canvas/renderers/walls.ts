@@ -1,5 +1,5 @@
 import type { Layer, RenderContext } from '../types.js';
-import type { DecodedWallMask } from '../wall-detect.js';
+import type { DecodedWallMask } from '../mask-codec.js';
 import { getMaterial, isVirtualMaterial, type WallMaterialId } from '../materials.js';
 
 export class WallLayer implements Layer {

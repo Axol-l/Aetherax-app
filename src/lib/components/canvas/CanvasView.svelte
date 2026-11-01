@@ -7,8 +7,8 @@
 	import { ApLayer } from '$canvas/renderers/ap.js';
 	import type { WallDistanceAnnotation } from '$canvas/renderers/ap.js';
 	import { WallLayer } from '$canvas/renderers/walls.js';
-	import { decodeMask, encodeMask } from '$canvas/wall-detect.js';
-	import type { DecodedWallMask } from '$canvas/wall-detect.js';
+	import { decodeMask, encodeMask } from '$canvas/mask-codec.js';
+	import type { DecodedWallMask } from '$canvas/mask-codec.js';
 	import {
 		cachedWallDistanceTransform,
 		createWallDistanceCache,

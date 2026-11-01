@@ -30,7 +30,7 @@
  * Field layout: the wall mask is 1 = wall, 0 = passable.
  */
 
-import type { DecodedWallMask } from './wall-detect.js';
+import type { DecodedWallMask } from './mask-codec.js';
 
 /** A point on the nearest wall, in mask pixels, and the distance to it. */
 export interface NearestWallPixel {

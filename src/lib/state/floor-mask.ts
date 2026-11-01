@@ -1,4 +1,4 @@
-import { decodeMask } from '$canvas/wall-detect.js';
+import { decodeMask } from '$canvas/mask-codec.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
 import { rasteriseWalls, DEFAULT_WALL_BAND } from './wall-raster.js';
 import { floorState } from './floor-state.svelte.js';

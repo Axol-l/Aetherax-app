@@ -9,7 +9,7 @@
 import { updateAp, beginMove } from './ap-state.svelte.js';
 import { apVerticalOffsetTo, getEffectiveWupm, type AccessPoint } from './ap-state.svelte.js';
 import type { Band } from '@aetherax/channels';
-import { decodeMask } from '$canvas/wall-detect.js';
+import { decodeMask } from '$canvas/mask-codec.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
 import { buildRoomDomain } from '$canvas/rooms.js';
 import type { SlabCrossing } from '$lib/rf/cross-floor.js';

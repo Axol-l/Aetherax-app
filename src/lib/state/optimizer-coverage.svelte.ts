@@ -18,7 +18,7 @@ import { surfaceHeightAt, deckCrossing } from '$lib/rf/surface-height.js';
 import { bestReflection } from '$lib/rf/reflection.js';
 import { diffractionLossDb, edgesOf } from '$lib/rf/diffraction.js';
 import type { Band } from '@aetherax/channels';
-import { decodeMask, type DecodedWallMask } from '$canvas/wall-detect.js';
+import { decodeMask, type DecodedWallMask } from '$canvas/mask-codec.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
 import { getMaterialDbTable } from '$canvas/materials.js';
 import { buildRoomDomain } from '$canvas/rooms.js';

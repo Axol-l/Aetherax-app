@@ -19,7 +19,7 @@
 	import { wallState } from '$state/wall-state.svelte';
 	import { applyPathLossScenario } from '$state/path-loss-state.svelte';
 	import { scheduleSave } from '$state/persistence.svelte.js';
-	import { decodeMask } from '$canvas/wall-detect.js';
+	import { decodeMask } from '$canvas/mask-codec.js';
 	import { computeBuildingInterior } from '$canvas/morphology.js';
 	import {
 		PATH_LOSS_SCENARIOS,

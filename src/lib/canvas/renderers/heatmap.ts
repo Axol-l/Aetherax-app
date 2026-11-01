@@ -45,7 +45,7 @@ type HeatmapAp = AccessPoint & {
 		slabT?: number;
 	} | null;
 };
-import type { DecodedWallMask } from '../wall-detect.js';
+import type { DecodedWallMask } from '../mask-codec.js';
 import { computeBuildingInterior } from '../morphology.js';
 import type { WallMaterialId } from '../materials.js';
 import { getMaterialDbTable, getFlatAttenuation } from '../materials.js';

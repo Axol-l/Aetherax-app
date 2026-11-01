@@ -93,7 +93,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import { stepCount } from '$lib/rf/surface-height.js';
 	import NumberInput from '$components/shared/NumberInput.svelte';
 	import { detectBoundary, polygonArea } from '$canvas/boundary-detect.js';
-	import { encodeMask } from '$canvas/wall-detect.js';
+	import { encodeMask } from '$canvas/mask-codec.js';
 	import { detectFloorplanMasks } from '$canvas/detect-floorplan.js';
 	import { scheduleSave, forgetFloorplan } from '$state/persistence.svelte.js';
 	import { pushState } from '$state/history.svelte.js';

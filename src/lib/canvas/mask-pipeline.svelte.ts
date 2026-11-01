@@ -31,7 +31,7 @@ import {
 	labelWallBlobs,
 	type RegionLabels
 } from './region-labels.js';
-import { encodeMask, decodeMask, type DecodedWallMask } from './wall-detect.js';
+import { encodeMask, decodeMask, type DecodedWallMask } from './mask-codec.js';
 import { floorState, currentFloor } from '$state/floor-state.svelte.js';
 import { floorplanState } from '$state/floorplan-state.svelte.js';
 import { wallState } from '$state/wall-state.svelte.js';
