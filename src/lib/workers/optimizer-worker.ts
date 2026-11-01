@@ -1,6 +1,6 @@
 /// <reference lib="webworker" />
 
-import { computeBuildingInterior } from '../canvas/morphology.js';
+import { buildRoomDomain } from '../canvas/rooms.js';
 import { clipInteriorToPlanningArea } from '../state/planning-area.js';
 import { isVoidRoomType } from '../canvas/room-types.js';
 import {
@@ -1373,16 +1373,15 @@ async function runOptimization(msg: OptimizeMessage, run: Run): Promise<void> {
 	// canvas use. At 200 the interior boundary was quantised twice as coarsely
 	// (about 7.5 full-resolution pixels on a 1500 px plan instead of 3.75),
 	// which let the optimiser accept positions that visibly sat outside a room.
-	const { interior } = computeBuildingInterior(mask, w, h, {
-		maxDim: 400,
-		dilateRatio: 0.04,
-		minDilateR: 4,
-		// This mask is the placement domain: an AP against a wall face is not a placement.
-		trimWallAdjacent: true,
-		// ...and a wall cavity is not a room. Without this the domain includes every
-		// sliver a plan encloses between two drawn lines, which the search then uses —
-		// an AP 3 cm from a wall, in a 0.6 m² pocket. See `minRoomRadiusWu`.
-		minRegionRadius: msg.minRoomRadiusWu ?? 0
+	// The shared derivation, so the search and the app draw the same rooms — see
+	// `canvas/rooms.ts`. Trimmed: this mask is the placement domain, and an AP against a
+	// wall face is not a placement.
+	const { interior } = buildRoomDomain(mask, w, h, {
+		// A wall cavity is not a room. Without this the domain includes every sliver a plan
+		// encloses between two drawn lines, which the search then uses — an AP 3 cm from a
+		// wall, in a 0.6 m² pocket. See `minRoomRadiusWu`.
+		minRegionRadius: msg.minRoomRadiusWu ?? 0,
+		trimWallAdjacent: true
 	});
 
 	// Voids are holes in the floor, so they come out of the interior an AP may be
@@ -1481,13 +1480,12 @@ async function runOptimization(msg: OptimizeMessage, run: Run): Promise<void> {
 	const wantsWallBand = wallMounted.some(Boolean);
 	let wallPlacement: WallPlacement | null = null;
 	if (wantsWallBand) {
-		const { interior: untrimmed } = computeBuildingInterior(mask, w, h, {
-			maxDim: 400,
-			dilateRatio: 0.04,
-			minDilateR: 4,
-			// The band has to obey the same room test as the domain: a wall mount in a
-			// cavity between two drawn lines is the same complaint as a ceiling one there.
-			minRegionRadius: msg.minRoomRadiusWu ?? 0
+		// Untrimmed on purpose: the band is walked out from the wall, so the pixels touching
+		// it are the ones it needs. The room test is still the shared one — a wall mount in a
+		// cavity between two drawn lines is the same complaint as a ceiling one there.
+		const { interior: untrimmed } = buildRoomDomain(mask, w, h, {
+			minRegionRadius: msg.minRoomRadiusWu ?? 0,
+			trimWallAdjacent: false
 		});
 		if (roomTypeMask && roomTypeMask.length === w * h) {
 			for (let i = 0; i < w * h; i++) {

@@ -21,7 +21,7 @@ import type { Band } from '@aetherax/channels';
 import { decodeMask, type DecodedWallMask } from '$canvas/wall-detect.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
 import { getMaterialDbTable } from '$canvas/materials.js';
-import { computeBuildingInterior } from '$canvas/morphology.js';
+import { buildRoomDomain } from '$canvas/rooms.js';
 import { COVERAGE_MARGIN_DB, coverageMarginDb, coverageHorizontalReach, slabDbOf } from '$lib/rf/propagation.js';
 import { slabLossFactor, type SlabCrossing } from '$lib/rf/cross-floor.js';
 import { splitWallRunLoss, wallRunLoss, type WallRun } from '$lib/rf/link-budget.js';
@@ -135,15 +135,12 @@ async function ensureCoverageCache(): Promise<boolean> {
 			? await decodeMaterialMask(matMask.dataUrl, matMask.width, matMask.height)
 			: null;
 
-	const { interior } = computeBuildingInterior(cachedMask.data, mask.width, mask.height, {
-		maxDim: 400,
-		dilateRatio: 0.04,
-		minDilateR: 4,
-		// The coverage sample set: the same domain the optimiser places in — including
-		// which regions count as rooms, so a cavity is not counted as floor area that
-		// needs covering either. See `room-domain.ts`.
-		trimWallAdjacent: true,
-		minRegionRadius: minRoomRadiusWu()
+	// The coverage sample set: the same domain the optimiser places in — including which
+	// regions count as rooms, so a cavity is not counted as floor area that needs covering
+	// either. Trimmed, because that is what the placement domain is. See `canvas/rooms.ts`.
+	const { interior } = buildRoomDomain(cachedMask.data, mask.width, mask.height, {
+		minRegionRadius: minRoomRadiusWu(),
+		trimWallAdjacent: true
 	});
 
 	/*

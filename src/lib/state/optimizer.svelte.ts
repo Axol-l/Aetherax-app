@@ -15,7 +15,7 @@ import { apHeightAboveFloor, apSplitFor, apVerticalOffsetTo, getEffectiveWupm } 
 import type { Band, ChannelWidth } from '@aetherax/channels';
 import { scheduleSave } from './persistence.svelte.js';
 import { t } from './i18n.svelte.js';
-import { computeBuildingInterior } from '$canvas/morphology.js';
+import { buildRoomDomain } from '$canvas/rooms.js';
 import type { SlabCrossing } from '$lib/rf/cross-floor.js';
 import { isVoidRoomType } from '$canvas/room-types.js';
 import { OptimizerBridge, type OptimizeProgress } from '../workers/optimizer-bridge.js';
@@ -533,22 +533,19 @@ async function optimizeFloor(
 		// mode this guards against is invisible otherwise: the optimiser reports
 		// success and the APs simply sit somewhere unexpected.
 		if (!projectMeta.allowOutsideRooms) {
-			const check = computeBuildingInterior(decoded.data, mask.width, mask.height, {
-				maxDim: 400,
-				dilateRatio: 0.04,
-				minDilateR: 4,
-				// Same domain the worker placed into, or this check would be comparing an AP
-				// against a different interior from the one it was placed in — including
-				// which regions count as rooms. See `room-domain.ts`.
-				trimWallAdjacent: true,
-				minRegionRadius: minRoomRadiusWu()
+			// Same domain the worker placed into, or this check would be comparing an AP
+			// against a different interior from the one it was placed in — including which
+			// regions count as rooms. See `canvas/rooms.ts`.
+			const { interior: check } = buildRoomDomain(decoded.data, mask.width, mask.height, {
+				minRegionRadius: minRoomRadiusWu(),
+				trimWallAdjacent: true
 			});
 			// Mirror the worker's void exclusion, or a void reads as "AP landed
 			// outside the interior" when the worker deliberately placed it there.
 			const rtData = densityResult?.roomTypeData;
-			if (rtData && rtData.length === check.interior.length) {
-				for (let i = 0; i < check.interior.length; i++) {
-					if (check.interior[i] && isVoidRoomType(rtData[i]!)) check.interior[i] = 0;
+			if (rtData && rtData.length === check.length) {
+				for (let i = 0; i < check.length; i++) {
+					if (check[i] && isVoidRoomType(rtData[i]!)) check[i] = 0;
 				}
 			}
 			let count = 0;
@@ -556,8 +553,8 @@ async function optimizeFloor(
 			let minY = Infinity;
 			let maxX = -1;
 			let maxY = -1;
-			for (let i = 0; i < check.interior.length; i++) {
-				if (!check.interior[i]) continue;
+			for (let i = 0; i < check.length; i++) {
+				if (!check[i]) continue;
 				count++;
 				const x = i % mask.width;
 				const y = (i / mask.width) | 0;
@@ -575,7 +572,7 @@ async function optimizeFloor(
 				const ix = Math.round(p.x);
 				const iy = Math.round(p.y);
 				if (ix < 0 || ix >= mask.width || iy < 0 || iy >= mask.height) return true;
-				return check.interior[iy * mask.width + ix] !== 1;
+				return check[iy * mask.width + ix] !== 1;
 			});
 			if (outside.length > 0) {
 				optimizerState.error =

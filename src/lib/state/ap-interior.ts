@@ -13,7 +13,8 @@
  * event handler without ordering surprises.
  */
 import { debug } from '$lib/log.js';
-import { computeBuildingInterior, sealOpenings } from '$canvas/morphology.js';
+import { sealOpenings } from '$canvas/morphology.js';
+import { buildRoomDomain } from '$canvas/rooms.js';
 import { maskSignature } from '$canvas/mask-registry.js';
 import { isVoidRoomType } from '$canvas/room-types.js';
 import { getEffectiveWupm } from './ap-state.svelte.js';
@@ -94,15 +95,12 @@ async function computeInterior(floorId: string): Promise<CachedInterior | null> 
 	const sealRadius = Math.max(1, Math.round(SEAL_RADIUS_M * wupm));
 	const interiorStarted = performance.now();
 	const sealed = sealOpenings(decoded.wallData, decoded.width, decoded.height, sealRadius);
-	const { interior } = computeBuildingInterior(sealed, decoded.width, decoded.height, {
-		// The optimiser's own options, verbatim: a different domain here would mean an AP
-		// this guard rejects and the optimiser happily places, or the other way round.
-		maxDim: 400,
-		dilateRatio: 0.04,
-		minDilateR: 4,
-		trimWallAdjacent: true,
-		// ...including which regions count as rooms. See `room-domain.ts`.
-		minRegionRadius: minRoomRadiusWu()
+	const { interior } = buildRoomDomain(sealed, decoded.width, decoded.height, {
+		// The optimiser's own domain, verbatim: a different one here would mean an AP this
+		// guard rejects and the optimiser happily places, or the other way round. See
+		// `canvas/rooms.ts`.
+		minRegionRadius: minRoomRadiusWu(),
+		trimWallAdjacent: true
 	});
 	// Timed: the flood fill and the sealing run on the whole mask, and this recomputes
 	// whenever the walls change — on the same frame the user releases the pointer.

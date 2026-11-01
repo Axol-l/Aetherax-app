@@ -11,10 +11,9 @@ import { apVerticalOffsetTo, getEffectiveWupm, type AccessPoint } from './ap-sta
 import type { Band } from '@aetherax/channels';
 import { decodeMask } from '$canvas/wall-detect.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
-import { computeBuildingInterior } from '$canvas/morphology.js';
+import { buildRoomDomain } from '$canvas/rooms.js';
 import type { SlabCrossing } from '$lib/rf/cross-floor.js';
 import { crossingSlabsFor as crossingSlabsForFloors } from '$lib/rf/slab-crossings.js';
-import { labelRooms } from '$canvas/region-labels.js';
 import { ROOM_TYPES, isVoidRoomType } from '$canvas/room-types.js';
 import { floorState, boundarySlabLossDb, floorElevation, floorsByLevel, type Floor } from './floor-state.svelte.js';
 import { getFloorMask } from './floor-mask.js';
@@ -80,15 +79,15 @@ async function getDensityRoomLabels(
 	if (!wm) return null;
 	if (densityWallMaskRef === wm && densityRoomLabels) return densityRoomLabels;
 	const decoded = await decodeMask(wm.dataUrl, wm.width, wm.height);
-	const { interior } = computeBuildingInterior(decoded.data, maskWidth, maskHeight, {
-		maxDim: 400,
-		dilateRatio: 0.04,
-		minDilateR: 4,
-		// Rooms, not cavities: this drives the per-room density the objective weights
-		// samples by, and a wall cavity is not a room with an occupancy. See `room-domain.ts`.
-		minRegionRadius: minRoomRadiusWu()
+	// Rooms, not cavities: this drives the per-room density the objective weights samples
+	// by, and a wall cavity is not a room with an occupancy. Untrimmed, because the wall-
+	// adjacent pixels are still part of the room the user drew — and because the canvas's own
+	// labels, which key the overrides read below, are untrimmed too. See `canvas/rooms.ts`.
+	const { labels } = buildRoomDomain(decoded.data, maskWidth, maskHeight, {
+		minRegionRadius: minRoomRadiusWu(),
+		trimWallAdjacent: false
 	});
-	densityRoomLabels = labelRooms(interior, maskWidth, maskHeight).labels;
+	densityRoomLabels = labels;
 	densityWallMaskRef = wm;
 	return densityRoomLabels;
 }

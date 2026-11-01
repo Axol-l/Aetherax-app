@@ -24,11 +24,10 @@ import { debug } from '$lib/log.js';
 import type { HeatmapLayer } from './renderers/heatmap.js';
 import type { RoomLabelsLayer } from './renderers/room-labels.js';
 import type { WallLayer } from './renderers/walls.js';
-import { computeBuildingInterior } from './morphology.js';
+import { buildRoomDomain } from './rooms.js';
 import {
 	decodeMaterialMask,
 	encodeMaterialMask,
-	labelRooms,
 	labelWallBlobs,
 	type RegionLabels
 } from './region-labels.js';
@@ -39,6 +38,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 import { invalidateSolverMaskCache } from '$state/floor-mask.js';
 import { updateCoverage } from '$state/optimizer.svelte.js';
 import { scheduleSave } from '$state/persistence.svelte.js';
+import { minRoomRadiusWu } from '$state/room-domain.js';
 
 /** A raster produced by the wall editor or the segment rasteriser. */
 export interface MaterialisedMask {
@@ -199,15 +199,18 @@ export class MaskPipeline {
 				this.wallLabels = labelWallBlobs(decoded.data, decoded.width, decoded.height);
 				this.materialData = materialData ?? null;
 
-				// Compute building interior + room labels for room type detection
-				const interiorResult = computeBuildingInterior(
+				// The rooms of this plan, from the one derivation everyone shares. The ids this
+				// produces are the ids a click on the canvas writes into `roomDensityOverrides`,
+				// and the optimiser reads them back against its own copy of the same partition
+				// — so these parameters are not a local choice. See `canvas/rooms.ts`.
+				const domain = buildRoomDomain(
 					decoded.data,
 					decoded.width,
 					decoded.height,
-					{ maxDim: 400 }
+					{ minRegionRadius: minRoomRadiusWu(), trimWallAdjacent: false }
 				);
-				this.interior = interiorResult.interior;
-				this.roomLabels = labelRooms(this.interior, decoded.width, decoded.height);
+				this.interior = domain.interior;
+				this.roomLabels = { labels: domain.labels, regionCount: domain.regionCount };
 
 				// Decode room type mask if persisted
 				const roomTypeMask = wallState.roomTypeMask;
@@ -342,10 +345,14 @@ export class MaskPipeline {
 		// Recompute blob labels so click-to-override works on the edited walls
 		this.wallLabels = labelWallBlobs(data, width, height);
 
-		// Recompute interior + room labels for room type detection
-		const interiorResult = computeBuildingInterior(data, width, height, { maxDim: 400 });
-		this.interior = interiorResult.interior;
-		this.roomLabels = labelRooms(this.interior, width, height);
+		// Rooms, from the same derivation as the decode path above — the ids a click writes
+		// into `roomDensityOverrides` have to be the ids the optimiser reads them back with.
+		const domain = buildRoomDomain(data, width, height, {
+			minRegionRadius: minRoomRadiusWu(),
+			trimWallAdjacent: false
+		});
+		this.interior = domain.interior;
+		this.roomLabels = { labels: domain.labels, regionCount: domain.regionCount };
 
 		// Room type data may need resizing if the mask dimensions changed
 		if (this.roomTypeData && this.roomTypeData.length !== width * height) {
