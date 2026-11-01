@@ -584,12 +584,21 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let apLayer: ApLayer;
 	let wallLayer: WallLayer;
 	let autoSolveTimeout: ReturnType<typeof setTimeout> | null = null;
+
+	/**
+	 * Whether the layers that belong to *one* floor are on screen.
+	 *
+	 * The overviews (tiled, stacked, 3D) draw the building themselves; every editing layer
+	 * hides in them, and each effect used to spell the test out for itself. One name for it,
+	 * read in the effects, so "which views show this layer" is one decision rather than
+	 * fourteen copies of a comparison.
+	 */
+	let singleFloorView = $derived(appState.floorView === 'single');
+
 	let showEmptyHint = $derived(
 		// Only in the view where the hint's advice can be acted on: the overviews are
 		// read-only, and a "drop a floorplan here" over a 3D model is noise.
-		appState.floorView === 'single' &&
-			apState.aps.length === 0 &&
-			!floorplanState.floorplanUrl
+		singleFloorView && apState.aps.length === 0 && !floorplanState.floorplanUrl
 	);
 
 	/**
@@ -657,40 +666,42 @@ import { wallState } from '$state/wall-state.svelte.js';
 		stackedFloorsLayer = new StackedFloorsLayer(floorCards);
 		stackedFloorsLayer.onLoad = () => engine?.markDirty();
 		floor3DLayer = new Floor3DLayer(floorCards);
-
-		// Add layers in draw order: floorplan, grid, heatmap, walls, room labels, APs, selection rect
-		engine.addLayer(floorplanLayer);
-		engine.addLayer(gridLayer);
-		engine.addLayer(heatmapLayer);
-		engine.addLayer(wallLayer);
-		// Above the current floor's plan and walls on purpose: the underlay is 80%
-		// opaque, so a ghost drawn below it would be invisible exactly when it is
-		// needed. Below the labels and APs, which belong to the current floor.
-		engine.addLayer(referenceFloorLayer);
-		// Last, so it covers everything: in tiled view the single-floor layers have
-		// already switched themselves off, but the background is still theirs.
-		engine.addLayer(floorTilesLayer);
-		engine.addLayer(stackedFloorsLayer);
-		engine.addLayer(roomLabelsLayer);
-		engine.addLayer(apLayer);
-		engine.addLayer(selectionRectLayer);
-		engine.addLayer(reviewHighlightLayer);
-		// The measured calibration line, over the plan it measures.
 		calibrationLineLayer = new CalibrationLineLayer();
-		engine.addLayer(calibrationLineLayer);
 		planningAreaLayer = new PlanningAreaLayer();
-		engine.addLayer(planningAreaLayer);
-		// Above the heatmap, under the walls and the labels: a raised area is a property
-		// of the floor, and it has to be visible over the coverage it changes.
 		surfacesLayer = new SurfacesLayer();
-		engine.addLayer(surfacesLayer);
 		notesLayer = new NotesLayer();
-		engine.addLayer(notesLayer);
 		vectorWallsLayer = new VectorWallsLayer();
-		engine.addLayer(vectorWallsLayer);
-		// The 3D view draws the whole floor itself, so it goes on top: when it is visible
-		// every layer beneath it has already switched itself off.
-		engine.addLayer(floor3DLayer);
+
+		// Add layers in draw order: the array is the order.
+		engine.setLayers([
+			floorplanLayer,
+			gridLayer,
+			heatmapLayer,
+			wallLayer,
+			// Above the current floor's plan and walls on purpose: the underlay is 80%
+			// opaque, so a ghost drawn below it would be invisible exactly when it is
+			// needed. Below the labels and APs, which belong to the current floor.
+			referenceFloorLayer,
+			// Last, so it covers everything: in tiled view the single-floor layers have
+			// already switched themselves off, but the background is still theirs.
+			floorTilesLayer,
+			stackedFloorsLayer,
+			roomLabelsLayer,
+			apLayer,
+			selectionRectLayer,
+			reviewHighlightLayer,
+			// The measured calibration line, over the plan it measures.
+			calibrationLineLayer,
+			planningAreaLayer,
+			// Above the heatmap, under the walls and the labels: a raised area is a property
+			// of the floor, and it has to be visible over the coverage it changes.
+			surfacesLayer,
+			notesLayer,
+			vectorWallsLayer,
+			// The 3D view draws the whole floor itself, so it goes on top: when it is visible
+			// every layer beneath it has already switched itself off.
+			floor3DLayer
+		]);
 
 		// Create interaction handlers
 		panZoom = new PanZoomHandler(engine);
@@ -806,7 +817,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				? decoded
 				: null;
 
-		const show = appState.floorView === 'single' && appState.showAPs;
+		const show = singleFloorView && appState.showAPs;
 		const unit = lengthUnit(floorplanState.unitSystem);
 		const wupm = getEffectiveWupm();
 
@@ -875,7 +886,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	$effect(() => {
 		if (!gridLayer) return;
-		gridLayer.visible = appState.floorView === 'single' && appState.showGrid;
+		gridLayer.visible = singleFloorView && appState.showGrid;
 		engine.markDirty();
 	});
 
@@ -889,7 +900,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	$effect(() => {
 		if (!reviewHighlightLayer) return;
 		reviewHighlightLayer.box =
-			appState.floorView === 'single' ? canvasState.reviewHighlight : null;
+			singleFloorView ? canvasState.reviewHighlight : null;
 		engine.markDirty();
 	});
 
@@ -902,7 +913,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	$effect(() => {
 		if (!calibrationLineLayer) return;
 		const points = appState.calibrationPoints;
-		const visible = appState.floorView === 'single';
+		const visible = singleFloorView;
 		calibrationLineLayer.a = visible && points[0] ? points[0] : null;
 		calibrationLineLayer.b = visible && points[1] ? points[1] : null;
 		engine.markDirty();
@@ -916,7 +927,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 */
 	$effect(() => {
 		if (!planningAreaLayer) return;
-		const visible = appState.floorView === 'single';
+		const visible = singleFloorView;
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		planningAreaLayer.area = visible ? (floor?.planningArea ?? null) : null;
 		planningAreaLayer.draft = visible ? appState.planningDraft : [];
@@ -942,7 +953,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		 * rebuilt once from the final positions.
 		 */
 		heatmapLayer.visible =
-			appState.floorView === 'single' && appState.showHeatmap && !canvasState.isDragging;
+			singleFloorView && appState.showHeatmap && !canvasState.isDragging;
 		engine.markDirty();
 	});
 
@@ -1073,13 +1084,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		const hasSegments = (floor?.walls ?? []).length > 0 || (floor?.columns ?? []).length > 0;
 		wallLayer.visible =
-			appState.floorView === 'single' && appState.showWalls && !hasSegments;
+			singleFloorView && appState.showWalls && !hasSegments;
 		engine.markDirty();
 	});
 
 	$effect(() => {
 		if (!roomLabelsLayer) return;
-		roomLabelsLayer.visible = appState.floorView === 'single' && appState.showRoomLabels;
+		roomLabelsLayer.visible = singleFloorView && appState.showRoomLabels;
 		engine.markDirty();
 	});
 
@@ -1096,13 +1107,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	$effect(() => {
 		if (!floorplanLayer) return;
-		floorplanLayer.visible = appState.floorView === 'single' && appState.showFloorplan;
+		floorplanLayer.visible = singleFloorView && appState.showFloorplan;
 		engine.markDirty();
 	});
 
 	$effect(() => {
 		if (!apLayer) return;
-		apLayer.visible = appState.floorView === 'single' && appState.showAPs;
+		apLayer.visible = singleFloorView && appState.showAPs;
 		engine.markDirty();
 	});
 
@@ -1130,7 +1141,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				 */
 				if (
 					url !== lastFittedUrl &&
-					appState.floorView === 'single' &&
+					singleFloorView &&
 					floorplanLayer.imageWidth > 0
 				) {
 					lastFittedUrl = url;
@@ -1247,7 +1258,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		if (!referenceFloorLayer || !engine) return;
 		const show = appState.showFloorBelow;
 		const below = show ? floorBelowCurrent() : null;
-		referenceFloorLayer.visible = appState.floorView === 'single' && !!below;
+		referenceFloorLayer.visible = singleFloorView && !!below;
 		if (!below) {
 			referenceFloorLayer.setPlan(null, 0, 0);
 			referenceFloorLayer.setMask(null, 0, 0);
@@ -1523,7 +1534,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		tileHeatWarming = true;
 		try {
 			for (;;) {
-				if (appState.floorView === 'single' || !appState.showHeatmap) return;
+				if (singleFloorView || !appState.showHeatmap) return;
 				let nextFloor: Floor | null = null;
 				for (const f of floorState.floors) {
 					// A floor with no APs of its own still shows the ones around it, so
@@ -1552,7 +1563,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	$effect(() => {
 		// Read everything the cache key depends on, so any change restarts the
 		// warm and the affected cards refresh.
-		if (appState.floorView === 'single' || !appState.showHeatmap) return;
+		if (singleFloorView || !appState.showHeatmap) return;
 		trackHeatmapInputs();
 		void projectMeta.heatmapRssiFloor;
 		void getEffectiveWupm();
@@ -1694,7 +1705,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	$effect(() => {
 		if (!vectorWallsLayer) return;
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-		vectorWallsLayer.visible = appState.floorView === 'single';
+		vectorWallsLayer.visible = singleFloorView;
 		vectorWallsLayer.walls = (floor?.walls ?? []) as VectorWall[];
 		vectorWallsLayer.columns = (floor?.columns ?? []) as VectorColumn[];
 		vectorWallsLayer.selectedId = appState.wallVectorSelected;
@@ -1769,7 +1780,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	$effect(() => {
 		if (!surfacesLayer) return;
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-		surfacesLayer.visible = appState.floorView === 'single';
+		surfacesLayer.visible = singleFloorView;
 		surfacesLayer.surfaces = floor?.surfaces ?? [];
 		surfacesLayer.selectedId = appState.surfaceSelected;
 		surfacesLayer.draft = appState.surfaceDraft;
@@ -2000,7 +2011,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	$effect(() => {
 		if (!notesLayer) return;
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-		notesLayer.visible = appState.showNotes && appState.floorView === 'single';
+		notesLayer.visible = appState.showNotes && singleFloorView;
 		notesLayer.notes = floor?.notes ?? [];
 		notesLayer.hoverId = appState.noteHoverId;
 		notesLayer.selectedId = appState.noteSelectedId;

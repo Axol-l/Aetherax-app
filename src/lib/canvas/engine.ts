@@ -65,6 +65,18 @@ export class CanvasEngine {
 		this.dpr = window.devicePixelRatio || 1;
 	}
 
+	/**
+	 * Install the layers, in draw order.
+	 *
+	 * The order *is* the array, so it can be read in one place instead of following twenty
+	 * `addLayer` calls down a `onMount` — where a layer added between two others said its
+	 * position by where somebody happened to type it.
+	 */
+	setLayers(layers: Layer[]): void {
+		this.layers = [...layers];
+		this.markDirty();
+	}
+
 	addLayer(layer: Layer): void {
 		this.layers.push(layer);
 	}
