@@ -3,6 +3,8 @@ import type { Layer, RenderContext } from '../types.js';
 export class SelectionRectLayer implements Layer {
 	id = 'selection-rect';
 	visible = true;
+	/** A gesture, not the plan. */
+	readonly exportable = false;
 
 	// World coordinates of the selection box
 	startX = 0;

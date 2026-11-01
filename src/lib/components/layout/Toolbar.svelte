@@ -92,7 +92,7 @@
 	async function handleExportPng() {
 		const engine = canvasEngineRef.engine;
 		if (!engine) return;
-		await exportPng(engine, { scale: 2, includeGrid: false });
+		await exportPng(engine, { scale: 2 });
 		announce(t('Exported as a PNG file'));
 	}
 

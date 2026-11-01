@@ -9,6 +9,8 @@ const FEET_PER_METER = 3.28084;
 export class GridLayer implements Layer {
 	id = 'grid';
 	visible = true;
+	/** A drawing aid, not part of the plan: never in an exported picture. */
+	readonly exportable = false;
 
 	// When set, grid snaps to real-world units
 	worldUnitsPerMeter: number | null = null;

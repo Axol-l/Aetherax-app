@@ -18,4 +18,12 @@ export interface Layer {
 	id: string;
 	visible: boolean;
 	render(rc: RenderContext): void;
+	/**
+	 * Whether the layer belongs in an exported picture. Defaults to true.
+	 *
+	 * This used to be decided by the exporters, which filtered on layer *ids* (`'grid'`,
+	 * `'selection-rect'`): a new overlay was exported until somebody remembered to add its id
+	 * to two lists. What a layer is for is the layer's own business.
+	 */
+	readonly exportable?: boolean;
 }

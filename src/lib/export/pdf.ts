@@ -5,7 +5,7 @@ import { getBuildingCoverage, floorCoverage, optimizerState, updateCoverage } fr
 import { floorState, switchFloor } from '$state/floor-state.svelte.js';
 import { appState } from '$state/app.svelte.js';
 import { fitCanvasToContent } from '$canvas/fit.js';
-import type { CanvasEngine } from '$canvas/engine.js';
+import { RENDER_BACKGROUND, type CanvasEngine } from '$canvas/engine.js';
 import { apState } from '$state/ap-state.svelte.js';
 import { projectMeta } from '$state/project-meta.svelte.js';
 import { floorplanState } from '$state/floorplan-state.svelte.js';
@@ -586,34 +586,13 @@ function captureCanvas(engine: CanvasEngine): { data: string; width: number; hei
 	tempCanvas.width = srcWidth * scale;
 	tempCanvas.height = srcHeight * scale;
 	const ctx = tempCanvas.getContext('2d')!;
-	ctx.scale(scale, scale);
 
-	ctx.fillStyle = '#0a0c12';
-	ctx.fillRect(0, 0, srcWidth, srcHeight);
-
-	const dpr = scale;
-	const rc = {
-		ctx,
-		camera: engine.camera,
-		width: srcWidth,
-		height: srcHeight,
-		dpr,
-		compositeOffscreen: (offscreen: HTMLCanvasElement, alpha = 1) => {
-			ctx.resetTransform();
-			ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-			if (alpha < 1) ctx.globalAlpha = alpha;
-			ctx.drawImage(offscreen, 0, 0);
-			if (alpha < 1) ctx.globalAlpha = 1;
-		}
-	};
-
-	for (const layer of engine.layers) {
-		if (!layer.visible) continue;
-		if (layer.id === 'grid' || layer.id === 'selection-rect') continue;
-		ctx.save();
-		layer.render(rc);
-		ctx.restore();
-	}
+	// The engine's own loop, into this canvas: the copy that used to live here filtered layers
+	// by id, so a new overlay was captured in the report until somebody remembered to name it.
+	engine.drawInto(
+		{ ctx, width: srcWidth, height: srcHeight, dpr: scale, background: RENDER_BACKGROUND },
+		{ include: (layer) => layer.exportable !== false }
+	);
 
 	return {
 		data: tempCanvas.toDataURL('image/jpeg', 0.9),

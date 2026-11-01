@@ -10,6 +10,26 @@ import type { Layer, RenderContext } from './types.js';
  */
 const MAX_RENDER_ERRORS = 3;
 
+/**
+ * What the picture is drawn on, when it is not this engine's own canvas.
+ *
+ * Export renders into an offscreen canvas at a different scale, and the loop that does it was
+ * a copy of this one — twice, in `export/png.ts` and `export/pdf.ts`, each with its own idea of
+ * what to leave out. One loop now, with the layer saying whether it belongs in a picture.
+ */
+export interface RenderTarget {
+	ctx: CanvasRenderingContext2D;
+	width: number;
+	height: number;
+	/** Device pixels per CSS pixel. The layers draw in CSS pixels. */
+	dpr: number;
+	/** Painted under the layers. Omitted, the target is cleared to transparent. */
+	background?: string;
+}
+
+/** The colour the app paints behind everything; exports use it so they are not transparent. */
+export const RENDER_BACKGROUND = '#0a0c12';
+
 export class CanvasEngine {
 	canvas: HTMLCanvasElement;
 	ctx: CanvasRenderingContext2D;
@@ -126,15 +146,40 @@ export class CanvasEngine {
 	};
 
 	private render(): void {
-		const { ctx, camera, width, height, dpr } = this;
-
-		// Resize backing buffer here (same frame as draw) to avoid blank flash
-		const bw = width * dpr;
-		const bh = height * dpr;
+		const bw = this.width * this.dpr;
+		const bh = this.height * this.dpr;
 		if (this.canvas.width !== bw || this.canvas.height !== bh) {
 			this.canvas.width = bw;
 			this.canvas.height = bh;
 		}
+		this.drawInto({ ctx: this.ctx, width: this.width, height: this.height, dpr: this.dpr });
+	}
+
+	/**
+	 * Draw the layers into a context that is not this engine's canvas.
+	 *
+	 * The on-screen loop and both exporters were three copies of this, and the exporters
+	 * decided what to leave out by layer id — so an overlay added later appeared in exported
+	 * pictures until somebody remembered to name it in two places. `include` is the caller's
+	 * only say now, and the layer itself says whether it belongs in a picture at all
+	 * (`Layer.exportable`).
+	 */
+	drawInto(target: RenderTarget, options: { include?: (layer: Layer) => boolean } = {}): void {
+		const { ctx, width, height, dpr } = target;
+
+		// Cleared or filled in *device* pixels: the layer transform below is in CSS pixels,
+		// and a clearRect under it would miss the edges by the DPR.
+		ctx.save();
+		ctx.setTransform(1, 0, 0, 1, 0, 0);
+		if (target.background) {
+			ctx.fillStyle = target.background;
+			ctx.fillRect(0, 0, width * dpr, height * dpr);
+		} else {
+			ctx.clearRect(0, 0, width * dpr, height * dpr);
+		}
+		ctx.restore();
+
+		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
 		const compositeOffscreen = (offscreen: HTMLCanvasElement, alpha = 1): void => {
 			ctx.resetTransform();
@@ -144,23 +189,14 @@ export class CanvasEngine {
 			if (alpha < 1) ctx.globalAlpha = 1;
 		};
 
-		const rc: RenderContext = { ctx, camera, width, height, dpr, compositeOffscreen };
+		const rc: RenderContext = { ctx, camera: this.camera, width, height, dpr, compositeOffscreen };
 
-		// Clear the full device-pixel buffer
-		ctx.resetTransform();
-		ctx.clearRect(0, 0, width * dpr, height * dpr);
-
-		// Apply DPR scaling once at the top level so all layer
-		// transforms operate in CSS-pixel space.
-		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-
-		// Render each visible layer
 		for (const layer of this.layers) {
-			if (layer.visible) {
-				ctx.save();
-				layer.render(rc);
-				ctx.restore();
-			}
+			if (!layer.visible) continue;
+			if (options.include && !options.include(layer)) continue;
+			ctx.save();
+			layer.render(rc);
+			ctx.restore();
 		}
 	}
 }
