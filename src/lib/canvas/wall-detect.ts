@@ -1,4 +1,3 @@
-import { createWorker, type Worker } from 'tesseract.js';
 import { computeBuildingInterior, dilateMask, erodeMask } from './morphology.js';
 
 export interface WallMask {
@@ -18,45 +17,22 @@ export interface DecodedWallMask {
 	originY: number;
 }
 
-let ocrWorker: Worker | null = null;
-
-/**
- * True once a load attempt has failed, so the caller can say so.
- *
- * `getOCRWorker` returning null used to end the story: the text-masking step was
- * silently skipped and every room label stood in the mask as a wall. Nothing in the UI
- * said why, which is the worst version of this failure — the mask is not obviously
- * broken, it is a plausible-looking plan with the words thickened into barriers.
- */
-let ocrUnavailable = false;
-
-export function isOcrUnavailable(): boolean {
-	return ocrUnavailable;
-}
-
-async function getOCRWorker(): Promise<Worker | null> {
-	if (ocrWorker) return ocrWorker;
-	try {
-		ocrWorker = await createWorker('eng');
-		// Set DPI to suppress "Estimating resolution" warnings
-		await ocrWorker.setParameters({ user_defined_dpi: '150' });
-		ocrUnavailable = false;
-		return ocrWorker;
-	} catch {
-		ocrUnavailable = true;
-		return null;
-	}
-}
-
 /**
  * Detect walls from a floorplan image.
- * Pipeline: OCR text masking -> threshold -> remove small blobs -> remove exterior blobs -> binary mask.
+ * Pipeline: threshold -> remove small blobs -> remove exterior blobs -> binary mask.
  * Returns a wall mask at displayWidth resolution in world coordinates.
+ *
+ * There used to be an OCR step in front of this that masked room labels, and it is gone
+ * rather than dormant: it loaded its model from a CDN, so the plan a laptop in a basement
+ * could read was read differently from the one next to a router, and when the model failed
+ * the step was skipped in silence. The job it was doing — keeping lettering out of the
+ * mask — is `wall-trace.ts`'s now: a run of a letter is twenty-odd pixels long, and the
+ * tracer drops runs that short. Doing it from the geometry instead of from a model is
+ * also what made it work on labels the model could not read at all.
  */
 export async function detectWalls(
 	image: HTMLImageElement,
-	displayWidth: number,
-	options?: { skipOcr?: boolean }
+	displayWidth: number
 ): Promise<WallMask | null> {
 	const displayScale = displayWidth / image.naturalWidth;
 	const w = displayWidth;
@@ -70,60 +46,9 @@ export async function detectWalls(
 
 	// Decide which way round the plan is, and repair unpainted pixels, before
 	// anything else reads them. See `resolveBackground`.
-	const { darkBg, paper } = resolveBackground(ctx, w, h);
+	const { darkBg } = resolveBackground(ctx, w, h);
 
-	// Step 1: OCR to find and mask text regions (raster images only)
-	// SVGs whose `<text>` elements were stripped by prepareSvgForDetection have
-	// nothing left for OCR to find; an SVG whose labels were *outlined* by the
-	// exporter does, and skipping it there left every room label standing as a
-	// wall. Callers therefore pass `removedText`, not "is this an SVG".
-	if (!options?.skipOcr)
-		try {
-			const worker = await getOCRWorker();
-			if (worker) {
-				// The paper tone `resolveBackground` settled on — *not* a fresh sample of
-				// the border. Asking the border twice gave two different answers whenever
-				// the edge was not the paper: on a scan with a dark edge the threshold read
-				// the walls correctly while `maskWords`, told the background was dark,
-				// painted over the paper inside every word box and left the letters
-				// standing. One decision, used by both steps.
-				const [bgR, bgG, bgB] = paper;
-				const pad = Math.max(2, Math.round(w * 0.003));
-
-				// Pass 1: detect horizontal/angled text with auto-rotation
-				const { data } = await worker.recognize(canvas, { rotateAuto: true }, { blocks: true });
-				maskWords(ctx, data, pad, bgR, bgG, bgB);
-
-				// Pass 2: rotate 90 degrees to catch vertical text
-				const rotCanvas = document.createElement('canvas');
-				rotCanvas.width = h;
-				rotCanvas.height = w;
-				const rotCtx = rotCanvas.getContext('2d')!;
-				rotCtx.translate(h, 0);
-				rotCtx.rotate(Math.PI / 2);
-				rotCtx.drawImage(canvas, 0, 0);
-
-				const { data: rotData } = await worker.recognize(
-					rotCanvas,
-					{ rotateAuto: true },
-					{ blocks: true }
-				);
-				// For rotated pass, mask on the rotated canvas then draw back
-				maskWords(rotCtx, rotData, pad, bgR, bgG, bgB);
-				// Redraw the cleaned rotated image back onto the original canvas
-				ctx.save();
-				ctx.setTransform(1, 0, 0, 1, 0, 0);
-				ctx.clearRect(0, 0, w, h);
-				ctx.translate(0, h);
-				ctx.rotate(-Math.PI / 2);
-				ctx.drawImage(rotCanvas, 0, 0);
-				ctx.restore();
-			}
-		} catch (e) {
-			console.warn('[wall-detect] OCR failed:', e);
-		}
-
-	// Step 2: Grayscale + threshold to binary (1 = wall pixel)
+	// Step 1: Grayscale + threshold to binary (1 = wall pixel)
 	const imageData = ctx.getImageData(0, 0, w, h);
 	const { data: pixels } = imageData;
 
@@ -381,8 +306,8 @@ function removeExteriorBlobs(binary: Uint8Array, w: number, h: number): void {
  * room fills and the lettering as walls while the drawn walls become holes. On
  * `static/samples/state-floor.svg` that was 0 % of border pixels opaque, border
  * luminance 0, and 24 % of the image returned as wall — none of it on a drawn
- * line. It also gave `sampleBorderRgb` a black "background" for OCR to judge
- * contrast against, so both symptoms have this one cause.
+ * line. It also gave `sampleBorderRgb` a black "background" to judge the paper
+ * against, so both symptoms have this one cause.
  *
  * The repair is to fill the unpainted area with a paper colour, so no later read
  * ever sees a phantom black. `destination-over` draws *behind* the existing
@@ -618,126 +543,6 @@ function darkestModalColour(colourCounts: Map<number, number>): [number, number,
 		(((bestKey >> 5) & 31) << 3) + 4,
 		((bestKey & 31) << 3) + 4
 	];
-}
-
-interface OcrBbox {
-	x0: number;
-	y0: number;
-	x1: number;
-	y1: number;
-}
-interface OcrSymbol {
-	bbox: OcrBbox;
-}
-interface OcrWord {
-	confidence: number;
-	text: string;
-	bbox: OcrBbox;
-	symbols?: OcrSymbol[];
-}
-interface OcrData {
-	blocks: Array<{
-		paragraphs: Array<{ lines: Array<{ words: OcrWord[] }> }>;
-	}> | null;
-}
-
-/** Mask text by erasing contrasting pixels within character-level bounding boxes.
- *  Uses Tesseract's symbol (char) boxes for tight masking that preserves nearby walls. */
-/**
- * The largest box that can still be a word, as a share of the drawing.
- *
- * tesseract, asked to read a drawing it cannot, does not return nothing — it
- * hallucinates, and confidently. Measured on a 2997 px Chinese CAD plan read with the
- * English model: eleven "words" covering **38 % of the drawing**, one box 599x155 px
- * (75 % of the width) recognised as "EEE", another 450x89 as "Ar", others as "BE",
- * "EC", "HN". `maskWords` painted the paper colour over the ink inside every one of
- * them — walls included — and the mask came back as fragments: 7,824 wall pixels
- * against 25,868 with text masking switched off, while the Chinese labels it was aimed
- * at were never boxed at all, so the lettering stayed too.
- *
- * A label is a small rectangle. The genuine boxes on that same plan ran 24-110 px wide
- * (3-14 % of the drawing's width), so these cuts sit far above anything real and far
- * below anything destructive.
- */
-const MAX_BOX_WIDTH_SHARE = 0.25;
-const MAX_BOX_HEIGHT_SHARE = 0.15;
-
-/**
- * Whether a recognised box is small enough to be a label rather than a mis-detected
- * region.
- *
- * Exported for the unit tests, which have no canvas to run OCR against.
- */
-export function isPlausibleTextbox(
-	box: { x0: number; y0: number; x1: number; y1: number },
-	w: number,
-	h: number
-): boolean {
-	if (box.x1 <= box.x0 || box.y1 <= box.y0) return false;
-	if (box.x1 - box.x0 > w * MAX_BOX_WIDTH_SHARE) return false;
-	if (box.y1 - box.y0 > h * MAX_BOX_HEIGHT_SHARE) return false;
-	return true;
-}
-
-function maskWords(
-	ctx: CanvasRenderingContext2D,
-	data: OcrData,
-	pad: number,
-	bgR: number,
-	bgG: number,
-	bgB: number
-): void {
-	if (!data.blocks) return;
-	const w = ctx.canvas.width;
-	const h = ctx.canvas.height;
-	const imgData = ctx.getImageData(0, 0, w, h);
-	const px = imgData.data;
-	const bgBright = (bgR + bgG + bgB) / 3;
-	const darkBg = bgBright < 128;
-	const loThreshold = darkBg ? 0 : bgBright * 0.75;
-	const hiThreshold = darkBg ? bgBright + (255 - bgBright) * 0.25 : 256;
-
-	function eraseContour(bbox: OcrBbox): void {
-		const bx0 = Math.max(0, bbox.x0 - pad);
-		const by0 = Math.max(0, bbox.y0 - pad);
-		const bx1 = Math.min(w - 1, bbox.x1 + pad);
-		const by1 = Math.min(h - 1, bbox.y1 + pad);
-		for (let y = by0; y <= by1; y++) {
-			for (let x = bx0; x <= bx1; x++) {
-				const i = (y * w + x) * 4;
-				const bright = (px[i]! + px[i + 1]! + px[i + 2]!) / 3;
-				if (darkBg ? bright > hiThreshold : bright < loThreshold) {
-					px[i] = bgR;
-					px[i + 1] = bgG;
-					px[i + 2] = bgB;
-				}
-			}
-		}
-	}
-
-	for (const block of data.blocks) {
-		for (const para of block.paragraphs) {
-			for (const line of para.lines) {
-				for (const word of line.words) {
-					if (word.confidence < 20 || word.text.length < 2) continue;
-					// A box too big to be a label is a mis-detection, and erasing what is
-					// inside it erases walls. See `MAX_BOX_WIDTH_SHARE`.
-					if (!isPlausibleTextbox(word.bbox, w, h)) continue;
-					// Use character-level boxes when available for tightest masking
-					if (word.symbols && word.symbols.length > 0) {
-						for (const sym of word.symbols) {
-							if (!isPlausibleTextbox(sym.bbox, w, h)) continue;
-							eraseContour(sym.bbox);
-						}
-					} else {
-						eraseContour(word.bbox);
-					}
-				}
-			}
-		}
-	}
-
-	ctx.putImageData(imgData, 0, 0);
 }
 
 /** Adaptive local threshold using integral image for O(1) per-pixel mean.

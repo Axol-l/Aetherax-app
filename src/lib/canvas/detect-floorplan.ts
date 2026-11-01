@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Pick the right detector for a plan and return its masks.
  *
  * Two detectors exist now and they answer different questions:
@@ -74,11 +74,6 @@ export interface FloorplanDetection {
 	source: string | null;
 	/** Present only when `via === 'raster'`: why the reader did not run. */
 	rasterReason: RasterReason | null;
-	/**
-	 * Present only on a raster path that wanted OCR: the text model could not be loaded,
-	 * so room labels are in the mask as walls.
-	 */
-	textMaskingFailed: boolean;
 }
 
 /**
@@ -140,7 +135,6 @@ export async function detectFloorplanMasks(
 					segments: vector.segments,
 					source: markup,
 					rasterReason: null,
-					textMaskingFailed: false
 				};
 			}
 		} catch (e) {
@@ -154,15 +148,15 @@ export async function detectFloorplanMasks(
 
 	const image = await prepareSvgForDetection(url);
 	/*
-	 * No text masking on the default path.
+	 * Pixels, with nothing in front of them.
 	 *
-	 * OCR existed to stop room labels being read as walls, and it loads its model from the
-	 * network — a planner that runs on a laptop in a basement never got it, and the failure was
-	 * silent. The tracing that now reads the mask keeps runs of a wall's length and drops the
-	 * twenty-odd-pixel strokes that lettering makes, which is the same job done locally. The code
-	 * is still there for a future "clean labels" pass; it is not on this path.
+	 * There used to be an OCR step here that masked room labels before the threshold. It is
+	 * gone (see `detectWalls`): it loaded its model over the network, so a plan read on a
+	 * laptop in a basement was read differently from the same plan next to a router, and it
+	 * failed silently when it could not load. The job — keeping lettering out of the mask —
+	 * belongs to the tracer now, which drops runs too short to be a wall.
 	 */
-	const wallMask = await detectWalls(image, targetWidth, { skipOcr: true });
+	const wallMask = await detectWalls(image, targetWidth);
 	return {
 		image,
 		wallMask,
@@ -173,7 +167,6 @@ export async function detectFloorplanMasks(
 		segments: null,
 		source: null,
 		rasterReason: reason,
-		textMaskingFailed: false
 	};
 }
 

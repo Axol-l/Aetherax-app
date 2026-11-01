@@ -7,8 +7,8 @@
  * it, an access point inside a drawn room must be covered, and a wall's material must
  * be a property of *the wall* rather than of pixels under it.
  *
- * Seeded rather than detected, deliberately: the sample plan's OCR pass costs a
- * minute and this is not a test of detection.
+ * Seeded rather than detected, deliberately: detecting the sample plan costs seconds
+ * and this is not a test of detection.
  */
 import { test, expect, type Page } from '@playwright/test';
 import { setupCleanState } from './helpers';

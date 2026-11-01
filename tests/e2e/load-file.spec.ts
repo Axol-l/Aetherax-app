@@ -42,8 +42,8 @@ test('a sample floorplan loads from the welcome screen', async ({ page }) => {
 
 	const before = await paintedPixels(page);
 	await page.locator('.sample-btn', { hasText: 'Apartment' }).first().click();
-	// Wall detection is OCR and takes seconds; the floorplan itself is drawn at once,
-	// which is what this asserts.
+	// Detection and the underlay draw are asynchronous; this waits for the picture
+	// rather than for any one of them, which is what the assertion is about.
 	await page.waitForTimeout(12_000);
 
 	expect(await paintedPixels(page)).toBeGreaterThan(before * 4);

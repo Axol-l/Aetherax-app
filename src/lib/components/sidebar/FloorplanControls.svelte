@@ -95,7 +95,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import { detectBoundary, polygonArea } from '$canvas/boundary-detect.js';
 	import { encodeMask } from '$canvas/wall-detect.js';
 	import { detectFloorplanMasks } from '$canvas/detect-floorplan.js';
-	import { scheduleSave } from '$state/persistence.svelte.js';
+	import { scheduleSave, forgetFloorplan } from '$state/persistence.svelte.js';
 	import { pushState } from '$state/history.svelte.js';
 	import Button from '$components/shared/Button.svelte';
 	import Icon from '$components/shared/Icon.svelte';
@@ -297,8 +297,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * maps onto this floor — origin, calibration prompt, undo-free replace.
 	 *
 	 * `isSvg` is passed through for the fallback: a vector plan whose classifier finds
-	 * no walls still falls back to pixels, and OCR is skipped there for the reason
-	 * measured on the samples — see `detectFloorplanMasks`.
+	 * no walls still falls back to pixels. See `detectFloorplanMasks`.
 	 */
 	async function runBoundaryDetection(url: string, isSvg = false) {
 		detecting = true;
@@ -359,7 +358,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 						}
 					: null;
 			wallState.rasterReason = detection.rasterReason;
-			wallState.textMaskingFailed = detection.textMaskingFailed;
 		} catch (e) {
 			console.warn('Detection failed:', e);
 		}
@@ -374,9 +372,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * redrawn on a plan they have already calibrated.
 	 *
 	 * This used to be the one path that could not tell an SVG from a raster — the
-	 * underlay is a session blob URL by now — so it ran OCR on vector plans, which
-	 * measurably erases their walls. `detectFloorplanMasks` decides on the file's
-	 * content instead, so Re-detect and the import path now agree.
+	 * underlay is a session blob URL by now — and it read those plans through the pixel
+	 * detector, which measurably erases their walls. `detectFloorplanMasks` decides on
+	 * the file's content instead, so Re-detect and the import path now agree.
 	 */
 	async function redetectWalls(forceRaster = false) {
 		const url = floorplanState.floorplanUrl;
@@ -407,7 +405,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 							}
 						: null;
 				wallState.rasterReason = detection.rasterReason;
-				wallState.textMaskingFailed = detection.textMaskingFailed;
 				/*
 				 * Trace the detected mask into segments.
 				 *
@@ -748,6 +745,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	function doRemoveFloorplan() {
 		pushState();
+		const floorId = floorState.currentFloorId;
 		floorplanState.floorplanUrl = null;
 		floorplanState.floorplanBoundary = null;
 		floorplanState.calibration = null;
@@ -757,7 +755,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 		wallState.roomTypeMask = null;
 		currentFloor().roomDensityOverrides = {};
 		currentFloor().roomCustomLabels = {};
-		apState.aps = apState.aps.filter((ap) => ap.floorId !== floorState.currentFloorId);
+		apState.aps = apState.aps.filter((ap) => ap.floorId !== floorId);
+		// The stored underlay outlives the plan it belongs to: its key is not derived from
+		// anything the floor still has once the image is gone.
+		void forgetFloorplan(floorId);
 		detectedWorldArea = null;
 		calibrationDone = false;
 		areaInput = '';

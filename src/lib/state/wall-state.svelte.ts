@@ -54,16 +54,7 @@ const session = $state({
 	 * user is the only one who can say which is wrong — but only if they are told which
 	 * one they are looking at.
 	 */
-	rasterReason: null as RasterReason | null,
-	/**
-	 * Set when the pixel path could not load its text model.
-	 *
-	 * This is the difference between a usable mask and a mess on any raster plan: OCR is
-	 * what removes the room labels before thresholding, and without it every word becomes
-	 * a barrier. The failure is a network fetch, so it comes and goes — which is exactly
-	 * why it has to be said out loud rather than left to look like a bad detector.
-	 */
-	textMaskingFailed: false
+	rasterReason: null as RasterReason | null
 });
 
 /**
@@ -127,12 +118,5 @@ export const wallState = {
 	},
 	set rasterReason(reason: RasterReason | null) {
 		session.rasterReason = reason;
-	},
-
-	get textMaskingFailed(): boolean {
-		return session.textMaskingFailed;
-	},
-	set textMaskingFailed(failed: boolean) {
-		session.textMaskingFailed = failed;
 	}
 };

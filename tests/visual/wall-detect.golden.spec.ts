@@ -1,12 +1,11 @@
 /**
  * Golden-image regression for the **pixel** wall detector.
  *
- * `wall-detect.ts` has no unit tests and cannot have them: it needs a real canvas
- * and, for rasters, a real OCR worker, neither of which exists in the vitest
- * (node) environment this project runs. The e2e suite asserts only that walls
- * appear at all, which is not enough to protect a chain of heuristics whose every
- * stage — OCR masking, adaptive threshold, blob filtering, exterior flood fill —
- * moves together when one threshold changes.
+ * `wall-detect.ts` has no unit tests and cannot have them: it needs a real canvas,
+ * which does not exist in the vitest (node) environment this project runs. The e2e
+ * suite asserts only that walls appear at all, which is not enough to protect a chain
+ * of heuristics whose every stage — adaptive threshold, blob filtering, exterior flood
+ * fill — moves together when one threshold changes.
  *
  * So each plan the project ships is pinned by its **output mask**. Every pixel of
  * it, plus a few invariants that hold whatever a future threshold does.
@@ -48,50 +47,42 @@ interface Plan {
 	 * without failing on a legitimate threshold refinement.
 	 */
 	wallShare: [number, number];
-	/** OCR runs on rasters, not on vector input. See `runBoundaryDetection`. */
-	expectOcr: boolean;
 }
 
 const PLANS: Plan[] = [
 	{
 		file: 'apartment-48sqm.svg',
 		why: 'the shipped demo plan: semantic SVG, thin walls and door/window gaps',
-		wallShare: [3, 12],
-		expectOcr: false
+		wallShare: [3, 12]
 	},
 	{
 		file: 'house-120sqm.svg',
 		why: 'the same authoring style at a larger footprint, 12 windows',
-		wallShare: [3, 12],
-		expectOcr: false
+		wallShare: [3, 12]
 	},
 	{
 		file: 'office-300sqm.svg',
 		why: 'the same authoring style with glass, desks and 8 doors',
-		wallShare: [4, 14],
-		expectOcr: false
+		wallShare: [4, 14]
 	},
 	{
 		file: 'apartment-48sqm.png',
-		why: 'the same plan as a raster: the only case that needs OCR',
-		wallShare: [2, 10],
-		expectOcr: true
+		why: 'the same plan as a raster: the one plan with no markup to read',
+		wallShare: [2, 10]
 	},
 	{
 		file: 'state-floor.svg',
 		why: 'Inkscape export, no classes, thick filled poché — the alpha-bug case',
-		wallShare: [8, 26],
-		expectOcr: false
+		wallShare: [8, 26]
 	},
 	{
 		file: 'little-white-house.svg',
 		why: 'Illustrator export, no classes, labels as outlines — the alpha-bug case',
-		wallShare: [4, 16],
-		expectOcr: false
+		wallShare: [4, 16]
 	}
 ];
 
-/** Per-plan budget: a raster import pays a tesseract worker start-up. */
+/** Per-plan budget: an import rasterises the whole sheet before it can threshold it. */
 const PLAN_TIMEOUT_MS = 120_000;
 
 test.describe('wall detection is pinned per plan', () => {

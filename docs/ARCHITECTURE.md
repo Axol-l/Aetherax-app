@@ -2,7 +2,8 @@
 
 A WiFi coverage and channel planner that runs as a desktop application. The frontend is a
 static SvelteKit SPA; Tauri v2 is a window and a installer around it. There is no server,
-no account, and no network dependency except the OCR assets Tesseract fetches on first use.
+no account, and no network dependency of any kind: the assets the interface needs ship in
+the bundle, and nothing downloads a model at runtime.
 
 This document is the map: what the layers are, which way dependencies point, how the three
 or four non-obvious data flows work, and where a new piece of code belongs. It is kept in
@@ -214,7 +215,7 @@ Both bridges live in `src/lib/workers/`.
 | `pnpm verify:desktop` | drives the built exe over the WebView2 debugger |
 
 CI (`.github/workflows/ci.yml`) runs the first four. The e2e and desktop checks are local
-because they need Chromium, OCR and a built executable.
+because they need Chromium and a built executable.
 
 The e2e build is the one build that keeps debug lines: several specs detect the end of an
 optimiser run by counting its `[optimizer] seed …` lines in the page console, so

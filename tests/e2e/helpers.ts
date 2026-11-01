@@ -108,12 +108,11 @@ export async function savedWallPixels(page: Page, floorIndex = 0): Promise<numbe
 /**
  * How long a spec that loads a sample plan needs.
  *
- * Detecting walls on the 48 sqm apartment is ~5 s of tesseract on an idle machine,
- * and several such specs starting at once multiply that: every worker runs its own
- * OCR, so the wall clock of each one stretches with the number of workers. The
- * 30 s default was sized for neither, which is why these files failed in a full
- * parallel run while passing one at a time. CI avoids the pile-up by running a
- * single worker; locally the timeout has to absorb it instead.
+ * Detecting walls on the 48 sqm apartment is a few hundred milliseconds of thresholding
+ * and tracing on an idle machine, and several such specs starting at once still multiply
+ * that. The 30 s default was sized for the OCR pass this used to run, which cost seconds
+ * per worker; it is left generous because the budget is a ceiling, not a target. CI
+ * avoids the pile-up by running a single worker; locally the timeout absorbs it.
  *
  * One budget, used for both the test and the wait inside it. They were two — a
  * 90 s test whose wall poll gave up at its own 30 s default — and the poll then
@@ -128,12 +127,11 @@ const SAMPLE_PLAN_WAIT_MS = SAMPLE_PLAN_TIMEOUT_MS - 15_000;
 /**
  * Wait until a floor's detected walls are in the saved project.
  *
- * Wall detection runs OCR, so the specs that load a sample plan used to wait a
- * flat `waitForTimeout(6000)`. That is not a wait for anything: under load the
- * detection finishes later and the spec fails somewhere unrelated, with the button
- * it wanted missing or a mask that "has no walls". Both of this suite's
- * long-standing flakes were that shape. Polling the saved mask is the condition
- * those specs actually depend on.
+ * The specs that load a sample plan used to wait a flat `waitForTimeout(6000)`. That is
+ * not a wait for anything: under load the detection finishes later and the spec fails
+ * somewhere unrelated, with the button it wanted missing or a mask that "has no walls".
+ * Both of this suite's long-standing flakes were that shape. Polling the saved mask is
+ * the condition those specs actually depend on.
  */
 export async function waitForDetectedWalls(
 	page: Page,

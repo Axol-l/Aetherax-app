@@ -88,6 +88,5 @@ scripts/bundle-fonts.ps1  re-fetches the two web fonts into static/fonts
 - **Persistence is still the browser's.** Projects live in `localStorage` of the webview's
   own profile directory, plus JSON/PDF/PNG export. Native file open/save through Tauri is
   the next step, not done yet.
-- **Wall detection uses tesseract.js**, which fetches its WASM core and language data
-  from a CDN on first use. That part still needs the network; bundling those assets
-  locally is on the list.
+- **Nothing reaches the network.** Wall detection thresholds pixels and traces them into
+  segments locally; there is no model to download and no CDN for the app to be behind.
