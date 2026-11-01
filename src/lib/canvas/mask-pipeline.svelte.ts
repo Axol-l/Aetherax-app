@@ -100,6 +100,8 @@ export class MaskPipeline {
 	private roomTypeUrl: string | null = null;
 	/** Guards the asynchronous decodes against a superseded floor or mask. */
 	private version = 0;
+	/** The floor whose masks these caches describe. See the reset in `syncWallMask`. */
+	private syncedFloorId = '';
 
 	constructor(private readonly host: MaskPipelineHost) {}
 
@@ -112,6 +114,21 @@ export class MaskPipeline {
 	syncWallMask(): void {
 		const { wallLayer, heatmapLayer } = this.host.layers();
 		if (!wallLayer || !heatmapLayer) return;
+
+		/*
+		 * A different floor's caches are not this floor's, so they are dropped here.
+		 *
+		 * The reset used to be a separate effect in the view, declared above this one: it worked
+		 * because Svelte flushes effects in creation order, which meant "the reset runs before
+		 * the decode" was an invariant nobody could see — moving one block of the view above the
+		 * other silently decoded into a stale key and handed back the previous floor's raster.
+		 * The pipeline knows which floor its caches belong to, so it can answer that itself.
+		 */
+		const floorId = floorState.currentFloorId;
+		if (floorId !== this.syncedFloorId) {
+			this.syncedFloorId = floorId;
+			this.reset();
+		}
 
 		const mask = wallState.wallMask;
 		const materialMask = wallState.materialMask;

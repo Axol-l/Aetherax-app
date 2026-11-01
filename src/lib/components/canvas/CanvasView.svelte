@@ -1002,17 +1002,18 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	// Reset the decode caches when the floor changes.
+	// What a floor switch does to the view, apart from the masks.
 	//
 	// There is nothing to copy here any more: `wallState` and `floorplanState` read through
 	// the current floor (see `state/wall-state.ts`), so switching floors switches their
-	// values. What has to be dropped is the state derived from the *previous* floor's mask.
+	// values. The decode caches are dropped by `MaskPipeline.syncWallMask` itself, which knows
+	// which floor they belong to — that reset used to be the first line of this effect, and
+	// "this effect runs before the decode effect" was an invariant held up by declaration
+	// order alone.
 	let lastSyncedFloorId = '';
 	$effect(() => {
 		const id = floorState.currentFloorId;
 		if (id === lastSyncedFloorId) return;
-
-		maskPipeline.reset();
 
 		lastSyncedFloorId = id;
 		clearSelection();
