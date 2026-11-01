@@ -102,7 +102,6 @@ function getApPositions() {
  */
 export {
 	getFloorMask,
-	setLiveSolverMask,
 	invalidateSolverMaskCache,
 	type DecodedFloorMask
 } from './floor-mask.js';

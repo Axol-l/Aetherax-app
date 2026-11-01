@@ -188,20 +188,6 @@ export function handleShortcut(e: KeyboardEvent, hooks: ShortcutHooks): void {
 		return;
 	}
 
-	if (mod && e.shiftKey && (e.key === 'z' || e.key === 'Z')) {
-		e.preventDefault();
-		redo();
-		markDirty();
-		return;
-	}
-
-	if (mod && (e.key === 'z' || e.key === 'Z')) {
-		e.preventDefault();
-		undo();
-		markDirty();
-		return;
-	}
-
 	if (e.key === 'Delete' || e.key === 'Backspace') {
 		if (canvasState.selectedApIds.length > 0) {
 			e.preventDefault();

@@ -55,35 +55,6 @@ function maskId(mask: object | null | undefined): number {
 
 const floorMaskCache = new Map<string, DecodedFloorMask>();
 
-/** Live mask override: set during wall editing so the solver skips PNG decode. */
-let liveMask: DecodedFloorMask | null = null;
-
-/** Set the live decoded mask during wall editing (call with null when done). */
-export function setLiveSolverMask(
-	wallData: Uint8Array | null,
-	materialData: Uint8Array | null,
-	width: number,
-	height: number
-): void {
-	if (wallData) {
-		liveMask = {
-			wallData,
-			materialMap: materialData,
-			width,
-			height,
-			originX: 0,
-			originY: 0,
-			// The live mask is a wall/material pair handed over mid-edit, with no room
-			// types. The void test then simply finds none, which is the conservative
-			// reading; the figure is recomputed from the stored masks on Done.
-			roomTypeData: null,
-			sourceKey: 'live'
-		};
-	} else {
-		liveMask = null;
-	}
-}
-
 /**
  * Identity for a floor's wall segments, so the derived mask can be cached.
  *
@@ -125,11 +96,6 @@ function wallsId(walls: object | null | undefined): number {
  */
 export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | null> {
 	const floor = floorState.floors.find((f) => f.id === floorId);
-
-	// During wall editing, use the live decoded mask (no PNG round-trip)
-	if (liveMask && floorId === floorState.currentFloorId) {
-		return liveMask;
-	}
 
 	/*
 	 * A floor whose walls are segments: derive the mask from them.
