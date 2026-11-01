@@ -695,9 +695,9 @@ if (data.runId !== this.pending?.runId) return;   // 迟到的旧结果直接丢
 
 **状态**：测量已经接上（`pnpm test:measure`，见 `docs/ARCHITECTURE.md`），但它**测不到这一条**——`tests/measure` 的全部场景都是"开阔矩形、没有内墙"，而这条讲的是穿墙怎么计费。所以这一条的验收不能靠现有测量，得先补一个共享 fixture：
 
-1. 一张有墙的小图，四个消费者（热力图前缀、覆盖率、worker 快路径、solver）各算同一段穿墙；
-2. 断言彼此在量化误差内一致（stride 1/2/3 允许差异，其余不允许）；
-3. 这个测试**今天会失败**——那就是这条的验收标准。
+1. ✅ 已有 `rf/wall-charge-agreement.test.ts`：一张有墙的小图（两种材料）、跨 0/1/2 面墙的射线、一条跨层劈分路径；
+2. ✅ 钉住了：材料表每次穿越只计一次、`wallRunLoss` 与 `rayMarchWallAtten` 逐值相同、掩膜平移后结果不变（origin 的坑）、stride 2/3 只许量化误差不许漏墙、跨层劈分等于两半各按本层掩膜计；
+3. **更正**：我原以为这个测试今天会红，实际**它是绿的** —— 因为 `wallRunLoss` 本来就直接调用 `rayMarchWallAtten`，共享层已经是同一个函数。真正的分歧在 worker 的**快路径自己减前缀**（两次 marching 相减，在步进边界附近可能差出一整面墙），而那段代码在 worker 里、node 环境测不到。所以这个 fixture 的定位是**重构期间的护栏**，不是"当前就红"的验收。
 
 改法仍是文档里那套：`link-budget.ts` 提供 `prepareWallRun` + `wallRunSplitAt`，四处共用，删掉 `buildFixedPaths` 里内联的 march。会改动优化器的打分，所以要在**有墙**的场景下对比改前/改后的分数，而不是看现在这 13 个无墙场景。
 
