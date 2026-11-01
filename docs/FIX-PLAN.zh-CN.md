@@ -4,7 +4,7 @@
 >
 > 它不是"代码写得不好"的清单。现状是健康的：`src/` 里 0 个 `any`、0 个 `@ts-ignore`、0 个 TODO，全仓只有 51 个 `$effect`，50 个单测 + 29 个 e2e，而且大文件在稳定缩小（`CanvasView` 3384 → 2247 行，`optimizer.svelte.ts` 2047 → 918）。下面的每一条，都是**已经在正确方向上的工作还没走完的那一步**。
 >
-> **进度**：01–04、06、07、08、09、11、12、14、15、17、18 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（624 单测 + 106 e2e）。其余条目待做。
+> **进度**：01–04、06、07、08、09、11、12、13、14、15、17、18 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（630 单测 + 106 e2e）。其余条目待做。
 
 ---
 
@@ -691,7 +691,15 @@ if (data.runId !== this.pending?.runId) return;   // 迟到的旧结果直接丢
 
 ---
 
-### 13 · "三套评估器一套墙损耗"只在慢路径成立 —— 还没动，先把闸门说清楚
+### 13 · "三套评估器一套墙损耗"只在慢路径成立 ✅ 已实现（几何原本就是对的，缺的是唯一入口）
+
+**结论（实现后）**：worker 的快路径（Lloyd/PSO 真正打分用的那条）原本自己调用 `rayMarchWallAtten` 两次，并且**自己**做两件容易做错的事：减掩膜 origin、从材料表里挑默认材料（没有材料图时还要用本层自己的数值）。现在两半都走 `wallRunLoss` + 每层一个 `WallRun`，origin 和默认材料**只在一处**声明，和覆盖率、热力图、solver 完全一致。
+
+几何是对的这件事要说清楚：它本来就是"从交点分别 march 两段"，而不是"整条减前缀"（注释里写明了原因）。所以这次改动是**纯管道**，不是修数值。
+
+**数字验证**（不是"应该不变"，是量过）：`pnpm test:measure` 十四个场景，改前改后**逐位相同** —— `pair` / `pair-soft` / `free` / `free-soft` / `free6` / `limited` / `limited6` / `limited-soft` / `limited6-soft` / `trade` / `trade-weighted` 的分数、覆盖率、干扰全部一致。基线记在 `docs/MEASUREMENTS.md`（带 commit），因为 Playwright 每次运行都会清空 `test-results/`。
+
+**仍未做**：stride 不同是**有意的**（热力图 2、solver 3、评估器 1），量化差异由 `rf/wall-charge-agreement.test.ts` 兜住（不许漏墙）。
 
 **状态**：测量已经接上（`pnpm test:measure`，见 `docs/ARCHITECTURE.md`），但它**测不到这一条**——`tests/measure` 的全部场景都是"开阔矩形、没有内墙"，而这条讲的是穿墙怎么计费。所以这一条的验收不能靠现有测量，得先补一个共享 fixture：
 
