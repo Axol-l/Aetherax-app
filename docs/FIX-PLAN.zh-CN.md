@@ -4,7 +4,7 @@
 >
 > 它不是"代码写得不好"的清单。现状是健康的：`src/` 里 0 个 `any`、0 个 `@ts-ignore`、0 个 TODO，全仓只有 51 个 `$effect`，50 个单测 + 29 个 e2e，而且大文件在稳定缩小（`CanvasView` 3384 → 2247 行，`optimizer.svelte.ts` 2047 → 918）。下面的每一条，都是**已经在正确方向上的工作还没走完的那一步**。
 >
-> **进度**：01–04、06、09、11、12 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（599 单测 + 106 e2e）。其余条目待做。
+> **进度**：01–04、06、09、11、12、15 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（606 单测 + 106 e2e）。其余条目待做。
 
 ---
 
@@ -755,9 +755,13 @@ worker 侧用 `runId → geometry` 的 Map 存，run 结束（或新 runId）时
 
 这一组不是 bug，是"同一个模式手工抄了很多遍，所以每次加功能都要记得抄对"。
 
-### 15 · 7 个互斥模式写成 7 个 boolean
+### 15 · 7 个互斥模式写成 7 个 boolean ✅ 已实现
 
 **位置**：`src/lib/state/app.svelte.ts`
+
+**结论（实现后）**：`appState.tool` 一个字段（`'none' | 'wall' | 'note' | 'align' | 'calibrate' | 'planning' | 'surface' | 'place-ap'`），`setTool` 是唯一改它的地方。七个 boolean 变成**在这个字段上的访问器**——所以现存的 62 处读、34 处调用一行都不用改，而且谁也绕不过互斥：`appState.noteMode = true` 现在**就是** `setTool('note')`。副作用（对齐模式借走/归还楼下幽灵、切换时丢掉草稿）全部收进 `setTool`。`appState-modes.test.ts` 七条用例钉住"一次只有一个工具"。
+
+**没有合并的部分**：`wallTool`（line/rect/circle/eraser）保持独立字段——它是画墙工具画什么形状的**偏好**，跨"开关墙工具"存活，不是一个模式。
 
 **现象**：偶尔两个工具同时"激活"（比如规划区域画到一半，又点了画墙工具），点一下画布做了两件事。
 
