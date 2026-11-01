@@ -4,7 +4,7 @@
 >
 > 它不是"代码写得不好"的清单。现状是健康的：`src/` 里 0 个 `any`、0 个 `@ts-ignore`、0 个 TODO，全仓只有 51 个 `$effect`，50 个单测 + 29 个 e2e，而且大文件在稳定缩小（`CanvasView` 3384 → 2247 行，`optimizer.svelte.ts` 2047 → 918）。下面的每一条，都是**已经在正确方向上的工作还没走完的那一步**。
 >
-> **进度**：01–04、06、07、09、11、12、15 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（611 单测 + 106 e2e）。其余条目待做。
+> **进度**：01–04、06、07、08、09、11、12、15 已实现，加两处死代码清理（`setLiveSolverMask` / `shortcuts.ts` 的重复 undo 分支）；**OCR 已删除**（`wall-detect.ts` −约 180 行、`tesseract.js` 依赖移除，见 05 与 18）。`pnpm check / test / lint / build / test:e2e` 全绿（618 单测 + 106 e2e）。其余条目待做。
 
 ---
 
@@ -440,9 +440,13 @@ export const COVERAGE = { maxDim: 400, minDilateR: 4, minRegionRadius: ... };   
 
 ---
 
-### 08 · 覆盖率被当项目数据存，且无人失效
+### 08 · 覆盖率被当项目数据存，且无人失效 ✅ 已实现
 
 **位置**：`src/lib/state/project-document.ts:150`、`optimizer-coverage.svelte.ts:597`、`optimizer.svelte.ts:743`
+
+**结论（实现后）**：每条覆盖率都带一个 `basis`——它描述的那份方案（墙 + 掩膜身份 + 掩膜位置 + 材料 + 标定 + 该层每个 AP 的位置/功率/信道）。每次重算前先 `dropStaleCoverage()`，basis 对不上的条目直接删除。同时 `toDocument` 不再写覆盖率、`applyDocument` 不再应用它——从文件恢复的数字没有 basis，第一次重算就被丢掉（旧文件里的这个字段 `migrate` 仍然接受，所以老项目照常能打开）。
+
+**代价**：打开项目后，在第一次重算跑完之前面板显示"没有数字"而不是上次的数字。少一个数字是看得见的，多一个错的看不见。
 
 **用户看到的现象**：改了墙、删了 AP，覆盖率数字还是老的；导出的 PDF 报告里印的是上一版方案的数字；把项目存盘再打开，那个错误数字跟着回来了。
 
