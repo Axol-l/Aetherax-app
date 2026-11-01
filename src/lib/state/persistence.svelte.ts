@@ -1,7 +1,6 @@
 import { debug } from '$lib/log.js';
 import { floorCoverage as floorCoverageState } from './optimizer.svelte.js';
 import { floorState } from './floor-state.svelte.js';
-import { clearHistory } from './history.svelte.js';
 import { appState } from './app.svelte.js';
 import { t } from './i18n.svelte.js';
 import { applyDocument, migrate, toDocument } from './project-document.js';
@@ -296,8 +295,9 @@ export async function restoreFromStorage(): Promise<boolean> {
 			if (legacyFloorplan) doc.floors[0]!.floorplanImage = legacyFloorplan;
 		}
 
+		// The undo history is cleared by `applyDocument`, which is the door every load goes
+		// through — see the note there.
 		applyDocument(doc, { floorCoverage: floorCoverageState });
-		clearHistory();
 		return true;
 	} catch {
 		return false;

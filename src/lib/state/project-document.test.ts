@@ -14,6 +14,7 @@ import type { AccessPoint } from './ap-state.svelte.js';
 import { apState } from './ap-state.svelte.js';
 import { floorState } from './floor-state.svelte.js';
 import { floorplanState } from './floorplan-state.svelte.js';
+import { canRedo, canUndo, pushState } from './history.svelte.js';
 import { projectMeta } from './project-meta.svelte.js';
 import { wallState } from './wall-state.svelte.js';
 import {
@@ -244,6 +245,21 @@ describe('project document', () => {
 		// Storage keeps the underlay under its own key; a save must not inline megabytes
 		// of base64 into the project record.
 		expect('floorplanImage' in toDocument().floors[0]!).toBe(false);
+	});
+
+	it('ends the undo history, so a snapshot cannot leak the previous project in', () => {
+		applyDocument(migrate(fixture())!);
+		// An edit worth undoing: the snapshot that follows belongs to *this* document.
+		floorState.floors = [...floorState.floors, { ...floorState.floors[0]!, id: 'second' }];
+		pushState();
+		expect(canUndo()).toBe(true);
+
+		// Opening another document must not leave that snapshot on the stack: undoing it
+		// would put the first project's floors into the second project's name, band, units
+		// and materials — a state that never existed, and one autosave would make permanent.
+		applyDocument(migrate({ ...fixture(), name: 'Imported' })!);
+		expect(canUndo()).toBe(false);
+		expect(canRedo()).toBe(false);
 	});
 
 	it('upgrades a version 2 single-floor project', () => {

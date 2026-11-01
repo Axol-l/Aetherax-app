@@ -44,6 +44,7 @@ import {
 } from './ap-state.svelte.js';
 import { floorState, type Floor } from './floor-state.svelte.js';
 import { floorplanState } from './floorplan-state.svelte.js';
+import { clearHistory } from './history.svelte.js';
 import { projectMeta } from './project-meta.svelte.js';
 
 /** The version this module writes. Bumped when a stored field changes meaning. */
@@ -495,11 +496,21 @@ function normalizeAp(
  * The order matters and is the order a load has always needed: floors before access points,
  * because a ceiling-mounted AP's default height and the project's scale both come from the
  * floors; the path-loss scenario before the radii, because a radius is derived from it.
+ *
+ * **Opening a document ends the undo history.** Undo snapshots hold floors and access points
+ * and nothing else, so a snapshot from before a load would restore one project's geometry
+ * into another project's name, band, unit system and materials — a combination that never
+ * existed, autosaved into place five seconds later. Every caller that replaced the document
+ * had to remember this, and `export/json.ts` did not: importing a file and pressing Ctrl+Z
+ * put the *previous* project's plan inside the imported project's settings. It is done here
+ * now, where the document is applied, so no caller has to know.
  */
 export function applyDocument(
 	doc: ProjectDocumentV3,
 	options: ApplyDocumentOptions = {}
 ): void {
+	clearHistory();
+
 	// The document is already normalised (`migrate` or `toDocument` built it); the only
 	// translation left is the underlay's storage shape.
 	const floors: Floor[] = doc.floors.map(toStateFloor);
