@@ -691,7 +691,18 @@ if (data.runId !== this.pending?.runId) return;   // 迟到的旧结果直接丢
 
 ---
 
-### 13 · "三套评估器一套墙损耗"只在慢路径成立
+### 13 · "三套评估器一套墙损耗"只在慢路径成立 —— 还没动，先把闸门说清楚
+
+**状态**：测量已经接上（`pnpm test:measure`，见 `docs/ARCHITECTURE.md`），但它**测不到这一条**——`tests/measure` 的全部场景都是"开阔矩形、没有内墙"，而这条讲的是穿墙怎么计费。所以这一条的验收不能靠现有测量，得先补一个共享 fixture：
+
+1. 一张有墙的小图，四个消费者（热力图前缀、覆盖率、worker 快路径、solver）各算同一段穿墙；
+2. 断言彼此在量化误差内一致（stride 1/2/3 允许差异，其余不允许）；
+3. 这个测试**今天会失败**——那就是这条的验收标准。
+
+改法仍是文档里那套：`link-budget.ts` 提供 `prepareWallRun` + `wallRunSplitAt`，四处共用，删掉 `buildFixedPaths` 里内联的 march。会改动优化器的打分，所以要在**有墙**的场景下对比改前/改后的分数，而不是看现在这 13 个无墙场景。
+
+**已确认的测量现状**（免得下次再查）：`pnpm test:measure`（需要 `MEASURE_INTERFERENCE=1`）在**改动前的干净 HEAD 上也有 3 条红**——`free` / `free-soft` / `free6` 断言"保留下来的信道分配没有任何冲突对"，实测有 29.25% 的样本冲突，两棵树上**数字完全相同**。也就是说：这 3 条期望值过期了，数字本身可用。
+
 
 **位置**：`docs/ARCHITECTURE.md:130-142`、`workers/optimizer-worker.ts:421-475` 与 `:824-855`、`canvas/renderers/heatmap.ts`、`state/solver.svelte.ts`
 
