@@ -971,10 +971,14 @@ import { wallState } from '$state/wall-state.svelte.js';
 			}
 			if (version !== heatmapApsVersion) return;
 			heatmapLayer.aps = resolved;
-			// Same mask identity the tiled overview uses for this floor, so the two
-			// views share cached attenuation fields instead of invalidating each
-			// other's. A stale value here is harmless: a wall edit clears the cache.
-			heatmapLayer.maskTag = `floor:${floorId}`;
+			// Same string the tiled overview uses for this floor, so the two views share
+			// cached attenuation fields instead of invalidating each other's — and it
+			// carries the mask's origin, so aligning the floor does not leave the fields
+			// measured against where it used to be.
+			heatmapLayer.maskTag = heatmapMaskTag(floorState.floors.find((f) => f.id === floorId) ?? {
+				id: floorId,
+				wallMask: null
+			});
 			engine.markDirty();
 		})();
 	});
@@ -1407,6 +1411,22 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	/**
+	 * The attenuation-field cache key for a floor's walls.
+	 *
+	 * The field is built in world coordinates with the mask's origin baked in, and the field
+	 * cache is keyed on position, radius and this tag — so the tag has to carry the origin.
+	 * It carried the floor's id alone, which meant that aligning a floor (which moves the
+	 * origin and not a pixel) handed every later request the field measured against the
+	 * position the floor had before it moved.
+	 *
+	 * The tiled overview and the single-floor view use the same string for the same floor, so
+	 * the two still share fields rather than invalidating each other's.
+	 */
+	function heatmapMaskTag(floor: { id: string; wallMask: { originX?: number; originY?: number } | null }): string {
+		return `floor:${floor.id}@${floor.wallMask?.originX ?? 0},${floor.wallMask?.originY ?? 0}`;
+	}
+
+	/**
 	 * World units per metre for the coverage images: one scale for the project.
 	 *
 	 * The project has a single scale, floor 1's (see `getEffectiveWupm`), and a
@@ -1488,10 +1508,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 			// This floor's own calibration: the image is in its world units.
 			worldUnitsPerMeter: projectWupm(),
 			rssiFloor: projectMeta.heatmapRssiFloor,
-			// Which floor's walls these are: the attenuation-field cache is keyed on
-			// position and radius, so without this a tile inherits whichever floor's
-			// field was built first for that cell.
-			maskTag: `floor:${floor.id}`,
+			// Which floor's walls these are, and where they sit: the attenuation-field cache
+			// is keyed on position and radius, so without this a tile inherits whichever
+			// floor's field was built first for that cell, and without the origin it keeps
+			// the frame the floor had before it was aligned.
+			maskTag: heatmapMaskTag(floor),
 			// A mezzanine on that floor changes the picture even though nothing moved.
 			surfaces: floor.surfaces ?? []
 		});

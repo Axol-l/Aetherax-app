@@ -409,6 +409,22 @@ export function boundarySlabLossDb(index: number, band: Band): number {
  * module, so reaching back for `apState` would close a cycle. The caller is also
  * responsible for pushing undo state first.
  */
+/**
+ * A mask with its origin moved, as a **new object**.
+ *
+ * The origin is part of what a mask means, and every cache in the app that derives from one
+ * keys on the object (see `canvas/mask-registry.ts`): a mask whose origin changed in place
+ * is, to every one of them, the same mask it was before the floor moved.
+ */
+function shiftMask<T extends { originX: number; originY: number }>(
+	mask: T | null,
+	dx: number,
+	dy: number
+): T | null {
+	if (!mask) return null;
+	return { ...mask, originX: mask.originX + dx, originY: mask.originY + dy };
+}
+
 export function translateFloor(
 	floorId: string,
 	dx: number,
@@ -422,13 +438,21 @@ export function translateFloor(
 	floor.floorplanOffsetX += dx;
 	floor.floorplanOffsetY += dy;
 
-	// The three masks are produced together and share a pixel grid, so the same
-	// shift keeps them registered with each other.
-	for (const mask of [floor.wallMask, floor.materialMask, floor.roomTypeMask]) {
-		if (!mask) continue;
-		mask.originX += dx;
-		mask.originY += dy;
-	}
+	/*
+	 * The three masks are produced together and share a pixel grid, so the same shift keeps
+	 * them registered with each other.
+	 *
+	 * Replaced rather than mutated, for the reason the segments below are: the origin is
+	 * baked into every field and interior derived from a mask, while the caches that hold
+	 * them are keyed on the mask's *identity*. Written in place, the object stayed the same
+	 * and every one of those caches kept handing out geometry measured against the position
+	 * the floor had before it was moved — which is why aligning a raster-only floor left the
+	 * heatmap and the coverage figure reading the old frame until something else happened to
+	 * clear them. See `canvas/mask-registry.ts`.
+	 */
+	floor.wallMask = shiftMask(floor.wallMask, dx, dy);
+	floor.materialMask = shiftMask(floor.materialMask, dx, dy);
+	floor.roomTypeMask = shiftMask(floor.roomTypeMask, dx, dy);
 
 	if (floor.floorplanBoundary) {
 		for (const p of floor.floorplanBoundary) {

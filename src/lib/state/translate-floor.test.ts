@@ -77,6 +77,27 @@ describe('translateFloor', () => {
 		expect(getFloor(floor.id)!.floorplanOffsetY).toBe(10);
 	});
 
+	it('moves the masks as new objects, so every derived cache notices', () => {
+		const floor = seedFloor();
+		floor.wallMask = { dataUrl: 'data:image/png;base64,A', width: 4, height: 4, originX: 1, originY: 2 };
+		floor.materialMask = { dataUrl: 'data:image/png;base64,B', width: 4, height: 4, originX: 1, originY: 2 };
+		const before = floor.wallMask;
+
+		translateFloor(floor.id, 20, -5, []);
+		const moved = getFloor(floor.id)!;
+
+		expect(moved.wallMask).toMatchObject({ originX: 21, originY: -3 });
+		expect(moved.materialMask).toMatchObject({ originX: 21, originY: -3 });
+		/*
+		 * The origin is baked into every field and interior derived from a mask, while the
+		 * caches holding those are keyed on the mask's identity — so a mask moved in place is,
+		 * to all of them, the mask it was before the floor moved. This is the difference
+		 * between "the heatmap followed the floor" and "the heatmap kept its old frame".
+		 */
+		expect(moved.wallMask).not.toBe(before);
+		expect(before).toMatchObject({ originX: 1, originY: 2 });
+	});
+
 	it('does nothing for a zero delta', () => {
 		const floor = seedFloor();
 		const before = floor.walls;

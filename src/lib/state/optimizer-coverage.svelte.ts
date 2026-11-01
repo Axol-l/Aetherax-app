@@ -41,6 +41,9 @@ import { buildDensityMap, crossingSlabsFor, sourceFloorMaskFor } from './optimiz
 let coverageAfterDrag: ReturnType<typeof setTimeout> | null = null;
 
 let cachedMaskUrl: string | null = null;
+/** Where the cached mask sits, because the URL does not change when the floor is moved. */
+let cachedMaskOriginX = 0;
+let cachedMaskOriginY = 0;
 let cachedMask: DecodedWallMask | null = null;
 let cachedSamples: Array<{ x: number; y: number }> | null = null;
 let cachedSamplePixelIdx: number[] | null = null;
@@ -93,7 +96,23 @@ let cachedMaterialData: Uint8Array | null = null;
 async function ensureCoverageCache(): Promise<boolean> {
 	const mask = wallState.wallMask;
 	if (!mask) return false;
-	if (mask.dataUrl === cachedMaskUrl && cachedMask && cachedSamples) return true;
+	/*
+	 * The origin is part of the key, not just of the decoded copy.
+	 *
+	 * Moving a floor rewrites the mask's origin and leaves every pixel identical, so a key
+	 * made of the data URL alone said "nothing changed" and the sample set kept the frame
+	 * the floor had before it was aligned — while every AP had moved. The comparison is on
+	 * the *stored* origin because that is what the copy is given below.
+	 */
+	if (
+		mask.dataUrl === cachedMaskUrl &&
+		(mask.originX ?? 0) === cachedMaskOriginX &&
+		(mask.originY ?? 0) === cachedMaskOriginY &&
+		cachedMask &&
+		cachedSamples
+	) {
+		return true;
+	}
 
 	cachedMask = await decodeMask(mask.dataUrl, mask.width, mask.height);
 	// decodeMask only turns a data URL back into pixels, so it always reports an
@@ -105,6 +124,8 @@ async function ensureCoverageCache(): Promise<boolean> {
 	cachedMask.originX = mask.originX ?? 0;
 	cachedMask.originY = mask.originY ?? 0;
 	cachedMaskUrl = mask.dataUrl;
+	cachedMaskOriginX = mask.originX ?? 0;
+	cachedMaskOriginY = mask.originY ?? 0;
 
 	// Decode wall materials too: without them the loss path cannot tell a real
 	// wall from a zero-attenuation virtual partition.
