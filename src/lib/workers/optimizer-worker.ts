@@ -13,7 +13,6 @@ import {
 	ccaThresholdDbm,
 	coverageUtilityAboveThreshold,
 	rangeFromPower,
-	rayMarchWallAtten,
 	reachAtMargin,
 	slabDbOf,
 	setPathLossScenario,
@@ -544,42 +543,47 @@ function buildFixedPaths(
 
 		const sourceRow = new Float32Array(numSamples);
 		const suffixRow = new Float32Array(numSamples);
+		/*
+		 * Two runs, and the shared march charges them.
+		 *
+		 * This used to call `rayMarchWallAtten` twice, subtracting each mask's origin itself and
+		 * picking the default material out of the table by hand — a copy of what
+		 * `rf/link-budget.ts` does for the coverage pass, the heatmap and the solver. The numbers
+		 * were the same; the arrangement was not, and a layer that four places re-implement is a
+		 * layer where one of them eventually differs. Both halves are marched from the crossing
+		 * rather than as "the whole run minus its prefix": the marcher's step follows the
+		 * segment length, so a prefix march is not a prefix of the full one and the subtraction
+		 * could move a thin wall across a step boundary.
+		 */
+		const sourceRun: WallRun = {
+			mask: src.data,
+			width: src.width,
+			height: src.height,
+			materialMask: src.materialMask,
+			materialDb: db,
+			fallbackDb: sourceDefault,
+			originX: src.originX,
+			originY: src.originY,
+			defaultMaterialId: src.defaultMaterial
+		};
+		// The run's own mask is in the frame its positions are in, so its origin is zero here.
+		const targetRun: WallRun = {
+			mask,
+			width: w,
+			height: h,
+			materialMask,
+			materialDb: db,
+			fallbackDb: targetDefault,
+			originX: 0,
+			originY: 0,
+			defaultMaterialId: defaultMaterial
+		};
 		for (let s = 0; s < numSamples; s++) {
 			const sample = samples[s]!;
 			const seg = crossFloorSegments(sourceT, targetT, fap.x, fap.y, sample.x, sample.y);
 			if (!seg) continue;
-			sourceRow[s] = rayMarchWallAtten(
-				src.data,
-				src.width,
-				src.height,
-				src.materialMask,
-				db,
-				sourceDefault,
-				seg.source.from.x - src.originX,
-				seg.source.from.y - src.originY,
-				seg.source.to.x - src.originX,
-				seg.source.to.y - src.originY,
-				3,
-				src.defaultMaterial
-			);
-			// Marched from the crossing rather than taken as "the whole run minus its
-			// prefix": the marcher's step size follows the segment length, so a prefix
-			// march is not a prefix of the full march and the subtraction could move a
-			// thin wall across a step boundary.
-			suffixRow[s] = rayMarchWallAtten(
-				mask,
-				w,
-				h,
-				materialMask,
-				db,
-				targetDefault,
-				seg.target.from.x,
-				seg.target.from.y,
-				seg.target.to.x,
-				seg.target.to.y,
-				3,
-				defaultMaterial
-			);
+			sourceRow[s] = wallRunLoss(sourceRun, seg.source.from, seg.source.to, 3);
+			suffixRow[s] = wallRunLoss(targetRun, seg.target.from, seg.target.to, 3);
 		}
 		return { split: { source: sourceRow, suffix: suffixRow }, slabFactor };
 	});
