@@ -210,8 +210,9 @@ Both bridges live in `src/lib/workers/`.
 | `pnpm test` | Vitest: the app's unit tests **and** the three workspace packages |
 | `pnpm lint` | ESLint over `src/` and `tests/` |
 | `pnpm build` | the static bundle Tauri embeds |
-| `pnpm test:e2e` | Playwright, 105 tests against a preview build |
+| `pnpm test:e2e` | Playwright, 106 tests against a preview build |
 | `pnpm test:visual` | golden-image tests for the detectors |
+| `pnpm test:measure` | Playwright, the instruments in `tests/measure` — opt-in, and they print numbers rather than pass or fail |
 | `pnpm verify:desktop` | drives the built exe over the WebView2 debugger |
 
 CI (`.github/workflows/ci.yml`) runs the first four. The e2e and desktop checks are local
