@@ -23,6 +23,7 @@ import { decodeMaterialMask } from '$canvas/region-labels.js';
 import { getMaterialDbTable } from '$canvas/materials.js';
 import { buildRoomDomain } from '$canvas/rooms.js';
 import { COVERAGE_MARGIN_DB, coverageMarginDb, coverageHorizontalReach, slabDbOf } from '$lib/rf/propagation.js';
+import { violatesAt } from '$lib/rf/interference.js';
 import { slabLossFactor, type SlabCrossing } from '$lib/rf/cross-floor.js';
 import { splitWallRunLoss, wallRunLoss, type WallRun } from '$lib/rf/link-budget.js';
 import { floorState, currentFloor, getFloorSlabAttenuation, type Floor } from './floor-state.svelte.js';
@@ -450,10 +451,36 @@ export async function updateCoverage(): Promise<void> {
 		(sample) => surfaceHeightAt(surfaces, sample.x + ox, sample.y + oy) * surfaceWupm
 	);
 
+	/*
+	 * The interference figure is measured here, from the channels this plan actually has.
+	 *
+	 * It used to come only from the optimiser run, which scores each candidate layout under a
+	 * colouring of its own — so after the run assigned positions, the solver re-coloured them
+	 * with the palette it has (three non-overlapping channels on 2.4 GHz), and the panel kept
+	 * reporting the number measured under the *previous* assignment. On a plan with more access
+	 * points than channels that read 0% while two units shared one: a reading of a plan nobody
+	 * had.
+	 *
+	 * Per-sample margins are what the term needs, and this pass already computes one per source
+	 * per sample. Keeping them costs an array of `allAps.length` and the union test costs
+	 * O(APs²) per sample — on the sizes this app has, nothing next to the wall marches above.
+	 */
+	const channels = allAps.map((ap) => ap.assignedChannel ?? 0);
+	/** Every access point has a channel, so the figure is a measurement rather than a bound. */
+	const channelsKnown = channels.every((channel) => channel > 0);
+	const margins = new Float64Array(allAps.length);
+	let degradedWeight = 0;
+
 	for (let i = 0; i < cachedSamples.length; i++) {
 		const sample = cachedSamples[i]!;
 		let bestMargin = -Infinity;
+		margins.fill(-Infinity);
+		let sourceIndex = 0;
 		for (const ap of allAps) {
+			// The index into `margins` for this source, taken before the loop body can
+			// `continue`: every source that is skipped keeps -Infinity, which is the domain
+			// the objective stores.
+			const index = sourceIndex++;
 			const dx = sample.x - (ap.x - ox);
 			const dy = sample.y - (ap.y - oy);
 			// The AP–client gap, less whatever the client is standing on. Signed: a
@@ -563,6 +590,7 @@ export async function updateCoverage(): Promise<void> {
 			dbLoss += antennaRayLossDb(antennaProfileFor(ap), vertical, dx, dy);
 			const margin = coverageMarginDb(dist, ap.interferenceRadius) - dbLoss;
 			if (margin > bestMargin) bestMargin = margin;
+			if (margin > margins[index]!) margins[index] = margin;
 			/*
 			 * Diffraction around a wall end, ramped in as the wall blocks more.
 			 *
@@ -585,6 +613,7 @@ export async function updateCoverage(): Promise<void> {
 						(dbLoss - wallLossDb);
 					const blended = margin + diffractionGate * (diffractedMargin - margin);
 					if (blended > bestMargin) bestMargin = blended;
+					if (blended > margins[index]!) margins[index] = blended;
 				}
 			}
 			/*
@@ -608,6 +637,7 @@ export async function updateCoverage(): Promise<void> {
 						coverageMarginDb(bounce.length, ap.interferenceRadius) +
 						10 * Math.log10(bounce.powerRatio);
 					if (reflectedMargin > bestMargin) bestMargin = reflectedMargin;
+					if (reflectedMargin > margins[index]!) margins[index] = reflectedMargin;
 				}
 			}
 		}
@@ -615,10 +645,31 @@ export async function updateCoverage(): Promise<void> {
 		// `coverageMarginDb` is measured over the association floor (-85 dBm), so
 		// the coverage threshold (-70 dBm) has to be cleared explicitly.
 		if (bestMargin >= COVERAGE_MARGIN_DB) coveredWeight += w;
+		/*
+		 * The same domain the objective scores: a source out of range is not a secondary a
+		 * client can hear, so it is not a conflict. See `fillMargins` in the worker.
+		 */
+		for (let k = 0; k < margins.length; k++) {
+			if (!(margins[k]! > 0)) margins[k] = -Infinity;
+		}
+		if (channelsKnown && violatesAt(margins, channels, allAps.length, 0, null)) degradedWeight += w;
 		totalWeight += w;
 	}
 
 	optimizerState.coverage = totalWeight > 0 ? Math.round((coveredWeight / totalWeight) * 100) : 0;
+	/*
+	 * The interference figure describes *this* plan, with *these* channels.
+	 *
+	 * It is refreshed by the same pass that refreshes coverage, so it cannot describe a layout
+	 * or an assignment that has since changed — which is what a figure carried over from the
+	 * optimiser run did. When no assignment exists yet there is nothing to measure, and the
+	 * panel is told so rather than shown a zero.
+	 */
+	optimizerState.interferenceMeasured = channelsKnown && totalWeight > 0;
+	optimizerState.interferenceKnown = channelsKnown;
+	if (channelsKnown && totalWeight > 0) {
+		optimizerState.interference = Math.round((degradedWeight / totalWeight) * 100);
+	}
 	// Timed: this pass is the app's heaviest main-thread work, and the only way to decide
 	// whether it needs a worker is to know what it costs on a real plan.
 	debug(

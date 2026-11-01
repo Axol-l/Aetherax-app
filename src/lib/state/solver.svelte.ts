@@ -17,7 +17,7 @@ import {
 	getFloorMask,
 	type DecodedFloorMask
 } from './floor-mask.js';
-import { buildAssignmentConflictEdges } from './optimizer.svelte.js';
+import { buildAssignmentConflictEdges, updateCoverage } from './optimizer.svelte.js';
 import { scheduleSave } from './persistence.svelte.js';
 import { findModel } from '$lib/data/ap-models.js';
 
@@ -353,6 +353,17 @@ function applyAssignments(assignment: Map<string, number>): void {
 	for (const [apId, channel] of assignment) {
 		updateAp(apId, { assignedChannel: channel });
 	}
+	/*
+	 * The interference figure is measured over the channels the plan actually has, so it has to
+	 * be re-measured when they change.
+	 *
+	 * It used to keep whatever the optimiser run reported, which was measured under the
+	 * colouring the *worker* chose for that layout — a different assignment from the one applied
+	 * here, because the worker may colour with the whole band while this hands out the
+	 * non-overlapping palette. On a plan with more access points than channels the figure read
+	 * 0% while two units shared one. See `optimizer-coverage.svelte.ts`.
+	 */
+	void updateCoverage();
 }
 
 function computeThroughput(): void {
