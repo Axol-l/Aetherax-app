@@ -701,7 +701,9 @@ if (data.runId !== this.pending?.runId) return;   // 迟到的旧结果直接丢
 
 改法仍是文档里那套：`link-budget.ts` 提供 `prepareWallRun` + `wallRunSplitAt`，四处共用，删掉 `buildFixedPaths` 里内联的 march。会改动优化器的打分，所以要在**有墙**的场景下对比改前/改后的分数，而不是看现在这 13 个无墙场景。
 
-**已确认的测量现状**（免得下次再查）：`pnpm test:measure`（需要 `MEASURE_INTERFERENCE=1`）在**改动前的干净 HEAD 上也有 3 条红**——`free` / `free-soft` / `free6` 断言"保留下来的信道分配没有任何冲突对"，实测有 29.25% 的样本冲突，两棵树上**数字完全相同**。也就是说：这 3 条期望值过期了，数字本身可用。
+**已确认的测量现状**（免得下次再查）：`pnpm test:measure`（需要 `MEASURE_INTERFERENCE=1`）现在是 **16 通过**。原先 3 条红（`free` / `free-soft` / `free6`）已查明并修正：它们要求"保留下来的分配零冲突"，而这三个场景是 **4 / 6 个 AP 挤在 2.4 GHz 的 3 个不重叠信道（1、6、11）上**，每对 AP 的覆盖圈都相交 —— 冲突**不可避免**，零冲突在数学上做不到。改成断言"把手上每个信道都用完之前不重复"（实测分配 6/11/11/1，3 个不同信道配 4 个 AP）。在改动前的干净 HEAD 上，旧断言同样是 0.2925 失败。
+
+**顺带一个真实的不一致（未修，属于 B4/B5 那条）**：应用自己报的干扰是 0%，因为 **worker 打色时用的是全部 11 个候选信道**（`planningCandidates`，带部分重叠计费），而**求解器只有 3 个不重叠信道**（`planningChannels`）。所以面板的 0% 描述的是 worker 内部那份分配，用户拿到的是求解器那份 —— 两边的候选集不同。要么让 worker 用同一个调色板（数字会变），要么让面板的读数永远描述最终分配。这条需要单独决定，不属于 13。
 
 
 **位置**：`docs/ARCHITECTURE.md:130-142`、`workers/optimizer-worker.ts:421-475` 与 `:824-855`、`canvas/renderers/heatmap.ts`、`state/solver.svelte.ts`
