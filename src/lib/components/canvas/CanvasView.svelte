@@ -299,7 +299,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	// Room type popup state
 	let roomPopup = $state<{ x: number; y: number; typeId: number; density: number; customLabel: string; regionId: number } | null>(null);
-	let roomLabelsLayer: RoomLabelsLayer;
 
 	function handleWallClick(screenX: number, screenY: number): boolean {
 		if (!engine || !maskPipeline.wallData || !maskPipeline.wallLabels) return false;
@@ -557,20 +556,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let selectHandler: SelectHandler;
 	let dragHandler: DragHandler;
 	let placeHandler: PlaceHandler;
-	let floorplanLayer: FloorplanLayer;
-	let gridLayer: GridLayer;
-	let heatmapLayer: HeatmapLayer;
-	let selectionRectLayer: SelectionRectLayer;
-	let reviewHighlightLayer: ReviewHighlightLayer;
-	let calibrationLineLayer: CalibrationLineLayer;
-	let planningAreaLayer: PlanningAreaLayer;
-	let surfacesLayer: SurfacesLayer;
-	let notesLayer: NotesLayer;
-	let vectorWallsLayer: VectorWallsLayer;
-	let referenceFloorLayer: ReferenceFloorLayer;
-	let floorTilesLayer: FloorTilesLayer;
-	let stackedFloorsLayer: StackedFloorsLayer;
-	let floor3DLayer: Floor3DLayer;
 	/**
 	 * Decoded images and per-floor coverage, held once for both overview views.
 	 *
@@ -581,8 +566,37 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 */
 	const floorCards = new FloorCardCache();
 
-	let apLayer: ApLayer;
-	let wallLayer: WallLayer;
+	/*
+	 * The layers are built with the component, not in `onMount`.
+	 *
+	 * They used to be `let …: Layer` assigned on mount, and every effect that syncs one opened
+	 * with `if (!layer) return;` — a guard whose truth depended on `onMount` running before the
+	 * first `$effect` flush. That ordering is Svelte's, not this file's, and a guard that fails
+	 * is silent: the effect is dead for the rest of the session with nothing to show for it. A
+	 * layer is a plain object and needs nothing from the DOM, so it exists from the start and
+	 * the guards are gone.
+	 */
+	const floorplanLayer = new FloorplanLayer();
+	const gridLayer = new GridLayer();
+	const heatmapLayer = new HeatmapLayer();
+	const wallLayer = new WallLayer();
+	const roomLabelsLayer = new RoomLabelsLayer();
+	const apLayer = new ApLayer();
+	const selectionRectLayer = new SelectionRectLayer();
+	const reviewHighlightLayer = new ReviewHighlightLayer();
+	const referenceFloorLayer = new ReferenceFloorLayer();
+	referenceFloorLayer.onLoad = () => engine?.markDirty();
+	const floorTilesLayer = new FloorTilesLayer(floorCards);
+	floorTilesLayer.onLoad = () => engine?.markDirty();
+	const stackedFloorsLayer = new StackedFloorsLayer(floorCards);
+	stackedFloorsLayer.onLoad = () => engine?.markDirty();
+	const floor3DLayer = new Floor3DLayer(floorCards);
+	const calibrationLineLayer = new CalibrationLineLayer();
+	const planningAreaLayer = new PlanningAreaLayer();
+	const surfacesLayer = new SurfacesLayer();
+	const notesLayer = new NotesLayer();
+	const vectorWallsLayer = new VectorWallsLayer();
+
 	let autoSolveTimeout: ReturnType<typeof setTimeout> | null = null;
 
 	/**
@@ -650,27 +664,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// Published so the toolbar and the status bar can act on the live view: they
 		// export the frame, fit the plan and reset the camera. See `canvasEngineRef`.
 		canvasEngineRef.engine = engine;
-		// Create layers
-		floorplanLayer = new FloorplanLayer();
-		gridLayer = new GridLayer();
-		heatmapLayer = new HeatmapLayer();
-		wallLayer = new WallLayer();
-		roomLabelsLayer = new RoomLabelsLayer();
-		apLayer = new ApLayer();
-		selectionRectLayer = new SelectionRectLayer();
-		reviewHighlightLayer = new ReviewHighlightLayer();
-		referenceFloorLayer = new ReferenceFloorLayer();
-		referenceFloorLayer.onLoad = () => engine?.markDirty();
-		floorTilesLayer = new FloorTilesLayer(floorCards);
-		floorTilesLayer.onLoad = () => engine?.markDirty();
-		stackedFloorsLayer = new StackedFloorsLayer(floorCards);
-		stackedFloorsLayer.onLoad = () => engine?.markDirty();
-		floor3DLayer = new Floor3DLayer(floorCards);
-		calibrationLineLayer = new CalibrationLineLayer();
-		planningAreaLayer = new PlanningAreaLayer();
-		surfacesLayer = new SurfacesLayer();
-		notesLayer = new NotesLayer();
-		vectorWallsLayer = new VectorWallsLayer();
 
 		// Add layers in draw order: the array is the order.
 		engine.setLayers([
@@ -741,7 +734,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	// Sync AP layer — only tracks apState, not wall/floorplan state
 	// Filter APs to current floor only
 	$effect(() => {
-		if (!apLayer) return;
 		const floorId = floorState.currentFloorId;
 		const aps = apState.aps.filter((ap) => ap.floorId === floorId);
 		for (const ap of aps) {
@@ -756,13 +748,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	$effect(() => {
-		if (!apLayer) return;
 		apLayer.selectedIds = canvasState.selectedApIds;
 		engine.markDirty();
 	});
 
 	$effect(() => {
-		if (!apLayer) return;
 		apLayer.hoveredId = canvasState.hoveredApId;
 		engine.markDirty();
 	});
@@ -792,7 +782,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * since the decode effect must not write this state itself.
 	 */
 	$effect(() => {
-		if (!apLayer) return;
 		const floorId = floorState.currentFloorId;
 		const aps = apState.aps.filter((ap) => ap.floorId === floorId);
 		for (const ap of aps) {
@@ -885,7 +874,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	$effect(() => {
-		if (!gridLayer) return;
 		gridLayer.visible = singleFloorView && appState.showGrid;
 		engine.markDirty();
 	});
@@ -898,7 +886,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * one storey's coordinates on another storey's picture.
 	 */
 	$effect(() => {
-		if (!reviewHighlightLayer) return;
 		reviewHighlightLayer.box =
 			singleFloorView ? canvasState.reviewHighlight : null;
 		engine.markDirty();
@@ -911,7 +898,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * calibrated, and the overviews draw every storey at once.
 	 */
 	$effect(() => {
-		if (!calibrationLineLayer) return;
 		const points = appState.calibrationPoints;
 		const visible = singleFloorView;
 		calibrationLineLayer.a = visible && points[0] ? points[0] : null;
@@ -926,7 +912,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * coordinates and the overviews draw every storey at once.
 	 */
 	$effect(() => {
-		if (!planningAreaLayer) return;
 		const visible = singleFloorView;
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		planningAreaLayer.area = visible ? (floor?.planningArea ?? null) : null;
@@ -936,7 +921,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	$effect(() => {
-		if (!gridLayer) return;
 		const wupm = getEffectiveWupm();
 		gridLayer.worldUnitsPerMeter = wupm;
 		gridLayer.unitSystem = floorplanState.unitSystem;
@@ -945,7 +929,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	$effect(() => {
-		if (!heatmapLayer) return;
 		/*
 		 * Hidden while an access point is being dragged. The layer rebuilds itself whenever
 		 * an AP moves, and that rebuild is the expensive part of a drag frame; a heatmap that
@@ -961,7 +944,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	/** Guards the async mask lookup against a superseded run publishing late. */
 	let heatmapApsVersion = 0;
 	$effect(() => {
-		if (!heatmapLayer) return;
 		trackHeatmapInputs();
 		const floorId = floorState.currentFloorId;
 		const version = ++heatmapApsVersion;
@@ -996,7 +978,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	// Sync heatmap display settings — only tracks projectMeta
 	$effect(() => {
-		if (!heatmapLayer) return;
 		heatmapLayer.ispSpeed = projectMeta.ispSpeed;
 		heatmapLayer.rssiFloor = projectMeta.heatmapRssiFloor;
 		engine.markDirty();
@@ -1010,7 +991,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * image is rebuilt on the next frame rather than on the next decode.
 	 */
 	$effect(() => {
-		if (!heatmapLayer) return;
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		heatmapLayer.surfaces = floor?.surfaces ?? [];
 		engine.markDirty();
@@ -1018,7 +998,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	// Coarser wall grid while dragging, for responsiveness
 	$effect(() => {
-		if (!heatmapLayer) return;
 		heatmapLayer.isDragging = canvasState.isDragging;
 		engine.markDirty();
 	});
@@ -1047,7 +1026,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	// When wall mask changes, invalidate heatmap wall cache
 	$effect(() => {
-		if (!heatmapLayer) return;
 		wallState.wallMask; // track
 		heatmapLayer.markWallsDirty();
 		engine.markDirty();
@@ -1071,7 +1049,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	$effect(() => {
-		if (!wallLayer) return;
 		/*
 		 * The raster wall layer is the *derived* band, so it is only drawn when the segments
 		 * are not — a floor whose walls are still only a detected raster.
@@ -1089,7 +1066,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	$effect(() => {
-		if (!roomLabelsLayer) return;
 		roomLabelsLayer.visible = singleFloorView && appState.showRoomLabels;
 		engine.markDirty();
 	});
@@ -1100,19 +1076,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	$effect(() => {
-		if (!apLayer) return;
 		apLayer.showLabels = appState.showLabels;
 		engine.markDirty();
 	});
 
 	$effect(() => {
-		if (!floorplanLayer) return;
 		floorplanLayer.visible = singleFloorView && appState.showFloorplan;
 		engine.markDirty();
 	});
 
 	$effect(() => {
-		if (!apLayer) return;
 		apLayer.visible = singleFloorView && appState.showAPs;
 		engine.markDirty();
 	});
@@ -1120,7 +1093,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	// Sync floorplan image to layer
 	let lastFittedUrl: string | null = null;
 	$effect(() => {
-		if (!floorplanLayer) return;
 		const url = floorplanState.floorplanUrl;
 		// Where this floor's underlay sits in the shared world frame. Read here
 		// rather than inside loadImage because the offset can change without the
@@ -1381,7 +1353,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	// Sync floorplan opacity (stored in floorplanScale)
 	$effect(() => {
-		if (!floorplanLayer) return;
 		floorplanLayer.opacity = floorplanState.floorplanScale;
 		engine.markDirty();
 	});
@@ -1703,7 +1674,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * rasterisation problem, and one that looks wrong against its own position is not.
 	 */
 	$effect(() => {
-		if (!vectorWallsLayer) return;
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		vectorWallsLayer.visible = singleFloorView;
 		vectorWallsLayer.walls = (floor?.walls ?? []) as VectorWall[];
@@ -1778,7 +1748,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * picture and stay where it was in the maths.
 	 */
 	$effect(() => {
-		if (!surfacesLayer) return;
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		surfacesLayer.visible = singleFloorView;
 		surfacesLayer.surfaces = floor?.surfaces ?? [];
@@ -2009,7 +1978,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * see it.
 	 */
 	$effect(() => {
-		if (!notesLayer) return;
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		notesLayer.visible = appState.showNotes && singleFloorView;
 		notesLayer.notes = floor?.notes ?? [];
