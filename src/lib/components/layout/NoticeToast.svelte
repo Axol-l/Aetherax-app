@@ -8,6 +8,9 @@
 	 * the walls — is on the canvas. A corner notice is visible in every tab, moves nothing,
 	 * and is where a reader looks for exactly this.
 	 *
+	 * It is positioned against the canvas area rather than the window (see `AppShell`), so
+	 * the sidebar — when it is open — sits to its right instead of being covered by it.
+	 *
 	 * Three slots behind one notice. The transient one is a refusal the user has just been
 	 * shown (a click that placed nothing); the standing one is the "APs outside the
 	 * building" check, recomputed whenever walls or access points move; the storage one
@@ -64,7 +67,9 @@
 
 <style>
 	.notice {
-		position: fixed;
+		/* Absolute inside the canvas area: the canvas shrinks when the sidebar opens,
+		   and the notice moves with it rather than landing under the panel. */
+		position: absolute;
 		right: var(--space-4);
 		bottom: var(--space-4);
 		/* Over the canvas and the toolbar, under a dialog: it must not cover a modal. */
