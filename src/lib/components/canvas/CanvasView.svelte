@@ -939,6 +939,21 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
+	/*
+	 * A tool that owns the bare-canvas click must not leave the marquee behind.
+	 *
+	 * `SelectHandler` starts a box selection on any empty-canvas pointerdown; the planning
+	 * branch intercepts the click before it, but a box begun earlier (or by a touch/gesture
+	 * transition) stayed drawn while the area was being edited. The blue rectangle is
+	 * canvas state, not planning state, so it is cleared here when the tool arms.
+	 */
+	$effect(() => {
+		if (!appState.planningDrawMode) return;
+		selectionRectLayer.active = false;
+		clearSelection();
+		engine.markDirty();
+	});
+
 	/**
 	 * The planning area: the committed polygon and the loop being drawn.
 	 *
@@ -950,6 +965,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		planningAreaLayer.area = visible ? (floor?.planningArea ?? null) : null;
 		planningAreaLayer.draft = visible ? appState.planningDraft : [];
+		planningAreaLayer.draftClosed = visible && appState.planningDraftClosed;
 		planningAreaLayer.cursor = appState.planningDrawMode ? gestures.planningCursor : null;
 		engine.markDirty();
 	});
@@ -2246,9 +2262,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 		<PlanningToolbar
 			corners={appState.planningDraft.length}
 			onclose={commitPlanningDraft}
-			onundo={() => (appState.planningDraft = appState.planningDraft.slice(0, -1))}
+			onundo={() => {
+				appState.planningDraft = appState.planningDraft.slice(0, -1);
+				appState.planningDraftClosed = false;
+			}}
 			oncancel={() => {
 				appState.planningDraft = [];
+				appState.planningDraftClosed = false;
 				setPlanningDrawMode(false);
 			}}
 		/>

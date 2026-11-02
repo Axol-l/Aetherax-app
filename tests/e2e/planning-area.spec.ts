@@ -226,7 +226,7 @@ test('redrawing the planning area moves the heatmap clip with it', async ({ page
 	await expect(toolbar).toHaveCount(0);
 });
 
-test('clicking the first corner again closes the loop', async ({ page }) => {
+test('clicking the first corner closes the loop as a proposal, then confirms', async ({ page }) => {
 	test.setTimeout(90_000);
 	await seed(page);
 	await page.goto('/');
@@ -247,8 +247,14 @@ test('clicking the first corner again closes the loop', async ({ page }) => {
 	for (const corner of corners) await canvas.click({ position: corner });
 
 	// The first corner is still the corner it was snapped to; clicking it closes the loop
-	// and the duplicate click is not stored as a fourth corner.
+	// as a proposal — the bar stays up with the confirm, and the saved area is unchanged
+	// until that confirm is pressed.
 	await canvas.click({ position: corners[0]! });
+	await expect(toolbar).toBeVisible();
+	await expect(toolbar.getByRole('button', { name: 'Close area' })).toBeVisible();
+	await expect.poll(async () => (await savedArea(page))?.length ?? 0).toBe(4);
+
+	await toolbar.getByRole('button', { name: 'Close area' }).click();
 	await expect.poll(async () => (await savedArea(page))?.length ?? 0, { timeout: 20_000 }).toBe(3);
 	await expect(toolbar).toHaveCount(0);
 });

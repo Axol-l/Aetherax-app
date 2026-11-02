@@ -124,6 +124,8 @@ export function handleShortcut(e: KeyboardEvent, hooks: ShortcutHooks): void {
 		e.preventDefault();
 		if (appState.planningDraft.length > 0) {
 			appState.planningDraft = appState.planningDraft.slice(0, -1);
+			// Undoing a corner reopens a loop that was closed on its first corner.
+			appState.planningDraftClosed = false;
 		}
 		return;
 	}

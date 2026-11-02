@@ -40,7 +40,8 @@ import {
 	STACK_YAW_LIMIT_DEG,
 	addCalibrationPoint,
 	addPlanningPoint,
-	appState
+	appState,
+	closePlanningDraft
 } from '$state/app.svelte.js';
 import { apState } from '$state/ap-state.svelte.js';
 import { floorState, switchFloor } from '$state/floor-state.svelte.js';
@@ -440,22 +441,30 @@ export class CanvasGestures {
 				x: e.clientX - rect.left,
 				y: e.clientY - rect.top
 			});
+			// The shape is closed and waiting for the bar's confirm: further clicks must not
+			// add corners behind the confirm's back.
+			if (appState.planningDraftClosed) {
+				e.preventDefault();
+				return;
+			}
 			// A corner snaps to the drawn walls, and the snapped point is placed at once:
 			// there is no second click or confirm button between aiming and committing it.
 			const point = this.planningPoint(world);
 			const draft = appState.planningDraft;
 			/*
-			 * Clicking the first corner again closes the loop.
+			 * Clicking the first corner closes the loop — the shape, not the decision.
 			 *
-			 * The gesture is what a polygon tool does everywhere else, and it saves a trip
-			 * to the bar: the first point was snapped when it was placed, so returning to it
-			 * is returning to the same corner. Fewer than three corners is not a polygon.
+			 * The bar stays up with the green confirm, so the area can still be undone or
+			 * cancelled before it replaces the floor's. Committing here used to hide the
+			 * bar mid-gesture, which left no way to confirm and the old outline on screen.
 			 */
 			const closes =
 				draft.length >= 3 &&
 				Math.hypot(point.x - draft[0]!.x, point.y - draft[0]!.y) <= this.host.snapTolerance();
-			if (closes) this.host.commitPlanningDraft();
-			else addPlanningPoint(point);
+			if (closes) {
+				closePlanningDraft();
+				this.planningCursor = null;
+			} else addPlanningPoint(point);
 			engine.markDirty();
 			e.preventDefault();
 			return;
@@ -696,6 +705,14 @@ export class CanvasGestures {
 		// While drawing the planning area the pointer drives the rubber band: the next edge
 		// and the closing edge are previewed, so the shape can be judged before it is closed.
 		if (appState.planningDrawMode) {
+			// A closed loop has no rubber band: there is no next corner until it is undone.
+			if (appState.planningDraftClosed) {
+				if (this.planningCursor !== null) {
+					this.planningCursor = null;
+					engine.markDirty();
+				}
+				return;
+			}
 			const rect = engine.canvas.getBoundingClientRect();
 			const world = engine.camera.screenToWorld({
 				x: e.clientX - rect.left,

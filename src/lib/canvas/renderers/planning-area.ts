@@ -21,6 +21,13 @@ export class PlanningAreaLayer implements Layer {
 	/** The loop being drawn, before it is committed. */
 	draft: Array<{ x: number; y: number }> = [];
 	/**
+	 * The draft has been closed on its first corner and is waiting for the bar's confirm.
+	 *
+	 * It is still a draft: the old area is on the floor until the confirm replaces it, and
+	 * the label says so.
+	 */
+	draftClosed = false;
+	/**
 	 * Where the pointer is while drawing, in world coordinates.
 	 *
 	 * The rubber band from the last corner to the cursor is what makes this a drawing tool
@@ -54,6 +61,34 @@ export class PlanningAreaLayer implements Layer {
 			ctx.setLineDash([8 / zoom, 5 / zoom]);
 			ctx.stroke();
 			ctx.setLineDash([]);
+		}
+
+		if (this.draft.length > 0 && this.draftClosed && this.draft.length >= 3) {
+			// Closed shape, waiting for confirmation: a dashed cyan loop over the committed
+			// one, so it reads as a proposal rather than as the new floor already.
+			ctx.beginPath();
+			ctx.moveTo(this.draft[0]!.x, this.draft[0]!.y);
+			for (let i = 1; i < this.draft.length; i++) {
+				ctx.lineTo(this.draft[i]!.x, this.draft[i]!.y);
+			}
+			ctx.closePath();
+			ctx.fillStyle = 'rgba(0, 220, 220, 0.05)';
+			ctx.fill();
+			ctx.strokeStyle = 'rgba(0, 220, 220, 0.95)';
+			ctx.lineWidth = 2 / zoom;
+			ctx.setLineDash([8 / zoom, 5 / zoom]);
+			ctx.stroke();
+			ctx.setLineDash([]);
+			for (const point of this.draft) {
+				ctx.beginPath();
+				ctx.arc(point.x, point.y, 3.5 / zoom, 0, Math.PI * 2);
+				ctx.fillStyle = 'rgba(0, 220, 220, 1)';
+				ctx.fill();
+				ctx.strokeStyle = 'rgba(10, 12, 18, 0.9)';
+				ctx.lineWidth = 1 / zoom;
+				ctx.stroke();
+			}
+			return;
 		}
 
 		if (this.draft.length > 0) {

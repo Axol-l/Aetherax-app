@@ -186,6 +186,14 @@ export const appState = $state({
 	},
 	planningDraft: [] as Array<{ x: number; y: number }>,
 	/**
+	 * The draft loop has been closed on its first corner, but not confirmed yet.
+	 *
+	 * Clicking the first corner is a statement about the *shape*, not about the floor: the
+	 * bar stays up with the green confirm so the area can still be undone or cancelled
+	 * before it replaces the floor's area.
+	 */
+	planningDraftClosed: false,
+	/**
 	 * Drawing a raised surface: a mezzanine, a stair, a ramp.
 	 *
 	 * Two clicks, like a wall and unlike the planning area: a surface is a rectangle, and
@@ -297,7 +305,10 @@ export function setTool(tool: ToolKind): void {
 		alignOwnsGhost = false;
 	}
 	if (current === 'calibrate') appState.calibrationPoints = [];
-	if (current === 'planning') appState.planningDraft = [];
+	if (current === 'planning') {
+		appState.planningDraft = [];
+		appState.planningDraftClosed = false;
+	}
 	if (current === 'surface') appState.surfaceDraft = null;
 
 	appState.tool = tool;
@@ -374,6 +385,16 @@ export function setPlanningDrawMode(on: boolean): void {
 
 export function addPlanningPoint(point: { x: number; y: number }): void {
 	appState.planningDraft = [...appState.planningDraft, point];
+}
+
+/**
+ * Close the loop being drawn, without confirming it.
+ *
+ * The first corner is where a polygon tool closes the shape; here that is a preview the bar
+ * can still undo or cancel. Only the green confirm replaces the floor's area.
+ */
+export function closePlanningDraft(): void {
+	if (appState.planningDraft.length >= 3) appState.planningDraftClosed = true;
 }
 
 /**
