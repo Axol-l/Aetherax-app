@@ -7,7 +7,13 @@
  * state, so they live here rather than in either consumer.
  */
 import { updateAp, beginMove } from './ap-state.svelte.js';
-import { apVerticalOffsetTo, getEffectiveWupm, type AccessPoint } from './ap-state.svelte.js';
+import {
+	apVerticalOffsetTo,
+	DEFAULT_WUPM,
+	wupmForFloor,
+	type AccessPoint
+} from './ap-state.svelte.js';
+import { resampleRaster, scaleBetween } from './floor-scale.js';
 import type { Band } from '@aetherax/channels';
 import { decodeMask } from '$canvas/mask-codec.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
@@ -39,12 +45,12 @@ interface DensityMapResult {
  * Combines room type default densities with per-region overrides.
  * Returns null if no room type data is available.
  */
-// ─── Density-map input caching ─────────────────────────────────────
+// 鈹€鈹€鈹€ Density-map input caching 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 //
 // Density overrides change on every slider tick, but the inputs they are
 // combined with do not. Recomputing them per tick meant two PNG decodes, a
 // morphological close, a connected-component labelling pass and a sort over
-// every labelled pixel — that is what made dragging a density slider stutter.
+// every labelled pixel 鈥?that is what made dragging a density slider stutter.
 //
 // Cached against the object identity of the stored mask wrappers. Those are
 // replaced wholesale whenever their contents change, so identity is a sound key
@@ -70,7 +76,8 @@ let densityRoomLabels: Int32Array | null = null;
 async function getDensityRoomLabels(
 	maskWidth: number,
 	maskHeight: number,
-	wallMask: { dataUrl: string; width: number; height: number } | null
+	wallMask: { dataUrl: string; width: number; height: number } | null,
+	floorId: string
 ): Promise<Int32Array | null> {
 	// Taken as a parameter rather than read from `wallState`, which only ever holds
 	// the *current* floor's mask, while an all-floor run optimises floors other
@@ -81,10 +88,10 @@ async function getDensityRoomLabels(
 	const decoded = await decodeMask(wm.dataUrl, wm.width, wm.height);
 	// Rooms, not cavities: this drives the per-room density the objective weights samples
 	// by, and a wall cavity is not a room with an occupancy. Untrimmed, because the wall-
-	// adjacent pixels are still part of the room the user drew — and because the canvas's own
+	// adjacent pixels are still part of the room the user drew 鈥?and because the canvas's own
 	// labels, which key the overrides read below, are untrimmed too. See `canvas/rooms.ts`.
 	const { labels } = buildRoomDomain(decoded.data, maskWidth, maskHeight, {
-		minRegionRadius: minRoomRadiusWu(),
+		minRegionRadius: minRoomRadiusWu(floorId),
 		trimWallAdjacent: false
 	});
 	densityRoomLabels = labels;
@@ -133,7 +140,7 @@ export async function buildDensityMap(
 
 	// Apply per-region density overrides if we have room labels
 	if (Object.keys(overrides).length > 0) {
-		const labels = await getDensityRoomLabels(maskWidth, maskHeight, floor.wallMask);
+		const labels = await getDensityRoomLabels(maskWidth, maskHeight, floor.wallMask, floor.id);
 		if (labels) {
 			for (let i = 0; i < labels.length; i++) {
 				const regionId = labels[i]!;
@@ -193,7 +200,7 @@ export interface FloorOutcome {
 	/**
 	 * The conflict graph of the floor's own plan, present only on a graph request
 	 * (`{ graphOnly: true }`). `sourceIds` names the payload's sources in the
-	 * worker's order — its APs first, then the fixed APs — so `pairs` can be read
+	 * worker's order 鈥?its APs first, then the fixed APs 鈥?so `pairs` can be read
 	 * as AP ids. See `buildAssignmentConflictEdges`.
 	 */
 	graph?: { pairs: Array<[number, number]>; count: number; weights?: number[] };
@@ -273,7 +280,7 @@ export function powerLevelsFor(configuredPower: number): number[] {
  * Applied together with the positions, in the same undoable step conceptually: a
  * plan scored with 14 dBm and shown at 20 dBm would not be the plan the objective
  * measured. The radius comes back from the worker already derived the way the app
- * derives it, so writing both keeps the stored cache and the power in agreement —
+ * derives it, so writing both keeps the stored cache and the power in agreement 鈥?
  * `refreshApRanges` on the next load is then a no-op.
  */
 export function applyPowers(
@@ -303,7 +310,14 @@ export function applyPowers(
 export async function sourceFloorMaskFor(
 	floorId: string,
 	targetOriginX: number,
-	targetOriginY: number
+	targetOriginY: number,
+	/**
+	 * The floor whose units the result must be in. Masks are one byte per world unit, so a
+	 * source on a different calibration has to be resampled into this floor's pixels 鈥?the
+	 * worker marches one frame and cannot tell that the walls it indexes were measured in a
+	 * different one.
+	 */
+	targetFloorId: string
 ): Promise<{
 	data: Uint8Array;
 	width: number;
@@ -317,17 +331,26 @@ export async function sourceFloorMaskFor(
 	const decoded = await getFloorMask(floorId);
 	if (!decoded) return null;
 	const floor = floorState.floors.find((f) => f.id === floorId);
+	const k = scaleBetween(floorId, targetFloorId);
+	const walls = resampleRaster(decoded.wallData, decoded.width, decoded.height, k);
+	const materials = decoded.materialMap
+		? resampleRaster(decoded.materialMap, decoded.width, decoded.height, k)
+		: null;
+	const roomTypes = decoded.roomTypeData
+		? resampleRaster(decoded.roomTypeData, decoded.width, decoded.height, k)
+		: null;
 	return {
-		data: decoded.wallData,
-		width: decoded.width,
-		height: decoded.height,
-		materialMask: decoded.materialMap,
-		roomTypeData: decoded.roomTypeData,
+		data: walls.data,
+		width: walls.width,
+		height: walls.height,
+		materialMask: materials?.data ?? null,
+		roomTypeData: roomTypes?.data ?? null,
 		defaultMaterial: floor?.wallMaterial ?? 0,
-		// The two floors' masks do not share an origin once either has been aligned,
-		// so the source mask is handed over pre-shifted into the target's frame.
-		originX: decoded.originX - targetOriginX,
-		originY: decoded.originY - targetOriginY
+		// The two floors' masks do not share an origin once either has been aligned, and
+		// the offset itself is in the source's units 鈥?so the source origin is converted
+		// first, then expressed relative to the target's.
+		originX: decoded.originX * k - targetOriginX,
+		originY: decoded.originY * k - targetOriginY
 	};
 }
 
@@ -336,8 +359,8 @@ export async function sourceFloorMaskFor(
  *
  * Only the parts that need this module's state live here: each floor's decoded
  * room-type mask, and its origin shifted so the worker can index the mask in the
- * frame it marches in. The geometry — which crossing tests which plan, and how much
- * of the aggregate slab loss each one carries — is in `rf/slab-crossings.ts`, where
+ * frame it marches in. The geometry 鈥?which crossing tests which plan, and how much
+ * of the aggregate slab loss each one carries 鈥?is in `rf/slab-crossings.ts`, where
  * a unit test can read it without a browser.
  *
  * Returns null when nothing can be tested, in which case the caller leaves the
@@ -348,13 +371,17 @@ export async function sourceFloorMaskFor(
  * Vertical drop of a path from an AP on `floor` to a client, in world units: the AP hangs at
  * the floor's ceiling and the client sits `clientHeight` above the floor's plane.
  *
- * The path *loss* deliberately treats a same-floor path as 2D — over metres of plan a 1.2 m
- * drop is a few percent of distance — but the wall march cannot: it charges the length of
- * material the ray passes through — which is why the wall charge is one flat figure per
+ * The path *loss* deliberately treats a same-floor path as 2D 鈥?over metres of plan a 1.2 m
+ * drop is a few percent of distance 鈥?but the wall march cannot: it charges the length of
+ * material the ray passes through 鈥?which is why the wall charge is one flat figure per
  */
 export function localVerticalDropFor(floor: Floor | undefined): number {
 	if (!floor) return 0;
-	return Math.abs(floor.ceilingHeight - projectMeta.clientHeight) * getEffectiveWupm();
+	// The floor object is the authority here: an all-floor run may hold a floor that is not
+	// the selected one, and looking its id up in state would read the wrong storey's scale
+	// if the list has been replaced under the run.
+	const wupm = floor.calibration?.worldUnitsPerMeter ?? DEFAULT_WUPM;
+	return Math.abs(floor.ceilingHeight - projectMeta.clientHeight) * wupm;
 }
 
 /**
@@ -398,7 +425,8 @@ export function toApInput(
 		// in use, and it has to be the same palette the solver uses. See `planningChannels`.
 		channelWidth: ap.channelWidth,
 		verticalGap:
-			apVerticalOffsetTo(ap, frame.floorId, projectMeta.clientHeight) * getEffectiveWupm(),
+			apVerticalOffsetTo(ap, frame.floorId, projectMeta.clientHeight) *
+			wupmForFloor(frame.floorId),
 		beamwidthDeg: ap.beamwidthDeg,
 		aimDeg: ap.aimDeg,
 		mount: ap.mount,
@@ -417,7 +445,7 @@ export async function crossingSlabsFor(
 	/**
 	 * The AP's own height above its floor, metres. Omitted means the ceiling of its
 	 * storey, which is the mount this geometry assumed before mounting heights
-	 * existed; the ray's slope — and so which planes it meets and where — follows
+	 * existed; the ray's slope 鈥?and so which planes it meets and where 鈥?follows
 	 * from it.
 	 */
 	apHeightM?: number
@@ -459,14 +487,26 @@ export async function crossingSlabsFor(
 					slice = cached;
 				} else {
 					const decoded = await getFloorMask(floor.id);
+					// The client's frame is in the optimised floor's units; this floor's
+					// room-type raster is in its own, so it is resampled and its origin
+					// scaled before the slab geometry indexes it.
+					const k = scaleBetween(floor.id, clientFloorId);
+					const roomTypes = decoded?.roomTypeData
+						? resampleRaster(
+								decoded.roomTypeData,
+								decoded.width,
+								decoded.height,
+								k
+							)
+						: null;
 					slice = {
-						roomTypes: decoded?.roomTypeData ?? null,
-						width: decoded?.width ?? 0,
-						height: decoded?.height ?? 0,
-						// Both origins are world coordinates, so subtracting the optimised
-						// floor's puts this mask in the frame the worker marches in.
-						originX: (decoded?.originX ?? 0) - clientOriginX,
-						originY: (decoded?.originY ?? 0) - clientOriginY
+						roomTypes: roomTypes?.data ?? null,
+						width: roomTypes?.width ?? 0,
+						height: roomTypes?.height ?? 0,
+						// Both origins are world coordinates 鈥?in their own units 鈥?so this
+						// one is converted to the client's before the difference is taken.
+						originX: (decoded?.originX ?? 0) * k - clientOriginX,
+						originY: (decoded?.originY ?? 0) * k - clientOriginY
 					};
 					decodedByFloor.set(floor.id, slice);
 				}

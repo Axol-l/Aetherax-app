@@ -3,7 +3,7 @@
  *
  * The project used to carry one scale: calibrating any storey wrote the value onto every
  * floor, and every consumer read floor 1's copy. That made a plan imported at a different
- * resolution unrepresentable — measuring floor 2 silently changed floor 1's metres — so
+ * resolution unrepresentable 鈥?measuring floor 2 silently changed floor 1's metres 鈥?so
  * these tests pin the two halves of the new rule: a scale belongs to one floor, and adding
  * a floor copies the scale of the floor it was added from.
  */
@@ -17,7 +17,7 @@ import {
 	type AccessPoint
 } from './ap-state.svelte.js';
 import { addFloor, floorState, type Floor } from './floor-state.svelte.js';
-import { setFloorScale } from './floor-scale.js';
+import { resampleRaster, scaleBetween, setFloorScale } from './floor-scale.js';
 
 function floor(id: string, level: number, wupm: number | null): Floor {
 	return {
@@ -80,7 +80,7 @@ afterEach(() => {
 });
 
 describe('wupmForFloor', () => {
-	it('reads each floor’s own scale, and the current floor through getEffectiveWupm', () => {
+	it('reads each floor鈥檚 own scale, and the current floor through getEffectiveWupm', () => {
 		seed();
 		expect(wupmForFloor('f1')).toBe(20);
 		expect(wupmForFloor('f2')).toBe(40);
@@ -89,7 +89,7 @@ describe('wupmForFloor', () => {
 		expect(getEffectiveWupm()).toBe(40);
 	});
 
-	it('falls back to the default for an uncalibrated floor, not to a sibling’s value', () => {
+	it('falls back to the default for an uncalibrated floor, not to a sibling鈥檚 value', () => {
 		seed();
 		floorState.floors.push(floor('f3', 2, null));
 		expect(wupmForFloor('f3')).toBe(DEFAULT_WUPM);
@@ -97,7 +97,7 @@ describe('wupmForFloor', () => {
 });
 
 describe('setFloorScale', () => {
-	it('changes one floor and leaves the others’ scale and radii alone', () => {
+	it('changes one floor and leaves the others鈥?scale and radii alone', () => {
 		seed();
 		setFloorScale('f1', 60);
 
@@ -127,17 +127,48 @@ describe('setFloorScale', () => {
 });
 
 describe('radiusFromPower', () => {
-	it('can be told which floor’s units to use', () => {
+	it('can be told which floor鈥檚 units to use', () => {
 		seed();
 		expect(radiusFromPower(20, '5ghz', 40)).toBe(radiusFromPower(20, '5ghz', 20) * 2);
 	});
 });
 
 describe('addFloor', () => {
-	it('inherits the scale of the floor it was added from, not floor 1’s', () => {
+	it('inherits the scale of the floor it was added from, not floor 1鈥檚', () => {
 		seed();
 		floorState.currentFloorId = 'f2';
 		const added = addFloor();
 		expect(added.calibration).toEqual({ worldUnitsPerMeter: 40 });
+	});
+});
+
+
+describe('scaleBetween', () => {
+	it('converts a length from one floor’s units into another’s', () => {
+		seed();
+		expect(scaleBetween('f1', 'f2')).toBe(2);
+		expect(scaleBetween('f2', 'f1')).toBe(0.5);
+		expect(scaleBetween('f1', 'f1')).toBe(1);
+	});
+});
+
+describe('resampleRaster', () => {
+	it('keeps a mask readable across a factor-of-two calibration', () => {
+		// 2x2: wall in the top-left and bottom-right pixels.
+		const data = new Uint8Array([1, 0, 0, 1]);
+		const out = resampleRaster(data, 2, 2, 2);
+		expect(out.width).toBe(4);
+		expect(out.height).toBe(4);
+		// The top-left source pixel becomes a 2x2 block of wall.
+		expect(out.data[0]).toBe(1);
+		expect(out.data[5]).toBe(1);
+		expect(out.data[2]).toBe(0);
+	});
+
+	it('returns the same raster at scale 1', () => {
+		const data = new Uint8Array([1, 0, 0, 1]);
+		const out = resampleRaster(data, 2, 2, 1);
+		expect(out.data).toBe(data);
+		expect(out.width).toBe(2);
 	});
 });

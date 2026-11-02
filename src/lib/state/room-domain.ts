@@ -15,7 +15,7 @@
  * They must not each invent one: a domain here that the worker does not share is exactly
  * the disagreement `ap-interior.ts` exists to prevent.
  */
-import { getEffectiveWupm } from './ap-state.svelte.js';
+import { getEffectiveWupm, wupmForFloor } from './ap-state.svelte.js';
 
 /**
  * Smallest inscribed radius a region may have and still count as a room, in metres.
@@ -28,7 +28,14 @@ import { getEffectiveWupm } from './ap-state.svelte.js';
  */
 export const MIN_ROOM_RADIUS_M = 0.3;
 
-/** The same threshold in mask pixels, for the current calibration. */
-export function minRoomRadiusWu(): number {
-	return MIN_ROOM_RADIUS_M * getEffectiveWupm();
+/**
+ * The same threshold in mask pixels, for a floor's calibration.
+ *
+ * Pass the floor whose mask is being built: the threshold is in metres, and a mask's pixels
+ * are that floor's world units. Using the *selected* floor's scale while building another
+ * floor's domain made a room on a differently-calibrated storey count as several rooms — or
+ * as none.
+ */
+export function minRoomRadiusWu(floorId?: string): number {
+	return MIN_ROOM_RADIUS_M * (floorId ? wupmForFloor(floorId) : getEffectiveWupm());
 }

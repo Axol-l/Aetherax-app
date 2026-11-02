@@ -83,6 +83,20 @@ describe('coverage basis', () => {
 
 		expect(coverageBasis('floor-a')).toBe(coverageBasis('floor-a'));
 	});
+
+	it('reads the floor’s own calibration, not the selected floor’s', () => {
+		const a = floorState.floors[0]!;
+		const b = { ...a, id: 'floor-b', name: 'Floor 2', level: 1, calibration: { worldUnitsPerMeter: 80 } };
+		floorState.floors = [a, b];
+		floorState.currentFloorId = 'floor-a';
+
+		const aBefore = coverageBasis('floor-a');
+		const bBefore = coverageBasis('floor-b');
+		// Calibrating floor 2 changes floor 2's basis and leaves floor 1's alone.
+		floorState.floors[1]!.calibration = { worldUnitsPerMeter: 60 };
+		expect(coverageBasis('floor-b')).not.toBe(bBefore);
+		expect(coverageBasis('floor-a')).toBe(aBefore);
+	});
 });
 
 describe('dropStaleCoverage', () => {

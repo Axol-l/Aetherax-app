@@ -65,6 +65,8 @@ export class FloorTilesLayer implements Layer {
 	showHeatmap = false;
 	/** Underlay alpha, shared with the single-floor view. */
 	planOpacity = 0.8;
+	/** The sheet's reference scale, which every floor's drawing is converted into. */
+	wupm = 1;
 
 	private sources: FloorCardSource[] = [];
 
@@ -80,8 +82,9 @@ export class FloorTilesLayer implements Layer {
 		this.cards.onLoad = fn;
 	}
 
-	setFloors(sources: FloorCardSource[], currentFloorId: string | null): void {
+	setFloors(sources: FloorCardSource[], currentFloorId: string | null, wupm: number): void {
 		this.currentFloorId = currentFloorId;
+		this.wupm = wupm;
 		this.cards.sync(sources);
 		this.sources = sources;
 	}
@@ -96,7 +99,7 @@ export class FloorTilesLayer implements Layer {
 		let cellW = 0;
 		let cellH = 0;
 		const boxes = this.sources.map((s) => {
-			const box = this.cards.contentBox(s);
+			const box = this.cards.contentBox(s, this.wupm);
 			cellW = Math.max(cellW, box.w);
 			cellH = Math.max(cellH, box.h);
 			return { s, box };
@@ -200,7 +203,8 @@ export class FloorTilesLayer implements Layer {
 				showAPs: this.showAPs,
 				showHeatmap: this.showHeatmap,
 				planOpacity: this.planOpacity,
-				zoom
+				zoom,
+				wupm: this.wupm
 			});
 			ctx.restore();
 		}

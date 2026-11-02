@@ -47,6 +47,15 @@ export interface FloorCardSource {
 	maskWidth: number;
 	maskHeight: number;
 	/**
+	 * This floor's calibration, world units per metre.
+	 *
+	 * A card draws its floor in the floor's own units and scales the whole drawing into the
+	 * sheet's frame: two storeys calibrated at different resolutions are physically different
+	 * sizes, and drawing them at one raw coordinate system made the one with the finer plan
+	 * look bigger than it is.
+	 */
+	wupm: number;
+	/**
 	 * This floor's access points, as the single-floor view would draw them.
 	 *
 	 * The channel is carried so an overview can colour a marker the same way the
@@ -92,6 +101,8 @@ export interface CardContentOptions {
 	planOpacity: number;
 	/** Camera zoom, so screen-constant details stay screen-constant. */
 	zoom: number;
+	/** The sheet's reference scale, which the floor's own drawing is converted into. */
+	wupm: number;
 }
 
 /** World-space box a card's content occupies. */
@@ -225,23 +236,35 @@ export class FloorCardCache {
 	 * the coverage image (generated for the plan plus each AP's reach) spills into
 	 * the margin as a hard-edged rectangle floating outside the plan it belongs to.
 	 */
-	contentBox(s: FloorCardSource): CardBox {
+	contentBox(s: FloorCardSource, sheetWupm = s.wupm): CardBox {
+		const k = s.wupm > 0 ? sheetWupm / s.wupm : 1;
+		const scaled = (box: CardBox): CardBox => ({
+			minX: box.minX * k,
+			minY: box.minY * k,
+			w: box.w * k,
+			h: box.h * k
+		});
 		if (s.maskUrl && s.maskWidth > 0 && s.maskHeight > 0) {
-			return { minX: s.maskOriginX, minY: s.maskOriginY, w: s.maskWidth, h: s.maskHeight };
+			return scaled({
+				minX: s.maskOriginX,
+				minY: s.maskOriginY,
+				w: s.maskWidth,
+				h: s.maskHeight
+			});
 		}
 		const plan = s.planUrl ? this.images.get(s.planUrl) : null;
 		if (plan?.complete && plan.naturalWidth > 0) {
-			return {
+			return scaled({
 				minX: s.planOffsetX,
 				minY: s.planOffsetY,
 				w: CARD_PLAN_WIDTH,
 				h: (plan.naturalHeight / plan.naturalWidth) * CARD_PLAN_WIDTH
-			};
+			});
 		}
 		if (s.planUrl) {
-			return { minX: s.planOffsetX, minY: s.planOffsetY, w: EMPTY_W, h: EMPTY_H };
+			return scaled({ minX: s.planOffsetX, minY: s.planOffsetY, w: EMPTY_W, h: EMPTY_H });
 		}
-		return { minX: 0, minY: 0, w: EMPTY_W, h: EMPTY_H };
+		return scaled({ minX: 0, minY: 0, w: EMPTY_W, h: EMPTY_H });
 	}
 
 	/**
@@ -252,6 +275,10 @@ export class FloorCardCache {
 	 * drawing, so the two views cannot drift.
 	 */
 	draw(ctx: CanvasRenderingContext2D, src: FloorCardSource, opts: CardContentOptions): void {
+		const k = src.wupm > 0 ? opts.wupm / src.wupm : 1;
+		ctx.save();
+		// The floor is drawn in its own units; the sheet is in the reference floor's.
+		ctx.scale(k, k);
 		const plan = src.planUrl ? this.images.get(src.planUrl) : null;
 		if (opts.showPlan && plan?.complete && plan.naturalWidth > 0) {
 			ctx.globalAlpha = opts.planOpacity;
@@ -290,7 +317,9 @@ export class FloorCardCache {
 
 		if (opts.showAPs) {
 			ctx.globalAlpha = 1;
-			const dotR = 4 / opts.zoom;
+			// The marker is a screen-constant annotation, so the card's own scale is
+			// divided out of it (a finer plan must not get bigger dots).
+			const dotR = 4 / (opts.zoom * Math.max(0.0001, k));
 			for (const ap of src.aps) {
 				// The same colour the plan gives it — see `apMarkerColor`. The overview
 				// used to have a palette of its own, so an access point that was green
@@ -313,6 +342,7 @@ export class FloorCardCache {
 				ctx.fill();
 			}
 		}
+		ctx.restore();
 	}
 }
 

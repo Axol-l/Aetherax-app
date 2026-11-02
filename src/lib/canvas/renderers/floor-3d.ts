@@ -70,7 +70,8 @@ export class Floor3DLayer implements Layer {
 	/** The box this floor occupies, in world coordinates. */
 	private contentBox(): { x: number; y: number; w: number; h: number } | null {
 		if (!this.source) return null;
-		const box = this.cards.contentBox(this.source);
+		// The 3D camera is in this floor's units, so the card scale is 1.
+		const box = this.cards.contentBox(this.source, this.camera.wupm);
 		return { x: box.minX, y: box.minY, w: box.w, h: box.h };
 	}
 
@@ -171,7 +172,8 @@ export class Floor3DLayer implements Layer {
 			showAPs: false,
 			showHeatmap: this.showHeatmap,
 			planOpacity: this.planOpacity,
-			zoom
+			zoom,
+			wupm: this.camera.wupm
 		});
 		ctx.restore();
 

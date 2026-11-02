@@ -1,12 +1,12 @@
-/**
- * "Is this point inside the building?" — the same question the optimiser's verifier asks,
+﻿/**
+ * "Is this point inside the building?" 鈥?the same question the optimiser's verifier asks,
  * answered for the paths that never touch the optimiser.
  *
  * With `Allow APs outside rooms` off, the optimiser keeps its access points inside the
  * detected interior. Two other paths could still put one in the margin outside the walls
  * and did so silently: a click on the canvas in placement mode, and a project saved by a
  * build whose detection disagreed with the current one. Both are checked against the same
- * interior domain the optimiser uses — same morphological options, same void exclusion —
+ * interior domain the optimiser uses 鈥?same morphological options, same void exclusion 鈥?
  * so "inside" means one thing everywhere in the app.
  *
  * Pure with respect to app state beyond the mask lookup, so it can be awaited from an
@@ -17,7 +17,7 @@ import { sealOpenings } from '$canvas/morphology.js';
 import { buildRoomDomain } from '$canvas/rooms.js';
 import { maskSignature } from '$canvas/mask-registry.js';
 import { isVoidRoomType } from '$lib/domain/room-types.js';
-import { getEffectiveWupm } from './ap-state.svelte.js';
+import { wupmForFloor } from './ap-state.svelte.js';
 import { getFloorMask } from './floor-mask.js';
 import { minRoomRadiusWu } from './room-domain.js';
 import { isUsablePlanningArea, pointInPlanningArea } from './planning-area.js';
@@ -28,7 +28,7 @@ import { floorState } from './floor-state.svelte.js';
  *
  * A doorway is about a metre, a double door under two; a room whose whole side is missing
  * is not a room. Closing the walls by this radius bridges the first and leaves the second
- * open, which is the difference this guard was getting wrong — an office with a 1 m doorway
+ * open, which is the difference this guard was getting wrong 鈥?an office with a 1 m doorway
  * was reported as "outside the building" and its access point flagged.
  *
  * **Only this guard uses it.** The coverage figure and the optimiser's domain keep the
@@ -42,7 +42,7 @@ interface CachedInterior {
 	key: string;
 	width: number;
 	height: number;
-	/** Mask pixel (0,0) sits at this world coordinate: `pixel = world − origin`. */
+	/** Mask pixel (0,0) sits at this world coordinate: `pixel = world 鈭?origin`. */
 	originX: number;
 	originY: number;
 	interior: Uint8Array;
@@ -53,8 +53,8 @@ const cache = new Map<string, CachedInterior>();
 /**
  * The computation in flight per floor.
  *
- * Two callers asking at once — the effect that sets the notice runs on every AP write, and a
- * wall edit can start it again before the first has finished — used to both miss the cache
+ * Two callers asking at once 鈥?the effect that sets the notice runs on every AP write, and a
+ * wall edit can start it again before the first has finished 鈥?used to both miss the cache
  * and both run the whole flood fill. Measured at ~900 ms each before the morphological
  * passes were made separable, so the app did the work twice and blocked twice. They share
  * one promise now.
@@ -76,8 +76,8 @@ async function computeInterior(floorId: string): Promise<CachedInterior | null> 
 	/*
 	 * Keyed on the mask *object*, not on `sourceKey`.
 	 *
-	 * The live mask reports the constant key `'live'` — it is handed over mid-edit, when its
-	 * pixels are still changing — so a cache keyed on it never invalidated, and the interior
+	 * The live mask reports the constant key `'live'` 鈥?it is handed over mid-edit, when its
+	 * pixels are still changing 鈥?so a cache keyed on it never invalidated, and the interior
 	 * (and with it the "outside the building" warning) kept answering from the geometry of
 	 * whenever it was first computed. Deriving a mask from the drawn walls hit exactly that.
 	 */
@@ -87,11 +87,11 @@ async function computeInterior(floorId: string): Promise<CachedInterior | null> 
 	/*
 	 * The walls are closed first, so a doorway does not read as the way out.
 	 *
-	 * The radius is in world units — the mask's own pixels — and derives from the project's
+	 * The radius is in world units 鈥?the mask's own pixels 鈥?and derives from the project's
 	 * scale, which can change on recalibration, so it is part of the cache key above by way
 	 * of the mask and here by the radius itself.
 	 */
-	const wupm = getEffectiveWupm();
+	const wupm = wupmForFloor(floorId);
 	const sealRadius = Math.max(1, Math.round(SEAL_RADIUS_M * wupm));
 	const interiorStarted = performance.now();
 	const sealed = sealOpenings(decoded.wallData, decoded.width, decoded.height, sealRadius);
@@ -99,13 +99,13 @@ async function computeInterior(floorId: string): Promise<CachedInterior | null> 
 		// The optimiser's own domain, verbatim: a different one here would mean an AP this
 		// guard rejects and the optimiser happily places, or the other way round. See
 		// `canvas/rooms.ts`.
-		minRegionRadius: minRoomRadiusWu(),
+		minRegionRadius: minRoomRadiusWu(floorId),
 		trimWallAdjacent: true
 	});
 	// Timed: the flood fill and the sealing run on the whole mask, and this recomputes
-	// whenever the walls change — on the same frame the user releases the pointer.
+	// whenever the walls change 鈥?on the same frame the user releases the pointer.
 	debug(
-		`[interior] ${decoded.width}×${decoded.height} in ${Math.round(performance.now() - interiorStarted)} ms`
+		`[interior] ${decoded.width}脳${decoded.height} in ${Math.round(performance.now() - interiorStarted)} ms`
 	);
 	const roomTypes = decoded.roomTypeData;
 	if (roomTypes && roomTypes.length === interior.length) {
@@ -129,7 +129,7 @@ async function computeInterior(floorId: string): Promise<CachedInterior | null> 
 /**
  * True when the world point is inside the floor's detected interior.
  *
- * A floor with no wall mask has nothing to judge against, so every point counts as inside —
+ * A floor with no wall mask has nothing to judge against, so every point counts as inside 鈥?
  * the guard is about walls the app knows about, not about refusing to work.
  */
 export async function isInsideInterior(floorId: string, x: number, y: number): Promise<boolean> {
@@ -139,7 +139,7 @@ export async function isInsideInterior(floorId: string, x: number, y: number): P
 	 * The inferred interior is a guess about a drawing: a room with a wide opening reads as
 	 * "outside" (which is how an AP standing in the middle of an office was reported as
 	 * outside the building) and a wall cavity reads as inside. When the user has said where
-	 * the floor is, that answer is used instead — this is the same reason survey tools make
+	 * the floor is, that answer is used instead 鈥?this is the same reason survey tools make
 	 * you draw the area by hand.
 	 */
 	const planned = floorState.floors.find((f) => f.id === floorId)?.planningArea;
@@ -153,7 +153,8 @@ export async function isInsideInterior(floorId: string, x: number, y: number): P
 	return entry.interior[iy * entry.width + ix] === 1;
 }
 
-/** Drop a floor's cached interior — used when its mask is replaced or the floor is deleted. */
+/** Drop a floor's cached interior 鈥?used when its mask is replaced or the floor is deleted. */
 export function forgetInterior(floorId: string): void {
 	cache.delete(floorId);
 }
+

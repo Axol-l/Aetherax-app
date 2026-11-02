@@ -457,7 +457,9 @@ export class StackedFloorsLayer implements Layer {
 	/** Where each slab sits. Sorted bottom-up, which is also the draw order. */
 	layout(): StackedSlab[] {
 		if (this.sources.length === 0) return [];
-		const boxes = new Map(this.sources.map((s) => [s.id, this.cards.contentBox(s)]));
+		const boxes = new Map(
+			this.sources.map((s) => [s.id, this.cards.contentBox(s, this.camera.wupm)])
+		);
 		return stackedLayout(this.sources, boxes, {
 			...this.camera,
 			currentFloorId: this.currentFloorId,
@@ -552,7 +554,8 @@ export class StackedFloorsLayer implements Layer {
 				showAPs: false,
 				showHeatmap: this.showHeatmap,
 				planOpacity: this.planOpacity,
-				zoom
+				zoom,
+				wupm: this.camera.wupm
 			});
 			ctx.restore();
 
@@ -634,10 +637,15 @@ export class StackedFloorsLayer implements Layer {
 		zoom: number
 	): void {
 		const dotR = 4 / zoom;
+		// The markers are drawn in the sheet's plane, so the floor's own coordinates are
+		// converted first — and the plate's size follows the same conversion.
+		const k = src.wupm > 0 ? view.wupm / src.wupm : 1;
 		for (const ap of src.aps) {
+			const ax = ap.x * k;
+			const ay = ap.y * k;
 			const heightWu = (ap.mountHeightM ?? 0) * view.wupm * view.spacing;
-			const onFloor = projectPoint(view, ap.x, ap.y, slab.z, pivot);
-			const at = projectPoint(view, ap.x, ap.y, slab.z + heightWu, pivot);
+			const onFloor = projectPoint(view, ax, ay, slab.z, pivot);
+			const at = projectPoint(view, ax, ay, slab.z + heightWu, pivot);
 			ctx.globalAlpha = 1;
 			// The stem: the floor end is a ghost, the marker end is the solid dot, so
 			// the line reads as "this high above that point".
@@ -654,7 +662,7 @@ export class StackedFloorsLayer implements Layer {
 				band: ap.band ?? '5ghz'
 			});
 			if (ap.mount === 'wall') {
-				this.drawWallPlate(ctx, view, ap, slab.z + heightWu, pivot, dotR, zoom);
+				this.drawWallPlate(ctx, view, ap, ax, ay, slab.z + heightWu, pivot, dotR, zoom);
 				continue;
 			}
 			ctx.beginPath();
@@ -683,6 +691,8 @@ export class StackedFloorsLayer implements Layer {
 		ctx: CanvasRenderingContext2D,
 		view: StackCamera,
 		ap: FloorCardSource['aps'][number],
+		x: number,
+		y: number,
 		z: number,
 		pivot: { x: number; y: number; z: number },
 		dotR: number,
@@ -698,8 +708,8 @@ export class StackedFloorsLayer implements Layer {
 		const corner = (across: number, along: number) =>
 			projectPoint(
 				view,
-				ap.x + across * fx - along * fy,
-				ap.y + across * fy + along * fx,
+				x + across * fx - along * fy,
+				y + across * fy + along * fx,
 				z,
 				pivot
 			);

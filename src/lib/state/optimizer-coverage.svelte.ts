@@ -12,7 +12,14 @@
  * read here.
  */
 import { debug } from '$lib/log.js';
-import { apHeightAboveFloor, apSplitFor, apVerticalOffsetTo, antennaProfileFor, getEffectiveWupm } from './ap-state.svelte.js';
+import {
+	apHeightAboveFloor,
+	apSplitFor,
+	apVerticalOffsetTo,
+	antennaProfileFor,
+	wupmForFloor
+} from './ap-state.svelte.js';
+import { scaleBetween } from './floor-scale.js';
 import { antennaRayLossDb } from '$lib/rf/antenna.js';
 import { surfaceHeightAt, deckCrossing } from '$lib/rf/surface-height.js';
 import { bestReflection } from '$lib/rf/reflection.js';
@@ -140,7 +147,7 @@ async function ensureCoverageCache(): Promise<boolean> {
 	// regions count as rooms, so a cavity is not counted as floor area that needs covering
 	// either. Trimmed, because that is what the placement domain is. See `canvas/rooms.ts`.
 	const { interior } = buildRoomDomain(cachedMask.data, mask.width, mask.height, {
-		minRegionRadius: minRoomRadiusWu(),
+		minRegionRadius: minRoomRadiusWu(floorState.currentFloorId),
 		trimWallAdjacent: true
 	});
 
@@ -340,7 +347,7 @@ export async function updateCoverage(): Promise<void> {
 			slabs: SlabCrossing[];
 		}
 	> = [];
-	const wupmForGap = getEffectiveWupm();
+	const wupmForGap = wupmForFloor(curFloorId);
 	for (const otherFloor of floorState.floors) {
 		if (otherFloor.id === curFloorId) continue;
 		const otherAps = apState.aps.filter((ap) => ap.floorId === otherFloor.id);
@@ -357,7 +364,10 @@ export async function updateCoverage(): Promise<void> {
 		// floor's walls to the crossing, then this floor's.
 		//
 		// Cached per floor, so this costs no extra decode on the drag path.
-		const source = await sourceFloorMaskFor(otherFloor.id, ox, oy);
+		const source = await sourceFloorMaskFor(otherFloor.id, ox, oy, curFloorId);
+		// The other floor's AP coordinates and reach are in its own units; the samples
+		// below are this floor's mask pixels, so they are converted before the distance.
+		const k = scaleBetween(otherFloor.id, curFloorId);
 		// Slab loss is band dependent, so derive it per AP from its own band rather
 		// than applying one 5 GHz figure to the whole floor. The crossing shares
 		// depend on the band *and* on the mount height — the ray's slope decides
@@ -385,6 +395,9 @@ export async function updateCoverage(): Promise<void> {
 			const split = apSplitFor(ap, curFloorId, projectMeta.clientHeight);
 			virtualAps.push({
 				...ap,
+				x: ap.x * k,
+				y: ap.y * k,
+				interferenceRadius: ap.interferenceRadius * k,
 				signalScale: Math.pow(10, -getFloorSlabAttenuation(curFloorId, otherFloor.id, ap.band) / 10),
 				verticalGapWu: apVerticalOffsetTo(ap, curFloorId, projectMeta.clientHeight) * wupmForGap,
 				source,
@@ -428,7 +441,7 @@ export async function updateCoverage(): Promise<void> {
 	 * converts it once here rather than at every use.
 	 */
 	const surfaces = currentFloor().surfaces ?? [];
-	const surfaceWupm = getEffectiveWupm();
+	const surfaceWupm = wupmForFloor(curFloorId);
 	/*
 	 * The segments a ray can reflect off, and how far a reflection is worth looking for.
 	 *

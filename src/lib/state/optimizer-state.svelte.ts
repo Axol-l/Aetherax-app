@@ -6,7 +6,7 @@
  * The per-floor coverage cache lives here for the same reason.
  */
 import { SvelteMap } from 'svelte/reactivity';
-import { apState, getEffectiveWupm } from './ap-state.svelte.js';
+import { apState, wupmForFloor } from './ap-state.svelte.js';
 import { currentFloor, floorState } from './floor-state.svelte.js';
 import { isInsideInterior } from './ap-interior.js';
 import { projectMeta } from './project-meta.svelte.js';
@@ -150,7 +150,7 @@ export function coverageBasis(floorId: string): string {
 		maskId(floor.materialMask),
 		maskId(floor.roomTypeMask),
 		floor.wallMaterial,
-		Math.round(getEffectiveWupm() * 100),
+		Math.round(wupmForFloor(floorId) * 100),
 		aps
 	].join('~');
 }

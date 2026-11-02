@@ -54,6 +54,7 @@ function sources(count = 2): FloorCardSource[] {
 		maskOriginY: 0,
 		maskWidth: 800,
 		maskHeight: 600,
+		wupm: WUPM,
 		aps: [],
 		elevation
 	});
@@ -109,10 +110,10 @@ describe('projectPoint', () => {
 	it('foreshortens y with pitch and lifts a floor by its height', () => {
 		const tilted = camera({ yaw: 0, pitch: 60 * DEG });
 		const flat = projectPoint(tilted, 0, 100, 0);
-		// cos(60°) = 0.5: distances away from the viewer halve.
+		// cos(60掳) = 0.5: distances away from the viewer halve.
 		expect(flat.x).toBeCloseTo(0, 9);
 		expect(flat.y).toBeCloseTo(100 * Math.cos(60 * DEG), 9);
-		// sin(60°) = 0.866: a 100-unit height moves the floor up by that much.
+		// sin(60掳) = 0.866: a 100-unit height moves the floor up by that much.
 		expect(projectPoint(tilted, 0, 0, 100).y).toBeCloseTo(-100 * Math.sin(60 * DEG), 9);
 	});
 
@@ -214,16 +215,16 @@ describe('stackedBounds', () => {
 	it('grows with the tilt, symmetrically about the pivot', () => {
 		const view = camera({ yaw: 0, pitch: 30 * DEG });
 		const bounds = stackedBounds(view, layout(null));
-		// The plans are foreshortened to 300·cos(30°) either side of the middle, and
-		// the storeys are lifted ±(99.15/2)·sin(30°) about it: 259.8 + 24.8 = 284.6.
+		// The plans are foreshortened to 300路cos(30掳) either side of the middle, and
+		// the storeys are lifted 卤(99.15/2)路sin(30掳) about it: 259.8 + 24.8 = 284.6.
 		const reach = 300 * Math.cos(30 * DEG) + (99.15 / 2) * Math.sin(30 * DEG);
 		expect(bounds[0]!.y).toBeCloseTo(-reach, 6);
 		expect(bounds[1]!.y).toBeCloseTo(reach, 6);
 	});
 
 	it('a yawed plan needs a wider box than the plan itself', () => {
-		// A rectangle seen at 45° has a bounding box as wide as the sum of its sides
-		// times cos(45°) — the visible proof that the view rotated rather than
+		// A rectangle seen at 45掳 has a bounding box as wide as the sum of its sides
+		// times cos(45掳) 鈥?the visible proof that the view rotated rather than
 		// translated. Sliding the floors sideways never changes this.
 		const straight = stackedBounds(camera({ yaw: 0, pitch: 0 }), layout(null));
 		const turned = stackedBounds(camera({ yaw: 45 * DEG, pitch: 0 }), layout(null));
@@ -251,8 +252,8 @@ describe('slabAt', () => {
 		expect(slabAt(view, slabs, upperCentre.x, upperCentre.y)).toBe('f2');
 
 		// Far along the ground floor's plan, the upper floor's own plan has already
-		// ended — un-projected onto the upper plane this point lands past its far
-		// edge — so the ground floor is what is there.
+		// ended 鈥?un-projected onto the upper plane this point lands past its far
+		// edge 鈥?so the ground floor is what is there.
 		const groundEdge = projectPoint(view, 400, 580, ground.z, stackPivot(slabs));
 		expect(slabAt(view, slabs, groundEdge.x, groundEdge.y)).toBe('f1');
 	});
@@ -352,7 +353,7 @@ describe('projectBox', () => {
 	it('turns into a parallelogram when the view is turned', () => {
 		const view = camera({ yaw: 30 * DEG, pitch: 20 * DEG });
 		const quad = projectBox(view, { x: 0, y: 0, w: 100, h: 100 }, 0);
-		// Opposite sides stay parallel — that is what makes one `ctx.transform` per
+		// Opposite sides stay parallel 鈥?that is what makes one `ctx.transform` per
 		// floor exact rather than an approximation.
 		const d1 = { x: quad[1]!.x - quad[0]!.x, y: quad[1]!.y - quad[0]!.y };
 		const d2 = { x: quad[2]!.x - quad[3]!.x, y: quad[2]!.y - quad[3]!.y };
@@ -388,6 +389,7 @@ class RecordingContext {
 	save() {}
 	restore() {}
 	transform() {}
+	scale() {}
 	rect() {}
 	clip() {}
 	fill() {}
@@ -418,6 +420,7 @@ function markers(aps: MarkerAp[], over: Partial<StackCamera> = {}): RecordingCon
 		maskOriginY: 0,
 		maskWidth: 0,
 		maskHeight: 0,
+		wupm: WUPM,
 		aps,
 		elevation: 0
 	};
@@ -504,3 +507,4 @@ describe('stacked view: access point markers', () => {
 		expect(Math.abs(turned.rest[0]!.y - turned.first.y)).toBeGreaterThan(0.5);
 	});
 });
+

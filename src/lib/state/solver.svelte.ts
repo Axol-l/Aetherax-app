@@ -7,7 +7,6 @@ import type { SolverResult, ComparisonResult } from '@aetherax/solver';
 import { updateAp, clearAssignments } from './ap-state.svelte.js';
 import { SolverBridge } from '../workers/solver-bridge.js';
 import { floorState, getFloorSlabAttenuation } from './floor-state.svelte.js';
-import { getEffectiveWupm } from './ap-state.svelte.js';
 import { getMaterialDbTable, getFlatAttenuation, type WallMaterialId } from '$lib/domain/materials.js';
 import { rayMarchWallAtten } from '../rf/propagation.js';
 import { balanceAssignment, widenAssignment } from '../rf/interference.js';
@@ -53,7 +52,7 @@ function graphSignature(): string {
 	return `${aps}##${walls}##${wallState.wallMaterial}##${projectMeta.clientHeight}`;
 }
 
-/** Attenuated signal between AP pairs: "apIdA:apIdB" → signal (0-1). */
+/** Attenuated signal between AP pairs: "apIdA:apIdB" 鈫?signal (0-1). */
 export const edgeSignals = new Map<string, number>();
 
 export const solverState = $state({
@@ -69,7 +68,7 @@ export const solverState = $state({
 
 /** Compute cumulative z-position (in world units) for each floor level. */
 function getFloorZ(): Map<string, number> {
-	const wupm = getEffectiveWupm();
+	const wupm = wupmForFloor(floorState.currentFloorId);
 	const sorted = [...floorState.floors].sort((a, b) => a.level - b.level);
 	const zMap = new Map<string, number>();
 	let z = 0;
@@ -82,16 +81,23 @@ function getFloorZ(): Map<string, number> {
 
 function getApPositions() {
 	const floorZ = getFloorZ();
-	return apState.aps.map((ap) => ({
-		id: ap.id,
-		x: ap.x,
-		y: ap.y,
-		z: floorZ.get(ap.floorId) ?? 0,
-		interferenceRadius: ap.interferenceRadius
-	}));
+	const reference = floorState.currentFloorId;
+	return apState.aps.map((ap) => {
+		// Positions, radii and z are compared across floors, so everything is brought into
+		// the current floor's units: a storey calibrated at twice the resolution would
+		// otherwise look twice as far away, and its AP twice as large.
+		const k = scaleBetween(ap.floorId, reference);
+		return {
+			id: ap.id,
+			x: ap.x * k,
+			y: ap.y * k,
+			z: floorZ.get(ap.floorId) ?? 0,
+			interferenceRadius: ap.interferenceRadius * k
+		};
+	});
 }
 
-// ─── Decoded wall mask cache (per floor) ─────────────────────────
+// 鈹€鈹€鈹€ Decoded wall mask cache (per floor) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /**
  * The cache lives in `floor-mask.ts` now: the optimiser's payload needs it too,
@@ -105,11 +111,12 @@ export {
 	invalidateSolverMaskCache,
 	type DecodedFloorMask
 } from './floor-mask.js';
-import { apState } from '$state/ap-state.svelte.js';
+import { apState, wupmForFloor } from '$state/ap-state.svelte.js';
+import { scaleBetween } from './floor-scale.js';
 import { projectMeta } from '$state/project-meta.svelte.js';
 
 
-// ─── Attenuation helpers ──────────────────────────────────────────
+// 鈹€鈹€鈹€ Attenuation helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /** Floor-by-ID lookup, built once per solve. */
 let floorByIdCache = new Map<string, (typeof floorState.floors)[0]>();
@@ -151,7 +158,7 @@ function getWallLoss(
 	);
 }
 
-// ─── Graph building ───────────────────────────────────────────────
+// 鈹€鈹€鈹€ Graph building 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 /**
  * What must not share a channel, and how strong each pair's coupling is.
@@ -161,8 +168,8 @@ function getWallLoss(
  * - **The edges** are the optimiser's own conflict graph, asked for through
  *   `buildAssignmentConflictEdges`: a pair is an edge when, at some sample, one of
  *   them is the best server and the other is within `COCHANNEL_REUSE_DB` of it.
- *   The solver used to build its own graph here — circle overlap plus an AP-to-AP
- *   distance heuristic, `1/(1+r⁴)` filtered at a CCI threshold — which is a
+ *   The solver used to build its own graph here 鈥?circle overlap plus an AP-to-AP
+ *   distance heuristic, `1/(1+r鈦?` filtered at a CCI threshold 鈥?which is a
  *   *different* question, and on the measured four-AP floor the two disagreed: the
  *   assignment that graph produced scored 14.75% on the objective's graph while a
  *   proper colouring of that graph scored 0%. Colouring what the objective
@@ -170,7 +177,7 @@ function getWallLoss(
  *   screen.
  * - **`edgeSignals`** stays as it was: an attenuated coupling figure per pair, for
  *   the AP editor's readout and the throughput estimate. It is a *display and
- *   throughput* input, not a conflict criterion, so it keeps its own definition —
+ *   throughput* input, not a conflict criterion, so it keeps its own definition 鈥?
  *   and it is now filled for every pair, because the pairs the old filter dropped
  *   are exactly the ones whose signal a user may still want to see.
  *
@@ -183,8 +190,8 @@ async function buildSerializedGraph() {
 	/*
 	 * The graph is a function of the plan, so it is cached against the plan.
 	 *
-	 * Building it means running the optimiser's own margin pass over a fine sample grid —
-	 * measured at 344–512 ms on a two-AP floor — and an auto-solve is scheduled on every
+	 * Building it means running the optimiser's own margin pass over a fine sample grid 鈥?
+	 * measured at 344鈥?12 ms on a two-AP floor 鈥?and an auto-solve is scheduled on every
 	 * change of the key. When nothing about the geometry changed, rebuilding it produced the
 	 * same adjacency for half a second of blocked main thread. See `graphSignature`.
 	 */
@@ -237,7 +244,8 @@ async function buildGraphUncached() {
 						entityB.x,
 						entityB.y,
 						defMat,
-						getEffectiveWupm(),
+						// The mask is this floor's, in this floor's pixels.
+						wupmForFloor(entityA.floorId),
 						entityA.band as Band
 					);
 				}
@@ -281,7 +289,7 @@ async function buildGraphUncached() {
 			.filter((edge) => (edgeSignals.get([edge.a, edge.b].sort().join(':')) ?? 0) >= 0.005)
 			.map((edge) => [edge.a, edge.b] as [string, string]);
 		// The fallback graph has no sample counts behind it, so every edge weighs the
-		// same — which is exactly the unweighted behaviour.
+		// same 鈥?which is exactly the unweighted behaviour.
 		conflictWeights = new Map();
 	}
 
@@ -358,7 +366,7 @@ function applyAssignments(assignment: Map<string, number>): void {
 	 * be re-measured when they change.
 	 *
 	 * It used to keep whatever the optimiser run reported, which was measured under the
-	 * colouring the *worker* chose for that layout — a different assignment from the one applied
+	 * colouring the *worker* chose for that layout 鈥?a different assignment from the one applied
 	 * here, because the worker may colour with the whole band while this hands out the
 	 * non-overlapping palette. On a plan with more access points than channels the figure read
 	 * 0% while two units shared one. See `optimizer-coverage.svelte.ts`.
@@ -413,7 +421,7 @@ export async function runSolver(): Promise<void> {
 		const fixedAssignments = getFixedAssignments();
 		debug(`[solve] graph built in ${Math.round(performance.now() - started)} ms`);
 
-		// Solve each band independently — different bands don't interfere
+		// Solve each band independently 鈥?different bands don't interfere
 		const bands = new Set(apState.aps.map((ap) => ap.band));
 		const mergedAssignment = new Map<string, number>();
 		let totalConflicts: [string, string][] = [];
@@ -450,8 +458,8 @@ export async function runSolver(): Promise<void> {
 			//
 			// 1. `widenAssignment` moves any source that shares spectrum with something
 			//    it conflicts with onto a clearer centre. With a non-overlapping palette
-			//    that only happens when the palette ran out — more mutually conflicting
-			//    APs than channels — and the band may still hold a narrower centre that
+			//    that only happens when the palette ran out 鈥?more mutually conflicting
+			//    APs than channels 鈥?and the band may still hold a narrower centre that
 			//    is genuinely clear of everything this source conflicts with. That is
 			//    the case B3's palette approximation used to get wrong.
 			// 2. `balanceAssignment` spreads the palette over what the graph leaves free,
@@ -470,7 +478,7 @@ export async function runSolver(): Promise<void> {
 			);
 			// Named `bandNames`, not `bands`: the outer loop iterates a `Set` called
 			// `bands`, and shadowing it inside the body worked only because the loop head
-			// is evaluated before the body's binding exists — a trap for the next edit.
+			// is evaluated before the body's binding exists 鈥?a trap for the next edit.
 			const bandNames = bandNodes.map(() => band as string);
 			const widths = bandNodes.map(
 				(id) => apState.aps.find((ap) => ap.id === id)?.channelWidth ?? 20
@@ -531,13 +539,13 @@ export async function runSolver(): Promise<void> {
 		// The assignment is part of the project, so it has to be persisted like any
 		// other change to it. It used to be written to state and never saved: the only
 		// save in flight when the automatic solver ran was the one the *optimiser* had
-		// scheduled for its new positions, 2 s earlier — so the file that landed
+		// scheduled for its new positions, 2 s earlier 鈥?so the file that landed
 		// carried the channels the solver had computed for the *previous* positions
 		// whenever the solve had not finished inside that window. Reloading such a
 		// project showed different channels than the session had, and the stored
 		// assignment could be improper on its own plan (measured: the same seeded run,
 		// same positions, persisted 1, 6, 11, 1 on a loaded machine and 1, 6, 11, 11
-		// idle — 14.75% interference on the objective's graph against 0%). See
+		// idle 鈥?14.75% interference on the objective's graph against 0%). See
 		// `ROADMAP.md` B6, whose "the two paths meet" claim the measurement checks.
 		// `keep`: the solve is background work, so it must not push back a save the
 		// user's own edit has already scheduled.
@@ -591,3 +599,4 @@ export async function runComparison(): Promise<void> {
 		solverState.isRunning = false;
 	}
 }
+

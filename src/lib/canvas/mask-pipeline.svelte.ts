@@ -1,12 +1,12 @@
-/**
+﻿/**
  * The wall/material/room raster the canvas draws and its click handling reads.
  *
  * Three things happen to a floor's masks, and all three used to live in `CanvasView`
  * between forty effects:
  *
  * - **decode**: a stored PNG data URL becomes pixels, blob labels, an interior and room
- *   labels — asynchronously, with a version guard so a superseded floor cannot publish;
- * - **publish**: the wall editor rasterises its segments and hands the result over — the
+ *   labels 鈥?asynchronously, with a version guard so a superseded floor cannot publish;
+ * - **publish**: the wall editor rasterises its segments and hands the result over 鈥?the
  *   pixels, not a data URL, because the decode effect would skip a URL it has already seen;
  * - **reset**: a floor switch drops everything so the previous floor's raster cannot be
  *   drawn or clicked for a frame.
@@ -120,7 +120,7 @@ export class MaskPipeline {
 		 *
 		 * The reset used to be a separate effect in the view, declared above this one: it worked
 		 * because Svelte flushes effects in creation order, which meant "the reset runs before
-		 * the decode" was an invariant nobody could see — moving one block of the view above the
+		 * the decode" was an invariant nobody could see 鈥?moving one block of the view above the
 		 * other silently decoded into a stale key and handed back the previous floor's raster.
 		 * The pipeline knows which floor its caches belong to, so it can answer that itself.
 		 */
@@ -219,12 +219,12 @@ export class MaskPipeline {
 				// The rooms of this plan, from the one derivation everyone shares. The ids this
 				// produces are the ids a click on the canvas writes into `roomDensityOverrides`,
 				// and the optimiser reads them back against its own copy of the same partition
-				// — so these parameters are not a local choice. See `canvas/rooms.ts`.
+				// 鈥?so these parameters are not a local choice. See `canvas/rooms.ts`.
 				const domain = buildRoomDomain(
 					decoded.data,
 					decoded.width,
 					decoded.height,
-					{ minRegionRadius: minRoomRadiusWu(), trimWallAdjacent: false }
+					{ minRegionRadius: minRoomRadiusWu(this.syncedFloorId), trimWallAdjacent: false }
 				);
 				this.interior = domain.interior;
 				this.roomLabels = { labels: domain.labels, regionCount: domain.regionCount };
@@ -276,8 +276,8 @@ export class MaskPipeline {
 	/**
 	 * Decode the room type mask on its own.
 	 *
-	 * Its own effect because it changes independently of the wall mask — assigning a room
-	 * type, undo/redo, a floor switch that restores it — and re-decoding the whole wall
+	 * Its own effect because it changes independently of the wall mask 鈥?assigning a room
+	 * type, undo/redo, a floor switch that restores it 鈥?and re-decoding the whole wall
 	 * raster for a label change would cost far more than it is worth.
 	 */
 	syncRoomTypes(): void {
@@ -362,10 +362,10 @@ export class MaskPipeline {
 		// Recompute blob labels so click-to-override works on the edited walls
 		this.wallLabels = labelWallBlobs(data, width, height);
 
-		// Rooms, from the same derivation as the decode path above — the ids a click writes
+		// Rooms, from the same derivation as the decode path above 鈥?the ids a click writes
 		// into `roomDensityOverrides` have to be the ids the optimiser reads them back with.
 		const domain = buildRoomDomain(data, width, height, {
-			minRegionRadius: minRoomRadiusWu(),
+			minRegionRadius: minRoomRadiusWu(this.syncedFloorId),
 			trimWallAdjacent: false
 		});
 		this.interior = domain.interior;
@@ -405,7 +405,7 @@ export class MaskPipeline {
 	 * Drop everything derived from the current floor's masks.
 	 *
 	 * Called on a floor switch: the incoming floor's mask is about to be decoded, and the
-	 * outgoing floor's raster must not be drawn — or clicked — in the meantime. The
+	 * outgoing floor's raster must not be drawn 鈥?or clicked 鈥?in the meantime. The
 	 * renderer references are cleared eagerly for that reason.
 	 */
 	reset(): void {
@@ -429,7 +429,7 @@ export class MaskPipeline {
 			heatmapLayer.wallMask = null;
 			heatmapLayer.materialMap = null;
 			// Generating a heatmap against no walls while the decode is in flight is a full,
-			// expensive image that the decode immediately replaces — see `maskPending`.
+			// expensive image that the decode immediately replaces 鈥?see `maskPending`.
 			heatmapLayer.maskPending = floorState.floors.some(
 				(f) => f.id === floorState.currentFloorId && !!f.wallMask
 			);
@@ -466,7 +466,7 @@ export class MaskPipeline {
 			 *
 			 * The mask blocks, the segments reflect: a reflection needs the segment's own
 			 * line, and a mask pixel has no normal. A floor whose walls are still a detected
-			 * raster has no segments, so it gets the direct field only — which is also what
+			 * raster has no segments, so it gets the direct field only 鈥?which is also what
 			 * its edit path used to do for walls in general.
 			 */
 			heatmapLayer.reflectingWalls = (currentFloor()?.walls ?? []).map((wall) => ({
@@ -511,3 +511,4 @@ export class MaskPipeline {
 		this.roomTypeData = null;
 	}
 }
+

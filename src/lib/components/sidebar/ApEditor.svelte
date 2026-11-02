@@ -3,7 +3,7 @@
 		MOUNT_PRESETS,
 		apHeightAboveFloor,
 		defaultMountHeight,
-		getEffectiveWupm,
+		wupmForFloor,
 		radiusFromPower,
 		removeAp,
 		removeAps,
@@ -142,7 +142,12 @@
 		});
 		if (mount !== 'wall') return;
 
-		const snap = await wallSnapForFloor(singleAp.floorId, singleAp.x, singleAp.y, getEffectiveWupm());
+		const snap = await wallSnapForFloor(
+			singleAp.floorId,
+			singleAp.x,
+			singleAp.y,
+			wupmForFloor(singleAp.floorId)
+		);
 		if (!snap) return;
 		updateAp(singleAp.id, { x: snap.apX, y: snap.apY, facingDeg: snap.facingDeg });
 	}

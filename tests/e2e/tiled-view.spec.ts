@@ -359,12 +359,12 @@ test('selecting another floor leaves every card’s coverage alone', async ({ pa
 	expect(Math.abs(after - before) / before).toBeLessThan(0.02);
 });
 
-test('one scale for the sheet, taken from the bottom floor', async ({ page }) => {
-	// Identical geometry on both floors — same wall, same AP position, same radius —
-	// and only the *stored* calibrations differ. Calibration is per floor, but a sheet has
-	// to draw every card in one frame: the tiled view takes the bottom floor's scale, so
-	// the two cards are the same uniform picture wherever a per-floor read would have used
-	// floor 2's, and selecting a card cannot rescale the others.
+test('each card is drawn at its floor’s own scale', async ({ page }) => {
+	// Identical world geometry on both floors — same wall, same AP position, same radius
+	// — and only the stored calibrations differ. The sheet has one reference scale (the
+	// bottom floor's), and every card is converted into it from its own units: floor 2 at
+	// twice the resolution is half the physical size, so its picture covers a quarter of
+	// the area. Drawing both at one raw coordinate system was the bug this pins.
 	await seedTwoFloors(page, {
 		wupm1: 33.05,
 		wupm2: 66.1,
@@ -381,8 +381,13 @@ test('one scale for the sheet, taken from the bottom floor', async ({ page }) =>
 	const card1 = await heatPixelsIn(page, await cardRect(page, 1));
 	const card2 = await heatPixelsIn(page, await cardRect(page, 2));
 	expect(card1).toBeGreaterThan(1000);
-	// Same walls, same AP position, same radius — so the same picture.
-	expect(Math.abs(card1 - card2) / card1).toBeLessThan(0.05);
+	// Not exactly a quarter: the field on each card also contains the *other* floor's AP
+	// through the slab, whose converted reach differs between the two. What this pins is
+	// that the finer-calibrated card is materially smaller — drawing both raw made the
+	// ratio 1.
+	const ratio = card2 / card1;
+	expect(ratio).toBeGreaterThan(0.2);
+	expect(ratio).toBeLessThan(0.5);
 });
 
 test('a card is drawn with its own floor’s walls', async ({ page }) => {

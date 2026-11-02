@@ -41,6 +41,15 @@ export class ReferenceFloorLayer implements Layer {
 	compensateX = 0;
 	compensateY = 0;
 
+	/**
+	 * Reference floor's units → the current floor's.
+	 *
+	 * The ghost is drawn in the current floor's world frame, so a reference plan
+	 * calibrated at a different resolution is scaled into it (and its offsets with it).
+	 * Without this the overlay only lined up when both floors shared a calibration.
+	 */
+	scale = 1;
+
 	private planImage: HTMLImageElement | null = null;
 	private planKey: string | null = null;
 	private planX = 0;
@@ -110,17 +119,19 @@ export class ReferenceFloorLayer implements Layer {
 		if (this.planImage && this.planW > 0) {
 			ctx.drawImage(
 				this.planImage,
-				this.planX + this.compensateX,
-				this.planY + this.compensateY,
-				this.planW,
-				this.planH
+				this.planX * this.scale + this.compensateX,
+				this.planY * this.scale + this.compensateY,
+				this.planW * this.scale,
+				this.planH * this.scale
 			);
 		}
 		if (this.maskImage) {
 			ctx.drawImage(
 				this.maskImage,
-				this.maskX + this.compensateX,
-				this.maskY + this.compensateY
+				this.maskX * this.scale + this.compensateX,
+				this.maskY * this.scale + this.compensateY,
+				(this.maskImage.naturalWidth || 0) * this.scale,
+				(this.maskImage.naturalHeight || 0) * this.scale
 			);
 		}
 		ctx.restore();

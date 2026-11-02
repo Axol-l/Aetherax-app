@@ -1307,6 +1307,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 			below.floorplanOffsetX,
 			below.floorplanOffsetY
 		);
+		// The ghost is drawn in the current floor's frame: convert the reference floor's
+		// plan and mask from its units into these.
+		referenceFloorLayer.scale =
+			wupmForFloor(floorState.currentFloorId) / (wupmForFloor(below.id) || 1);
 		const mask = below.wallMask;
 		referenceFloorLayer.setMask(mask?.dataUrl ?? null, mask?.originX ?? 0, mask?.originY ?? 0);
 		engine.markDirty();
@@ -1348,6 +1352,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 			maskOriginY: f.wallMask?.originY ?? 0,
 			maskWidth: f.wallMask?.width ?? 0,
 			maskHeight: f.wallMask?.height ?? 0,
+			// The floor's own calibration. The overview scales each card's drawing into
+			// the sheet's frame with it, so two plans at different resolutions are the
+			// physical size they are.
+			wupm: wupmForFloor(f.id),
 			aps: apState.aps
 				.filter((ap) => ap.floorId === f.id)
 				.map((ap) => ({
@@ -1376,7 +1384,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			layer.showAPs = appState.showAPs;
 			layer.showHeatmap = appState.showHeatmap;
 		}
-		floorTilesLayer.setFloors(sources, floorState.currentFloorId);
+		floorTilesLayer.setFloors(sources, floorState.currentFloorId, projectWupm());
 		stackedFloorsLayer.setFloors(sources, floorState.currentFloorId, projectWupm());
 		/*
 		 * The 3D view is one floor, so it takes its card source and the geometry that floor
@@ -1398,14 +1406,24 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// Where the stack is being looked at from. Handed over here so the layer has
 		// no opinion about where the sliders live; the camera object is replaced
 		// rather than mutated so the layer cannot be left half-updated.
-		const stackCamera = {
+		const viewAngles = {
 			yaw: (appState.stackYaw * Math.PI) / 180,
 			pitch: Math.min((appState.stackPitch * Math.PI) / 180, MAX_PITCH),
-			spacing: appState.stackSpread,
-			wupm: projectWupm()
+			spacing: appState.stackSpread
 		};
-		stackedFloorsLayer.camera = stackCamera;
-		floor3DLayer.camera = stackCamera;
+		/*
+		 * Two scales, one viewpoint.
+		 *
+		 * The stacked sheet draws every floor in one frame, so it uses the sheet's
+		 * reference scale. The 3D view is a *single* floor: its walls, surfaces and AP
+		 * heights are all in that floor's own units, and lifting them by another floor's
+		 * calibration made a storey measured at a different resolution the wrong height.
+		 */
+		stackedFloorsLayer.camera = { ...viewAngles, wupm: projectWupm() };
+		floor3DLayer.camera = {
+			...viewAngles,
+			wupm: wupmForFloor(view3dFloor?.id ?? floorState.currentFloorId)
+		};
 		// Focusing hides floors, and a hidden slab must not stay clickable — the
 		// filter runs in the layout the hit test reads, so the hover has to be
 		// dropped with it rather than left pointing at a floor that is gone.
@@ -1516,14 +1534,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 			.map(
 				(f) =>
 					`${f.id}:${f.level}:${f.ceilingHeight}:${f.floorThickness}:${f.floorMaterial}:${f.wallMaterial}` +
+					`:u${f.calibration?.worldUnitsPerMeter ?? 0}` +
 					`:w${maskTag(f.wallMask)}:m${maskTag(f.materialMask)}:r${maskTag(f.roomTypeMask)}`
 			)
 			.join('|');
 		return (
 			`${aps}|${floors}` +
 			`|self:${maskTag(floor.wallMask)}:${floor.wallMask?.originX ?? 0},${floor.wallMask?.originY ?? 0}` +
-			// This floor's own scale, not the selected floor's.
-			`|rssi:${projectMeta.heatmapRssiFloor}|wupm:${projectWupm()}|ch:${projectMeta.clientHeight}`
+			// The floor's own scale: the image is generated in its units, and every
+			// cross-floor source is converted into them by `heatmapApsForFloor`.
+			`|rssi:${projectMeta.heatmapRssiFloor}|wupm:${wupmForFloor(floor.id)}|ch:${projectMeta.clientHeight}`
 		);
 	}
 
@@ -1556,8 +1576,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 			wallMask: mask,
 			materialMap: material,
 			defaultMaterial: floor.wallMaterial,
-			// This floor's own calibration: the image is in its world units.
-			worldUnitsPerMeter: projectWupm(),
+			// This floor's own calibration: the image is in its world units, and the card
+			// scales it into the sheet's frame.
+			worldUnitsPerMeter: wupmForFloor(floor.id),
 			rssiFloor: projectMeta.heatmapRssiFloor,
 			// Which floor's walls these are, and where they sit: the attenuation-field cache
 			// is keyed on position and radius, so without this a tile inherits whichever
@@ -1606,7 +1627,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		if (singleFloorView || !appState.showHeatmap) return;
 		trackHeatmapInputs();
 		void projectMeta.heatmapRssiFloor;
-		void getEffectiveWupm();
 		// Drop keys for floors that no longer exist, for the same reason the layer
 		// drops their canvases: otherwise a deleted floor's key keeps its entry for
 		// the rest of the session.

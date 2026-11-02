@@ -11,7 +11,13 @@
  * *does* rather than where its numbers are kept.
  */
 import { debug } from '$lib/log.js';
-import { apHeightAboveFloor, apSplitFor, apVerticalOffsetTo, getEffectiveWupm } from './ap-state.svelte.js';
+import {
+	apHeightAboveFloor,
+	apSplitFor,
+	apVerticalOffsetTo,
+	wupmForFloor
+} from './ap-state.svelte.js';
+import { scaleBetween } from './floor-scale.js';
 import type { Band, ChannelWidth } from '@aetherax/channels';
 import { scheduleSave } from './persistence.svelte.js';
 import { t } from './i18n.svelte.js';
@@ -190,7 +196,7 @@ async function optimizeFloor(
 			/** Every storey boundary this path crosses; empty when none can be tested. */
 			slabs: SlabCrossing[];
 		}> = [];
-		const wupmForGap = getEffectiveWupm();
+		const wupmCur = wupmForFloor(curFloorId);
 		/*
 		 * This floor's pinned APs, as fixed sources.
 		 *
@@ -218,7 +224,7 @@ async function optimizeFloor(
 			if (otherAps.length === 0) continue;
 			// Decoded once per other floor, not once per AP: the ray split needs the
 			// AP's own floor's walls, and a PNG decode per AP would be absurd.
-			const source = await sourceFloorMaskFor(otherFloor.id, originX, originY);
+			const source = await sourceFloorMaskFor(otherFloor.id, originX, originY, curFloorId);
 			// A void is a hole in a slab, so the ray pays that boundary's share of the
 			// aggregate loss less. Every boundary the path crosses is tested at its
 			// own crossing point, so a two-storey atrium waives one of the two rather
@@ -252,18 +258,22 @@ async function optimizeFloor(
 					);
 				}
 			}
+			// The other floor's geometry is in its own units; the worker marches in this
+			// floor's, so positions, radii and the source mask above are converted by the
+			// one ratio between the two calibrations.
+			const k = scaleBetween(otherFloor.id, curFloorId);
 			for (const ap of otherAps) {
 				const key = `${ap.band}|${apHeightAboveFloor(ap)}`;
 				const split = apSplitFor(ap, curFloorId, projectMeta.clientHeight);
 				const slabDb = getFloorSlabAttenuation(curFloorId, otherFloor.id, ap.band);
 				fixedAps.push({
 					id: ap.id,
-					x: ap.x - originX,
-					y: ap.y - originY,
-					interferenceRadius: ap.interferenceRadius,
+					x: ap.x * k - originX,
+					y: ap.y * k - originY,
+					interferenceRadius: ap.interferenceRadius * k,
 					signalScale: Math.pow(10, -slabDb / 10),
 					verticalGap:
-						apVerticalOffsetTo(ap, curFloorId, projectMeta.clientHeight) * wupmForGap,
+						apVerticalOffsetTo(ap, curFloorId, projectMeta.clientHeight) * wupmCur,
 					// A fixed AP's pattern counts as much as a placed one's: it is what
 					// says an AP on the storey above reaches the floor below better out
 					// to the side than straight down — and a wall-mounted one on that
@@ -315,7 +325,7 @@ async function optimizeFloor(
 					materialMask,
 					roomTypeMask: densityResult?.roomTypeData ?? null,
 					defaultMaterial: floor.wallMaterial,
-					metersPerPixel: 1 / getEffectiveWupm(),
+					metersPerPixel: 1 / wupmCur,
 					allowOutside: projectMeta.allowOutsideRooms,
 					regulatoryDomain: apState.regulatoryDomain,
 					coverageSoftnessDb: projectMeta.coverageSoftnessDb,
@@ -361,7 +371,7 @@ async function optimizeFloor(
 				materialMask,
 				roomTypeMask: densityResult?.roomTypeData ?? null,
 				defaultMaterial: floor.wallMaterial,
-				metersPerPixel: 1 / getEffectiveWupm(),
+				metersPerPixel: 1 / wupmCur,
 				allowOutside: projectMeta.allowOutsideRooms,
 				// B4: power is a decision variable, offered as reductions from each AP's
 				// configured maximum. The pass can only lower it — raising it would
@@ -371,18 +381,18 @@ async function optimizeFloor(
 				powerLevelsDbm: localAps.map((ap) =>
 					powerLevelsFor(apState.aps.find((a) => a.id === ap.id)?.power ?? 20)
 				),
-				worldUnitsPerMeter: getEffectiveWupm(),
+				worldUnitsPerMeter: wupmCur,
 				// The drop a same-floor path has and the path loss deliberately ignores. The
 				// wall march cannot ignore it: it charges the material the ray walks through.
 				localVerticalDrop: localVerticalDropFor(floor),
 				// The band a wall-mounted AP is placed in, as a physical depth: the worker
 				// indexes the mask in world units and has no calibration of its own. The
 				// face itself is where `wallSnapForFloor` puts the AP afterwards.
-				wallBandWu: WALL_BAND_M * getEffectiveWupm(),
+				wallBandWu: WALL_BAND_M * wupmCur,
 				// What counts as a room, so the worker's placement domain agrees with the
 				// app's own "is this point inside?" guard. See `room-domain.ts` — a domain
 				// the two do not share is how an optimised AP ends up in a wall cavity.
-				minRoomRadiusWu: minRoomRadiusWu(),
+				minRoomRadiusWu: minRoomRadiusWu(curFloorId),
 				/*
 				 * The planning area, in the mask's own coordinates, when the user has drawn
 				 * one. The worker clips its placement domain to it — the same clip the app's
@@ -526,7 +536,7 @@ async function optimizeFloor(
 		// arithmetic, not a bug — and an uncalibrated plan is the usual cause of a
 		// radius that large.
 		{
-			const wupm = getEffectiveWupm();
+			const wupm = wupmCur;
 			const floorAps = apState.aps.filter((a) => a.floorId === curFloorId);
 			const maxRadius = floorAps.length
 				? Math.max(...floorAps.map((a) => a.interferenceRadius))
@@ -546,7 +556,7 @@ async function optimizeFloor(
 			// against a different interior from the one it was placed in — including which
 			// regions count as rooms. See `canvas/rooms.ts`.
 			const { interior: check } = buildRoomDomain(decoded.data, mask.width, mask.height, {
-				minRegionRadius: minRoomRadiusWu(),
+				minRegionRadius: minRoomRadiusWu(curFloorId),
 				trimWallAdjacent: true
 			});
 			// Mirror the worker's void exclusion, or a void reads as "AP landed
@@ -608,7 +618,7 @@ async function optimizeFloor(
 			 */
 			const ap = apState.aps.find((a) => a.id === pos.id);
 			if (ap?.mount === 'wall') {
-				const snap = await wallSnapForFloor(floorId, x, y, getEffectiveWupm());
+				const snap = await wallSnapForFloor(floorId, x, y, wupmForFloor(floorId));
 				if (snap) {
 					worldPositions.push({
 						id: pos.id,

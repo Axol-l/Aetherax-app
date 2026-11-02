@@ -18,6 +18,7 @@
 import type { Band } from '@aetherax/channels';
 import type { WallMaterialId } from '$lib/domain/materials.js';
 import { apState, apSplitFor, apVerticalOffsetTo } from '$state/ap-state.svelte.js';
+import { resampleRaster, scaleBetween } from '$state/floor-scale.js';
 import { floorState, getFloorSlabAttenuation } from '$state/floor-state.svelte.js';
 import { getFloorMask } from '$state/floor-mask.js';
 import { projectMeta } from '$state/project-meta.svelte.js';
@@ -188,8 +189,14 @@ export async function heatmapApsForFloor(floorId: string): Promise<HeatmapSource
 			const split = apSplitFor(ap, floorId, projectMeta.clientHeight);
 			// The crossing nearest the client is where the slab is penetrated.
 			const slabT = split.targetT > 0 ? split.targetT : split.sourceT;
+			// The target floor's units: its mask and its own APs are in them, while this
+			// AP's position, reach and walls are in its own.
+			const k = scaleBetween(adj.id, floorId);
 			virtualAps.push({
 				...ap,
+				x: ap.x * k,
+				y: ap.y * k,
+				interferenceRadius: ap.interferenceRadius * k,
 				id: `virtual-${ap.id}`,
 				verticalOffset: totalVertGap,
 				floorDbPerMeter: totalSlabThickness > 0 ? totalDb / totalSlabThickness : 0,
@@ -225,6 +232,13 @@ export async function heatmapApsForFloor(floorId: string): Promise<HeatmapSource
 			const decoded = await getFloorMask(sourceFloorId);
 			if (!decoded) return { ...ap, crossFloor: null };
 			const srcFloor = floorState.floors.find((f) => f.id === sourceFloorId);
+			// The path is marched in the target floor's units, so this floor's walls and
+			// room types are resampled into them before they are handed over.
+			const k = scaleBetween(sourceFloorId, floorId);
+			const walls = resampleRaster(decoded.wallData, decoded.width, decoded.height, k);
+			const materials = decoded.materialMap
+				? resampleRaster(decoded.materialMap, decoded.width, decoded.height, k)
+				: null;
 			// Room types of the floor whose slab the path crosses. A void there
 			// is a hole, so the slab loss is waived at that crossing. The AP's
 			// floor owns the slab when it is the upper one; otherwise it is this
@@ -237,12 +251,18 @@ export async function heatmapApsForFloor(floorId: string): Promise<HeatmapSource
 				originY: number;
 			} | null = null;
 			if (extra.slabOwner === 'source' && decoded.roomTypeData) {
+				const roomTypes = resampleRaster(
+					decoded.roomTypeData,
+					decoded.width,
+					decoded.height,
+					k
+				);
 				slabRoomType = {
-					data: decoded.roomTypeData,
-					width: decoded.width,
-					height: decoded.height,
-					originX: decoded.originX,
-					originY: decoded.originY
+					data: roomTypes.data,
+					width: roomTypes.width,
+					height: roomTypes.height,
+					originX: decoded.originX * k,
+					originY: decoded.originY * k
 				};
 			} else if (extra.slabOwner === 'target' && self?.roomTypeData) {
 				slabRoomType = {
@@ -257,13 +277,13 @@ export async function heatmapApsForFloor(floorId: string): Promise<HeatmapSource
 				...ap,
 				crossFloor: {
 					mask: {
-						data: decoded.wallData,
-						width: decoded.width,
-						height: decoded.height,
-						originX: decoded.originX,
-						originY: decoded.originY
+						data: walls.data,
+						width: walls.width,
+						height: walls.height,
+						originX: decoded.originX * k,
+						originY: decoded.originY * k
 					},
-					materialMap: decoded.materialMap,
+					materialMap: materials?.data ?? null,
 					defaultMaterial: (srcFloor?.wallMaterial ?? 0) as WallMaterialId,
 					sourceT: extra.sourceT ?? 0,
 					targetT: extra.targetT ?? 0,
