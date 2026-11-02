@@ -629,8 +629,12 @@ export class HeatmapLayer implements Layer {
 		 * mask's frame is the floor's frame: intersecting with it costs nothing and the whole
 		 * discarded area stops being iterated — the per-texel loop is a march, and a march the
 		 * picture never paints is the one kind of work that can be removed without changing it.
+		 *
+		 * A drawn planning area is the exception: it can be larger than the mask's frame, and
+		 * shrinking to the mask is what kept the field inside the plan rectangle while the area
+		 * (and the report) said the floor extended further. The outline's box joins the bounds.
 		 */
-		const bounds = wm
+		let bounds = wm
 			? {
 					x0: wm.originX,
 					y0: wm.originY,
@@ -638,6 +642,26 @@ export class HeatmapLayer implements Layer {
 					y1: wm.originY + wm.height
 				}
 			: null;
+		if (this.clipPolygon && this.clipPolygon.length >= 3 && !this.isDragging) {
+			let minX = Infinity;
+			let minY = Infinity;
+			let maxX = -Infinity;
+			let maxY = -Infinity;
+			for (const point of this.clipPolygon) {
+				if (point.x < minX) minX = point.x;
+				if (point.y < minY) minY = point.y;
+				if (point.x > maxX) maxX = point.x;
+				if (point.y > maxY) maxY = point.y;
+			}
+			bounds = bounds
+				? {
+						x0: Math.min(bounds.x0, minX),
+						y0: Math.min(bounds.y0, minY),
+						x1: Math.max(bounds.x1, maxX),
+						y1: Math.max(bounds.y1, maxY)
+					}
+				: { x0: minX, y0: minY, x1: maxX, y1: maxY };
+		}
 		const clipped = bounds
 			? {
 					x0: Math.max(region.x0, bounds.x0),

@@ -120,6 +120,33 @@ async function heatPixels(page: Page): Promise<number> {
 	});
 }
 
+/** Warm pixels inside a viewport-space rectangle. */
+async function heatPixelsIn(
+	page: Page,
+	region: { x: number; y: number; w: number; h: number }
+): Promise<number> {
+	return page.evaluate((r) => {
+		const canvas = Array.from(document.querySelectorAll('canvas')).sort(
+			(a, b) => b.width * b.height - a.width * a.height
+		)[0]!;
+		const box = canvas.getBoundingClientRect();
+		const sx = canvas.width / box.width;
+		const sy = canvas.height / box.height;
+		const x0 = Math.max(0, Math.round((r.x - box.left) * sx));
+		const y0 = Math.max(0, Math.round((r.y - box.top) * sy));
+		const x1 = Math.min(canvas.width, Math.round((r.x + r.w - box.left) * sx));
+		const y1 = Math.min(canvas.height, Math.round((r.y + r.h - box.top) * sy));
+		if (x1 <= x0 || y1 <= y0) return 0;
+		const d = canvas.getContext('2d')!.getImageData(x0, y0, x1 - x0, y1 - y0).data;
+		let n = 0;
+		for (let i = 0; i < d.length; i += 4) {
+			const max = Math.max(d[i]!, d[i + 1]!, d[i + 2]!);
+			if (max > 80 && max - Math.min(d[i]!, d[i + 1]!, d[i + 2]!) > 40) n++;
+		}
+		return n;
+	}, region);
+}
+
 test('redrawing the planning area moves the heatmap clip with it', async ({ page }) => {
 	test.setTimeout(120_000);
 	await seed(page);
@@ -145,6 +172,15 @@ test('redrawing the planning area moves the heatmap clip with it', async ({ page
 
 	const canvas = page.locator('canvas').first();
 	const box = (await canvas.boundingBox())!;
+	// Beyond the mask's frame (400 wide) but inside the AP's reach and the new area: the
+	// image used to be shrunk to the mask here, so this strip stayed empty.
+	const strip = {
+		x: box.x + box.width * 0.42,
+		y: box.y + box.height * 0.3,
+		w: box.width * 0.12,
+		h: box.height * 0.5
+	};
+	const stripBefore = await heatPixelsIn(page, strip);
 
 	// Four corners of a loop that extends past the plan, then close it from the bar.
 	for (const point of [
@@ -180,6 +216,9 @@ test('redrawing the planning area moves the heatmap clip with it', async ({ page
 
 	// The picture grew with the area: the old clip would have kept the small square.
 	await expect.poll(() => heatPixels(page), { timeout: 20_000 }).toBeGreaterThan(before * 1.5);
+	await expect
+		.poll(() => heatPixelsIn(page, strip), { timeout: 20_000 })
+		.toBeGreaterThan(stripBefore + 100);
 	await expect(toolbar).toHaveCount(0);
 });
 
