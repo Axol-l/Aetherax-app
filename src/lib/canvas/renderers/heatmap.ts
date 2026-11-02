@@ -299,6 +299,14 @@ export interface HeatmapInput {
 	 * rather than as the slab underneath it.
 	 */
 	surfaces?: ElevatableSurface[];
+	/**
+	 * The outline this floor's field is clipped to, and whether it is authoritative.
+	 *
+	 * A tile for another floor must use **that** floor's planning area, not the selected
+	 * floor's — the layer's own `clipPolygon` belongs to whatever is on screen.
+	 */
+	clipPolygon?: Array<{ x: number; y: number }> | null;
+	clipStrict?: boolean;
 }
 
 export class HeatmapLayer implements Layer {
@@ -456,6 +464,8 @@ export class HeatmapLayer implements Layer {
 		const savedDragging = this.isDragging;
 		const savedMaskTag = this.maskTag;
 		const savedSurfaces = this.surfaces;
+		const savedClip = this.clipPolygon;
+		const savedClipStrict = this.clipStrict;
 
 		try {
 			this.aps = input.aps;
@@ -468,6 +478,8 @@ export class HeatmapLayer implements Layer {
 			// floor's APs another floor's attenuation. See `maskTag`.
 			this.maskTag = input.maskTag ?? '';
 			this.surfaces = input.surfaces ?? [];
+			this.clipPolygon = input.clipPolygon ?? null;
+			this.clipStrict = input.clipStrict ?? false;
 			// Full resolution: a tile is a still comparison, never a drag.
 			this.isDragging = false;
 			return this.generateWorld();
@@ -481,6 +493,8 @@ export class HeatmapLayer implements Layer {
 			this.isDragging = savedDragging;
 			this.maskTag = savedMaskTag;
 			this.surfaces = savedSurfaces;
+			this.clipPolygon = savedClip;
+			this.clipStrict = savedClipStrict;
 		}
 	}
 
@@ -602,7 +616,9 @@ export class HeatmapLayer implements Layer {
 			this.rssiFloor,
 			wupm,
 			this.isDragging ? TEXEL_COARSE : TEXEL_FINE,
-			MAX_TEXELS
+			MAX_TEXELS,
+			// The drawn area can extend past the mask's frame; the image has to reach it.
+			this.isDragging ? null : this.clipPolygon
 		);
 		if (!region) return null;
 		/*

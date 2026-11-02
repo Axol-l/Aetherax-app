@@ -1535,6 +1535,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				(f) =>
 					`${f.id}:${f.level}:${f.ceilingHeight}:${f.floorThickness}:${f.floorMaterial}:${f.wallMaterial}` +
 					`:u${f.calibration?.worldUnitsPerMeter ?? 0}` +
+					`:p${f.planningArea?.map((p) => `${p.x},${p.y}`).join(';') ?? ''}` +
 					`:w${maskTag(f.wallMask)}:m${maskTag(f.materialMask)}:r${maskTag(f.roomTypeMask)}`
 			)
 			.join('|');
@@ -1586,7 +1587,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 			// the frame the floor had before it was aligned.
 			maskTag: heatmapMaskTag(floor),
 			// A mezzanine on that floor changes the picture even though nothing moved.
-			surfaces: floor.surfaces ?? []
+			surfaces: floor.surfaces ?? [],
+			// The clip is this floor's, not the selected floor's: a tile is generated for
+			// a floor the layer is not showing.
+			clipPolygon: floor.planningArea ?? floorplanState.floorplanBoundary ?? null,
+			clipStrict: !!floor.planningArea && floor.planningArea.length >= 3
 		});
 	}
 

@@ -64,7 +64,15 @@ export function heatmapRegion(
 	rssiFloor: number,
 	worldUnitsPerMeter: number,
 	texelFine: number,
-	maxTexels: number
+	maxTexels: number,
+	/**
+	 * The outline the field is clipped to, when there is one.
+	 *
+	 * A drawn planning area can sit outside the plan's mask — the mask is the drawing's
+	 * frame, not the floor — and the image must cover it, or the clip trims the picture to
+	 * a rectangle the area does not share and the new area looks like it did nothing.
+	 */
+	clip: ReadonlyArray<{ x: number; y: number }> | null = null
 ): HeatmapRegion | null {
 	let minX = Infinity;
 	let minY = Infinity;
@@ -76,6 +84,15 @@ export function heatmapRegion(
 		minY = mask.originY;
 		maxX = mask.originX + mask.width;
 		maxY = mask.originY + mask.height;
+	}
+
+	if (clip && clip.length >= 3) {
+		for (const point of clip) {
+			if (point.x < minX) minX = point.x;
+			if (point.y < minY) minY = point.y;
+			if (point.x > maxX) maxX = point.x;
+			if (point.y > maxY) maxY = point.y;
+		}
 	}
 
 	for (const ap of aps) {

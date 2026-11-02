@@ -30,11 +30,18 @@
 	<span class="divider"></span>
 	<button class="tool" onclick={onundo} disabled={corners === 0}>{t('Undo corner')}</button>
 	<button class="tool" onclick={oncancel}>{t('Cancel')}</button>
-	<span class="divider"></span>
-	<button class="done" onclick={onclose} disabled={corners < 3}>
-		<Icon name="check" size={13} />
-		{t('Close area')}
-	</button>
+	{#if corners >= 3}
+		<!--
+			The confirm only exists once there is a polygon to confirm. Before the third
+			corner the bar is "what you are drawing" and the way out; after it, the green
+			action that closes the loop appears.
+		-->
+		<span class="divider"></span>
+		<button class="done" onclick={onclose}>
+			<Icon name="check" size={13} />
+			{t('Close area')}
+		</button>
+	{/if}
 </div>
 
 <style>

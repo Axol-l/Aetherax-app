@@ -99,6 +99,21 @@ describe('heatmapRegion', () => {
 		expect(region.cols * region.texel).toBe(800);
 	});
 
+	it('covers a drawn area that extends past the mask', () => {
+		// A planning area is the user saying where the floor is; it can sit outside the
+		// plan image's frame. The image used to stop at the mask, so the clip then trimmed
+		// the field to a rectangle the area did not share.
+		const clip = [
+			{ x: 0, y: 0 },
+			{ x: 1600, y: 0 },
+			{ x: 1600, y: 1200 },
+			{ x: 0, y: 1200 }
+		];
+		const region = heatmapRegion([apAt(400, 313)], MASK, -70, WUPM, FINE, BUDGET, clip)!;
+		expect(region.x0 + region.cols * region.texel).toBeGreaterThanOrEqual(1600);
+		expect(region.y0 + region.rows * region.texel).toBeGreaterThanOrEqual(1200);
+	});
+
 	it('returns null when there is nothing to draw', () => {
 		expect(heatmapRegion([], null, -70, WUPM, FINE, BUDGET)).toBeNull();
 	});
