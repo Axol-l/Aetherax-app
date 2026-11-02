@@ -117,6 +117,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import WallToolbar from '$components/canvas/WallToolbar.svelte';
 	import ApPlacementToolbar from '$components/canvas/ApPlacementToolbar.svelte';
 	import SurfaceToolbar from '$components/canvas/SurfaceToolbar.svelte';
+	import PlanningToolbar from '$components/canvas/PlanningToolbar.svelte';
 	import RoomTypePopup from '$components/canvas/RoomTypePopup.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
 	import { t, i18nState } from '$state/i18n.svelte';
@@ -950,6 +951,25 @@ import { wallState } from '$state/wall-state.svelte.js';
 		planningAreaLayer.draft = visible ? appState.planningDraft : [];
 		planningAreaLayer.cursor = appState.planningDrawMode ? gestures.planningCursor : null;
 		engine.markDirty();
+	});
+
+	/*
+	 * The heatmap's clip follows the planning area.
+	 *
+	 * `maskPipeline.apply` sets it when the wall mask materialises, but redrawing the area
+	 * changes no wall pixel — so the pipeline does not run, the old polygon stayed on the
+	 * heatmap layer, and the new area appeared to have no effect on the picture. The
+	 * polygon is part of the heatmap's cache key, so assigning it here regenerates the
+	 * field as well as moving the outline.
+	 */
+	$effect(() => {
+		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+		const planned = floor?.planningArea ?? null;
+		const clip = planned ?? floorplanState.floorplanBoundary ?? null;
+		if (!heatmapLayer) return;
+		heatmapLayer.clipPolygon = clip;
+		heatmapLayer.clipStrict = !!planned && planned.length >= 3;
+		engine?.markDirty();
 	});
 
 	$effect(() => {
@@ -2182,6 +2202,17 @@ import { wallState } from '$state/wall-state.svelte.js';
 			onkind={chooseSurfaceKind}
 			onmaterial={chooseSurfaceMaterial}
 			ondone={() => setSurfaceMode(false)}
+		/>
+	{/if}
+	{#if appState.planningDrawMode && appState.floorView === 'single'}
+		<PlanningToolbar
+			corners={appState.planningDraft.length}
+			onclose={commitPlanningDraft}
+			onundo={() => (appState.planningDraft = appState.planningDraft.slice(0, -1))}
+			oncancel={() => {
+				appState.planningDraft = [];
+				setPlanningDrawMode(false);
+			}}
 		/>
 	{/if}
 	<!--

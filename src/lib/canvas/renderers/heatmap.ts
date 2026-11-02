@@ -346,6 +346,16 @@ export class HeatmapLayer implements Layer {
 	 * user has drawn one.
 	 */
 	clipPolygon: Array<{ x: number; y: number }> | null = null;
+	/**
+	 * Whether the polygon is the whole answer, or one of two regions to union.
+	 *
+	 * A **drawn** planning area is the user stating where the floor is, so the picture is
+	 * clipped to it exactly — redrawing it larger or smaller has to change the picture, and
+	 * a small area inside a larger room has to shrink the field. The detected boundary is
+	 * only a guess about the plan, and is unioned with the walls' interior so a doorway does
+	 * not cut the field short.
+	 */
+	clipStrict = false;
 	isDragging = false;
 	/**
 	 * A wall mask is on its way for the floor now showing.
@@ -555,7 +565,8 @@ export class HeatmapLayer implements Layer {
 				.map((w) => `${w.ax},${w.ay},${w.bx},${w.by}:${w.material}`)
 				.join(';')}` +
 			// The clip decides which texels exist at all, so it is part of the picture.
-			`|clip:${this.clipPolygon?.map((p) => `${p.x},${p.y}`).join(';') ?? ''}`
+			`|clip:${this.clipPolygon?.map((p) => `${p.x},${p.y}`).join(';') ?? ''}` +
+			`|clipstrict:${this.clipStrict ? 1 : 0}`
 		);
 	}
 
@@ -775,6 +786,9 @@ export class HeatmapLayer implements Layer {
 			this.clipPolygon && this.clipPolygon.length >= 3 && !this.isDragging
 				? this.clipPolygon
 				: null;
+		// A drawn area is authoritative: the union below would let the walls' interior
+		// paint outside it, which is exactly the "redrew it and nothing changed" report.
+		const strictOutline = this.clipStrict && !this.isDragging ? outline : null;
 		let interior: Uint8Array | null = null;
 		const maskForClip = this.wallMask;
 		if (maskForClip && !this.isDragging) {
@@ -836,7 +850,9 @@ export class HeatmapLayer implements Layer {
 				 * area, or inside the walls, or the only one of the two that exists. Outside both is
 				 * the paper, and that is what the clip is for.
 				 */
-				if (outline || interior) {
+				if (strictOutline) {
+					if (!pointInPolygon(wx, wy, strictOutline)) continue;
+				} else if (outline || interior) {
 					let inOutline = true;
 					let inInterior = true;
 					if (outline) inOutline = pointInPolygon(wx, wy, outline);

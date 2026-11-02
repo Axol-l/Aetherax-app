@@ -482,8 +482,11 @@ export class MaskPipeline {
 			 * sheet and every interior wall throws its shadow into the margin outside the
 			 * building, which is the row of dark wedges that was reported as spikes.
 			 */
-			heatmapLayer.clipPolygon =
-				currentFloor()?.planningArea ?? floorplanState.floorplanBoundary ?? null;
+			const planned = currentFloor()?.planningArea ?? null;
+			heatmapLayer.clipPolygon = planned ?? floorplanState.floorplanBoundary ?? null;
+			// A drawn area is the user's statement of the floor, so it clips strictly; the
+			// detected boundary only trims, and is unioned with the walls' interior.
+			heatmapLayer.clipStrict = !!planned && planned.length >= 3;
 			heatmapLayer.materialMap = mat.materialData;
 			heatmapLayer.materialVersion++;
 		}

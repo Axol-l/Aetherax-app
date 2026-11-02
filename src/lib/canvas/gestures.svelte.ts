@@ -438,7 +438,9 @@ export class CanvasGestures {
 				x: e.clientX - rect.left,
 				y: e.clientY - rect.top
 			});
-			addPlanningPoint({ x: world.x, y: world.y });
+			// A corner snaps to the drawn walls, and the snapped point is placed at once:
+			// there is no second click or confirm button between aiming and committing it.
+			addPlanningPoint(this.planningPoint(world));
 			engine.markDirty();
 			e.preventDefault();
 			return;
@@ -583,6 +585,19 @@ export class CanvasGestures {
 		}
 	}
 
+	/**
+	 * The point a planning click means.
+	 *
+	 * Corners snap to the drawn walls — an endpoint first, then an edge, the same rule the
+	 * wall tool uses — so a planning area can follow a room that was traced rather than
+	 * clicked by eye. The snapped point is what gets placed: no confirm step.
+	 */
+	private planningPoint(world: Point): Point {
+		const walls = this.host.currentWalls();
+		if (walls.length === 0) return world;
+		return snapToWalls(world, walls, this.host.snapTolerance()).point;
+	}
+
 	handlePointerMove(e: PointerEvent): void {
 		const engine = this.host.engine();
 		if (!engine) return;
@@ -667,10 +682,13 @@ export class CanvasGestures {
 		// and the closing edge are previewed, so the shape can be judged before it is closed.
 		if (appState.planningDrawMode) {
 			const rect = engine.canvas.getBoundingClientRect();
-			this.planningCursor = engine.camera.screenToWorld({
+			const world = engine.camera.screenToWorld({
 				x: e.clientX - rect.left,
 				y: e.clientY - rect.top
 			});
+			// The rubber band ends on the wall the click would snap to, so the corner is
+			// previewed where it will actually land.
+			this.planningCursor = this.planningPoint(world);
 			engine.markDirty();
 			return;
 		}
