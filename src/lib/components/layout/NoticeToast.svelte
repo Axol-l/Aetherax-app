@@ -21,7 +21,23 @@
 	 * was not saved is work to redo.
 	 */
 	import { appState } from '$state/app.svelte';
+	import { t } from '$state/i18n.svelte';
 	import Icon from '$components/shared/Icon.svelte';
+
+	/**
+	 * Put the notice away.
+	 *
+	 * The placement refusal is set by one click and, until now, only a *successful*
+	 * placement cleared it — so a click outside the building, followed by dragging an AP
+	 * back inside or doing something else entirely, left the sentence standing forever.
+	 * Closing clears whichever slot is on screen; the standing "APs outside" check is
+	 * recomputed on the next wall or AP change, so dismissing it is not permanent.
+	 */
+	function dismiss(): void {
+		if (appState.storageNotice) appState.storageNotice = null;
+		else if (appState.placementNotice) appState.placementNotice = null;
+		else appState.outsideNotice = null;
+	}
 
 	const text = $derived(
 		appState.storageNotice ?? appState.placementNotice ?? appState.outsideNotice
@@ -48,6 +64,9 @@
 	<div class="notice" role="status" aria-live="polite">
 		<Icon name="warning" size={15} />
 		<p>{text}</p>
+		<button class="dismiss" title={t('Dismiss')} aria-label={t('Dismiss')} onclick={dismiss}>
+			<Icon name="x" size={12} />
+		</button>
 	</div>
 {/if}
 
@@ -93,6 +112,32 @@
 		line-height: 1.55;
 		/* The message carries names of access points, so it can be long. */
 		color: var(--text-primary);
+	}
+
+	/*
+	 * The one part of the notice that takes the pointer: the rest is `pointer-events:
+	 * none` so a warning can never steal a click from the canvas underneath it.
+	 */
+	.dismiss {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 20px;
+		height: 20px;
+		margin: -2px -2px 0 auto;
+		padding: 0;
+		flex: none;
+		color: var(--text-tertiary);
+		background: transparent;
+		border: none;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+		pointer-events: auto;
+	}
+
+	.dismiss:hover {
+		color: var(--text-primary);
+		background: var(--bg-hover);
 	}
 
 	/* A save is good news: the icon and the edge say so before the words are read. */

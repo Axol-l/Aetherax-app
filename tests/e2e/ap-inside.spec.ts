@@ -162,3 +162,16 @@ test('warns when a loaded project carries an AP outside the walls', async ({ pag
 	// It must not take clicks away from the canvas underneath it.
 	await expect(notice).toHaveCSS('pointer-events', 'none');
 });
+test('the outside warning can be put away', async ({ page }) => {
+	test.setTimeout(60_000);
+	await seed(page, { aps: [{ x: 5, y: 5 }], allowOutside: false });
+	await ready(page);
+
+	const warning = page.getByText('outside the building', { exact: false });
+	await expect(warning).toBeVisible({ timeout: 15_000 });
+
+	// The refusal used to stand until a *successful* placement cleared it, which never
+	// happens for a click outside the building — so it could sit there for the session.
+	await page.getByRole('button', { name: 'Dismiss' }).click();
+	await expect(warning).toHaveCount(0);
+});

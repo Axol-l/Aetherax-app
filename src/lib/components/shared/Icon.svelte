@@ -74,6 +74,8 @@
 		// The tick. It was missing from this map, so `<Icon name="check">` rendered an empty
 		// <path> — a blank gap at the left of every button that used it, "Done" included.
 		check: 'M2.5 8.5l3.5 3.5 7.5-8',
+		// The close cross, for a notice the reader can put away.
+		x: 'M3.5 3.5l9 9M12.5 3.5l-9 9',
 		heatmap:
 			'M1 1h6v6H1zM9 1h6v6H9zM1 9h6v6H1zM9 9h6v6H9z',
 		eye:
