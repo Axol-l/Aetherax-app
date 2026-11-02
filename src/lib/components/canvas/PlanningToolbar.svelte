@@ -1,10 +1,10 @@
-<script lang="ts">
+﻿<script lang="ts">
 	/**
 	 * The planning-area tool's floating bar.
 	 *
 	 * Same strip as the wall and surface tools: what is being drawn, the actions that only
 	 * make sense while it is being drawn, and a green action that ends the mode. The sidebar
-	 * card can still close the loop, but drawing happens over the canvas — reaching for the
+	 * card can still close the loop, but drawing happens over the canvas 鈥?reaching for the
 	 * panel between two corners is the step this bar removes.
 	 */
 	import { t } from '$state/i18n.svelte';
@@ -39,7 +39,7 @@
 		<span class="divider"></span>
 		<button class="done" onclick={onclose}>
 			<Icon name="check" size={13} />
-			{t('Close area')}
+			{t('Confirm area')}
 		</button>
 	{/if}
 </div>
@@ -136,3 +136,4 @@
 		cursor: default;
 	}
 </style>
+

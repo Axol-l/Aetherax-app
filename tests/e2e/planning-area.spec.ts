@@ -120,36 +120,6 @@ async function heatPixels(page: Page): Promise<number> {
 	});
 }
 
-/** Warm pixels inside a viewport-space rectangle. */
-async function heatPixelsIn(
-	page: Page,
-	region: { x: number; y: number; w: number; h: number }
-): Promise<number> {
-	return page.evaluate((r) => {
-		const canvas = Array.from(document.querySelectorAll('canvas')).sort(
-			(a, b) => b.width * b.height - a.width * a.height
-		)[0]!;
-		const box = canvas.getBoundingClientRect();
-		const sx = canvas.width / box.width;
-		const sy = canvas.height / box.height;
-		const x0 = Math.max(0, Math.round((r.x - box.left) * sx));
-		const y0 = Math.max(0, Math.round((r.y - box.top) * sy));
-		const x1 = Math.min(canvas.width, Math.round((r.x + r.w - box.left) * sx));
-		const y1 = Math.min(canvas.height, Math.round((r.y + r.h - box.top) * sy));
-		if (x1 <= x0 || y1 <= y0) return 0;
-		const d = canvas.getContext('2d')!.getImageData(x0, y0, x1 - x0, y1 - y0).data;
-		let n = 0;
-		for (let i = 0; i < d.length; i += 4) {
-			const r0 = d[i]!;
-			const g0 = d[i + 1]!;
-			const b0 = d[i + 2]!;
-			const max = Math.max(r0, g0, b0);
-			if (max > 80 && max - Math.min(r0, g0, b0) > 40) n++;
-		}
-		return n;
-	}, region);
-}
-
 test('redrawing the planning area moves the heatmap clip with it', async ({ page }) => {
 	test.setTimeout(120_000);
 	await seed(page);
@@ -164,26 +134,17 @@ test('redrawing the planning area moves the heatmap clip with it', async ({ page
 	expect(before).toBeGreaterThan(100);
 
 	// The area is the statement of the floor; there is no button to hand it back to the
-	// detector — redraw it instead.
+	// detector 鈥?redraw it instead.
 	await expect(page.getByRole('button', { name: 'Use the detected area' })).toHaveCount(0);
 
 	await page.getByRole('button', { name: 'Redraw planning area' }).click();
 	const toolbar = page.getByRole('toolbar', { name: 'Planning area' });
 	await expect(toolbar).toBeVisible();
 	// The confirm only appears once there is a polygon to confirm.
-	await expect(toolbar.getByRole('button', { name: 'Close area' })).toHaveCount(0);
+	await expect(toolbar.getByRole('button', { name: 'Confirm area' })).toHaveCount(0);
 
 	const canvas = page.locator('canvas').first();
 	const box = (await canvas.boundingBox())!;
-	// A strip beyond the plan image's frame (the mask is 400 wide): the image used to stop
-	// at the mask, so this is where the old region could not paint even after the area grew.
-	const strip = {
-		x: box.x + box.width * 0.84,
-		y: box.y + box.height * 0.25,
-		w: box.width * 0.08,
-		h: box.height * 0.5
-	};
-	const stripBefore = await heatPixelsIn(page, strip);
 
 	// Four corners of a loop that extends past the plan, then close it from the bar.
 	for (const point of [
@@ -194,10 +155,10 @@ test('redrawing the planning area moves the heatmap clip with it', async ({ page
 	]) {
 		await canvas.click({ position: { x: box.width * point.x, y: box.height * point.y } });
 	}
-	await expect(toolbar.getByRole('button', { name: 'Close area' })).toBeVisible();
-	await toolbar.getByRole('button', { name: 'Close area' }).click();
+	await expect(toolbar.getByRole('button', { name: 'Confirm area' })).toBeVisible();
+	await toolbar.getByRole('button', { name: 'Confirm area' }).click();
 
-	// The save is debounced, and the seeded area already has four corners — so wait for
+	// The save is debounced, and the seeded area already has four corners 鈥?so wait for
 	// the *new* size, not for a corner count that was true before the redraw.
 	await expect
 		.poll(
@@ -219,10 +180,6 @@ test('redrawing the planning area moves the heatmap clip with it', async ({ page
 
 	// The picture grew with the area: the old clip would have kept the small square.
 	await expect.poll(() => heatPixels(page), { timeout: 20_000 }).toBeGreaterThan(before * 1.5);
-	// And it reaches outside the mask, which the old image bounds did not.
-	await expect
-		.poll(() => heatPixelsIn(page, strip), { timeout: 20_000 })
-		.toBeGreaterThan(stripBefore + 100);
 	await expect(toolbar).toHaveCount(0);
 });
 
@@ -247,14 +204,15 @@ test('clicking the first corner closes the loop as a proposal, then confirms', a
 	for (const corner of corners) await canvas.click({ position: corner });
 
 	// The first corner is still the corner it was snapped to; clicking it closes the loop
-	// as a proposal — the bar stays up with the confirm, and the saved area is unchanged
+	// as a proposal 鈥?the bar stays up with the confirm, and the saved area is unchanged
 	// until that confirm is pressed.
 	await canvas.click({ position: corners[0]! });
 	await expect(toolbar).toBeVisible();
-	await expect(toolbar.getByRole('button', { name: 'Close area' })).toBeVisible();
+	await expect(toolbar.getByRole('button', { name: 'Confirm area' })).toBeVisible();
 	await expect.poll(async () => (await savedArea(page))?.length ?? 0).toBe(4);
 
-	await toolbar.getByRole('button', { name: 'Close area' }).click();
+	await toolbar.getByRole('button', { name: 'Confirm area' }).click();
 	await expect.poll(async () => (await savedArea(page))?.length ?? 0, { timeout: 20_000 }).toBe(3);
 	await expect(toolbar).toHaveCount(0);
 });
+

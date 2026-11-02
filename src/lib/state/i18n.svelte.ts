@@ -42,7 +42,7 @@ const zh: Record<string, string> = {
 	'Signal strength': '信号强度',
 	'Click the corners of this floor (at least three), then press Enter.': '依次点击本层的各个角点（至少三个），然后按 Enter 闭合。',
 	'{count} corners — the next click continues the loop; press Enter to close it.': '已有 {count} 个角点——继续点击可延伸轮廓，按 Enter 闭合。',
-	'Close area': '闭合范围',
+	'Confirm area': '确认范围',
 	'Planning area': '规划范围',
 	Drawing: '绘制中',
 	'Auto-detected': '自动识别',

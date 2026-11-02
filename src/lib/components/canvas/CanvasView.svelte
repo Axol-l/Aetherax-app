@@ -963,7 +963,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 	$effect(() => {
 		const visible = singleFloorView;
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-		planningAreaLayer.area = visible ? (floor?.planningArea ?? null) : null;
+		// The committed outline is a proposal aid, not permanent chrome: after the confirm it
+		// would sit on the plan as a blue dashed box with no way to dismiss it. It is shown
+		// while the planning tool is open (so the old area is visible under the new one) and
+		// hidden otherwise; the sidebar still says whether an area exists.
+		planningAreaLayer.area =
+			visible && appState.planningDrawMode ? (floor?.planningArea ?? null) : null;
 		planningAreaLayer.draft = visible ? appState.planningDraft : [];
 		planningAreaLayer.draftClosed = visible && appState.planningDraftClosed;
 		planningAreaLayer.cursor = appState.planningDrawMode ? gestures.planningCursor : null;

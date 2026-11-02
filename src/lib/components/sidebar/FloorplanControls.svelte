@@ -1041,7 +1041,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 							disabled={appState.planningDraft.length < 3}
 							onclick={commitPlanningArea}
 						>
-							{t('Close area')}
+							{t('Confirm area')}
 						</Button>
 						<button
 							class="skip-link"
