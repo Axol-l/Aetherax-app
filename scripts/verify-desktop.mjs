@@ -219,6 +219,15 @@ try {
 	const edge = Math.min(ap?.x ?? 0, ap?.y ?? 0, 400 - (ap?.x ?? 0), 400 - (ap?.y ?? 0));
 	check('a wall mount was placed on a wall', edge > 8 && edge < 20, `edge ${edge.toFixed(1)}`);
 
+	// The manual is a separate static page, not part of the app bundle: check the packaged
+	// webview can actually load it through the iframe, not just that a button exists.
+	await page.getByRole('button', { name: 'Help' }).click();
+	const manual = page.frameLocator('#help-manual-frame');
+	await manual.locator('h1').waitFor({ state: 'visible', timeout: 15_000 });
+	const heading = await manual.locator('h1').innerText();
+	check('the help manual opens', heading.includes('Aetherax'), heading);
+	await page.getByRole('dialog', { name: 'Aetherax 使用手册' }).getByRole('button', { name: 'Close' }).click();
+
 	// Not under test-results: Playwright empties that directory at the start of every
 	// run, so a screenshot kept there survives only until the next e2e run.
 	await page.screenshot({ path: 'docs/screenshots/desktop-window.png' });

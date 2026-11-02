@@ -6,7 +6,7 @@
 	import Icon from '$components/shared/Icon.svelte';
 	import Dropdown from '$components/shared/Dropdown.svelte';
 	import Tooltip from '$components/shared/Tooltip.svelte';
-	import HelpDialog from '$components/dialogs/HelpDialog.svelte';
+	import ManualDialog from '$components/dialogs/ManualDialog.svelte';
 	import NewProjectDialog from '$components/dialogs/NewProjectDialog.svelte';
 	import { downloadJson, importJson } from '$lib/export/json.js';
 	import { exportPng } from '$lib/export/png.js';
@@ -16,7 +16,7 @@
 	import { projectMeta } from '$state/project-meta.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
 
-	let helpOpen = $state(false);
+	let manualOpen = $state(false);
 	let newProjectOpen = $state(false);
 	let fileInputEl: HTMLInputElement;
 	let importError = $state<string | null>(null);
@@ -239,7 +239,7 @@
 		<Tooltip text={t('Help')} position="bottom">
 			<button
 				class="tool-btn"
-				onclick={() => { helpOpen = true; }}
+				onclick={() => { manualOpen = true; }}
 				aria-label={t('Help')}
 			>
 				<Icon name="help" size={14} />
@@ -265,7 +265,7 @@
 	class="hidden-input"
 	onchange={handleFileSelect}
 />
-<HelpDialog bind:open={helpOpen} />
+<ManualDialog bind:open={manualOpen} />
 <NewProjectDialog bind:open={newProjectOpen} />
 
 <style>

@@ -129,6 +129,7 @@ const zh: Record<string, string> = {
 	'Untitled Project': '未命名工程',
 	Close: '关闭',
 	'About Aetherax': '关于 Aetherax',
+	'Aetherax 使用手册': 'Aetherax 使用手册',
 
 	// ── panel: coverage and the optimiser ────────────────────────────────
 	Coverage: '覆盖率',
