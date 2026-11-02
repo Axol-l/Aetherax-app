@@ -4,6 +4,7 @@
 	import Toolbar from './Toolbar.svelte';
 	import Sidebar from './Sidebar.svelte';
 	import StatusBar from './StatusBar.svelte';
+	import NoticeToast from './NoticeToast.svelte';
 	import CanvasView from '$components/canvas/CanvasView.svelte';
 
 	onMount(() => {
@@ -19,6 +20,11 @@
 	</div>
 	<div class="canvas-area">
 		<CanvasView />
+		<!--
+			The notice is positioned against the canvas rather than the window, so opening
+			the sidebar pushes it left instead of covering the panel.
+		-->
+		<NoticeToast />
 	</div>
 	{#if appState.sidebarOpen}
 		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->

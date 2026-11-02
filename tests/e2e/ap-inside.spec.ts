@@ -150,6 +150,15 @@ test('warns when a loaded project carries an AP outside the walls', async ({ pag
 	const viewport = page.viewportSize()!;
 	expect(box.x + box.width).toBeGreaterThan(viewport.width * 0.6);
 	expect(box.y).toBeGreaterThan(viewport.height * 0.6);
+	/*
+	 * The corner is the canvas's, not the window's: the sidebar is open here, and the notice
+	 * used to sit over it. It ends inside the canvas area, short of the sidebar.
+	 */
+	const canvas = (await page.locator('.canvas-area').boundingBox())!;
+	const sidebar = (await page.locator('aside[aria-label="Sidebar"]').boundingBox())!;
+	expect(box.x).toBeGreaterThanOrEqual(canvas.x);
+	expect(box.x + box.width).toBeLessThanOrEqual(canvas.x + canvas.width);
+	expect(box.x + box.width).toBeLessThan(sidebar.x);
 	// It must not take clicks away from the canvas underneath it.
 	await expect(notice).toHaveCSS('pointer-events', 'none');
 });

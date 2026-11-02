@@ -2,7 +2,6 @@
 	import '../app.css';
 	import { restoreLocale } from '$state/i18n.svelte';
 	import { installUnloadFlush } from '$state/persistence.svelte';
-	import NoticeToast from '$components/layout/NoticeToast.svelte';
 
 	let { children } = $props();
 
@@ -17,4 +16,3 @@
 </script>
 
 {@render children()}
-<NoticeToast />
