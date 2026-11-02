@@ -133,6 +133,10 @@ test('redrawing the planning area moves the heatmap clip with it', async ({ page
 	const before = await heatPixels(page);
 	expect(before).toBeGreaterThan(100);
 
+	// The area is the statement of the floor; there is no button to hand it back to the
+	// detector — redraw it instead.
+	await expect(page.getByRole('button', { name: 'Use the detected area' })).toHaveCount(0);
+
 	await page.getByRole('button', { name: 'Redraw planning area' }).click();
 	const toolbar = page.getByRole('toolbar', { name: 'Planning area' });
 	await expect(toolbar).toBeVisible();
@@ -172,5 +176,32 @@ test('redrawing the planning area moves the heatmap clip with it', async ({ page
 
 	// The picture grew with the area: the old clip would have kept the small square.
 	await expect.poll(() => heatPixels(page), { timeout: 20_000 }).toBeGreaterThan(before * 1.5);
+	await expect(toolbar).toHaveCount(0);
+});
+
+test('clicking the first corner again closes the loop', async ({ page }) => {
+	test.setTimeout(90_000);
+	await seed(page);
+	await page.goto('/');
+	await page.waitForSelector('canvas');
+	await page.waitForTimeout(1500);
+
+	await page.getByRole('button', { name: 'Redraw planning area' }).click();
+	const toolbar = page.getByRole('toolbar', { name: 'Planning area' });
+	await expect(toolbar).toBeVisible();
+
+	const canvas = page.locator('canvas').first();
+	const box = (await canvas.boundingBox())!;
+	const corners = [
+		{ x: box.width * 0.3, y: box.height * 0.3 },
+		{ x: box.width * 0.7, y: box.height * 0.3 },
+		{ x: box.width * 0.7, y: box.height * 0.7 }
+	];
+	for (const corner of corners) await canvas.click({ position: corner });
+
+	// The first corner is still the corner it was snapped to; clicking it closes the loop
+	// and the duplicate click is not stored as a fourth corner.
+	await canvas.click({ position: corners[0]! });
+	await expect.poll(async () => (await savedArea(page))?.length ?? 0, { timeout: 20_000 }).toBe(3);
 	await expect(toolbar).toHaveCount(0);
 });

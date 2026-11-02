@@ -555,15 +555,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		appState.wallVectorMode = true;
 	}
 
-	/** Back to the inferred interior. */	function clearPlanningArea() {
-		const floor = currentFloor();
-		if (!floor) return;
-		pushState();
-		floor.planningArea = null;
-		forgetInterior(floor.id);
-		scheduleSave();
-	}
-
 	async function loadSample(url: string, knownAreaSqm?: number) {
 		pushState();
 		floorplanState.importNotice = null;
@@ -1067,9 +1058,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 							<Icon name="pencil" size={14} />
 							{currentFloor()?.planningArea ? t('Redraw planning area') : t('Draw planning area')}
 						</Button>
-						{#if currentFloor()?.planningArea}
-							<button class="skip-link" onclick={clearPlanningArea}>{t('Use the detected area')}</button>
-						{/if}
 					</div>
 				{/if}
 				{/if}

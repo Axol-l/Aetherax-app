@@ -147,6 +147,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		reference: () => referenceFloorLayer,
 		wallClick: (x, y) => handleWallClick(x, y),
 		contextAction: (x, y) => handleContextAction(x, y),
+		commitPlanningDraft: () => commitPlanningDraft(),
 		commitSurface: (world) => commitSurfaceClick(world),
 		vectorWallClick: (world, shiftKey) => handleVectorWallClick(world, shiftKey),
 		addNote: (world) => addNoteAt(world),
@@ -2119,9 +2120,21 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const target = floorState.floors.find((f) => f.id === floor.id);
 		if (!target) return;
 		target.planningArea = draft.map((point) => ({ x: point.x, y: point.y }));
+		/*
+		 * The heatmap follows the new area now, not on the next tick.
+		 *
+		 * The effect above also keeps the clip in step, but the picture is what the user is
+		 * watching when they close the loop; assigning here makes the regeneration start on
+		 * this frame instead of after the reactive round-trip.
+		 */
+		if (heatmapLayer) {
+			heatmapLayer.clipPolygon = target.planningArea;
+			heatmapLayer.clipStrict = true;
+		}
 		setPlanningDrawMode(false);
 		gestures.planningCursor = null;
 		forgetInterior(target.id);
+		engine?.markDirty();
 		scheduleSave();
 	}
 

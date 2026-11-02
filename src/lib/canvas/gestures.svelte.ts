@@ -64,6 +64,8 @@ export interface GestureHost {
 	wallClick(screenX: number, screenY: number): boolean;
 	/** A right-click or long-press context action, in canvas pixels; true when a popup opened. */
 	contextAction(screenX: number, screenY: number): boolean;
+	/** Close the planning loop being drawn and make it the floor's area. */
+	commitPlanningDraft(): void;
 	commitSurface(world: Point): void;
 	vectorWallClick(world: Point, shiftKey: boolean): void;
 	addNote(world: Point): void;
@@ -440,7 +442,20 @@ export class CanvasGestures {
 			});
 			// A corner snaps to the drawn walls, and the snapped point is placed at once:
 			// there is no second click or confirm button between aiming and committing it.
-			addPlanningPoint(this.planningPoint(world));
+			const point = this.planningPoint(world);
+			const draft = appState.planningDraft;
+			/*
+			 * Clicking the first corner again closes the loop.
+			 *
+			 * The gesture is what a polygon tool does everywhere else, and it saves a trip
+			 * to the bar: the first point was snapped when it was placed, so returning to it
+			 * is returning to the same corner. Fewer than three corners is not a polygon.
+			 */
+			const closes =
+				draft.length >= 3 &&
+				Math.hypot(point.x - draft[0]!.x, point.y - draft[0]!.y) <= this.host.snapTolerance();
+			if (closes) this.host.commitPlanningDraft();
+			else addPlanningPoint(point);
 			engine.markDirty();
 			e.preventDefault();
 			return;
