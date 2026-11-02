@@ -196,6 +196,25 @@ describe('addAp', () => {
 		expect(second.mountHeightM).toBeCloseTo(0.8, 6);
 	});
 
+	it('takes the mounting the placement toolbar picked, and its preset height', () => {
+		seedFloors();
+		// The last AP is a wall mount, so inheriting would make the next one a wall mount
+		// too; the toolbar's choice has to win.
+		const first = addAp(10, 10);
+		first.mount = 'wall';
+		first.mountHeightM = 1.5;
+
+		const ceiling = addAp(20, 20, 0, 'ceiling');
+		expect(ceiling.mount).toBe('ceiling');
+		expect(ceiling.mountHeightM).toBeCloseTo(2.9, 6);
+
+		const wall = addAp(30, 30, 90, 'wall');
+		expect(wall.mount).toBe('wall');
+		expect(wall.mountHeightM).toBeCloseTo(2, 6);
+		// The caller's measured facing still wins for a wall mount.
+		expect(wall.facingDeg).toBe(90);
+	});
+
 	it('starts an access point with its band’s antenna, and carries that over too', () => {
 		seedFloors();
 		const ap = addAp(10, 10);

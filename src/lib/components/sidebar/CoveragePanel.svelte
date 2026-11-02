@@ -156,9 +156,20 @@
 		}
 		return { measured, belowHalf };
 	});
+
+	/*
+	 * Leaving the plan view ends the mode.
+	 *
+	 * With the toggle hidden in the overviews, an armed mode left behind would be an
+	 * invisible state: no toolbar, no button to turn it off, and the next return to the
+	 * plan still adding APs on every click.
+	 */
+	$effect(() => {
+		if (appState.floorView !== 'single' && appState.apPlaceMode) setApPlaceMode(false);
+	});
 </script>
 
-{#if !optimizerState.isRunning}
+{#if !optimizerState.isRunning && appState.floorView === 'single'}
 	<!--
 		Placement mode sits outside the coverage guard below, because the moment you
 		most need it is when the floor has no access points yet — which is exactly when
@@ -166,6 +177,11 @@
 
 		Off by default: with it on, the canvas adds an AP to every stray click, so
 		clicking to deselect or fumbling a pan leaves one behind.
+
+		Only in the single-floor view: the overviews are read-only cards, and a click
+		there picks a floor rather than placing anything. Offering the toggle there was
+		a control that turned on a mode whose toolbar was hidden and whose clicks did
+		nothing.
 	-->
 	<button
 		class="place-toggle"

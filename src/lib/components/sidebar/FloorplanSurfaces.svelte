@@ -14,7 +14,9 @@
 	import { scheduleSave } from '$state/persistence.svelte.js';
 	import { updateCoverage } from '$state/optimizer.svelte.js';
 	import { t } from '$state/i18n.svelte';
-	import { stepCount, type SurfaceKind } from '$lib/rf/surface-height.js';
+	import { stepCount, SURFACE_MATERIALS, surfaceMaterial, type SurfaceKind, type SurfaceMaterialId } from '$lib/rf/surface-height.js';
+	import { chooseSurfaceKind, chooseSurfaceMaterial } from '$state/surface-defaults.js';
+	import Select from '$components/shared/Select.svelte';
 	import Button from '$components/shared/Button.svelte';
 	import Icon from '$components/shared/Icon.svelte';
 	import NumberInput from '$components/shared/NumberInput.svelte';
@@ -32,20 +34,25 @@
 	/**
 	 * Pick the kind a new surface will be.
 	 *
-	 * A platform is level by definition, so choosing it copies the low height to the high one
-	 * rather than leaving a rise the drawing does not show; choosing a stair or a ramp leaves
-	 * the pair alone, because it already means something.
+	 * The rule lives in `state/surface-defaults.ts`, shared with the floating toolbar — a card
+	 * and a bar that each implement "a platform copies its low height" are two rules that will
+	 * disagree.
 	 */
-	function chooseSurfaceKind(kind: SurfaceKind): void {
-		appState.surfaceKind = kind;
-		if (kind === 'platform') {
-			appState.surfaceTopHeightM = appState.surfaceHeightM;
-		} else if (appState.surfaceTopHeightM <= appState.surfaceHeightM) {
-			// A stair with no rise is a platform with extra controls. Start it above the low
-			// end so the first one drawn already says what it is.
-			appState.surfaceTopHeightM = appState.surfaceHeightM + 1;
-		}
+
+	/** The material list: the presets, plus the "no preset" row that keeps a typed loss. */
+	const materialOptions = $derived([
+		{ value: 'custom', label: t('Custom') },
+		...SURFACE_MATERIALS.map((material) => ({ value: material.id, label: t(material.label) }))
+	]);
+
+	function handleMaterialChange(value: string): void {
+		chooseSurfaceMaterial(value === 'custom' ? null : (value as SurfaceMaterialId));
 	}
+
+	/** The preset's own loss, or null while the deck is a custom figure. */
+	const presetAttenuation = $derived(
+		appState.surfaceMaterial ? (surfaceMaterial(appState.surfaceMaterial)?.attenuationDb ?? null) : null
+	);
 
 	/** The step count a stair drawn now would get, from its rise at the standard tread. */
 	const previewStepCount = $derived(
@@ -98,11 +105,29 @@
 		name.
 	-->
 	<div class="param-row">
+		<span class="param-label">{t('Material')}</span>
+		<Select
+			value={appState.surfaceMaterial ?? 'custom'}
+			options={materialOptions}
+			onchange={handleMaterialChange}
+			aria-label={t('Material')}
+		/>
+	</div>
+	<div class="param-row">
 		<span class="param-label">{t('Attenuation')}</span>
-		<span class="param-control">
-			<NumberInput bind:value={appState.surfaceAttenuationDb} min={0} max={120} step={1} />
-			<span class="param-unit">dB</span>
-		</span>
+		{#if presetAttenuation !== null}
+			<!--
+				A preset's loss is its own number, so the field is a readout, not an input: a
+				deck cannot be "steel, but 12 dB". Choosing Custom hands the field back with
+				the figure the preset last wrote, and from there it is the user's.
+			-->
+			<span class="param-value" title={t('Set by the material')}>{presetAttenuation} dB</span>
+		{:else}
+			<span class="param-control">
+				<NumberInput bind:value={appState.surfaceAttenuationDb} min={0} max={120} step={1} />
+				<span class="param-unit">dB</span>
+			</span>
+		{/if}
 	</div>
 	<div class="param-row">
 		<span class="param-label">{t('Upper height')}</span>

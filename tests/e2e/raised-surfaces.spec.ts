@@ -21,6 +21,7 @@ async function savedFloor(page: Page): Promise<{
 		heightM: number;
 		topHeightM: number;
 		attenuationDb?: number;
+		material?: string;
 		thicknessM?: number;
 	}>;
 }> {
@@ -150,5 +151,37 @@ test.describe('Raised surfaces', () => {
 		await page.getByRole('button', { name: 'Clear raised areas' }).click();
 		await page.waitForTimeout(600);
 		expect(await coloured()).toBeLessThan(after * 0.4);
+	});
+
+	test('the toolbar picks the deck material, and the loss follows it', async ({ page }) => {
+		await page.getByRole('button', { name: 'Draw raised area' }).click();
+		const toolbar = page.getByRole('toolbar', { name: 'Raised surfaces' });
+		await expect(toolbar).toBeVisible();
+
+		// The bar's material control is one button opening a list, like the wall tool's.
+		await toolbar.locator('.material').click();
+		await page.getByRole('option', { name: 'Steel' }).click();
+		await page.screenshot({ path: 'test-results/surfaces/material-card.png' });
+		// A preset's loss is its own, so the field is a readout and not an input.
+		const attenuation = page.locator('.param-row', { hasText: 'Attenuation' });
+		await expect(attenuation).toContainText('30 dB');
+		await expect(attenuation.locator('input')).toHaveCount(0);
+
+		const canvas = page.locator('canvas');
+		const box = (await canvas.boundingBox())!;
+		await canvas.click({ position: { x: box.width * 0.35, y: box.height * 0.3 } });
+		await canvas.click({ position: { x: box.width * 0.65, y: box.height * 0.6 } });
+		// Done in the floating bar ends the tool; the card's own Done is the same action.
+		await toolbar.getByRole('button', { name: 'Done' }).click();
+
+		await expect.poll(
+			async () => (await savedFloor(page)).surfaces?.length ?? 0,
+			{ timeout: 20_000 }
+		).toBe(1);
+		const surface = (await savedFloor(page)).surfaces![0]!;
+		expect(surface.material).toBe('steel');
+		expect(surface.attenuationDb).toBeCloseTo(30);
+		await page.screenshot({ path: 'test-results/surfaces/material-drawn.png' });
+		await expect(toolbar).toHaveCount(0);
 	});
 });

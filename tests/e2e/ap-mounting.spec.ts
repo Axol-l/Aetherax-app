@@ -470,3 +470,43 @@ test('the optimiser places a wall mount on a wall, and turns it with the wall', 
 	const facing = ((landed.facingDeg! % 360) + 360) % 360;
 	expect(Math.min(facing % 90, 90 - (facing % 90))).toBeLessThan(2);
 });
+
+test('dragging a wall mount off the plan leaves it on the wall', async ({ page }) => {
+	test.setTimeout(90_000);
+	await seed(page);
+	await ready(page);
+
+	// Place a wall mount where a click can find it again: the seeded border is 10 px,
+	// so a click at (20, 300) is inside a metre of the wall and snaps onto it.
+	await page
+		.locator('button[role="tab"]')
+		.filter({ hasText: 'Floorplan' })
+		.first()
+		.click();
+	await page.getByRole('button', { name: 'Place APs' }).click();
+	const toolbar = page.getByRole('toolbar', { name: 'Access point placement' });
+	await toolbar.getByRole('button', { name: 'Wall mount' }).click();
+	await page.locator('canvas').first().click({ position: { x: 20, y: 300 } });
+	await expect
+		.poll(async () => (await saved(page)).aps?.at(-1)?.mount, { timeout: 20_000 })
+		.toBe('wall');
+	const placed = (await saved(page)).aps!.at(-1)!;
+
+	// Drag it far past the plan's edge. With no wall under the pointer the old code
+	// moved the bracket freely, which left a wall mount standing outside the building —
+	// and the standing warning then followed every later edit, including a facing change.
+	const box = (await page.locator('canvas').first().boundingBox())!;
+	await page.mouse.move(box.x + 20, box.y + 300);
+	await page.mouse.down();
+	await page.mouse.move(box.x + 700, box.y + 520, { steps: 12 });
+	await page.mouse.up();
+	await page.waitForTimeout(1500);
+
+	const after = (await saved(page)).aps!.at(-1)!;
+	expect(after.mount).toBe('wall');
+	const edge = Math.min(after.x, after.y, 400 - after.x, 400 - after.y);
+	expect(edge).toBeLessThan(30);
+	// It moved along the wall or stayed, but it did not leave it.
+	expect(Math.hypot(after.x - placed.x, after.y - placed.y)).toBeLessThan(300);
+	await expect(page.getByText('outside the building', { exact: false })).toHaveCount(0);
+});

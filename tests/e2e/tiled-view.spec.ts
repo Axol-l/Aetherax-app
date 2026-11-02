@@ -359,11 +359,12 @@ test('selecting another floor leaves every card’s coverage alone', async ({ pa
 	expect(Math.abs(after - before) / before).toBeLessThan(0.02);
 });
 
-test('one scale for the whole project, taken from floor 1', async ({ page }) => {
+test('one scale for the sheet, taken from the bottom floor', async ({ page }) => {
 	// Identical geometry on both floors — same wall, same AP position, same radius —
-	// and only the *stored* calibrations differ. The two cards must still match: the
-	// project has one scale and it is floor 1's, wherever a per-floor read would
-	// have used floor 2's.
+	// and only the *stored* calibrations differ. Calibration is per floor, but a sheet has
+	// to draw every card in one frame: the tiled view takes the bottom floor's scale, so
+	// the two cards are the same uniform picture wherever a per-floor read would have used
+	// floor 2's, and selecting a card cannot rescale the others.
 	await seedTwoFloors(page, {
 		wupm1: 33.05,
 		wupm2: 66.1,

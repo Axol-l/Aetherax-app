@@ -26,7 +26,7 @@ import {
 import type { FloorCardCache, FloorCardSource } from './floor-card.js';
 import { apMarkerColor } from './ap.js';
 import { getMaterial, type WallMaterialId } from '$lib/domain/materials.js';
-import { surfaceBox, surfaceThickness, stepCount, type ElevatedSurface } from '$lib/rf/surface-height.js';
+import { surfaceBox, surfaceColor, surfaceThickness, stepCount, type ElevatedSurface } from '$lib/rf/surface-height.js';
 import type { VectorColumn, VectorWall } from '$state/vector-walls.js';
 
 /** One quad to fill, projected into the drawing plane. */
@@ -405,11 +405,21 @@ export class Floor3DLayer implements Layer {
 		pivot: { x: number; y: number; z: number }
 	): Face[] {
 		const faces: Face[] = [];
-		const TOP_FILL = 'rgba(214,150,86,0.5)';
-		const SIDE_FILL = 'rgba(150,104,58,0.62)';
-		const EDGE = 'rgba(255,214,170,0.75)';
 
 		for (const surface of this.surfaces) {
+			/*
+			 * The deck's own colour: a steel mezzanine and a timber gallery are different
+			 * obstacles and now look it. The top is the material at half strength, the sides
+			 * a shade darker and the edge lighter, so the slab reads as solid in the oblique
+			 * view without losing the hue.
+			 */
+			const [sr, sg, sb] = surfaceColor(surface.material);
+			const shade = (channel: number, factor: number) =>
+				Math.round(Math.min(255, channel * factor));
+			const TOP_FILL = `rgba(${sr},${sg},${sb},0.5)`;
+			const SIDE_FILL = `rgba(${shade(sr, 0.72)},${shade(sg, 0.72)},${shade(sb, 0.72)},0.62)`;
+			const EDGE = `rgba(${shade(sr, 1.25)},${shade(sg, 1.25)},${shade(sb, 1.25)},0.75)`;
+
 			const { x0, y0, x1, y1 } = surfaceBox(surface);
 			if (x1 - x0 < 1 || y1 - y0 < 1) continue;
 			const low = Math.max(0, surface.heightM) * view.wupm;

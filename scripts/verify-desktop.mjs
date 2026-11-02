@@ -14,7 +14,7 @@
  *
  * Set AETHORAX_EXE to point at another executable.
  */
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { chromium } from '@playwright/test';
 
@@ -137,8 +137,17 @@ try {
 	await page.waitForSelector('canvas', { timeout: 30_000 });
 	check('the planner renders in the desktop webview', true, await page.title());
 
-	// A wall mask is a PNG data URL; build one in the page and store the project with it.
-	await page.evaluate(async (seed) => {
+	/*
+	 * Seed through an init script, not through `evaluate` + reload.
+	 *
+	 * The app saves the project it has in memory while the page unloads (the "save the last
+	 * edit" pass), so a seed written into storage while an instance is running can be
+	 * overwritten during the reload that was meant to load it — which is how this check once
+	 * opened an old two-floor project and looked for a button the new layout does not have.
+	 * An init script runs in the fresh document, after the old one has unloaded and before
+	 * the app reads storage, so the seed is what the app starts from.
+	 */
+	await page.addInitScript((seed) => {
 		const c = document.createElement('canvas');
 		c.width = 400;
 		c.height = 400;
@@ -165,7 +174,8 @@ try {
 
 	// The optimiser runs in a module worker that imports a workspace package: if the
 	// port broke worker loading under the Tauri protocol, this is where it shows.
-	await page.getByRole('button', { name: 'Optimize placement' }).click();
+	// One floor reads "Optimize placement"; more than one offers this-floor/all-floors.
+	await page.getByRole('button', { name: /Optimize (placement|this floor)/ }).click();
 	await page
 		.getByText('Optimizing…', { exact: false })
 		.waitFor({ state: 'visible', timeout: 30_000 });
@@ -216,7 +226,25 @@ try {
 
 	await browser.close();
 } finally {
-	app.kill();
+	/*
+	 * Make sure the app is gone before the next build.
+	 *
+	 * `app.kill()` terminates the process it spawned, but on Windows a WebView2 child can
+	 * outlive it — and a running aetherax.exe locks the binary, so the next `tauri build`
+	 * fails with "access denied". The tree kill is the belt to that braces.
+	 */
+	try {
+		app.kill('SIGKILL');
+	} catch {
+		/* already gone */
+	}
+	if (process.platform === 'win32' && app.pid) {
+		try {
+			spawnSync('taskkill', ['/PID', String(app.pid), '/T', '/F'], { stdio: 'ignore' });
+		} catch {
+			/* no taskkill, or the tree is already gone */
+		}
+	}
 }
 
 console.log(failures === 0 ? '\nAll desktop checks passed.' : `\n${failures} desktop check(s) failed.`);

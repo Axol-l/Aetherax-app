@@ -195,6 +195,15 @@ export async function apsOutsideInterior(): Promise<string[]> {
 	const planned = currentFloor().planningArea;
 	const hasPlan = isUsablePlanningArea(planned);
 	for (const ap of apState.aps) {
+		/*
+		 * A wall mount is on a wall by construction, and the inferred interior
+		 * deliberately trims the ring of pixels against every wall (`trimWallAdjacent`) —
+		 * so judging one there reports every bracket in the building as outside. That is
+		 * what made the warning stand on a wall mount and re-appear on every later edit,
+		 * including a facing change. Placement already refuses to put a wall mount away
+		 * from a wall, so there is nothing left for this check to add.
+		 */
+		if (ap.mount === 'wall') continue;
 		const inside = hasPlan
 			? pointInPlanningArea({ x: ap.x, y: ap.y }, planned!)
 			: await isInsideInterior(ap.floorId, ap.x, ap.y);

@@ -16,7 +16,12 @@ import {
 	surfaceContains,
 	surfaceCorners,
 	surfaceHeightAt,
+	surfaceAttenuationDb,
+	surfaceColor,
+	surfaceMaterial,
 	surfaceThickness,
+	SURFACE_MATERIALS,
+	DEFAULT_SURFACE_COLOR,
 	STEP_DEPTH_M,
 	type ElevatedSurface
 } from './surface-height.js';
@@ -133,5 +138,30 @@ describe('the deck of a raised surface', () => {
 		expect(stepCount(stair, 0.5)).toBe(6);
 		expect(stepCount(surface({ kind: 'stair', heightM: 2, topHeightM: 2 }))).toBe(1);
 		expect(STEP_DEPTH_M).toBeCloseTo(0.3);
+	});
+});
+
+describe('surface material', () => {
+	it('is a preset for the loss, not a second source of truth', () => {
+		expect(surfaceMaterial('steel')?.attenuationDb).toBe(30);
+		// A typed figure wins over the preset, so an edited deck keeps what was entered.
+		expect(surfaceAttenuationDb(surface({ material: 'steel' }))).toBe(30);
+		expect(surfaceAttenuationDb(surface({ material: 'steel', attenuationDb: 4 }))).toBe(4);
+		// A deck from a project saved before materials existed still reads 15, not NaN.
+		expect(surfaceAttenuationDb(surface())).toBe(15);
+		expect(surfaceMaterial(undefined)).toBeNull();
+	});
+
+	it('offers a deck for every listing, with a positive loss', () => {
+		expect(SURFACE_MATERIALS.length).toBeGreaterThanOrEqual(3);
+		for (const material of SURFACE_MATERIALS) {
+			expect(material.attenuationDb).toBeGreaterThan(0);
+			expect(material.label.length).toBeGreaterThan(0);
+			// Every material has a colour of its own, so the plan can show the choice.
+			expect(material.color).toHaveLength(3);
+			expect(surfaceColor(material.id)).toEqual(material.color);
+		}
+		// A deck with no material keeps the amber it was drawn in before materials existed.
+		expect(surfaceColor(undefined)).toEqual(DEFAULT_SURFACE_COLOR);
 	});
 });

@@ -11,20 +11,29 @@
 import type { Layer, RenderContext } from '../types.js';
 import {
 	surfaceBox,
+	surfaceColor,
 	surfaceCorners,
 	type ElevatedSurface,
-	type SurfaceKind
+	type SurfaceKind,
+	type SurfaceMaterialId
 } from '$lib/rf/surface-height.js';
 
-/** The tint of a surface at a height, 0..1 of a storey. */
-function tintFor(heightM: number, alpha: number): string {
-	// Warm amber rather than the palette's blues and greens: a raised surface is not a
-	// coverage figure and must not read as one.
-	const t = Math.max(0, Math.min(1, heightM / 4));
-	const r = Math.round(196 + 40 * t);
-	const g = Math.round(132 + 30 * (1 - t));
-	const b = Math.round(74 + 40 * (1 - t));
-	return `rgba(${r},${g},${b},${alpha})`;
+/**
+ * The tint of a surface, from its material and its height.
+ *
+ * The hue is the material's — a steel deck reads blue-grey, a timber one brown — so the plan
+ * shows what the card says. Height still shows: a taller deck is mixed slightly towards
+ * white, which keeps the old "this one is higher" read without taking the colour over.
+ */
+function tintFor(
+	material: SurfaceMaterialId | undefined,
+	heightM: number,
+	alpha: number
+): string {
+	const [r, g, b] = surfaceColor(material);
+	const t = Math.max(0, Math.min(1, heightM / 4)) * 0.18;
+	const mix = (channel: number) => Math.round(channel + (255 - channel) * t);
+	return `rgba(${mix(r)},${mix(g)},${mix(b)},${alpha})`;
 }
 
 export class SurfacesLayer implements Layer {
@@ -39,6 +48,8 @@ export class SurfacesLayer implements Layer {
 	draftKind: SurfaceKind = 'platform';
 	draftHeightM = 2;
 	draftTopHeightM = 3;
+	/** The material the next surface will be drawn in, for the preview's colour. */
+	draftMaterial: SurfaceMaterialId | null = null;
 
 	render(rc: RenderContext): void {
 		if (!this.visible) return;
@@ -71,7 +82,8 @@ export class SurfacesLayer implements Layer {
 					bx: this.draft.bx,
 					by: this.draft.by,
 					heightM: this.draftHeightM,
-					topHeightM: this.draftTopHeightM
+					topHeightM: this.draftTopHeightM,
+					material: this.draftMaterial ?? undefined
 				},
 				zoom,
 				false,
@@ -95,9 +107,11 @@ export class SurfacesLayer implements Layer {
 		ctx.moveTo(corners[0]!.x, corners[0]!.y);
 		for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i]!.x, corners[i]!.y);
 		ctx.closePath();
-		ctx.fillStyle = tintFor(flat, isDraft ? 0.14 : 0.2);
+		ctx.fillStyle = tintFor(surface.material, flat, isDraft ? 0.14 : 0.2);
 		ctx.fill();
-		ctx.strokeStyle = selected ? 'rgba(255,255,255,0.95)' : tintFor(flat, isDraft ? 0.5 : 0.75);
+		ctx.strokeStyle = selected
+			? 'rgba(255,255,255,0.95)'
+			: tintFor(surface.material, flat, isDraft ? 0.5 : 0.75);
 		ctx.lineWidth = (selected ? 2 : 1.25) / zoom;
 		ctx.setLineDash(isDraft ? [6 / zoom, 4 / zoom] : []);
 		ctx.stroke();

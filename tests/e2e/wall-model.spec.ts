@@ -228,7 +228,12 @@ test.describe('Walls as segments', () => {
 		await expect.poll(() => savedWallPixels(page), { timeout: 20_000 }).toBeGreaterThan(200);
 		const before = (await saved(page)).floors[0]!.wallMask!;
 
-		await page.getByRole('button', { name: 'Clear walls' }).click();
+		// Clearing lives in the wall toolbar now: enter the tool, then its trash button.
+		await page.getByRole('button', { name: 'Draw wall' }).click();
+		await page
+			.getByRole('toolbar', { name: 'Wall tools' })
+			.getByRole('button', { name: 'Clear walls' })
+			.click();
 
 		// The walls are gone, so the mask they produced must be gone too — otherwise every
 		// consumer keeps measuring walls that no longer exist.

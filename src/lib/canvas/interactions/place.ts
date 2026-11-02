@@ -44,7 +44,7 @@ export class PlaceHandler {
 		 * snapped onto that wall and the unit is turned to face into the room — both from
 		 * the same measurement (`state/wall-snap.ts`), so they cannot disagree.
 		 */
-		const mount = apState.aps.at(-1)?.mount ?? 'ceiling';
+		const mount = appState.apPlaceMount ?? apState.aps.at(-1)?.mount ?? 'ceiling';
 		let x = worldPoint.x;
 		let y = worldPoint.y;
 		let facingDeg = 0;
@@ -62,7 +62,7 @@ export class PlaceHandler {
 			facingDeg = snap.facingDeg;
 		}
 
-		const ap = addAp(x, y, facingDeg);
+		const ap = addAp(x, y, facingDeg, appState.apPlaceMount);
 		appState.placementNotice = null;
 		selectAp(ap.id);
 		appState.sidebarPanel = 'aps';

@@ -22,12 +22,17 @@
 		material,
 		ontool,
 		onmaterial,
+		onclear,
+		canClear,
 		ondone
 	}: {
 		tool: 'line' | 'rect' | 'circle' | 'eraser';
 		material: WallMaterialId;
 		ontool: (tool: 'line' | 'rect' | 'circle' | 'eraser') => void;
 		onmaterial: (event: MouseEvent) => void;
+		/** Remove every drawn wall on the floor. Undoable, like any other wall edit. */
+		onclear: () => void;
+		canClear: boolean;
 		ondone: () => void;
 	} = $props();
 
@@ -116,6 +121,16 @@
 		<span class="swatch" style="background: rgb({current.color[0]},{current.color[1]},{current.color[2]})"
 		></span>
 		<span class="material-name">{t(current.name) || current.name}</span>
+	</button>
+
+	<button
+		class="clear"
+		title={t('Clear walls')}
+		aria-label={t('Clear walls')}
+		disabled={!canClear}
+		onclick={onclear}
+	>
+		<Icon name="trash" size={13} />
 	</button>
 
 	<button class="done" onclick={ondone}>
@@ -232,6 +247,31 @@
 
 	.material:hover {
 		background: var(--bg-hover);
+	}
+
+	/* The clear action sits with the material and Done: the wall card no longer owns it. */
+	.clear {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 26px;
+		height: 26px;
+		margin-left: 4px;
+		color: var(--text-tertiary);
+		background: transparent;
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
+		cursor: pointer;
+	}
+
+	.clear:hover:not(:disabled) {
+		color: var(--danger, #ef4444);
+		background: var(--bg-hover);
+	}
+
+	.clear:disabled {
+		opacity: 0.35;
+		cursor: default;
 	}
 
 	.swatch {

@@ -30,6 +30,47 @@
 export type SurfaceKind = 'platform' | 'ramp' | 'stair';
 
 /**
+ * What a raised deck is made of.
+ *
+ * A mezzanine's loss depends on the slab it is, not just on its height: a steel grating
+ * over a plant room and a timber gallery are not the same obstacle. The material is a
+ * preset for the one number the model actually charges — `attenuationDb` — so a project
+ * saved before materials existed reads exactly as it did, and the field can still be
+ * typed by hand.
+ */
+export type SurfaceMaterialId = 'concrete' | 'timber' | 'steel' | 'glass';
+
+export interface SurfaceMaterial {
+	id: SurfaceMaterialId;
+	label: string;
+	/** Per-crossing loss at the band the model charges, dB. */
+	attenuationDb: number;
+	/** The colour the plan and the 3D view draw the deck in, so it reads as its material. */
+	color: readonly [number, number, number];
+}
+
+/** The colour of a deck whose material nobody has picked: the amber it always was. */
+export const DEFAULT_SURFACE_COLOR: readonly [number, number, number] = [196, 132, 74];
+
+/** The presets the toolbar offers, in the order it lists them. */
+export const SURFACE_MATERIALS: readonly SurfaceMaterial[] = [
+	{ id: 'concrete', label: 'Concrete', attenuationDb: 20, color: [166, 170, 176] },
+	{ id: 'timber', label: 'Timber', attenuationDb: 10, color: [176, 123, 79] },
+	{ id: 'steel', label: 'Steel', attenuationDb: 30, color: [124, 138, 154] },
+	{ id: 'glass', label: 'Glass', attenuationDb: 6, color: [111, 199, 216] }
+];
+
+/** A material preset by id, or null for an id a document no longer knows. */
+export function surfaceMaterial(id: SurfaceMaterialId | undefined): SurfaceMaterial | null {
+	return SURFACE_MATERIALS.find((material) => material.id === id) ?? null;
+}
+
+/** The colour to draw a deck in: its material's, or the custom amber. */
+export function surfaceColor(id: SurfaceMaterialId | undefined): readonly [number, number, number] {
+	return surfaceMaterial(id)?.color ?? DEFAULT_SURFACE_COLOR;
+}
+
+/**
  * The geometry a height field needs — a rectangle and the height at each end.
  *
  * The worker is handed these without an id or a kind: it reads heights, not the list the
@@ -65,6 +106,11 @@ export interface SurfaceRect {
 	 * from a source below it. The default is the value its own defaults use (15 dB).
 	 */
 	attenuationDb?: number;
+	/**
+	 * What the deck is made of. A preset for `attenuationDb`; absent in projects saved
+	 * before surfaces had a material, and in surfaces whose loss was typed by hand.
+	 */
+	material?: SurfaceMaterialId;
 	/** Whether the volume under the deck is filled to the floor, for the 3D drawing. */
 	solidBase?: boolean;
 }
@@ -187,7 +233,8 @@ export function surfaceThickness(surface: SurfaceRect): number {
 
 /** The loss crossing this surface's deck, dB. */
 export function surfaceAttenuationDb(surface: SurfaceRect): number {
-	return Math.max(0, surface.attenuationDb ?? DEFAULT_SURFACE_ATTENUATION_DB);
+	if (surface.attenuationDb !== undefined) return Math.max(0, surface.attenuationDb);
+	return surfaceMaterial(surface.material)?.attenuationDb ?? DEFAULT_SURFACE_ATTENUATION_DB;
 }
 
 /**

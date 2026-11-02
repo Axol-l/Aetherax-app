@@ -139,25 +139,43 @@ function createId(): string {
 export const DEFAULT_WUPM = 10 * 3.28084;
 
 /**
- * World units per metre for the **project**.
+ * World units per metre for one floor.
  *
- * One scale for every floor, taken from the first floor. Floors of one building
- * share a footprint, so a per-floor scale bought nothing and cost a lot: every
- * consumer (the grid, the AP radii, the coverage image's metres-per-world-unit)
- * had to be told *which* floor's scale to use, and any site that took the
- * selected floor's while rendering another floor produced a different picture
- * per selection. Reads go through here and ignore the other floors' stored
- * values, so an existing project with mismatched floors is unified the moment it
- * loads; writes go through `setProjectCalibration` so the stored data agrees.
+ * Calibration is **per floor**: two plans can be drawn at different resolutions, and a
+ * single scale for the building made calibrating one storey overwrite the others. A floor
+ * with no calibration of its own falls back to the default, not to another floor's value —
+ * a value borrowed from a sibling is a number the user never set for this plan.
+ */
+export function wupmForFloor(floorId: string | null | undefined): number {
+	const floor = floorId ? getFloor(floorId) : undefined;
+	return floor?.calibration?.worldUnitsPerMeter ?? DEFAULT_WUPM;
+}
+
+/**
+ * World units per metre for the **current** floor.
+ *
+ * The per-floor value, not the project's: everything drawn or computed on screen belongs to
+ * the floor being looked at, and reading another floor's scale made the same AP a different
+ * physical size after a floor switch.
+ *
+ * A caveat for cross-floor paths: two floors calibrated at different resolutions cannot be
+ * aligned by translation alone, which is what the alignment tool offers. Their access
+ * points are combined in one world frame, so a building whose floors disagree about the
+ * scale of a metre will produce a cross-floor loss that is off by that ratio. Same-scale
+ * floors — the normal case — are unaffected.
  */
 export function getEffectiveWupm(): number {
-	return floorState.floors[0]?.calibration?.worldUnitsPerMeter ?? DEFAULT_WUPM;
+	return wupmForFloor(floorState.currentFloorId);
 }
 
 /** Derive interference radius (world units) from TX power and band. */
-export function radiusFromPower(power: number, band: string): number {
+export function radiusFromPower(
+	power: number,
+	band: string,
+	wupm: number = getEffectiveWupm()
+): number {
 	const meters = rangeFromPower(power, band);
-	return Math.round(meters * getEffectiveWupm());
+	return Math.round(meters * wupm);
 }
 
 /**
@@ -179,7 +197,7 @@ export function radiusFromPower(power: number, band: string): number {
  */
 export function refreshApRanges(): void {
 	for (const ap of apState.aps) {
-		ap.interferenceRadius = radiusFromPower(ap.power, ap.band);
+		ap.interferenceRadius = radiusFromPower(ap.power, ap.band, wupmForFloor(ap.floorId));
 	}
 }
 
@@ -318,12 +336,23 @@ export function addAp(
 	 * the caller could work it out from the wall it was dropped against. Ignored by
 	 * the other mounts, and 0 when the caller knows nothing.
 	 */
-	facingDeg = 0
+	facingDeg = 0,
+	/**
+	 * The mounting picked in the placement toolbar, or null to inherit the last AP's.
+	 *
+	 * The toolbar exists because the inherited mounting could not be changed before the
+	 * click: a wall mount could only be placed by first placing a wall mount somewhere
+	 * else, and a run of ceiling APs could only be broken by editing one after placing it.
+	 */
+	mountOverride: ApMount | null = null
 ): AccessPoint {
 	pushState();
 	const prev: AccessPoint | null =
 		apState.aps.length > 0 ? (apState.aps[apState.aps.length - 1] ?? null) : null;
-	const mount = initialMount(prev);
+	const ceiling = getFloor(floorState.currentFloorId)?.ceilingHeight ?? 3;
+	const mount = mountOverride
+		? { mount: mountOverride, mountHeightM: defaultMountHeight(mountOverride, ceiling) }
+		: initialMount(prev);
 	const band = prev?.band ?? apState.band;
 	const antenna = initialAntenna(prev, band);
 
@@ -337,7 +366,13 @@ export function addAp(
 		fixedChannel: null,
 		assignedChannel: null,
 		interferenceRadius:
-			prev?.interferenceRadius ?? radiusFromPower(prev?.power ?? 20, prev?.band ?? apState.band),
+			prev && prev.floorId === floorState.currentFloorId
+				? prev.interferenceRadius
+				: radiusFromPower(
+						prev?.power ?? 20,
+						prev?.band ?? apState.band,
+						wupmForFloor(floorState.currentFloorId)
+					),
 		power: prev?.power ?? 20,
 		modelId: prev?.modelId ?? null,
 		modelLabel: prev?.modelLabel ?? null,

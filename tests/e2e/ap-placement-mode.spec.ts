@@ -88,6 +88,17 @@ async function waitForSavedApCount(page: Page, expected: number): Promise<void> 
 	await expect.poll(() => savedApCount(page), { timeout: 15_000 }).toBe(expected);
 }
 
+/** Saved APs, as the models read them. */
+async function savedAps(
+	page: Page
+): Promise<Array<{ x: number; y: number; mount?: string }>> {
+	return page.evaluate(() => {
+		const raw = localStorage.getItem('aetherax:project');
+		const proj = raw ? (JSON.parse(raw) as { aps?: Array<{ x: number; y: number; mount?: string }> }) : null;
+		return proj?.aps ?? [];
+	});
+}
+
 test('a canvas click only adds an AP while placement mode is on', async ({ page }) => {
 	await seedOneFloor(page);
 	await page.goto('/');
@@ -120,4 +131,58 @@ test('a canvas click only adds an AP while placement mode is on', async ({ page 
 	await canvas.click({ position: { x: 600, y: 400 } });
 	await page.waitForTimeout(600);
 	expect(await savedApCount(page)).toBe(1);
+});
+
+test('the placement toolbar picks the mounting before the click', async ({ page }) => {
+	await seedOneFloor(page);
+	await page.goto('/');
+	await page.waitForSelector('canvas');
+	await page.waitForTimeout(1500);
+
+	await page.getByRole('button', { name: /Place APs/ }).click();
+	const toolbar = page.getByRole('toolbar', { name: 'Access point placement' });
+	await expect(toolbar).toBeVisible();
+
+	// A wall mount has to land on a wall, and the click is within a metre of the
+	// seeded border — so this is the wall band rather than a free placement.
+	await toolbar.getByRole('button', { name: 'Wall mount' }).click();
+	await page.locator('canvas').first().click({ position: { x: 20, y: 300 } });
+	await expect
+		.poll(async () => (await savedAps(page))[0]?.mount, { timeout: 20_000 })
+		.toBe('wall');
+	const wall = (await savedAps(page))[0]!;
+	expect(Math.min(wall.x, wall.y, 800 - wall.x, 600 - wall.y)).toBeLessThan(80);
+
+	// The pick is sticky, and choosing another mounting applies to the next click.
+	await toolbar.getByRole('button', { name: 'Ceiling mount' }).click();
+	await page.locator('canvas').first().click({ position: { x: 400, y: 300 } });
+	await expect
+		.poll(async () => (await savedAps(page))[1]?.mount, { timeout: 20_000 })
+		.toBe('ceiling');
+	expect(await savedAps(page)).toHaveLength(2);
+});
+
+test('placement is offered only in the single-floor view', async ({ page }) => {
+	await seedOneFloor(page);
+	await page.goto('/');
+	await page.waitForSelector('canvas');
+	await page.waitForTimeout(1500);
+
+	const place = page.getByRole('button', { name: 'Place APs' });
+	const toolbar = page.getByRole('toolbar', { name: 'Access point placement' });
+	await expect(place).toBeVisible();
+
+	// Arm it, then leave the plan view: the overviews cannot place, so both the toggle
+	// and the floating bar go away rather than leaving an invisible armed mode.
+	await place.click();
+	await expect(toolbar).toBeVisible();
+	await page.getByTitle('Tile every floor side by side. Click a floor to select it.').click();
+	await expect(place).toHaveCount(0);
+	await expect(toolbar).toHaveCount(0);
+
+	// Back to the plan: the toggle is back, and the mode did not survive the trip.
+	await page.getByTitle('Show the current floor only').click();
+	await expect(place).toBeVisible();
+	await expect(place).toHaveAttribute('aria-pressed', 'false');
+	await expect(toolbar).toHaveCount(0);
 });

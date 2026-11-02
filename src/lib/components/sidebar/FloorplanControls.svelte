@@ -9,9 +9,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 		addFloor,
 		removeFloor,
 		currentFloor,
-		translateFloor,
-		setProjectCalibration
+		translateFloor
 	} from '$state/floor-state.svelte.js';
+	import { setFloorScale } from '$state/floor-scale.js';
 	import { FLOOR_MATERIALS } from '$canvas/floor-materials.js';
 	import Select from '$components/shared/Select.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
@@ -103,15 +103,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import { t } from '$state/i18n.svelte';
 	import {
 		areaUnit as areaUnitFor,
-		convertArea,
 		displayArea,
 		displayLength,
 		lengthInputHints,
 		lengthUnit,
-		roundForDisplay,
-		unitToMetres,
-		unitToSqm,
-		type AreaUnit
+		unitToMetres
 	} from '$lib/units.js';
 
 	const FLOORPLAN_TARGET_WIDTH = 800;
@@ -121,62 +117,15 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let dragOver = $state(false);
 	let detecting = $state(false);
 	let detectedWorldArea = $state<number | null>(null);
-	let calibrationDone = $state(false);
 
-	/**
-	 * The unit system the toolbar's ft/m button selects, and the area unit that
-	 * follows from it.
-	 *
-	 * The area field used to carry its own sqm/sqft button, which meant a project
-	 * could be shown in feet everywhere except the one field that decides its
-	 * scale. It is derived now, so the two cannot disagree.
-	 */
+	/** The unit system the toolbar's ft/m button selects. */
 	const unitSystem = $derived(floorplanState.unitSystem);
+	/** The area unit, for the sample plans' own areas in their labels. */
 	const areaUnit = $derived(areaUnitFor(unitSystem));
 
-	/**
-	 * The area the user has typed, as text, and the unit that text is in.
-	 *
-	 * Kept as the raw string rather than as a parsed number: the field has to
-	 * survive a half-typed decimal ("1.") without the renderer rewriting it, and a
-	 * parsed number round-tripped through the display formatter would eat the dot.
-	 */
-	let areaInput = $state('');
 	/** The stated real length of the line the user measured, in the toolbar's unit. */
 	let measureInput = $state('');
 	let measureError = $state<string | null>(null);
-	let areaInputUnit = $state<AreaUnit>(areaUnitFor(floorplanState.unitSystem));
-
-	/**
-	 * Re-express what the user typed in the newly selected unit.
-	 *
-	 * This is the "convert, don't reinterpret" half of the ft/m switch: an area
-	 * typed as 200 sqm has to read as 2153 sqft afterwards, not stay 200 and
-	 * silently become square feet. Values that are not a number — an empty field,
-	 * or a half-typed one — are left exactly as they are.
-	 */
-	$effect(() => {
-		const next = areaUnit;
-		if (next === areaInputUnit) return;
-		const typed = parseFloat(areaInput);
-		if (Number.isFinite(typed) && typed > 0) {
-			areaInput = String(roundForDisplay(convertArea(typed, areaInputUnit, next)));
-		}
-		areaInputUnit = next;
-	});
-
-	/** Write an area in square metres into the field, in the unit on screen. */
-	function setAreaSqm(sqm: number): void {
-		areaInputUnit = areaUnit;
-		areaInput = displayArea(sqm, areaUnit).text;
-	}
-
-	/** What the field holds, in square metres, or null when it holds no area. */
-	function areaInputSqm(): number | null {
-		const typed = parseFloat(areaInput);
-		if (!Number.isFinite(typed) || typed <= 0) return null;
-		return unitToSqm(typed, areaInputUnit);
-	}
 
 	let hasFloorplan = $derived(floorplanState.floorplanUrl !== null || wallState.wallMask !== null);
 
@@ -301,9 +250,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 */
 	async function runBoundaryDetection(url: string, isSvg = false) {
 		detecting = true;
-		calibrationDone = false;
 		detectedWorldArea = null;
-		areaInput = '';
 		floorplanState.calibration = null;
 		floorplanState.floorplanBoundary = null;
 		floorplanState.sourceIsVector = isSvg;
@@ -471,37 +418,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	/**
-	 * Apply a scale to the whole project, keeping the AP radii real.
+	 * Apply a scale to the current floor, keeping its AP radii real.
 	 *
 	 * Shared by the two ways of calibrating — the stated area and the measured line — so a
 	 * recalibration rescales the interference radii the same way whichever route produced
-	 * the number. One scale for the whole project: every floor is drawn at the same scale
-	 * in a real building, and a per-floor calibration would make two storeys disagree
-	 * about how big a metre is.
+	 * the number. Per floor, not per project: a plan imported at a different resolution can
+	 * be calibrated on its own, and calibrating this storey must not rewrite another one's
+	 * scale or the physical reach of the units on it.
 	 */
 	function applyScale(worldUnitsPerMeter: number): void {
-		const oldCalibration = floorplanState.calibration;
-		setProjectCalibration({ worldUnitsPerMeter });
-		floorplanState.calibration = { worldUnitsPerMeter };
-
-		if (oldCalibration === null) {
-			// First calibration: set uncalibrated APs (radius=150) to real 15m
-			const defaultRadiusWorld = Math.round(15 * worldUnitsPerMeter);
-			for (const ap of apState.aps) {
-				if (ap.interferenceRadius === 150) {
-					ap.interferenceRadius = defaultRadiusWorld;
-				}
-			}
-		} else {
-			// Recalibration: scale all AP radii proportionally to preserve real-world meters
-			const ratio = worldUnitsPerMeter / oldCalibration.worldUnitsPerMeter;
-			for (const ap of apState.aps) {
-				ap.interferenceRadius = Math.round(ap.interferenceRadius * ratio);
-			}
-		}
-
-		calibrationDone = true;
-		scheduleSave();
+		setFloorScale(floorState.currentFloorId, worldUnitsPerMeter);
 	}
 
 	/**
@@ -585,15 +511,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	/** The floor-properties card (multi-storey only): read once per floor, then left alone. */
 	let propsCollapsed = $state(false);
 
-	function clearVectorWalls(): void {
-		const floor = currentFloor();
-		if (!floor) return;
-		pushState();
-		floor.walls = [];
-		appState.wallVectorSelected = null;
-		scheduleSave();
-	}
-
 	/**
 	 * Trace the painted mask into segments.
 	 *
@@ -647,35 +564,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		scheduleSave();
 	}
 
-	function applyCalibration() {
-		// The field is in whatever unit the toolbar selects; the model is metric.
-		const realAreaSqm = areaInputSqm();
-		if (!realAreaSqm) return;
-
-		// Use detected area if available, otherwise compute from wall mask bounding box
-		let worldArea = detectedWorldArea;
-		if (!worldArea && wallState.wallMask) {
-			const { width, height } = wallState.wallMask;
-			// Use the mask dimensions as the world area (pixels squared)
-			worldArea = width * height;
-		}
-		if (!worldArea) return;
-
-		applyScale(Math.sqrt(worldArea / realAreaSqm));
-	}
-
-	function skipCalibration() {
-		floorplanState.floorplanBoundary = null;
-		detectedWorldArea = null;
-		calibrationDone = true;
-	}
-
-	function handleAreaKeydown(e: KeyboardEvent) {
-		if (e.key === 'Enter') {
-			applyCalibration();
-		}
-	}
-
 	async function loadSample(url: string, knownAreaSqm?: number) {
 		pushState();
 		floorplanState.importNotice = null;
@@ -686,11 +574,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 			floorplanState.floorplanUrl = blobUrl;
 			await runBoundaryDetection(blobUrl, url.endsWith('.svg'));
 
-			// Auto-calibrate if we know the area. The sample's area is stated in
-			// square metres; the field shows it in the unit the toolbar selects.
+			// Auto-calibrate the bundled samples: their labels state a real area in square
+			// metres, so the scale follows without asking the user to measure a line.
 			if (knownAreaSqm && detectedWorldArea && detectedWorldArea > 0) {
-				setAreaSqm(knownAreaSqm);
-				applyCalibration();
+				applyScale(Math.sqrt(detectedWorldArea / knownAreaSqm));
 			}
 		} catch {
 			// Failed to load sample
@@ -760,8 +647,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// anything the floor still has once the image is gone.
 		void forgetFloorplan(floorId);
 		detectedWorldArea = null;
-		calibrationDone = false;
-		areaInput = '';
 		scheduleSave();
 	}
 
@@ -890,7 +775,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			<WallDetectionPanel {redetectFromPixels} />
 
 			<div class="planning-actions">
-				<Button variant="ghost" size="sm" onclick={removeFloorplan}>
+				<Button variant="danger" size="sm" onclick={removeFloorplan}>
 					<Icon name="trash" size={14} />
 					{t('Remove floorplan')}
 				</Button>
@@ -929,105 +814,73 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 			{#if detecting}
 				<span class="calibration-status">{t('Detecting boundary...')}</span>
-			{:else if (detectedWorldArea || wallState.wallMask) && !calibrationDone}
-				{#if appState.calibrateMode}
-					<!--
-						Measuring instead of stating an area.
-
-						The area route divides the stated area into the outline the detector
-						found, so it is only as good as that outline and says nothing about
-						whether the drawing is square. This asks for something the user can
-						read off the plan itself — click the two ends of a wall they know the
-						length of — which also works when the outline is open or the plan is a
-						detail of one room.
-					-->
-					<span class="calibration-label">{t('Click the two ends of a distance you know')}</span>
-					<span class="measure-hint">
-						{appState.calibrationPoints.length === 0
-							? t('First point: click on the plan.')
-							: appState.calibrationPoints.length === 1
-								? t('Second point: click the other end.')
-								: t('Now type the real length of that line.')}
-					</span>
-					{#if appState.calibrationPoints.length >= 2}
-						<div class="calibration-input-row">
-							<input
-								type="number"
-								class="area-input"
-								placeholder={t('e.g. 12')}
-								bind:value={measureInput}
-								onkeydown={(e) => { if (e.key === 'Enter') applyMeasuredCalibration(); }}
-								min="0.1"
-								step="any"
-							/>
-							<span
-								class="unit-toggle"
-								title={t('Set by the ft/m switch in the toolbar.')}>{lengthDisplayUnit}</span
-							>
-							<Button variant="primary" size="sm" onclick={applyMeasuredCalibration}>
-								{t('Apply')}
-							</Button>
-						</div>
-						{#if measureError}
-							<span class="measure-error">{measureError}</span>
-						{/if}
-					{/if}
-					<div class="planning-actions">
-						<button class="skip-link" onclick={cancelMeasuredCalibration}>{t('Cancel')}</button>
-					</div>
-				{:else}
-					<span class="calibration-label">{t('What is the total area of the floorplan?')}</span>
+			{:else if appState.calibrateMode}
+				<!--
+					Measuring: two clicks on the plan, then the real length. The instructions
+					only exist while the canvas is armed for them — showing them before the mode
+					is on told the user to click a plan that would not answer.
+				-->
+				<span class="calibration-label">{t('Click the two ends of a distance you know')}</span>
+				<span class="measure-hint">
+					{appState.calibrationPoints.length === 0
+						? t('First point: click on the plan.')
+						: appState.calibrationPoints.length === 1
+							? t('Second point: click the other end.')
+							: t('Now type the real length of that line.')}
+				</span>
+				{#if appState.calibrationPoints.length >= 2}
 					<div class="calibration-input-row">
 						<input
 							type="number"
 							class="area-input"
-							placeholder={t('e.g. 200')}
-							bind:value={areaInput}
-							onkeydown={handleAreaKeydown}
-							min="1"
+							placeholder={t('e.g. 12')}
+							bind:value={measureInput}
+							onkeydown={(e) => { if (e.key === 'Enter') applyMeasuredCalibration(); }}
+							min="0.1"
 							step="any"
 						/>
-						<!--
-							The unit is a readout, not a control: it follows the
-							toolbar's ft/m button and converts what is already typed.
-							A button here would be a second, independent answer to
-							"which units is this project in" — and the one place it
-							would disagree with the toolbar is the field that sets the
-							scale of everything else.
-						-->
 						<span
 							class="unit-toggle"
-							title={t('Set by the ft/m switch in the toolbar, which converts what is already typed.')}
-							>{areaUnit}</span
+							title={t('Set by the ft/m switch in the toolbar.')}>{lengthDisplayUnit}</span
 						>
-						<Button variant="primary" size="sm" onclick={applyCalibration}>
+						<Button variant="primary" size="sm" onclick={applyMeasuredCalibration}>
 							{t('Apply')}
 						</Button>
 					</div>
-					<div class="planning-actions">
-						<button class="skip-link" onclick={skipCalibration}>{t('Skip')}</button>
-						<button class="skip-link" onclick={() => { measureError = null; setCalibrateMode(true); }}>
-							{t('Measure a distance')}
-						</button>
-					</div>
-				{/if}
-			{:else}
-				<!--
-					Nothing to calibrate right now — either the scale is set, or it was
-					skipped. Both still need the two routes back: skipping used to fall
-					through every branch, so the card went empty and the only way to measure a
-					distance was to reload the project.
-				-->
-				{#if scaleDisplay}
-					<span class="calibration-label">{t('Scale:')} {scaleDisplay}</span>
+					{#if measureError}
+						<span class="measure-error">{measureError}</span>
+					{/if}
 				{/if}
 				<div class="planning-actions">
-					<button class="skip-link" onclick={() => { calibrationDone = false; }}>
-						{t('Recalibrate')}
-					</button>
-					<button class="skip-link" onclick={() => { measureError = null; setCalibrateMode(true); }}>
+					<button class="skip-link" onclick={cancelMeasuredCalibration}>{t('Cancel')}</button>
+				</div>
+			{:else if !floorplanState.calibration}
+				<span class="calibration-label">{t('Set the scale by measuring one distance on the plan.')}</span>
+				<div class="planning-actions">
+					<Button
+						variant="primary"
+						size="sm"
+						onclick={() => {
+							measureError = null;
+							setCalibrateMode(true);
+						}}
+					>
 						{t('Measure a distance')}
-					</button>
+					</Button>
+				</div>
+			{:else}
+				<span class="calibration-label">{t('Scale:')} {scaleDisplay}</span>
+				<div class="planning-actions">
+					<Button
+						variant="secondary"
+						size="sm"
+						onclick={() => {
+							measureError = null;
+							setCalibrateMode(true);
+						}}
+					>
+						{t('Recalibrate')}
+					</Button>
 				</div>
 			{/if}
 		</div>
@@ -1254,9 +1107,17 @@ import { wallState } from '$state/wall-state.svelte.js';
 							: t('Click the start of a wall. Ends snap to walls already drawn.')}
 					</p>
 					<div class="planning-actions">
-						<button class="skip-link" onclick={() => { appState.wallVectorMode = false; appState.wallVectorDraft = null; }}>
+						<Button
+							variant="primary"
+							size="sm"
+							onclick={() => {
+								appState.wallVectorMode = false;
+								appState.wallVectorDraft = null;
+							}}
+						>
+							<Icon name="check" size={14} />
 							{t('Done')}
-						</button>
+						</Button>
 					</div>
 				{:else}
 					<div class="planning-actions">
@@ -1269,7 +1130,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 							wall mask (and the material painted on it), which is what this card
 							is about. It used to sit above every card as a loose row.
 						-->
-						<Button variant="ghost" size="sm" onclick={requestWallDetection} disabled={detecting}>
+						<Button variant="secondary" size="sm" onclick={requestWallDetection} disabled={detecting}>
 							<Icon name="sparkles" size={14} />
 							{detecting
 								? t('Detecting…')
@@ -1277,9 +1138,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 									? t('Re-detect walls')
 									: t('Detect walls')}
 						</Button>
-						{#if (currentFloor()?.walls ?? []).length > 0}
-							<button class="skip-link" onclick={clearVectorWalls}>{t('Clear walls')}</button>
-						{/if}
 					</div>
 					{#if (currentFloor()?.walls ?? []).length === 0 && !wallState.wallMask}
 						<span class="wall-hint">{t('Detect walls from the floorplan, or import one first')}</span>

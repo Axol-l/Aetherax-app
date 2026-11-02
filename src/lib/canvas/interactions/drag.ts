@@ -112,6 +112,14 @@ export class DragHandler {
 					if (this.followsWall.get(id)) faceAp(id, snap.facingDeg);
 					continue;
 				}
+				/*
+				 * Off the plan. There is no wall out there to measure to, and moving
+				 * freely would take the bracket off its wall and leave it outside the
+				 * building — which then shows the standing "outside the building"
+				 * warning on every later edit. A wall mount that runs out of plan stays
+				 * where it last was; dragging back in resumes the snap.
+				 */
+				continue;
 			}
 			moveAp(id, x, y);
 		}

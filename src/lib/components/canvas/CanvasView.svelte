@@ -54,6 +54,7 @@
 		apState,
 		removeAps,
 		getEffectiveWupm,
+		wupmForFloor,
 		radiusFromPower,
 		apHeightAboveFloor,
 		type AccessPoint
@@ -64,6 +65,7 @@
 		type HeatmapSourceAp
 	} from '$canvas/heatmap-sources.js';
 	import { handleShortcut } from '$canvas/shortcuts.js';
+	import { chooseSurfaceKind, chooseSurfaceMaterial } from '$state/surface-defaults.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
 	
 import { wallState } from '$state/wall-state.svelte.js';
@@ -113,6 +115,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import LayerPanel from '$components/canvas/LayerPanel.svelte';
 	import WallMaterialPopup from '$components/canvas/WallMaterialPopup.svelte';
 	import WallToolbar from '$components/canvas/WallToolbar.svelte';
+	import ApPlacementToolbar from '$components/canvas/ApPlacementToolbar.svelte';
+	import SurfaceToolbar from '$components/canvas/SurfaceToolbar.svelte';
 	import RoomTypePopup from '$components/canvas/RoomTypePopup.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
 	import { t, i18nState } from '$state/i18n.svelte';
@@ -196,6 +200,34 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 * segments' bounding box — samples, texels and the interior are addressed in the plan's
 	 * frame, and a mask sized to the walls puts every one of them outside it.
 	 */
+	/**
+	 * Remove every drawn wall on the floor.
+	 *
+	 * The wall toolbar's trash button. The wall card used to own this, which put a
+	 * destructive action in the sidebar while the tool that draws walls floated over the
+	 * canvas; it is a normal edit — undo puts the segments back, and the mask follows them —
+	 * so it needs no confirmation.
+	 */
+	function clearFloorWalls(): void {
+		const floor = currentFloor();
+		if (!floor) return;
+		pushState();
+		floor.walls = [];
+		appState.wallVectorSelected = null;
+		/*
+		 * Re-derive now, not on the effect's debounce.
+		 *
+		 * The wall-sync effect deliberately skips while the wall tool is armed (a run of
+		 * segments should be one rasterise), and this button lives in that tool's bar — so
+		 * waiting for the effect would leave the old mask in place until the user pressed
+		 * Done. Clearing is explicit and final: empty the mask, drop the interior caches
+		 * and save.
+		 */
+		syncVectorWallsToMask(true);
+		forgetInterior(floor.id);
+		scheduleSave();
+	}
+
 	function syncVectorWallsToMask(forceEmpty = false): void {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		if (!floor) return;
@@ -1167,6 +1199,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 	 */
 	$effect(() => {
 		void wallState.wallMask;
+		/*
+		 * Turning "Allow APs outside rooms" on is an answer to the warning, not a reason
+		 * to keep showing it: the notice exists to say the plan is wrong, and with the
+		 * switch on an outside AP is what the user asked for. Without this dependency the
+		 * warning stood after the switch and re-appeared on every later edit.
+		 */
+		void projectMeta.allowOutsideRooms;
 		// The verdict is about every floor's mask, not the one on screen: an access point on
 		// Floor 4 is judged against Floor 4's, which a re-detect replaces without the live
 		// mask changing at all. Without these dependencies the notice could stand from a
@@ -1183,6 +1222,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// wall accuses points that are inside the moment the segment is committed, and the
 		// notice is not worth showing for a geometry the user has not finished describing.
 		if (appState.wallVectorDraft) {
+			appState.outsideNotice = null;
+			return;
+		}
+		if (projectMeta.allowOutsideRooms) {
 			appState.outsideNotice = null;
 			return;
 		}
@@ -1313,7 +1356,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			layer.showHeatmap = appState.showHeatmap;
 		}
 		floorTilesLayer.setFloors(sources, floorState.currentFloorId);
-		stackedFloorsLayer.setFloors(sources, floorState.currentFloorId, getEffectiveWupm());
+		stackedFloorsLayer.setFloors(sources, floorState.currentFloorId, projectWupm());
 		/*
 		 * The 3D view is one floor, so it takes its card source and the geometry that floor
 		 * stands up: its wall segments and its raised surfaces. The camera is the same
@@ -1338,7 +1381,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			yaw: (appState.stackYaw * Math.PI) / 180,
 			pitch: Math.min((appState.stackPitch * Math.PI) / 180, MAX_PITCH),
 			spacing: appState.stackSpread,
-			wupm: getEffectiveWupm()
+			wupm: projectWupm()
 		};
 		stackedFloorsLayer.camera = stackCamera;
 		floor3DLayer.camera = stackCamera;
@@ -1410,18 +1453,22 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	/**
-	 * World units per metre for the coverage images: one scale for the project.
+	 * World units per metre for the coverage images: one scale for the sheet.
 	 *
-	 * The project has a single scale, floor 1's (see `getEffectiveWupm`), and a
-	 * coverage image's level model converts world distance to metres with it.
-	 * Reading the *selected* floor's scale here made every card's field depend on
-	 * which card was selected: clicking one card rescaled the others' coverage
-	 * (levels move by `40·log10(wupm ratio)` dB — 12 dB for a 2x difference), and
-	 * because the image's bounds derive from the same scale the texel budget could
-	 * be exceeded too, rendering that tile as flat colour blocks.
+	 * Calibration is per floor, but the tiled and stacked sheets have to draw every card in
+	 * one frame — so they use the bottom floor's scale, not the selected floor's. Reading
+	 * the *selected* floor's scale here made every card's field depend on which card was
+	 * selected: clicking one card rescaled the others' coverage (levels move by
+	 * `40·log10(wupm ratio)` dB — 12 dB for a 2x difference), and because the image's bounds
+	 * derive from the same scale the texel budget could be exceeded too, rendering that tile
+	 * as flat colour blocks.
+	 *
+	 * A card drawn at another floor's scale is a uniformly scaled picture — the walls, the
+	 * APs and their circles scale together, so the coverage *share* it reports is unchanged;
+	 * only a physical readout in metres on that card would need its own floor's scale.
 	 */
 	function projectWupm(): number {
-		return getEffectiveWupm();
+		return wupmForFloor(floorState.floors[0]?.id);
 	}
 
 	/**
@@ -1773,6 +1820,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		surfacesLayer.draft = appState.surfaceDraft;
 		surfacesLayer.draftKind = appState.surfaceKind;
 		surfacesLayer.draftHeightM = appState.surfaceHeightM;
+		surfacesLayer.draftMaterial = appState.surfaceMaterial;
 		surfacesLayer.draftTopHeightM =
 			appState.surfaceKind === 'platform' ? appState.surfaceHeightM : appState.surfaceTopHeightM;
 		engine.markDirty();
@@ -1809,6 +1857,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 					? Math.max(0, appState.surfaceHeightM)
 					: Math.max(0, appState.surfaceTopHeightM),
 			attenuationDb: Math.max(0, appState.surfaceAttenuationDb),
+			// The material is the preset the figure above came from, recorded so the plan
+			// says what the deck is; absent when the loss was typed by hand.
+			material: appState.surfaceMaterial ?? undefined,
 			thicknessM: Math.max(0, appState.surfaceThicknessM),
 			solidBase: appState.surfaceSolidBase
 		};
@@ -2111,7 +2162,26 @@ import { wallState } from '$state/wall-state.svelte.js';
 			material={wallState.wallMaterial}
 			ontool={(tool) => (appState.wallTool = tool)}
 			onmaterial={openToolbarMaterial}
+			onclear={clearFloorWalls}
+			canClear={(currentFloor()?.walls ?? []).length > 0}
 			ondone={stopWallMode}
+		/>
+	{/if}
+	{#if appState.apPlaceMode && appState.floorView === 'single'}
+		<ApPlacementToolbar
+			mount={appState.apPlaceMount}
+			lastMount={apState.aps.at(-1)?.mount ?? 'ceiling'}
+			onmount={(mount) => (appState.apPlaceMount = mount)}
+			ondone={() => (appState.apPlaceMode = false)}
+		/>
+	{/if}
+	{#if appState.surfaceMode && appState.floorView === 'single'}
+		<SurfaceToolbar
+			kind={appState.surfaceKind}
+			material={appState.surfaceMaterial}
+			onkind={chooseSurfaceKind}
+			onmaterial={chooseSurfaceMaterial}
+			ondone={() => setSurfaceMode(false)}
 		/>
 	{/if}
 	<!--

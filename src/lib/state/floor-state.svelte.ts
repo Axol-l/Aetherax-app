@@ -183,26 +183,15 @@ export function addFloor(name?: string): Floor {
 	const level = floorState.floors.length;
 	const floor = createDefaultFloor(undefined, name ?? `Floor ${level + 1}`);
 	floor.level = level;
-	// A new floor is part of the same building, so it starts on the project scale
-	// rather than on the uncalibrated default.
-	floor.calibration = floorState.floors[0]?.calibration ?? null;
+	// A new floor is part of the same building drawn at the same scale as the one it was
+	// added from, so it inherits that floor's calibration rather than the uncalibrated
+	// default. Calibration itself is per floor: a plan imported at a different resolution
+	// can be calibrated on its own without touching the storeys already measured.
+	const current = floorState.floors.find((f) => f.id === floorState.currentFloorId);
+	floor.calibration = current?.calibration ?? null;
 	floorState.floors.push(floor);
 	renumberFloors();
 	return floor;
-}
-
-/**
- * Set the project-wide scale on every floor.
- *
- * Floors of one building share a footprint and the scale is derived from the
- * plan's area, so calibrating one floor calibrates them all. Keeping the value
- * on every floor (rather than in one project field) means the per-floor records
- * stay self-describing, and a floor that is added later starts from the plan's
- * scale instead of the uncalibrated default. `getEffectiveWupm` reads floor 1's
- * copy, so a project whose floors disagree is unified on load.
- */
-export function setProjectCalibration(calibration: { worldUnitsPerMeter: number } | null): void {
-	for (const f of floorState.floors) f.calibration = calibration;
 }
 
 /**

@@ -91,7 +91,9 @@
 		></textarea>
 		<div class="planning-actions">
 			<Button variant="secondary" size="sm" onclick={deleteSelectedNote}>{t('Delete note')}</Button>
-			<button class="skip-link" onclick={() => (appState.noteSelectedId = null)}>{t('Done')}</button>
+			<Button variant="primary" size="sm" onclick={() => (appState.noteSelectedId = null)}>
+				{t('Done')}
+			</Button>
 		</div>
 	{:else}
 		<div class="planning-actions">

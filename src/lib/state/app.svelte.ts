@@ -1,4 +1,5 @@
-import type { SurfaceKind } from '$lib/rf/surface-height.js';
+import type { SurfaceKind, SurfaceMaterialId } from '$lib/rf/surface-height.js';
+import type { ApMount } from './ap-state.svelte.js';
 
 export type SidebarPanel = 'floorplan' | 'aps';
 export type FloorView = 'single' | 'tiled' | 'stacked' | 'floor3d';
@@ -201,6 +202,13 @@ export const appState = $state({
 	},
 	surfaceDraft: null as { ax: number; ay: number; bx: number; by: number } | null,
 	surfaceKind: 'platform' as SurfaceKind,
+	/**
+	 * The deck material picked for the next raised surface, or null for "type the loss".
+	 *
+	 * A preset for `surfaceAttenuationDb`, not a second source of truth: choosing one
+	 * writes its figure into the field, and clearing back to null leaves whatever was typed.
+	 */
+	surfaceMaterial: null as SurfaceMaterialId | null,
 	/** Height of the walking surface at the low end, metres above the floor's own. */
 	surfaceHeightM: 2,
 	/** Height at the high end, metres. A platform keeps this equal to `surfaceHeightM`. */
@@ -230,6 +238,16 @@ export const appState = $state({
 		if (on) setTool('place-ap');
 		else if (this.tool === 'place-ap') setTool('none');
 	},
+	/**
+	 * The mounting the next placed AP uses, when the toolbar has picked one.
+	 *
+	 * Null means "the last AP's mounting", which is the behaviour that existed before the
+	 * placement toolbar: a floor is normally described with one kind of hardware, and
+	 * re-picking a mounting for every AP is the repetition that makes the setting go
+	 * unused. The toolbar sets this, and it stays set for the session so a run of wall
+	 * mounts does not need re-picking either.
+	 */
+	apPlaceMount: null as ApMount | null,
 	/**
 	 * `single` draws the current floor on its own, `tiled` draws a read-only card
 	 * per floor side by side, and `stacked` draws the same cards stacked by their
