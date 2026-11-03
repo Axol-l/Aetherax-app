@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { fade, fly } from 'svelte/transition';
 	import { t } from '$state/i18n.svelte';
+	import { motionDuration } from '$lib/motion.js';
 
 	let {
 		open = $bindable(false)
@@ -28,8 +30,9 @@
 		onclick={(e) => {
 			if (e.target === e.currentTarget) open = false;
 		}}
+		transition:fade={{ duration: motionDuration(120) }}
 	>
-		<div class="panel">
+		<div class="panel" transition:fly={{ y: 8, duration: motionDuration(160), opacity: 0 }}>
 			<header class="panel-head">
 				<span class="title">{t('Aetherax 使用手册')}</span>
 				<button class="close" onclick={() => (open = false)} aria-label={t('Close')}>

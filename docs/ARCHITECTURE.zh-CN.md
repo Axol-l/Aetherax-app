@@ -113,6 +113,7 @@ docs/             架构、手册、测量与修复计划
 | `src/lib/units.ts` | 米/英尺显示与输入换算、长度单位提示。 |
 | `src/lib/ap-advice.ts` | 根据覆盖率、AP 数量、干扰生成放置建议。 |
 | `src/lib/ap-advice.test.ts` | 验证放置建议的阈值与文案分支。 |
+| `src/lib/motion.ts` | 动画时长与 `prefers-reduced-motion` 判定，供弹窗过渡使用。 |
 | `src/lib/units.test.ts` | 验证长度单位选择、显示与输入换算。 |
 
 ## 5. `src/lib/canvas` 根模块

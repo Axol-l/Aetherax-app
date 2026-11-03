@@ -1,5 +1,7 @@
 <script lang="ts">
 	import Button from '$components/shared/Button.svelte';
+	import { fade, fly } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 	
 	import { clearHistory } from '$state/history.svelte';
 	import { clearSavedState } from '$state/persistence.svelte';
@@ -119,8 +121,13 @@
 		aria-modal="true"
 		aria-label={t('New Project')}
 		onclick={handleOverlayClick}
+		transition:fade={{ duration: motionDuration(120) }}
 	>
-		<form class="dialog" onsubmit={(e) => { e.preventDefault(); handleConfirm(); }}>
+		<form
+			class="dialog"
+			onsubmit={(e) => { e.preventDefault(); handleConfirm(); }}
+			transition:fly={{ y: 8, duration: motionDuration(160), opacity: 0 }}
+		>
 			<h2 class="heading">{t('New Project')}</h2>
 			<p class="warning">{t('This will clear the current layout.')}</p>
 

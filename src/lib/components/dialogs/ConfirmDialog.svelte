@@ -1,6 +1,8 @@
 <script lang="ts">
+	import { fade, fly } from 'svelte/transition';
 	import Button from '$components/shared/Button.svelte';
 	import { t } from '$state/i18n.svelte';
+	import { motionDuration } from '$lib/motion.js';
 
 	let {
 		open = $bindable(false),
@@ -38,8 +40,15 @@
 
 {#if open}
 	<!-- svelte-ignore a11y_no_noninteractive_element_interactions a11y_interactive_supports_focus -->
-	<div class="overlay" role="dialog" aria-modal="true" aria-label={title} onclick={handleOverlayClick}>
-		<div class="dialog">
+	<div
+		class="overlay"
+		role="dialog"
+		aria-modal="true"
+		aria-label={title}
+		onclick={handleOverlayClick}
+		transition:fade={{ duration: motionDuration(120) }}
+	>
+		<div class="dialog" transition:fly={{ y: 8, duration: motionDuration(160), opacity: 0 }}>
 			<h2 class="heading">{title}</h2>
 			<p class="message">{message}</p>
 			<div class="actions">

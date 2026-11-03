@@ -49,3 +49,19 @@ body {
 	background: var(--accent-primary-glow);
 	color: var(--text-primary);
 }
+
+/*
+ * Press feedback for every button, including the small icon buttons and toolbars.
+ *
+ * Components that already transition `all` animate this; the rest snap, which is still the
+ * right response for a press. The transform is the only property, so no layout is touched.
+ */
+button:not(:disabled):active {
+	transform: scale(0.97);
+}
+
+@media (prefers-reduced-motion: reduce) {
+	button:not(:disabled):active {
+		transform: none;
+	}
+}

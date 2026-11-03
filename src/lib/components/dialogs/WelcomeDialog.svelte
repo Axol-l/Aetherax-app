@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { fade, fly } from 'svelte/transition';
 	import Button from '$components/shared/Button.svelte';
 	import { t } from '$state/i18n.svelte';
+	import { motionDuration } from '$lib/motion.js';
 
 	import { migrateLegacyStorageKeys, STORAGE_PREFIX } from '$state/persistence.svelte';
 
@@ -52,8 +54,9 @@
 		aria-modal="true"
 		aria-label="Welcome to Aetherax"
 		onclick={handleOverlayClick}
+		transition:fade={{ duration: motionDuration(120) }}
 	>
-		<div class="dialog">
+		<div class="dialog" transition:fly={{ y: 10, duration: motionDuration(180), opacity: 0 }}>
 			<div class="header">
 				<!-- The app icon itself, so the dialog and the browser tab agree. -->
 				<!-- The app icon itself, so the dialog and the browser tab agree. -->

@@ -12,6 +12,9 @@ export default defineConfig({
 		// Bind IPv4 explicitly: on some Windows hosts `vite preview` listens on ::1 only,
 		// while Chromium resolves 127.0.0.1 first and fails with ERR_CONNECTION_REFUSED.
 		baseURL: 'http://127.0.0.1:4183',
+		// Motion is a visual preference, not part of what the tests assert; running the
+		// dialogs at zero duration keeps the existing visibility waits deterministic.
+		reducedMotion: 'reduce',
 		trace: 'on-first-retry',
 		screenshot: 'only-on-failure'
 	},
