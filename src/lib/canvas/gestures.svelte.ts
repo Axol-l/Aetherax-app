@@ -352,9 +352,8 @@ export class CanvasGestures {
 							button: 0
 						})
 					);
-				} else if (appState.apPlaceMode && !this.host.wallClick(sx, sy)) {
-					// Not an AP, not a wall — place AP. Touch follows the same mode as the
-					// mouse: a tap that was meant to dismiss something must not leave an AP.
+				} else if (appState.apPlaceMode) {
+					// Touch follows the mouse: a tap while placing is an AP, including on a wall.
 					this.host.place().handlePointerDown(
 						new PointerEvent('pointerdown', {
 							clientX: this.touchStartX,
@@ -535,6 +534,19 @@ export class CanvasGestures {
 		} else if (e.shiftKey) {
 			this.host.select().handlePointerDown(e);
 			this.pendingPlace = false;
+			this.pendingPan = false;
+		} else if (appState.apPlaceMode) {
+			/*
+			 * Placement owns the bare-canvas click, including the wall band.
+			 *
+			 * Wall and column selection used to run first, so a click near a wall selected
+			 * that wall and returned before `pendingPlace` was set. A wall mount has to be
+			 * clicked within a metre of a wall, so the one gesture the mode exists for was
+			 * the one gesture it could never reach.
+			 */
+			this.pointerStartX = e.clientX;
+			this.pointerStartY = e.clientY;
+			this.pendingPlace = true;
 			this.pendingPan = false;
 		} else {
 			// A drawn wall is an object: a click near one selects it — Delete removes it,
@@ -874,14 +886,10 @@ export class CanvasGestures {
 		}
 		if (this.pendingPlace) {
 			this.pendingPlace = false;
-			// Check if click was on a wall pixel first (for material popup)
-			const rect = engine.canvas.getBoundingClientRect();
-			const sx = e.clientX - rect.left;
-			const sy = e.clientY - rect.top;
-			if (!this.host.wallClick(sx, sy)) {
-				// Not a wall click — place an AP
-				this.host.place().handlePointerDown(e);
-			}
+			// Placement owns the click: a wall under the pointer is where a wall mount goes,
+			// not a material popup. The mount test inside PlaceHandler rejects a wall mount
+			// that is too far from a wall.
+			this.host.place().handlePointerDown(e);
 		}
 
 		if (this.pendingPan) {

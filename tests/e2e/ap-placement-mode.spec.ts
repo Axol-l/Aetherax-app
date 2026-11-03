@@ -8,8 +8,8 @@ import { test, expect, type Page } from '@playwright/test';
  * asked for. Selecting and dragging an existing AP is unaffected either way.
  */
 
-async function seedOneFloor(page: Page) {
-	await page.addInitScript(() => {
+async function seedOneFloor(page: Page, withWalls = false) {
+	await page.addInitScript((walls: boolean) => {
 		localStorage.setItem('aetherax:welcomed', '1');
 		localStorage.removeItem('aetherax:project');
 		const c = document.createElement('canvas');
@@ -54,6 +54,14 @@ async function seedOneFloor(page: Page) {
 							originX: 0,
 							originY: 0
 						},
+						walls: walls
+							? [
+									{ id: 'w-n', ax: 8, ay: 8, bx: 792, by: 8, material: 0 },
+									{ id: 'w-e', ax: 792, ay: 8, bx: 792, by: 592, material: 0 },
+									{ id: 'w-s', ax: 792, ay: 592, bx: 8, by: 592, material: 0 },
+									{ id: 'w-w', ax: 8, ay: 592, bx: 8, by: 8, material: 0 }
+								]
+							: [],
 						wallAttenuation: 5,
 						wallMaterial: 0,
 						materialMask: null,
@@ -65,7 +73,7 @@ async function seedOneFloor(page: Page) {
 				aps: []
 			})
 		);
-	});
+	}, withWalls);
 }
 
 /** AP count as the app last saved it. */
@@ -160,6 +168,26 @@ test('the placement toolbar picks the mounting before the click', async ({ page 
 		.poll(async () => (await savedAps(page))[1]?.mount, { timeout: 20_000 })
 		.toBe('ceiling');
 	expect(await savedAps(page)).toHaveLength(2);
+});
+
+test('a wall mount can be placed on a drawn vector wall', async ({ page }) => {
+	// The wall is an object here, not only a raster band: selection of that object must
+	// not consume the one click a wall-mounted AP is placed with.
+	await seedOneFloor(page, true);
+	await page.goto('/');
+	await page.waitForSelector('canvas');
+	await page.waitForTimeout(1500);
+
+	await page.getByRole('button', { name: /Place APs/ }).click();
+	const toolbar = page.getByRole('toolbar', { name: 'Access point placement' });
+	await toolbar.getByRole('button', { name: 'Wall mount' }).click();
+	await page.locator('canvas').first().click({ position: { x: 20, y: 300 } });
+
+	await expect
+		.poll(async () => (await savedAps(page))[0]?.mount, { timeout: 20_000 })
+		.toBe('wall');
+	const ap = (await savedAps(page))[0]!;
+	expect(Math.min(ap.x, ap.y, 800 - ap.x, 600 - ap.y)).toBeLessThan(80);
 });
 
 test('placement is offered only in the single-floor view', async ({ page }) => {

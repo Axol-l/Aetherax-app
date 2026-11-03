@@ -618,21 +618,36 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	function removeFloorplan() {
-		showConfirm('Remove floorplan and all APs on this floor?', doRemoveFloorplan);
+		showConfirm(
+			'Remove this floor’s plan and all of its APs? This also clears its walls, planning area, raised surfaces, notes and scale.',
+			doRemoveFloorplan
+		);
 	}
 
 	function doRemoveFloorplan() {
 		pushState();
 		const floorId = floorState.currentFloorId;
+		const floor = currentFloor();
+		if (!floor) return;
 		floorplanState.floorplanUrl = null;
 		floorplanState.floorplanBoundary = null;
 		floorplanState.calibration = null;
+		floor.floorplanOffsetX = 0;
+		floor.floorplanOffsetY = 0;
 		wallState.wallMask = null;
 		wallState.wallMaterial = 0;
 		wallState.materialMask = null;
 		wallState.roomTypeMask = null;
-		currentFloor().roomDensityOverrides = {};
-		currentFloor().roomCustomLabels = {};
+		// The plan is the frame every one of these was drawn in. Keeping them would leave
+		// an invisible planning area clipping the next plan and stale surfaces/notes on a
+		// floor whose controls are hidden until a new plan arrives.
+		floor.planningArea = null;
+		floor.surfaces = [];
+		floor.notes = [];
+		floor.walls = [];
+		floor.columns = [];
+		floor.roomDensityOverrides = {};
+		floor.roomCustomLabels = {};
 		apState.aps = apState.aps.filter((ap) => ap.floorId !== floorId);
 		// The stored underlay outlives the plan it belongs to: its key is not derived from
 		// anything the floor still has once the image is gone.

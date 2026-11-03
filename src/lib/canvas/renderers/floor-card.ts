@@ -20,9 +20,15 @@ import type { WallMaterialId } from '$lib/domain/materials.js';
 /** Underlay width in world units. Matches `FloorplanLayer` so plans scale alike. */
 export const CARD_PLAN_WIDTH = 800;
 
-/** Fallback box for a floor with neither a mask nor a loaded plan. */
-const EMPTY_W = 800;
-const EMPTY_H = 600;
+/**
+ * Fallback box for a floor with neither a mask nor a loaded plan.
+ *
+ * Deliberately smaller than a real plan: an 800×600 empty rectangle in a sheet or a stack
+ * reads as a floor-sized slab and covers the floors below it. A compact card still says the
+ * floor exists without pretending it has a plan.
+ */
+const EMPTY_W = 320;
+const EMPTY_H = 240;
 
 export interface FloorCardSource {
 	id: string;

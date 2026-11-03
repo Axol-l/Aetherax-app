@@ -508,3 +508,11 @@ describe('stacked view: access point markers', () => {
 	});
 });
 
+
+describe('empty floor cards', () => {
+	it('uses a compact box instead of a plan-sized blank slab', () => {
+		const cards = new FloorCardCache();
+		const empty = { ...sources(1)[0]!, maskUrl: null, maskWidth: 0, maskHeight: 0, aps: [] };
+		expect(cards.contentBox(empty)).toEqual({ minX: 0, minY: 0, w: 320, h: 240 });
+	});
+});

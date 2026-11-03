@@ -73,7 +73,10 @@
 
 	function clearAll() {
 		showConfirm('Delete all access points on this floor?', () => {
-			removeAps(apState.aps.map((ap) => ap.id));
+			// The list spans every floor, but this action says "on this floor" and must not
+			// take the other storeys with it.
+			const floorId = floorState.currentFloorId;
+			removeAps(apState.aps.filter((ap) => ap.floorId === floorId).map((ap) => ap.id));
 			clearSelection();
 		});
 	}
