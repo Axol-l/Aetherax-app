@@ -40,7 +40,7 @@ export class SurfacesLayer implements Layer {
 	id = 'surfaces';
 	visible = true;
 	surfaces: ElevatedSurface[] = [];
-	/** The one under the pointer or just drawn. Selected surfaces can be deleted. */
+	/** The one under the pointer or just drawn. Selected surfaces can be edited or deleted. */
 	selectedId: string | null = null;
 	/** The rectangle being drawn, as two opposite corners, in world units. */
 	draft: { ax: number; ay: number; bx: number; by: number } | null = null;

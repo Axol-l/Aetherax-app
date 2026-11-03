@@ -499,6 +499,8 @@ const zh: Record<string, string> = {
 	'Click one corner of the raised area, then the other.': '先点抬升区域的一角，再点对角。',
 	'Draw raised area': '绘制抬升面',
 	'Clear raised areas': '清空抬升面',
+	'Editing the selected raised area': '正在编辑选中的抬升面',
+	'Delete raised area': '删除抬升面',
 	'A client on a raised area is measured from its own floor, not the slab. Click an outline to select it; Delete removes it.':
 		'抬升面上的终端以其自身高度（而非楼板）计算。单击轮廓可选中，按 Delete 删除。',
 	'Store': '储藏',

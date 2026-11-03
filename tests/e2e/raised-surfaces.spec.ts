@@ -124,6 +124,59 @@ test.describe('Raised surfaces', () => {
 		await expect(page.getByRole('button', { name: 'Clear raised areas' })).toHaveCount(0);
 	});
 
+	test('a selected surface is edited from the card, not redrawn', async ({ page }) => {
+		await drawSurface(page);
+		/*
+		 * Drawing leaves the deck selected, but the card is the drawing card until the tool
+		 * is left. Clicking the outline after Done is the gesture from the report: the card
+		 * has to switch from "the next surface" to "this one".
+		 */
+		const canvas = page.locator('canvas');
+		const box = (await canvas.boundingBox())!;
+		await canvas.click({ position: { x: box.width * 0.35, y: box.height * 0.45 } });
+
+		const card = page
+			.locator('.planning-area')
+			.filter({ hasText: 'Editing the selected raised area' });
+		await expect(card).toBeVisible();
+
+		// The deck's own material, not the next deck's: Steel writes its 30 dB into the deck.
+		await card.locator('.select-wrapper .trigger').click();
+		await page.getByRole('option', { name: 'Steel' }).click();
+		await expect(card.locator('.param-row', { hasText: 'Attenuation' })).toContainText('30 dB');
+
+		// A platform has one height; editing it keeps the level pair equal.
+		const height = card.locator('.param-row', { hasText: 'Height' }).locator('input');
+		await height.fill('4');
+		await height.blur();
+		const thickness = card.locator('.param-row', { hasText: 'Thickness' }).locator('input');
+		await thickness.fill('0.35');
+		await thickness.blur();
+
+		await expect
+			.poll(async () => (await savedFloor(page)).surfaces?.[0]?.material, { timeout: 20_000 })
+			.toBe('steel');
+		await expect
+			.poll(async () => (await savedFloor(page)).surfaces?.[0]?.attenuationDb)
+			.toBeCloseTo(30);
+		await expect
+			.poll(async () => (await savedFloor(page)).surfaces?.[0]?.heightM)
+			.toBeCloseTo(4);
+		await expect
+			.poll(async () => (await savedFloor(page)).surfaces?.[0]?.topHeightM)
+			.toBeCloseTo(4);
+		await expect
+			.poll(async () => (await savedFloor(page)).surfaces?.[0]?.thicknessM)
+			.toBeCloseTo(0.35);
+
+		// Removing this deck from its own editor ends the selection with it.
+		await card.getByRole('button', { name: 'Delete raised area' }).click();
+		await expect(page.getByText('Editing the selected raised area')).toHaveCount(0);
+		await expect
+			.poll(async () => (await savedFloor(page)).surfaces?.length ?? 0, { timeout: 20_000 })
+			.toBe(0);
+	});
+
 	test('the surface is painted on the plan and clears with the card', async ({ page }) => {
 		const coloured = async () =>
 			page.evaluate(() => {
