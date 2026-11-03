@@ -6,7 +6,8 @@
 		max = Infinity,
 		step = 1,
 		label = '',
-		disabled = false
+		disabled = false,
+		onchange = undefined
 	}: {
 		value?: number;
 		min?: number;
@@ -14,6 +15,15 @@
 		step?: number;
 		label?: string;
 		disabled?: boolean;
+		/**
+		 * Called after the field settles on a new number.
+		 *
+		 * For a caller that does not bind `value` but owns the thing the number means —
+		 * a selected object's own field, say — this is where that edit is committed.
+		 * Skipped when the number did not change, so a blur after typing is not a second
+		 * edit.
+		 */
+		onchange?: (value: number) => void;
 	} = $props();
 
 	function clamp(n: number): number {
@@ -37,7 +47,10 @@
 	}
 
 	function set(next: number): void {
-		value = roundToStep(clamp(next));
+		const rounded = roundToStep(clamp(next));
+		if (rounded === value) return;
+		value = rounded;
+		onchange?.(rounded);
 	}
 
 	function decrement() {

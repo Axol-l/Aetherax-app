@@ -227,7 +227,7 @@ export const appState = $state({
 	surfaceThicknessM: 0.2,
 	/** Whether the volume under the deck is filled to the floor, in the 3D view. */
 	surfaceSolidBase: false,
-	/** The surface under the pointer or just drawn, for the delete key. */
+	/** The surface under the pointer or just drawn: the card edits it, Delete removes it. */
 	surfaceSelected: null as string | null,
 	/** The clicks collected so far while calibrating, in world coordinates. */
 	calibrationPoints: [] as Array<{ x: number; y: number }>,
