@@ -1,4 +1,5 @@
-# The Windows bundle, built from a push instead of from a developer's machine.
+# The Windows bundle, built from a push or a pull request instead of from a developer's
+# machine.
 #
 # `ci.yml` gates the frontend; this workflow is the only thing that produces distributables.
 # It checks the code out fresh, installs the workspace, runs `pnpm tauri:build` (which runs
@@ -8,10 +9,14 @@
 #   Aetherax_<version>_x64_portable.zip the bare aetherax.exe, no installer
 #   SHA256SUMS.txt                     checksums for both
 #
-# A push to `main` keeps those as a workflow artifact. A `v*` tag does the same and
-# publishes them as a GitHub Release. The tag must match `version` in
-# `src-tauri/tauri.conf.json`, so `v0.2.0` can never ship a bundle labelled 0.1.0; the check
-# fails before the 15-minute build rather than after it.
+# A push to `main` and every pull request keep those as a workflow artifact (the PR one is
+# named after the PR, so review builds are easy to find). A `v*` tag does the same and
+# publishes them as a GitHub Release.
+#
+# The version lives in three files and they must agree: `package.json`,
+# `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. The step below rejects a mismatch
+# before the build, and a tag has to match that version too, so `v0.2.0` can never ship a
+# bundle labelled 0.1.0 — both checks fail before the 15-minute compile rather than after it.
 #
 # The binaries are unsigned: Windows SmartScreen warns on first run until the project has a
 # code-signing certificate (see README.md → Releases).
@@ -22,6 +27,8 @@ on:
   push:
     branches: [main]
     tags: ['v*']
+  # Review builds: a PR gets the same installer and portable exe as main, without publishing.
+  pull_request:
   workflow_dispatch:
 
 # Two pushes to the same ref: only the newest bundle is worth finishing.
@@ -65,6 +72,25 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # One version, three files that each own a piece of it. Failing here names the odd one
+      # out instead of shipping a bundle whose file properties disagree with its name.
+      - name: Check the version agrees everywhere
+        shell: pwsh
+        run: |
+          $package = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $bundle = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+
+          @(
+            [pscustomobject]@{ File = 'package.json'; Version = $package }
+            [pscustomobject]@{ File = 'src-tauri/Cargo.toml'; Version = $cargo }
+            [pscustomobject]@{ File = 'src-tauri/tauri.conf.json'; Version = $bundle }
+          ) | Format-Table -AutoSize
+
+          if (@($package, $cargo, $bundle | Select-Object -Unique).Count -ne 1) {
+            throw "The app version differs ($package / $cargo / $bundle). Bump package.json, src-tauri/Cargo.toml and src-tauri/tauri.conf.json together; the next cargo build refreshes the aetherax entry in src-tauri/Cargo.lock."
+          }
+
       - name: Check the tag matches the app version
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
@@ -72,8 +98,7 @@ jobs:
           $tag = '${{ github.ref_name }}'
           $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
           if ($tag -ne "v$version") {
-            Write-Error "Tag '$tag' does not match tauri.conf.json version '$version' — bump package.json, src-tauri/Cargo.toml and src-tauri/tauri.conf.json together, then retag."
-            exit 1
+            throw "Tag '$tag' does not match tauri.conf.json version '$version' — bump package.json, src-tauri/Cargo.toml and src-tauri/tauri.conf.json together, then retag."
           }
 
       - name: Build the bundle
@@ -103,7 +128,8 @@ jobs:
 
       - uses: actions/upload-artifact@v7
         with:
-          name: Aetherax-windows-${{ github.sha }}
+          # A PR run is named after the PR so a reviewer can find it without the SHA.
+          name: Aetherax-windows-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.sha }}
           path: dist-artifacts/*
           if-no-files-found: error
           retention-days: 14

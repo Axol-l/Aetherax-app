@@ -93,7 +93,7 @@ docs/             架构、手册、测量与修复计划
 | `.vscode/extensions.json` | 推荐编辑器插件。 |
 | `.vscode/settings.json` | 编辑器格式与文件关联设置。 |
 | `.github/workflows/ci.yml` | CI：安装依赖、svelte-check、单元测试、lint、构建。 |
-| `.github/workflows/release.yml` | Windows 打包：推送 `main` 产出安装包与便携 exe 的构建产物，推送 `v*` 标签发布 GitHub Release。 |
+| `.github/workflows/release.yml` | Windows 打包：推送 `main` 与每个 PR 产出安装包与便携 exe 的构建产物，推送 `v*` 标签发布 GitHub Release；构建前校验三处版本号一致。 |
 
 ## 3. `src/routes`
 

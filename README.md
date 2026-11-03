@@ -60,17 +60,26 @@ asserts the result came back. Run `pnpm tauri:build` first.
 `.github/workflows/release.yml` builds the Windows bundle on GitHub Actions, so a
 distributable does not depend on which machine happened to run `pnpm tauri:build`:
 
-- a push to `main` installs, builds and keeps the bundle as a workflow artifact (14 days);
+- every push to `main` and every pull request installs, builds and keeps the bundle as a
+  workflow artifact (14 days; a PR run is named `Aetherax-windows-pr-<number>`);
 - a `v*` tag does the same and publishes a GitHub Release with
   `Aetherax_<version>_x64-setup.exe` (NSIS installer), `Aetherax_<version>_x64_portable.zip`
   (the bare `aetherax.exe`) and `SHA256SUMS.txt`.
 
-The tag has to match `version` in `src-tauri/tauri.conf.json`, because that file is where a
-bundle's version comes from; the workflow fails before building when it does not. Bump
-`package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json` together, commit,
-then:
+The version is written in three files, and the workflow fails before building unless they
+agree:
+
+| File | What it versions |
+| --- | --- |
+| `package.json` | the npm workspace package |
+| `src-tauri/Cargo.toml` | the Rust crate (the bundle's file version comes from `tauri.conf.json`) |
+| `src-tauri/tauri.conf.json` | the bundle: installer and executable names, and the release tag |
+
+`src-tauri/Cargo.lock` records the same version for the `aetherax` crate; the next
+`pnpm tauri:build` refreshes it, so commit that too. A tag has to match the version:
 
 ```bash
+# bump 0.1.0 -> 0.2.0 in all three files, commit, then
 git tag v0.2.0
 git push origin v0.2.0
 ```
