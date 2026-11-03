@@ -41,6 +41,27 @@ async function openFloorplanTab(page: Page) {
 }
 
 test.describe('Optimizer', () => {
+	/*
+	 * The settings are inputs to placing the first AP — "Allow APs outside rooms"
+	 * decides whether the first click in the margin is accepted, and "Min signal"
+	 * shapes the heatmap that click produces — so they cannot sit behind a plan
+	 * that already has one. The run button can: the optimiser only moves the APs
+	 * already on the floor.
+	 */
+	test('optimizer settings open without access points', async ({ page }) => {
+		const gear = page.getByRole('button', { name: 'Placement optimiser settings' });
+		await expect(gear).toBeVisible();
+		await expect(gear).toHaveAttribute('aria-expanded', 'false');
+
+		await gear.click();
+		await expect(gear).toHaveAttribute('aria-expanded', 'true');
+		await expect(
+			page.getByRole('checkbox', { name: 'Allow APs outside rooms' })
+		).toBeVisible();
+		await expect(page.getByRole('slider', { name: 'Min signal' })).toBeVisible();
+		await expect(page.getByRole('button', { name: /optimize placement/i })).toHaveCount(0);
+	});
+
 	test('optimizer improves coverage on apartment floorplan', async ({ page }) => {
 		// 15 s of waiting plus a sample import and two canvas clicks: the default 30 s budget
 		// was only ever just enough.

@@ -1,5 +1,5 @@
 <script lang="ts">
-	
+
 	import { projectMeta } from '$state/project-meta.svelte';
 	import {
 		optimizerState,
@@ -198,8 +198,14 @@
 	</button>
 {/if}
 
-{#if apState.aps.length >= 1}
-	<div class="coverage-panel">
+<div class="coverage-panel">
+	<!--
+		The readouts describe a plan that has access points to score. The settings
+		below do not: "Allow APs outside rooms" and "Min signal" are what you set
+		*before* placing the first one, so that block cannot carry the panel's
+		visibility with it.
+	-->
+	{#if apState.aps.length >= 1}
 		{#if optimizerState.coverage > 0}
 			<div class="metric">
 				<div class="metric-head">
@@ -285,37 +291,42 @@
 				{t('non-overlapping channels on this band. Placement and channel assignment are solved one after the other, so on a plan this tight the result may be well short of optimal — try a different Optimize Placement result, or widen the band.')}
 			</div>
 		{/if}
+	{/if}
 
-		{#if optimizerState.isRunning}
-			<div class="optimize-progress">
-				<span class="optimize-status">
-					{optimizerState.status || t('Optimizing…')} {optimizerState.progress}%
-				</span>
-				<button class="action-btn" onclick={cancelOptimizer}>{t('Cancel')}</button>
-			</div>
-		{:else}
-			<div class="settings-head">
-				<span class="settings-title">{t('Placement optimiser')}</span>
-				<button
-					class="settings-btn"
-					class:active={settingsOpen}
-					onclick={() => (settingsOpen = !settingsOpen)}
-					title={t('Placement optimiser settings')}
-					aria-label={t('Placement optimiser settings')}
-					aria-expanded={settingsOpen}
-				>
-					<Icon name="settings" size={14} />
-				</button>
-			</div>
+	{#if optimizerState.isRunning}
+		<div class="optimize-progress">
+			<span class="optimize-status">
+				{optimizerState.status || t('Optimizing…')} {optimizerState.progress}%
+			</span>
+			<button class="action-btn" onclick={cancelOptimizer}>{t('Cancel')}</button>
+		</div>
+	{:else}
+		<div class="settings-head">
+			<span class="settings-title">{t('Placement optimiser')}</span>
+			<button
+				class="settings-btn"
+				class:active={settingsOpen}
+				onclick={() => (settingsOpen = !settingsOpen)}
+				title={t('Placement optimiser settings')}
+				aria-label={t('Placement optimiser settings')}
+				aria-expanded={settingsOpen}
+			>
+				<Icon name="settings" size={14} />
+			</button>
+		</div>
 
-			<!--
-				One primary action for the shape of the project, and the other as a
-				second-tier button. Which one is primary is not cosmetic: on a single
-				storey "optimize all floors" and "optimize placement" are the same run,
-				so offering both as equals was offering the same button twice; on a
-				stacked project the building-wide run is the one that moves the figure
-				the user is looking at, and the single-floor run is the targeted tool.
-			-->
+		<!--
+			One primary action for the shape of the project, and the other as a
+			second-tier button. Which one is primary is not cosmetic: on a single
+			storey "optimize all floors" and "optimize placement" are the same run,
+			so offering both as equals was offering the same button twice; on a
+			stacked project the building-wide run is the one that moves the figure
+			the user is looking at, and the single-floor run is the targeted tool.
+
+			Skipped while the plan has no access points: the optimiser moves the
+			ones already placed, so a run would return without doing anything.
+		-->
+		{#if apState.aps.length >= 1}
 			{#if multiFloor}
 				<Tooltip
 					wrap
@@ -349,212 +360,212 @@
 					</Button>
 				</Tooltip>
 			{/if}
+		{/if}
 
-			{#if settingsOpen}
-				<div class="settings-popup">
+		{#if settingsOpen}
+			<div class="settings-popup">
+				<Tooltip
+					wrap
+					position="top"
+					text={t('Off by default: optimised APs stay inside the detected building interior. Turn on to let them land anywhere, walls included.')}
+				>
+					<label class="setting-row">
+						<input
+							type="checkbox"
+							checked={projectMeta.allowOutsideRooms}
+							onchange={(e) =>
+								(projectMeta.allowOutsideRooms = (
+									e.currentTarget as HTMLInputElement
+								).checked)}
+						/>
+						<span class="setting-title">{t('Allow APs outside rooms')}</span>
+					</label>
+				</Tooltip>
+
+				<Tooltip
+					wrap
+					position="top"
+					text={t('Signal below this is left transparent, so the coloured area lines up with the coverage circle around each AP. Raise it (e.g. -70 dBm) to show only the strong core.')}
+				>
+					<label class="setting-row slider-row">
+						<span class="setting-title">{t('Min signal')}</span>
+						<input
+							type="range"
+							min="-95"
+							max="-55"
+							step="5"
+							value={projectMeta.heatmapRssiFloor}
+							oninput={(e) =>
+								(projectMeta.heatmapRssiFloor = Number(
+									(e.currentTarget as HTMLInputElement).value
+								))}
+						/>
+						<span class="setting-value">{projectMeta.heatmapRssiFloor} dBm</span>
+					</label>
+				</Tooltip>
+
+				<Tooltip
+					wrap
+					position="top"
+					text={t('How much co-channel interference the optimiser trades against coverage: the score is coverage minus this weight times the share of the floor whose best access point is degraded by a co-channel second one. 0 scores coverage alone — the behaviour before the term existed — so it doubles as the A/B switch.')}
+				>
+					<label class="setting-row slider-row">
+						<span class="setting-title">{t('Interference')}</span>
+						<input
+							type="range"
+							min="0"
+							max="1"
+							step="0.05"
+							value={projectMeta.interferenceWeight}
+							oninput={(e) =>
+								(projectMeta.interferenceWeight = Number(
+									(e.currentTarget as HTMLInputElement).value
+								))}
+						/>
+						<span class="setting-value">{projectMeta.interferenceWeight.toFixed(2)}</span>
+					</label>
+				</Tooltip>
+
+				<Tooltip
+					wrap
+					position="top"
+					text={t('ε-constraint: the minimum share of the floor the optimiser\'s result must cover. 0 is no constraint, which is the plain coverage-minus-interference trade. Setting a floor makes the requirement explicit — a weighted sum can only walk the convex part of the coverage/interference front, so a floor is how a non-convex stretch, or a guarantee like \'no less than 90%\', gets expressed.')}
+				>
+					<label class="setting-row slider-row">
+						<span class="setting-title">{t('Min coverage')}</span>
+						<input
+							type="number"
+							min="0"
+							max="100"
+							step="1"
+							value={projectMeta.coverageFloorPct}
+							onchange={(e) =>
+								(projectMeta.coverageFloorPct = Math.min(
+									100,
+									Math.max(0, Number((e.currentTarget as HTMLInputElement).value))
+								))}
+						/>
+						<span class="setting-value"
+							>{projectMeta.coverageFloorPct > 0
+								? `${projectMeta.coverageFloorPct}%`
+								: 'off'}</span
+						>
+					</label>
+				</Tooltip>
+
+				<!--
+					Only meaningful once a floor is set, and only on a stack: it is a guarantee
+					about the building, which a single-storey project cannot have a weakest floor
+					in. Shown next to the figure it qualifies rather than in a section of its own.
+				-->
+				{#if multiFloor && projectMeta.coverageFloorPct > 0}
 					<Tooltip
 						wrap
 						position="top"
-						text={t('Off by default: optimised APs stay inside the detected building interior. Turn on to let them land anywhere, walls included.')}
+						text={t('Apply the floor to every storey, not just the one you optimise: an all-floors run gives the weakest floor that falls short one more pass with the floor as its own constraint. A1\'s "no floor below X%", which a weighted sum cannot express.')}
 					>
 						<label class="setting-row">
 							<input
 								type="checkbox"
-								checked={projectMeta.allowOutsideRooms}
+								checked={projectMeta.coverageFloorEveryFloor}
 								onchange={(e) =>
-									(projectMeta.allowOutsideRooms = (
+									(projectMeta.coverageFloorEveryFloor = (
 										e.currentTarget as HTMLInputElement
 									).checked)}
 							/>
-							<span class="setting-title">{t('Allow APs outside rooms')}</span>
+							<span class="setting-title">{t('Every floor')}</span>
 						</label>
 					</Tooltip>
+				{/if}
 
-					<Tooltip
-						wrap
-						position="top"
-						text={t('Signal below this is left transparent, so the coloured area lines up with the coverage circle around each AP. Raise it (e.g. -70 dBm) to show only the strong core.')}
-					>
-						<label class="setting-row slider-row">
-							<span class="setting-title">{t('Min signal')}</span>
-							<input
-								type="range"
-								min="-95"
-								max="-55"
-								step="5"
-								value={projectMeta.heatmapRssiFloor}
-								oninput={(e) =>
-									(projectMeta.heatmapRssiFloor = Number(
-										(e.currentTarget as HTMLInputElement).value
-									))}
-							/>
-							<span class="setting-value">{projectMeta.heatmapRssiFloor} dBm</span>
-						</label>
-					</Tooltip>
+				<Tooltip
+					wrap
+					position="top"
+					text={t('Height of the client devices above the floor. APs are modelled as ceiling-mounted, so this is the other end of every cross-floor path: it changes both the vertical distance and, through it, the cross-floor loss.')}
+				>
+					<label class="setting-row slider-row">
+						<span class="setting-title">{t('Client height')}</span>
+						<input
+							type="number"
+							min={clientHeightHints.min}
+							max={clientHeightHints.max}
+							step={clientHeightHints.step}
+							value={displayLength(projectMeta.clientHeight, lengthDisplayUnit).value}
+							onchange={(e) =>
+								(projectMeta.clientHeight = unitToMetres(
+									Number((e.currentTarget as HTMLInputElement).value),
+									lengthDisplayUnit
+								))}
+						/>
+						<!--
+							The unit only: the field already shows the number, and printing it
+							again beside the field read as two conflicting values.
+						-->
+						<span class="setting-value">{lengthDisplayUnit}</span>
+					</label>
+				</Tooltip>
 
-					<Tooltip
-						wrap
-						position="top"
-						text={t('How much co-channel interference the optimiser trades against coverage: the score is coverage minus this weight times the share of the floor whose best access point is degraded by a co-channel second one. 0 scores coverage alone — the behaviour before the term existed — so it doubles as the A/B switch.')}
-					>
-						<label class="setting-row slider-row">
-							<span class="setting-title">{t('Interference')}</span>
-							<input
-								type="range"
-								min="0"
-								max="1"
-								step="0.05"
-								value={projectMeta.interferenceWeight}
-								oninput={(e) =>
-									(projectMeta.interferenceWeight = Number(
-										(e.currentTarget as HTMLInputElement).value
-									))}
-							/>
-							<span class="setting-value">{projectMeta.interferenceWeight.toFixed(2)}</span>
-						</label>
-					</Tooltip>
+				<Tooltip
+					wrap
+					position="top"
+					text={t('How many times to run the optimiser on this floor, keeping the best result. Each run starts from a different seed. 1 is fastest; the browser console prints the spread across runs, which says whether the extra ones are buying anything.')}
+				>
+					<label class="setting-row slider-row">
+						<span class="setting-title">{t('Restarts')}</span>
+						<input
+							type="number"
+							min="1"
+							max="8"
+							step="1"
+							value={optimizerState.restarts}
+							onchange={(e) =>
+								(optimizerState.restarts = Math.max(
+									1,
+									Math.min(
+										8,
+										Math.round(Number((e.currentTarget as HTMLInputElement).value))
+									)
+								))}
+						/>
+						<span class="setting-value">{t('run(s)')}</span>
+					</label>
+				</Tooltip>
 
-					<Tooltip
-						wrap
-						position="top"
-						text={t('ε-constraint: the minimum share of the floor the optimiser\'s result must cover. 0 is no constraint, which is the plain coverage-minus-interference trade. Setting a floor makes the requirement explicit — a weighted sum can only walk the convex part of the coverage/interference front, so a floor is how a non-convex stretch, or a guarantee like \'no less than 90%\', gets expressed.')}
-					>
-						<label class="setting-row slider-row">
-							<span class="setting-title">{t('Min coverage')}</span>
-							<input
-								type="number"
-								min="0"
-								max="100"
-								step="1"
-								value={projectMeta.coverageFloorPct}
-								onchange={(e) =>
-									(projectMeta.coverageFloorPct = Math.min(
-										100,
-										Math.max(0, Number((e.currentTarget as HTMLInputElement).value))
-									))}
-							/>
-							<span class="setting-value"
-								>{projectMeta.coverageFloorPct > 0
-									? `${projectMeta.coverageFloorPct}%`
-									: 'off'}</span
-							>
-						</label>
-					</Tooltip>
-
-					<!--
-						Only meaningful once a floor is set, and only on a stack: it is a guarantee
-						about the building, which a single-storey project cannot have a weakest floor
-						in. Shown next to the figure it qualifies rather than in a section of its own.
-					-->
-					{#if multiFloor && projectMeta.coverageFloorPct > 0}
-						<Tooltip
-							wrap
-							position="top"
-							text={t('Apply the floor to every storey, not just the one you optimise: an all-floors run gives the weakest floor that falls short one more pass with the floor as its own constraint. A1\'s "no floor below X%", which a weighted sum cannot express.')}
+				<!--
+					The distance term's environment. The ITU coefficient already contains an
+					average allowance for walls, and this app also charges every crossing, so the
+					value has to match what the plan accounts for — which is why the panel says
+					which one the detected walls justify instead of leaving a bare number.
+				-->
+				<Tooltip
+					wrap
+					position="top"
+					text={t('How much wall loss the distance model already contains. The tabulated value does include a wall allowance and this app also charges every wall the ray crosses, so the more completely the walls are drawn, the lower the value should be: too high makes coverage radii too small and the plan look like it needs more APs.')}
+				>
+					<label class="setting-row slider-row">
+						<span class="setting-title">{t('Propagation')}</span>
+						<select
+							class="env-select"
+							aria-label={t('Propagation environment')}
+							value={projectMeta.pathLossScenario}
+							onchange={(e) =>
+								applyPathLossScenario((e.currentTarget as HTMLSelectElement).value as PathLossScenario)}
 						>
-							<label class="setting-row">
-								<input
-									type="checkbox"
-									checked={projectMeta.coverageFloorEveryFloor}
-									onchange={(e) =>
-										(projectMeta.coverageFloorEveryFloor = (
-											e.currentTarget as HTMLInputElement
-										).checked)}
-								/>
-								<span class="setting-title">{t('Every floor')}</span>
-							</label>
-						</Tooltip>
-					{/if}
-
-					<Tooltip
-						wrap
-						position="top"
-						text={t('Height of the client devices above the floor. APs are modelled as ceiling-mounted, so this is the other end of every cross-floor path: it changes both the vertical distance and, through it, the cross-floor loss.')}
-					>
-						<label class="setting-row slider-row">
-							<span class="setting-title">{t('Client height')}</span>
-							<input
-								type="number"
-								min={clientHeightHints.min}
-								max={clientHeightHints.max}
-								step={clientHeightHints.step}
-								value={displayLength(projectMeta.clientHeight, lengthDisplayUnit).value}
-								onchange={(e) =>
-									(projectMeta.clientHeight = unitToMetres(
-										Number((e.currentTarget as HTMLInputElement).value),
-										lengthDisplayUnit
-									))}
-							/>
-							<!--
-								The unit only: the field already shows the number, and printing it
-								again beside the field read as two conflicting values.
-							-->
-							<span class="setting-value">{lengthDisplayUnit}</span>
-						</label>
-					</Tooltip>
-
-					<Tooltip
-						wrap
-						position="top"
-						text={t('How many times to run the optimiser on this floor, keeping the best result. Each run starts from a different seed. 1 is fastest; the browser console prints the spread across runs, which says whether the extra ones are buying anything.')}
-					>
-						<label class="setting-row slider-row">
-							<span class="setting-title">{t('Restarts')}</span>
-							<input
-								type="number"
-								min="1"
-								max="8"
-								step="1"
-								value={optimizerState.restarts}
-								onchange={(e) =>
-									(optimizerState.restarts = Math.max(
-										1,
-										Math.min(
-											8,
-											Math.round(Number((e.currentTarget as HTMLInputElement).value))
-										)
-									))}
-							/>
-							<span class="setting-value">{t('run(s)')}</span>
-						</label>
-					</Tooltip>
-
-					<!--
-						The distance term's environment. The ITU coefficient already contains an
-						average allowance for walls, and this app also charges every crossing, so the
-						value has to match what the plan accounts for — which is why the panel says
-						which one the detected walls justify instead of leaving a bare number.
-					-->
-					<Tooltip
-						wrap
-						position="top"
-						text={t('How much wall loss the distance model already contains. The tabulated value does include a wall allowance and this app also charges every wall the ray crosses, so the more completely the walls are drawn, the lower the value should be: too high makes coverage radii too small and the plan look like it needs more APs.')}
-					>
-						<label class="setting-row slider-row">
-							<span class="setting-title">{t('Propagation')}</span>
-							<select
-								class="env-select"
-								aria-label={t('Propagation environment')}
-								value={projectMeta.pathLossScenario}
-								onchange={(e) =>
-									applyPathLossScenario((e.currentTarget as HTMLSelectElement).value as PathLossScenario)}
-							>
-								{#each scenarioOptions as option (option.value)}
-									<option value={option.value}>{option.label}</option>
-								{/each}
-							</select>
-						</label>
-					</Tooltip>
-				</div>
-			{/if}
+							{#each scenarioOptions as option (option.value)}
+								<option value={option.value}>{option.label}</option>
+							{/each}
+						</select>
+					</label>
+				</Tooltip>
+			</div>
 		{/if}
+	{/if}
 
 
-		{#if optimizerState.error}
-			<span class="optimize-error">{optimizerState.error}</span>
-		{/if}
-	</div>
-{/if}
+	{#if optimizerState.error}
+		<span class="optimize-error">{optimizerState.error}</span>
+	{/if}
+</div>
 
 <style>
 	/*
