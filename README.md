@@ -54,3 +54,27 @@ build: it launches `src-tauri/target/release/aetherax.exe` with WebView2's debug
 open, seeds a project into the webview's own storage, runs the optimiser — a module
 worker compiled from a workspace package, the riskiest part of a Tauri port — and
 asserts the result came back. Run `pnpm tauri:build` first.
+
+## Releases
+
+`.github/workflows/release.yml` builds the Windows bundle on GitHub Actions, so a
+distributable does not depend on which machine happened to run `pnpm tauri:build`:
+
+- a push to `main` installs, builds and keeps the bundle as a workflow artifact (14 days);
+- a `v*` tag does the same and publishes a GitHub Release with
+  `Aetherax_<version>_x64-setup.exe` (NSIS installer), `Aetherax_<version>_x64_portable.zip`
+  (the bare `aetherax.exe`) and `SHA256SUMS.txt`.
+
+The tag has to match `version` in `src-tauri/tauri.conf.json`, because that file is where a
+bundle's version comes from; the workflow fails before building when it does not. Bump
+`package.json`, `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json` together, commit,
+then:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The binaries are unsigned, so Windows SmartScreen warns on first run. Signing needs a
+certificate configured under `bundle.windows` in `src-tauri/tauri.conf.json`; it is not set
+up here.
