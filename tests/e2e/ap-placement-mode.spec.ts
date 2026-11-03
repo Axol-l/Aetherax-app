@@ -8,8 +8,9 @@ import { test, expect, type Page } from '@playwright/test';
  * asked for. Selecting and dragging an existing AP is unaffected either way.
  */
 
-async function seedOneFloor(page: Page, withWalls = false) {
-	await page.addInitScript((walls: boolean) => {
+async function seedOneFloor(page: Page, withWalls = false, allowOutsideRooms = true) {
+	await page.addInitScript((arg: { walls: boolean; allowOutsideRooms: boolean }) => {
+		const { walls, allowOutsideRooms } = arg;
 		localStorage.setItem('aetherax:welcomed', '1');
 		localStorage.removeItem('aetherax:project');
 		const c = document.createElement('canvas');
@@ -32,7 +33,7 @@ async function seedOneFloor(page: Page, withWalls = false) {
 				unitSystem: 'metric',
 				ispSpeed: 0,
 				targetThroughput: 25,
-				allowOutsideRooms: true,
+				allowOutsideRooms,
 				clientHeight: 1.5,
 				floors: [
 					{
@@ -73,7 +74,7 @@ async function seedOneFloor(page: Page, withWalls = false) {
 				aps: []
 			})
 		);
-	}, withWalls);
+	}, { walls: withWalls, allowOutsideRooms });
 }
 
 /** AP count as the app last saved it. */
@@ -188,6 +189,32 @@ test('a wall mount can be placed on a drawn vector wall', async ({ page }) => {
 		.toBe('wall');
 	const ap = (await savedAps(page))[0]!;
 	expect(Math.min(ap.x, ap.y, 800 - ap.x, 600 - ap.y)).toBeLessThan(80);
+});
+
+test('a wall mount can be placed while APs outside rooms are not allowed', async ({ page }) => {
+	// `Allow APs outside rooms` is off by default. The interior guard used to run before
+	// the wall snap, so a click on a wall — the one click a wall mount is placed with —
+	// was judged against the interior (which deliberately excludes the wall band) and
+	// refused. A wall mount is on a wall by construction, the same exemption the
+	// outside-the-building warning and the optimiser's verifier make.
+	await seedOneFloor(page, false, false);
+	await page.goto('/');
+	await page.waitForSelector('canvas');
+	await page.waitForTimeout(1500);
+
+	await page.getByRole('button', { name: /Place APs/ }).click();
+	const toolbar = page.getByRole('toolbar', { name: 'Access point placement' });
+	await toolbar.getByRole('button', { name: 'Wall mount' }).click();
+	// On the seeded 8 px border, not the floor next to it: this is the click the issue
+	// reported, and it is a wall pixel rather than interior.
+	await page.locator('canvas').first().click({ position: { x: 4, y: 300 } });
+
+	await expect
+		.poll(async () => (await savedAps(page))[0]?.mount, { timeout: 20_000 })
+		.toBe('wall');
+	const ap = (await savedAps(page))[0]!;
+	expect(Math.min(ap.x, ap.y, 800 - ap.x, 600 - ap.y)).toBeLessThan(80);
+	await expect(page.getByText('Outside the building', { exact: false })).toHaveCount(0);
 });
 
 test('placement is offered only in the single-floor view', async ({ page }) => {
