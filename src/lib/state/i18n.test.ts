@@ -6,6 +6,7 @@
  * The sources come in through Vite (`?raw`), so this needs no Node types in a browser tsconfig.
  */
 import { describe, expect, it } from 'vitest';
+import { FLOOR_MATERIALS } from '../canvas/floor-materials.js';
 
 const sources = import.meta.glob('../../**/*.{svelte,ts}', {
 	query: '?raw',
@@ -44,6 +45,16 @@ describe('translation catalogue', () => {
 	it('covers every key the interface uses', () => {
 		const catalogue = new Set(catalogueKeys());
 		const missing = [...new Set(usedKeys())].filter((key) => !catalogue.has(key)).sort();
+		expect(missing).toEqual([]);
+	});
+
+	it('covers the floor material names the picker translates at runtime', () => {
+		// The picker calls `t(material.name)`, so the scan above cannot see these keys: a
+		// missing entry would silently leave the option in English.
+		const catalogue = new Set(catalogueKeys());
+		const missing = FLOOR_MATERIALS.map((material) => material.name).filter(
+			(name) => !catalogue.has(name)
+		);
 		expect(missing).toEqual([]);
 	});
 

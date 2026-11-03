@@ -946,7 +946,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				<span class="prop-label">{t('Floor material')}</span>
 				<Select
 					value={String(currentFloor().floorMaterial)}
-					options={FLOOR_MATERIALS.map(m => ({ value: String(m.id), label: m.name }))}
+					options={FLOOR_MATERIALS.map(m => ({ value: String(m.id), label: t(m.name) }))}
 					onchange={(v) => { pushState(); currentFloor().floorMaterial = Number(v) as any; scheduleSave(); }}
 				/>
 			</div>
