@@ -645,12 +645,8 @@ docs/             架构、手册、测量与修复计划
 
 | 文件 | 作用 |
 | --- | --- |
-| `ARCHITECTURE.md` | 英文架构说明：分层、依赖规则、关键数据流。 |
 | `ARCHITECTURE.zh-CN.md` | 本文，中文架构与逐文件说明。 |
 | `MANUAL.zh-CN.md` | 中文使用手册，Help 弹窗的来源。 |
-| `MEASUREMENTS.md` | 关键性能与模型测量记录。 |
-| `FIX-PLAN.zh-CN.md` | 历史修复计划与问题清单。 |
-| `screenshots/desktop-window.png` | 桌面应用截图，供文档与检查使用。 |
 
 ## 32. 关键数据流
 

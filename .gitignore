@@ -15,4 +15,7 @@ vite.config.ts.timestamp-*
 /.turbo
 *.tsbuildinfo
 
+/docs/ARCHITECTURE.md
+/docs/FIX-PLAN.zh-CN.md
+/docs/MEASUREMENTS.md
 # The Rust build tree lives in src-tauri/.gitignore, which Tauri maintains.
