@@ -199,6 +199,14 @@
 		gap: var(--space-2);
 	}
 
+	.checks input[type='checkbox'] {
+		width: 15px;
+		height: 15px;
+		margin: 0;
+		accent-color: var(--accent-primary);
+		cursor: pointer;
+	}
+
 	.actions {
 		display: flex;
 		justify-content: flex-end;

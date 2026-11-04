@@ -264,8 +264,9 @@ docs/             架构、手册、测量与修复计划
 | `FloorStrip.svelte` | 楼层条：切换、新增、重命名、排序、删除。 |
 | `WallDetectionPanel.svelte` | 矢量/像素检测结果、元素角色复核、改用像素识别。 |
 | `ComparePanel.svelte` | 栅格与矢量墙体模型的对比读数；当前未被页面引用。 |
-| `FloorplanSurfaces.svelte` | 抬升面参数、材质、绘制与清空。 |
+| `FloorplanSurfaces.svelte` | 抬升面参数、材质与绘制。 |
 | `FloorplanNotes.svelte` | 标注列表、添加、编辑、删除。 |
+| `Collapse.svelte` | 侧栏卡片主体的高度展开/收起过渡。 |
 | `CoveragePanel.svelte` | 覆盖率、整栋平均、放置模式、优化器设置与运行。 |
 | `ApAdvicePanel.svelte` | 放置建议卡片与关闭。 |
 | `ApList.svelte` | AP 列表、全选、删除、清空、吞吐显示。 |

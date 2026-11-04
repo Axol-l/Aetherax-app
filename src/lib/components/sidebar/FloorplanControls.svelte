@@ -19,6 +19,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import FloorStrip from './FloorStrip.svelte';
 	import FloorplanNotes from './FloorplanNotes.svelte';
 	import FloorplanSurfaces from './FloorplanSurfaces.svelte';
+	import Collapse from './Collapse.svelte';
 	import { setCalibrateMode } from '$state/app.svelte';
 	import { setPlanningDrawMode } from '$state/app.svelte';
 	import { wupmFromSegment } from '$state/calibrate.js';
@@ -753,6 +754,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					{floorplanState.floorplanUrl ? t('Loaded') : t('Walls drawn')}
 				</span>
 			</div>
+			<Collapse open={!floorplanCollapsed}>
 			<!-- Underlay opacity for the single-floor view. The tiled overview has its
 			     own slider in the LAYERS panel, and each shows in exactly one view, so
 			     there is never a second slider for the same property on screen.
@@ -793,6 +795,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					{t('Remove floorplan')}
 				</Button>
 			</div>
+			</Collapse>
 		</div>
 
 		<!--
@@ -825,6 +828,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				<span class="planning-state">{scaleDisplay ?? t('Not set')}</span>
 			</div>
 
+			<Collapse open={!scaleCollapsed}>
 			{#if detecting}
 				<span class="calibration-status">{t('Detecting boundary...')}</span>
 			{:else if appState.calibrateMode}
@@ -896,6 +900,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					</Button>
 				</div>
 			{/if}
+			</Collapse>
 		</div>
 		{/if}
 	{/if}
@@ -926,6 +931,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					{t('Floor properties')}
 				</span>
 			</div>
+			<Collapse open={!propsCollapsed}>
 			<div class="floor-props">
 			<div class="prop-row">
 				<span class="prop-label">{t('Ceiling height')}</span>
@@ -1004,6 +1010,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				</div>
 			{/if}
 			</div>
+			</Collapse>
 		</div>
 	{/if}
 
@@ -1047,7 +1054,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					{/if}
 				</div>
 
-				{#if !areaCollapsed}
+				<Collapse open={!areaCollapsed}>
 				{#if appState.planningDrawMode}
 					<p class="planning-hint">
 						{#if appState.planningDraft.length < 3}
@@ -1082,7 +1089,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 						</Button>
 					</div>
 				{/if}
-				{/if}
+				</Collapse>
 			</div>
 
 			<!--
@@ -1110,6 +1117,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					</span>
 					<span class="planning-state">{t('{count} drawn', { count: (currentFloor()?.walls ?? []).length })}</span>
 				</div>
+				<Collapse open={!wallsCollapsed}>
 				{#if appState.wallVectorMode}
 					<p class="planning-hint">
 						{appState.wallVectorDraft
@@ -1153,6 +1161,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 						<span class="wall-hint">{t('Detect walls from the floorplan, or import one first')}</span>
 					{/if}
 				{/if}
+				</Collapse>
 			</div>
 
 			<FloorplanSurfaces />
@@ -1538,14 +1547,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	/*
-	 * Every card folds from its own head: the chevron's `aria-expanded` is the state, and a
-	 * folded card keeps its title and state line while its body — every child that is not the
-	 * head — is hidden. One rule rather than a wrapper per card, so a card added later folds
-	 * by putting the button in its head.
+	 * Every card folds from its own head: the chevron's `aria-expanded` is the state, and the
+	 * body is a `Collapse` so the height animates instead of disappearing.
 	 */
-	.planning-area:has(.card-collapse[aria-expanded='false']) > :not(.planning-head) {
-		display: none;
-	}
 
 	.draw-scratch {
 		margin-top: var(--space-2);

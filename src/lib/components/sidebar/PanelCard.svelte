@@ -12,8 +12,10 @@
 	 * area being drawn); every other card's state line is hidden by the shared CSS.
 	 */
 	import type { Snippet } from 'svelte';
+	import { slide } from 'svelte/transition';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
+	import { motionDuration } from '$lib/motion.js';
 
 	let {
 		title,
@@ -47,7 +49,9 @@
 		{#if state}{@render state()}{/if}
 	</div>
 	{#if !collapsed}
-		{@render children()}
+		<div class="card-body" transition:slide={{ duration: motionDuration(180) }}>
+			{@render children()}
+		</div>
 	{/if}
 </div>
 
@@ -60,6 +64,12 @@
 		background: var(--bg-elevated);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-sm);
+	}
+
+	.card-body {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
 	}
 
 	.planning-head {
