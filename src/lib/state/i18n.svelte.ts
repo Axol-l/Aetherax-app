@@ -239,6 +239,16 @@ const zh: Record<string, string> = {
 	'Re-detect walls': '重新识别墙体',
 	Loaded: '已加载',
 	'Remove floorplan': '移除平面图',
+	'Copy layout…': '复制布局…',
+	'Copy floor layout': '复制楼层布局',
+	'Copies this floor’s layout to another floor. Access points are never copied.':
+		'把本层布局复制到另一层。AP 不会被复制。',
+	'Target floor': '目标楼层',
+	'New floor': '新楼层',
+	'Plan and scale': '平面图与比例',
+	'Walls, columns and rooms': '墙体、柱子和房间',
+	'Selected data on the target floor will be replaced.': '目标楼层中被选中的数据会被替换。',
+	'Copy': '复制',
 	Scale: '比例',
 	'Not set': '未设置',
 	'Derived from these walls: the mask, the interior and the coverage.':
@@ -498,7 +508,6 @@ const zh: Record<string, string> = {
 	'Click the opposite corner. Escape cancels.': '点击对角；Esc 取消。',
 	'Click one corner of the raised area, then the other.': '先点抬升区域的一角，再点对角。',
 	'Draw raised area': '绘制抬升面',
-	'Clear raised areas': '清空抬升面',
 	'Editing the selected raised area': '正在编辑选中的抬升面',
 	'Delete raised area': '删除抬升面',
 	'A client on a raised area is measured from its own floor, not the slab. Click an outline to select it; Delete removes it.':

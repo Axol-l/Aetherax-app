@@ -192,17 +192,6 @@
 		appState.surfaceSelected = null;
 		commitSurfaceEdit();
 	}
-
-	function clearSurfaces(): void {
-		const floor = currentFloor();
-		if (!floor) return;
-		pushState();
-		floor.surfaces = [];
-		appState.surfaceSelected = null;
-		void updateCoverage();
-		scheduleSave();
-		canvasEngineRef.engine?.markDirty();
-	}
 </script>
 
 <PanelCard title={t('Raised surfaces')} icon="stack" bind:collapsed>
@@ -327,11 +316,6 @@
 				<Icon name="trash" size={14} />
 				{t('Delete raised area')}
 			</Button>
-			{#if (currentFloor()?.surfaces ?? []).length > 0}
-				<Button variant="ghost" size="sm" onclick={clearSurfaces}>
-					{t('Clear raised areas')}
-				</Button>
-			{/if}
 			<Button variant="primary" size="sm" onclick={closeSelectedSurface}>
 				{t('Done')}
 			</Button>
@@ -447,11 +431,6 @@
 					<Icon name="pencil" size={14} />
 					{t('Draw raised area')}
 				</Button>
-				{#if (currentFloor()?.surfaces ?? []).length > 0}
-					<Button variant="ghost" size="sm" onclick={clearSurfaces}>
-						{t('Clear raised areas')}
-					</Button>
-				{/if}
 			</div>
 		{/if}
 	{/if}

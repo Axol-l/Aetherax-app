@@ -227,6 +227,7 @@ docs/             架构、手册、测量与修复计划
 | 文件 | 作用 |
 | --- | --- |
 | `ConfirmDialog.svelte` | 通用确认框。 |
+| `CopyFloorLayoutDialog.svelte` | 把当前楼层布局复制到另一层或新楼层，可选择复制内容。 |
 | `NewProjectDialog.svelte` | 新建工程：名称、清空当前布局、创建。 |
 | `WelcomeDialog.svelte` | 首次启动引导与示例入口。 |
 | `ManualDialog.svelte` | 帮助弹窗，用 iframe 加载 `static/manual.html`。 |

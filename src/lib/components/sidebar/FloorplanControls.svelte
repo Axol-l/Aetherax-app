@@ -15,6 +15,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import { FLOOR_MATERIALS } from '$canvas/floor-materials.js';
 	import Select from '$components/shared/Select.svelte';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
+	import CopyFloorLayoutDialog from '$components/dialogs/CopyFloorLayoutDialog.svelte';
 	import FloorStrip from './FloorStrip.svelte';
 	import FloorplanNotes from './FloorplanNotes.svelte';
 	import FloorplanSurfaces from './FloorplanSurfaces.svelte';
@@ -35,6 +36,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let confirmAction = $state<(() => void) | null>(null);
 	let confirmTitle = $state('Delete');
 	let confirmLabel = $state('Delete');
+	let copyLayoutOpen = $state(false);
+	let copySourceId = $state('');
 
 	function showConfirm(
 		message: string,
@@ -781,6 +784,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 			<WallDetectionPanel {redetectFromPixels} />
 
 			<div class="planning-actions">
+				<Button variant="secondary" size="sm" onclick={() => { copySourceId = currentFloor().id; copyLayoutOpen = true; }}>
+					<Icon name="stack" size={14} />
+					{t('Copy layout…')}
+				</Button>
 				<Button variant="danger" size="sm" onclick={removeFloorplan}>
 					<Icon name="trash" size={14} />
 					{t('Remove floorplan')}
@@ -1163,6 +1170,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 	confirmLabel={confirmLabel}
 	onconfirm={() => { confirmAction?.(); }}
 />
+
+<CopyFloorLayoutDialog bind:open={copyLayoutOpen} sourceId={copySourceId} />
 
 <style>
 	.floorplan-controls {
