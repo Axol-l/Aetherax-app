@@ -1,14 +1,4 @@
-/**
- * Measuring the two wall models against each other.
- *
- * The vector model is about to replace the raster one, and the only honest way to do that is
- * to compute the same rays both ways and look at the numbers. "It looks similar" is how a
- * coverage figure quietly gains four points.
- *
- * The comparison takes the raster loss as a *function*, so it measures whatever the app
- * actually marches with — not a second implementation of it written for the test — while
- * staying pure and testable.
- */
+/** Measuring the two wall models against each other. */
 import type { Band } from '@aetherax/channels';
 import { rayWallLossDb, type WallSegment } from './wall-crossings.js';
 

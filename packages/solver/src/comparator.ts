@@ -1,3 +1,5 @@
+// 比较不同算法效果，使用颜色更少，运行更快的结果优先
+
 import { greedy } from './algorithms/greedy.js';
 import { dsatur } from './algorithms/dsatur.js';
 import { welshPowell } from './algorithms/welsh-powell.js';

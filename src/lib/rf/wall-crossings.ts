@@ -1,19 +1,4 @@
-/**
- * Ray-versus-segment crossings: the wall loss of the vector model.
- *
- * The raster model asks "how many wall pixels does this ray walk through", and every
- * awkward thing about it comes from that question: a wall's *drawn* width is a drawing
- * convention, two strokes make a hollow wall, and a pixel on the corner belongs to two
- * walls at once. The vector model asks the question the physics asks instead — does the ray
- * cross this segment — and the loss is the segment's material figure, once per crossing.
- *
- * That is why materials are stored as "dB per crossing at a stated thickness": this module
- * charges exactly the number the user typed, with no per-metre arithmetic and no dependence
- * on how thick the wall was drawn.
- *
- * Pure and allocation-light: the wall march calls this per sample point, so it is a loop
- * over segments and nothing else.
- */
+/** Ray-versus-segment crossings: the wall loss of the vector model. */
 import type { Band } from '@aetherax/channels';
 import { getFlatAttenuation, type WallMaterialId } from '$lib/domain/materials.js';
 

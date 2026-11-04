@@ -1,10 +1,14 @@
+// 判断图形之间是否相交
+
 import type { Point, Circle, Rect } from './types.js';
 import { euclidean } from './distance.js';
 
+// 判断两个圆是否重叠
 export function circlesOverlap(a: Circle, b: Circle): boolean {
 	return euclidean(a.center, b.center) < a.radius + b.radius;
 }
 
+// 计算两个圆的重叠面积
 export function circleOverlapArea(a: Circle, b: Circle): number {
 	const d = euclidean(a.center, b.center);
 	const r1 = a.radius;
@@ -34,14 +38,17 @@ export function circleOverlapArea(a: Circle, b: Circle): number {
 	);
 }
 
+// 判断点是否在圆内
 export function pointInCircle(p: Point, c: Circle): boolean {
 	return euclidean(p, c.center) <= c.radius;
 }
 
+// 判断点是否在矩形内
 export function pointInRect(p: Point, r: Rect): boolean {
 	return p.x >= r.x && p.x <= r.x + r.width && p.y >= r.y && p.y <= r.y + r.height;
 }
 
+// 判断两个矩形是否重叠
 export function rectsOverlap(a: Rect, b: Rect): boolean {
 	return a.x < b.x + b.width && a.x + a.width > b.x && a.y < b.y + b.height && a.y + a.height > b.y;
 }

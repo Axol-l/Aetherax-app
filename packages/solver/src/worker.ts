@@ -1,3 +1,9 @@
+// 把求解器放到 Web Worker 中运行
+// 避免复杂求解阻塞 Svelte UI
+// 接收图和求解参数
+// 在 Worker 内执行单个算法或全部算法对比
+// 返回序列化后的频道分配结果
+
 /// <reference lib="webworker" />
 
 import { greedy } from './algorithms/greedy.js';

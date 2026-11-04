@@ -1,16 +1,4 @@
-/**
- * The project as a JSON file.
- *
- * The format itself lives in `state/project-document.ts` — the same document the app
- * writes to storage — so this module only does the two things a *file* needs and a stored
- * project does not: it inlines each floor's underlay as a data URL, and it pretty-prints
- * the result for a human who opens it in an editor.
- *
- * It used to declare its own copy of the schema, and that copy never learned about the
- * vector walls, columns, raised surfaces, notes or the planning area — so exporting a
- * project and importing it back silently dropped all of them. There is one schema now, and
- * the round-trip test in `state/project-document.test.ts` is what keeps it honest.
- */
+/** The project as a JSON file. */
 import { appState } from '$state/app.svelte.js';
 import { clearSelection } from '$state/canvas.svelte.js';
 import { floorState } from '$state/floor-state.svelte.js';

@@ -1,7 +1,7 @@
+// 提供受环境控制的调试日志函数
+
 /// <reference types="vite/client" />
 /**
- * Debug logging, on while developing and silent in a build.
- *
  * The app prints a lot of measured numbers — how long a save took, how long the
  * optimiser searched, how long a mask took to decode — and they are worth keeping: they
  * are how a regression in the expensive paths gets noticed. They are not worth shipping,

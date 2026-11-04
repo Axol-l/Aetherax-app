@@ -49,10 +49,6 @@ export interface Reflection {
 
 /**
  * The specular reflection of `from` in `wall` that reaches `to`, or null.
- *
- * Null covers every reason it cannot exist: a degenerate wall, both points on the same side (a
- * reflection that would have to pass through the wall), a bounce beyond the segment's ends (a
- * wall is finite; light does not reflect off the air beside it).
  */
 export function specularReflection(
 	from: { x: number; y: number },
@@ -71,11 +67,6 @@ export function specularReflection(
 	const sideTo = (to.x - wall.ax) * nx + (to.y - wall.ay) * ny;
 	/*
 	 * The two ends must be on the **same** side of the wall's line.
-	 *
-	 * A reflection off a wall to the right of both points is fine; a "reflection" between two
-	 * points on opposite sides is not — that ray passes through the wall, and the wall's own
-	 * transmission figure is what charges it. This is the image-source precondition, and getting
-	 * it backwards silently turns every crossing into a bounce.
 	 */
 	if (sideFrom * sideTo <= 0) return null;
 
@@ -124,15 +115,6 @@ export function specularReflection(
 
 /**
  * Reflected power as a fraction of the incident power, from the material's own coefficients.
- *
- * Zero for a material with no ITU equivalent. The virtual partition is a line in the mask that
- * divides rooms — it is not a surface, so it reflects nothing; the closed door is modelled by a
- * flat loss, so it has no coefficient to reflect with either.
- *
- * The coefficient changes slowly with angle, so it is memoised on a coarse angle bucket and on
- * the material: the per-texel loop asks for it millions of times per image, and the complex
- * arithmetic behind it (two square roots and two exponentials) is the expensive part of the
- * whole term.
  */
 const coefficientCache = new Map<string, number>();
 export function reflectionPowerRatio(
@@ -164,15 +146,6 @@ export function reflectionPowerRatio(
 
 /**
  * Every reflection reaching `to`, strongest first, above `minRatio`.
- *
- * The picture is built from **all** of them rather than the strongest one.
- *
- * "Strongest only" looked wrong on a real plan, and the reason is geometric: which wall is the
- * strongest *switches* across a line in the room, and at that line the picture jumps from one
- * wall's path to another's — a sharp crease where the physics is continuous. It also left a
- * visible edge where the distance cull and the −25 dB cutoff began. Summing the returns that
- * exist removes both discontinuities, at the cost of a coefficient per wall (memoised on a
- * coarse angle bucket, see `reflectionPowerRatio`).
  */
 export function reflections(
 	from: { x: number; y: number },
@@ -204,9 +177,6 @@ export function reflections(
 
 /**
  * The strongest single reflection reaching `to` from an access point, or null.
- *
- * Kept for the coverage pass, which wants one number per sample rather than a picture: the
- * margin of the best path.
  */
 export function bestReflection(
 	from: { x: number; y: number },

@@ -1,3 +1,4 @@
+// 包的统一入口
 export type { Band, Channel, ChannelWidth, RegulatoryDomain } from './types.js';
 export { CHANNELS_2_4GHZ, NON_OVERLAPPING_2_4 } from './bands/band-2_4ghz.js';
 export { CHANNELS_5GHZ, DFS_CHANNELS_5GHZ } from './bands/band-5ghz.js';

@@ -1,3 +1,4 @@
+// 整个包的统一导出入口
 export type { Point, Circle, Rect, Matrix2D } from './types.js';
 export { euclidean, squaredEuclidean, pointToSegment } from './distance.js';
 export {

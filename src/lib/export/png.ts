@@ -6,14 +6,7 @@ export interface PngOptions {
 	scale?: number;
 }
 
-/**
- * Save the current view as a PNG.
- *
- * The picture is the engine's own loop drawn into an offscreen canvas at a higher scale — a
- * second copy of that loop used to live here, filtering layers by id, so an overlay added to
- * the canvas appeared in exports until somebody remembered to add its id to the list. A layer
- * now says whether it belongs in a picture (`Layer.exportable`).
- */
+/** Save the current view as a PNG. */
 export async function exportPng(engine: CanvasEngine, options: PngOptions = {}): Promise<void> {
 	const scale = options.scale ?? 2;
 

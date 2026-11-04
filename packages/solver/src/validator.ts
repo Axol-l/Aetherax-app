@@ -1,3 +1,5 @@
+// 检查分配结果是否合法
+
 import type { Graph } from './types.js';
 
 export function validate(

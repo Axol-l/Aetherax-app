@@ -1,3 +1,5 @@
+// 估算无线吞吐量
+
 import type { Band, ChannelWidth } from './types.js';
 
 /**
@@ -51,7 +53,7 @@ function standardKey(wifiStandard: string): string {
 	return 'wifi4';
 }
 
-/** Get PHY data rate for a specific standard, streams, and channel width. */
+// 获取理论物理层速率
 export function getPhyRate(
 	wifiStandard: string,
 	streams: number,
@@ -87,6 +89,7 @@ export interface ThroughputOptions {
 	macEfficiency?: number; // default 0.5
 }
 
+// 计算每个 AP 的有效吞吐量
 export function estimateThroughput(
 	aps: ThroughputInput[],
 	options: ThroughputOptions
@@ -119,6 +122,7 @@ export function estimateThroughput(
 	});
 }
 
+// 提供通用理论速率
 export function getBaseRate(_band: Band, channelWidth: ChannelWidth): number {
 	// Generic fallback for heatmap (no model info): WiFi 6, 2 streams
 	return getPhyRate('WiFi 6', 2, channelWidth);

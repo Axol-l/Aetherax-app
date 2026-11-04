@@ -1,3 +1,5 @@
+// 定义几何基础类型
+
 export interface Point {
 	x: number;
 	y: number;

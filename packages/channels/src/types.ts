@@ -1,3 +1,4 @@
+// 定义频道相关的基础类型
 export type Band = '2.4ghz' | '5ghz' | '6ghz';
 
 export type ChannelWidth = 20 | 40 | 80 | 160 | 320;

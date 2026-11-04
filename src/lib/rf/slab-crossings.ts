@@ -1,16 +1,5 @@
 /**
  * Attributing a cross-floor path's storey boundaries to the floors that own them.
- *
- * Kept out of `optimizer.svelte.ts` for the same reason the ray split is kept out of
- * it: the part that was wrong the first time D-prime was attempted was pure geometry
- * — which slab is each crossing, and how much of the total loss is charged there —
- * and pure geometry is the part that can be read by an instrument before any of it is
- * wired into a search.
- *
- * The slab between two storeys belongs to the **upper** one: that is the material and
- * thickness `getFloorSlabAttenuation` charges. In level order, then, the plane at
- * `planeIndex` is owned by the floor at index `planeIndex - 1`, which is exactly what
- * this returns.
  */
 
 import type { Band } from '@aetherax/channels';
@@ -45,12 +34,6 @@ export interface CrossingSlabInput {
 	clientHeight: number;
 	/**
 	 * The access point's own height above *its* floor, metres.
-	 *
-	 * Omitted means the ceiling of the AP's storey, which is the mount this
-	 * computation assumed before mounting heights existed. Where the AP actually is
-	 * decides the ray's slope, and with it which planes it meets and where — a
-	 * floor-mounted AP two storeys down meets the slabs at different fractions than
-	 * a ceiling-mounted one, so the fractions and the shares move together.
 	 */
 	apHeightM?: number;
 	/** Band, carried only for the doc trail: the loss is already resolved. */
@@ -59,12 +42,6 @@ export interface CrossingSlabInput {
 
 /**
  * The crossings a path from `apFloorId` to `clientFloorId` makes, ready to score.
- *
- * Returns null when there is nothing to test — the same floor, or a path that never
- * leaves one storey — in which case the caller leaves the aggregate slab loss in
- * place. Crossings whose owner floor has no room-type data are dropped rather than
- * kept with a null mask: `slabLossFactor` would charge them full loss anyway, and
- * dropping them keeps the shares honest about what was actually tested.
  */
 export function crossingSlabsFor(
 	input: CrossingSlabInput,

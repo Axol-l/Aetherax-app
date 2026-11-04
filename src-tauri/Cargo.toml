@@ -1,9 +1,9 @@
 [package]
 name = "aetherax"
-version = "0.1.0"
+version = "0.2.0"
 description = "Aetherax — WiFi coverage and channel planner"
 authors = ["Axol-l"]
-edition = "2024"
+edition = "2026"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

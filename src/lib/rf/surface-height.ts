@@ -1,43 +1,16 @@
 /**
  * Raised walking surfaces — a mezzanine, a stair, a ramp — as a height field.
- *
- * A plan is flat, and the model has always treated every client on a floor as standing
- * on that floor: `clientHeight` above the slab, nothing else. That is right for a
- * single-level space and wrong for the two cases plans show constantly: a mezzanine
- * whose desks are two metres closer to the ceiling than the floor below, and a stair
- * that climbs from one to the other. The vertical gap is what the antenna's elevation
- * cut and the 3-D distance are made of, so on a six-metre atrium the error is not a
- * rounding — it is the difference between an AP overhead being at the weak end of its
- * doughnut and being near its peak.
- *
+ * 
  * The shape is deliberately one rectangle with a height at each end:
  *
  * - a **platform** is level, so both heights are the same;
  * - a **ramp** rises linearly along its run;
- * - a **stair** rises along its run in the same field. A stair is a *flight* of steps,
- *   and a modelled step function would put a discontinuity through the sample grid —
- *   the continuous field is the mean of the treads, which is what a metre-scale
- *   propagation model can resolve anyway.
- *
- * The run is the rectangle's longer side. `ax, ay` → `bx, by` are opposite corners, and
- * the height goes from the edge nearest `a` to the edge nearest `b`: a ramp drawn from
- * the bottom of a stairwell to its top reads the way it was drawn.
- *
- * Nothing here knows about masks, bands or clients, so the heatmap, the coverage pass
- * and the optimiser worker can all use it.
+ * - a **stair** rises along its run in the same field.
  */
 
 export type SurfaceKind = 'platform' | 'ramp' | 'stair';
 
-/**
- * What a raised deck is made of.
- *
- * A mezzanine's loss depends on the slab it is, not just on its height: a steel grating
- * over a plant room and a timber gallery are not the same obstacle. The material is a
- * preset for the one number the model actually charges — `attenuationDb` — so a project
- * saved before materials existed reads exactly as it did, and the field can still be
- * typed by hand.
- */
+/** What a raised deck is made of. */
 export type SurfaceMaterialId = 'concrete' | 'timber' | 'steel' | 'glass';
 
 export interface SurfaceMaterial {
@@ -70,13 +43,7 @@ export function surfaceColor(id: SurfaceMaterialId | undefined): readonly [numbe
 	return surfaceMaterial(id)?.color ?? DEFAULT_SURFACE_COLOR;
 }
 
-/**
- * The geometry a height field needs — a rectangle and the height at each end.
- *
- * The worker is handed these without an id or a kind: it reads heights, not the list the
- * user edits, and a type that demanded fields the payload does not carry would push a
- * fake id through a message boundary.
- */
+/** The geometry a height field needs — a rectangle and the height at each end. */
 export interface SurfaceRect {
 	/** Opposite corners of the rectangle the surface occupies. */
 	ax: number;
@@ -92,18 +59,10 @@ export interface SurfaceRect {
 	topHeightM: number;
 	/**
 	 * How deep the deck is under its walking surface, metres.
-	 *
-	 * It matters twice: it is the slab drawn in 3D, and it decides whether a path from
-	 * below actually passes *through* the deck rather than arriving under it. A client
-	 * standing on a 2 m deck with a 0.2 m deck under them and an AP at 1.5 m has a path
-	 * that crosses it; an AP at 2.4 m does not.
 	 */
 	thicknessM?: number;
 	/**
 	 * Loss through the deck, dB. Charged once to a path that crosses it.
-	 *
-	 * Ekahau's raised-surface figure: the deck is a slab, and a client on it is shielded
-	 * from a source below it. The default is the value its own defaults use (15 dB).
 	 */
 	attenuationDb?: number;
 	/**
@@ -139,10 +98,6 @@ export function surfaceBox(surface: SurfaceRect): {
 
 /**
  * How far along the run a point is, from 0 at the low end to 1 at the high end.
- *
- * The run is the longer side of the rectangle, so a surface drawn as a wide, shallow
- * box climbs across its width. A degenerate rectangle (a click without a drag) has no
- * run at all and reports 0, which makes it level rather than dividing by zero.
  */
 export function runFraction(surface: SurfaceRect, x: number, y: number): number {
 	const { x0, y0, width, height } = surfaceBox(surface);
@@ -181,10 +136,6 @@ export function heightOf(surface: SurfaceRect, x: number, y: number): number {
 
 /**
  * Height of the walking surface at a point, metres above the floor's own.
- *
- * Overlapping surfaces take the highest, not the sum: they are surfaces, and two people
- * cannot stand on two mezzanines at once. A ramp that reaches a platform therefore
- * blends into it rather than doubling it.
  */
 export function surfaceHeightAt(
 	surfaces: readonly SurfaceRect[] | null | undefined,
@@ -239,10 +190,6 @@ export function surfaceAttenuationDb(surface: SurfaceRect): number {
 
 /**
  * How many steps a stair has, from its rise and the tread depth.
- *
- * Derived rather than stored: a stair's run is its rectangle, so the number of treads
- * follows from the rise — that is what the reference's "Auto (step depth 0.3 m)" means, and
- * a stored count could disagree with the shape.
  */
 export function stepCount(surface: SurfaceRect, stepDepthM = STEP_DEPTH_M): number {
 	const rise = Math.abs((surface.topHeightM ?? 0) - (surface.heightM ?? 0));
@@ -252,14 +199,6 @@ export function stepCount(surface: SurfaceRect, stepDepthM = STEP_DEPTH_M): numb
 
 /**
  * The surface whose deck a path at this point crosses, if any.
- *
- * A client standing on a surface has its feet on the top of the deck, so a source *below*
- * the deck's underside has to pass through it. The test is on the signed vertical gap
- * between source and client: negative means the source is below the client, and more than
- * the deck's thickness below means it is past the underside.
- *
- * Returns the loss to charge, and the surface, so a caller that wants to draw the crossing
- * can. `gateGapM` is the ap–client gap in metres, negative when the AP is below the client.
  */
 export function deckCrossing(
 	surfaces: readonly SurfaceRect[] | null | undefined,

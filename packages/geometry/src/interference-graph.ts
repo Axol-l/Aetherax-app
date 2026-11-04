@@ -1,5 +1,8 @@
+// 根据 AP 位置计算无线干扰关系
+
 import { squaredEuclidean } from './distance.js';
 
+// AP 的二维或三维位置和干扰半径
 export interface ApPosition {
 	id: string;
 	x: number;
@@ -8,12 +11,14 @@ export interface ApPosition {
 	interferenceRadius: number;
 }
 
+// 两个 AP 之间的干扰边和重叠程度
 export interface InterferenceEdge {
 	a: string;
 	b: string;
 	overlapFraction: number; // 0.0 (barely touching) to 1.0 (one circle fully inside the other)
 }
 
+// 生成节点和干扰边
 export function buildInterferenceGraph(aps: ApPosition[]): {
 	nodes: string[];
 	edges: InterferenceEdge[];

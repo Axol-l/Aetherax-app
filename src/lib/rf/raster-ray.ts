@@ -1,27 +1,11 @@
 /**
  * A raster reading of the same ray, for the comparison harness.
- *
- * The app's own wall march is a large piece of machinery wrapped around the heatmap's texel
- * generation; this is the same *idea* in thirty lines — walk the ray on the drawn grid and
- * charge each material band it passes through — so the comparison can produce a number today
- * without the heatmap being rewired first.
- *
- * It is deliberately labelled as a re-implementation rather than "the march": when the real
- * switch goes in, the harness should be handed the real one, and this can go.
  */
 import { getFlatAttenuation, type WallMaterialId } from '$lib/domain/materials.js';
 import type { Band } from '@aetherax/channels';
 
 /**
  * Wall loss along a ray, measured by walking the drawn grid.
- *
- * `wall` decides what is wall and `material` decides what it costs, and the two are separate
- * on purpose: **material id 0 is Drywall**, and an unpainted pixel is also 0, so the id alone
- * cannot tell a drywall wall from empty floor. Gating on the wall mask is what makes the
- * distinction, and `defaultMaterial` is the material an unpainted wall pixel gets.
- *
- * Each *transition* into a run of wall costs that wall's figure once, which is how a drawn
- * band becomes one crossing rather than a loss per pixel.
  */
 export function rasterRayLossDb(
 	from: { x: number; y: number },

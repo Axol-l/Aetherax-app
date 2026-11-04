@@ -1,3 +1,4 @@
+// 统一导出所有求解功能
 export type { Graph, SolverResult, SolverOptions, ComparisonResult } from './types.js';
 export { createGraph, addNode, addEdge, neighbors, degree } from './graph.js';
 export { greedy } from './algorithms/greedy.js';
