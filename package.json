@@ -3,7 +3,7 @@
 	"private": true,
 	"author": "Axol-l",
 	"license": "UNLICENSED",
-	"version": "0.1.0",
+	"version": "0.2.0",
 	"description": "Aetherax — WiFi coverage planner, packaged as a desktop application",
 	"type": "module",
 	"scripts": {
