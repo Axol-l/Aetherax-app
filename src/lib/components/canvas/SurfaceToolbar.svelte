@@ -2,8 +2,8 @@
 	/**
 	 * The raised-surface tool's floating bar.
 	 *
-	 * Same shape as the wall tool's bar 鈥?a segmented group of what you are drawing, one
-	 * material control, and Done 鈥?because the two are the same kind of mode. A surface is
+	 * Same shape as the wall tool's bar 閳?a segmented group of what you are drawing, one
+	 * material control, and Done 閳?because the two are the same kind of mode. A surface is
 	 * drawn with two clicks; the kind changes what those clicks mean and the deck material
 	 * sets the loss, so both belong next to the pointer rather than in the sidebar.
 	 *
@@ -11,6 +11,8 @@
 	 * presets plus "Custom", and a row of five in a floating bar is the sidebar this bar
 	 * exists to avoid.
 	 */
+	import { fly } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 	import { t } from '$state/i18n.svelte';
 	import {
 		DEFAULT_SURFACE_COLOR,
@@ -63,7 +65,12 @@
 
 <svelte:window onkeydown={open ? (e) => { if (e.key === 'Escape') open = false; } : undefined} />
 
-<div class="surface-toolbar" role="toolbar" aria-label={t('Raised surfaces')}>
+<div
+	class="surface-toolbar"
+	role="toolbar"
+	aria-label={t('Raised surfaces')}
+	transition:fly={{ y: -6, duration: motionDuration(150), opacity: 0 }}
+>
 	<div class="tool-group">
 		{#each kinds as option (option.id)}
 			<button
@@ -131,7 +138,7 @@
 		position: absolute;
 		top: var(--space-3, 12px);
 		left: 50%;
-		transform: translateX(-50%);
+		translate: -50% 0;
 		display: flex;
 		align-items: center;
 		/* One continuous strip, like the wall tool's: no gaps between controls. */
@@ -279,4 +286,5 @@
 		background: color-mix(in srgb, var(--accent-primary) 85%, white);
 	}
 </style>
+
 

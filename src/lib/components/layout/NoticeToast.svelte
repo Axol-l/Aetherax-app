@@ -20,9 +20,11 @@
 	 * Storage comes first when it is set: a plan that is wrong can be fixed, a plan that
 	 * was not saved is work to redo.
 	 */
+	import { fly } from 'svelte/transition';
 	import { appState } from '$state/app.svelte';
 	import { t } from '$state/i18n.svelte';
 	import Icon from '$components/shared/Icon.svelte';
+	import { motionDuration } from '$lib/motion.js';
 
 	/**
 	 * Put the notice away.
@@ -61,7 +63,12 @@
 </script>
 
 {#if text}
-	<div class="notice" role="status" aria-live="polite">
+	<div
+		class="notice"
+		role="status"
+		aria-live="polite"
+		transition:fly={{ y: 6, duration: motionDuration(160), opacity: 0 }}
+	>
 		<Icon name="warning" size={15} />
 		<p>{text}</p>
 		<button class="dismiss" title={t('Dismiss')} aria-label={t('Dismiss')} onclick={dismiss}>
@@ -71,14 +78,26 @@
 {/if}
 
 {#if walls}
-	<div class="notice saved" class:stacked={text !== null || saved !== null} role="status" aria-live="polite">
+	<div
+		class="notice saved"
+		class:stacked={text !== null || saved !== null}
+		role="status"
+		aria-live="polite"
+		transition:fly={{ y: 6, duration: motionDuration(160), opacity: 0 }}
+	>
 		<Icon name="check" size={13} />
 		<p>{walls}</p>
 	</div>
 {/if}
 
 {#if saved}
-	<div class="notice saved" class:stacked={text !== null} role="status" aria-live="polite">
+	<div
+		class="notice saved"
+		class:stacked={text !== null}
+		role="status"
+		aria-live="polite"
+		transition:fly={{ y: 6, duration: motionDuration(160), opacity: 0 }}
+	>
 		<Icon name="check" size={13} />
 		<p>{saved}</p>
 	</div>

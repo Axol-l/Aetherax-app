@@ -15,11 +15,17 @@
 	]);
 
 	let hasSelection = $derived(canvasState.selectedApIds.length > 0);
+	let activeTabIndex = $derived(Math.max(0, tabs.findIndex((tab) => tab.id === appState.sidebarPanel)));
 </script>
 
 {#if appState.sidebarOpen}
 	<aside class="sidebar" aria-label={t('Sidebar')}>
 		<div class="tab-bar" role="tablist">
+			<span
+				class="tab-indicator"
+				style:transform={`translateX(${activeTabIndex * 100}%)`}
+				aria-hidden="true"
+			></span>
 			{#each tabs as tab}
 				<button
 					class="tab"
@@ -79,11 +85,35 @@
 	}
 
 	.tab-bar {
+		position: relative;
 		display: flex;
 		padding: 0 var(--space-2);
 		background: var(--bg-secondary);
 		border-bottom: 1px solid var(--border-subtle);
 		flex-shrink: 0;
+	}
+
+	/*
+	 * Two tabs, so the indicator is half the content width and shifts by exactly its own
+	 * width. The tab's own border-bottom stays transparent: one moving underline, not two
+	 * that cross-fade.
+	 */
+	.tab-indicator {
+		position: absolute;
+		left: var(--space-2);
+		bottom: 0;
+		width: calc(50% - var(--space-2));
+		height: 2px;
+		background: var(--accent-primary);
+		border-radius: 2px;
+		pointer-events: none;
+		transition: transform 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.tab-indicator {
+			transition: none;
+		}
 	}
 
 	.tab {
@@ -107,7 +137,6 @@
 
 	.tab.active {
 		color: var(--text-primary);
-		border-bottom-color: var(--accent-primary);
 	}
 
 	.tab:focus-visible {

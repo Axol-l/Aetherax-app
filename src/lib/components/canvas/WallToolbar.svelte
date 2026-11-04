@@ -1,16 +1,18 @@
-<script lang="ts">
+﻿<script lang="ts">
 	/**
 	 * The wall tool's floating bar.
 	 *
 	 * Three shapes and a material, because that is what a plan is made of: partition walls,
 	 * the piers that break them, and round columns. They share the same two-click gesture and
-	 * the same material, so they are one tool with a shape switch — switching must not drop
+	 * the same material, so they are one tool with a shape switch 鈥?switching must not drop
 	 * the mode, since a plan is drawn by alternating them.
 	 *
 	 * It floats over the canvas rather than living in the sidebar: the canvas is what the
 	 * next click lands on, and a sidebar section you have to find while drawing is a step
 	 * between the two clicks.
 	 */
+	import { fly } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 	import { t } from '$state/i18n.svelte';
 	import { getMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 	import { allWallMaterials } from '$state/custom-materials.js';
@@ -46,7 +48,12 @@
 	]);
 </script>
 
-<div class="wall-toolbar" role="toolbar" aria-label={t('Wall tools')}>
+<div
+	class="wall-toolbar"
+	role="toolbar"
+	aria-label={t('Wall tools')}
+	transition:fly={{ y: -6, duration: motionDuration(150), opacity: 0 }}
+>
 	<div class="tool-group">
 		<!-- Two things a plan is made of: walls, and the columns that break them. -->
 		<button
@@ -144,7 +151,7 @@
 		position: absolute;
 		top: var(--space-3, 12px);
 		left: 50%;
-		transform: translateX(-50%);
+		translate: -50% 0;
 		display: flex;
 		align-items: center;
 		/*
@@ -313,3 +320,4 @@
 		background: color-mix(in srgb, var(--accent-primary) 85%, white);
 	}
 </style>
+

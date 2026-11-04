@@ -1,9 +1,9 @@
-<script lang="ts">
+﻿<script lang="ts">
 	/**
 	 * The placement tool's floating bar.
 	 *
-	 * Placing access points inherits the last one's mounting — a plan is normally described
-	 * with one kind of hardware — but until this bar existed the mounting could not be
+	 * Placing access points inherits the last one's mounting 鈥?a plan is normally described
+	 * with one kind of hardware 鈥?but until this bar existed the mounting could not be
 	 * changed *before* the click: a wall mount could only be placed by first placing a wall
 	 * mount somewhere else, then editing it. The bar is the missing switch, floating over the
 	 * canvas where the next click lands, like the wall tool's own bar.
@@ -13,6 +13,8 @@
 	 * aim stay in the AP editor: they refine an AP that exists, and a click is not the moment
 	 * to type them.
 	 */
+	import { fly } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 	import { t } from '$state/i18n.svelte';
 	import { MOUNT_PRESETS, type ApMount } from '$state/ap-state.svelte.js';
 
@@ -33,7 +35,12 @@
 	const active = $derived(mount ?? lastMount);
 </script>
 
-<div class="place-toolbar" role="toolbar" aria-label={t('Access point placement')}>
+<div
+	class="place-toolbar"
+	role="toolbar"
+	aria-label={t('Access point placement')}
+	transition:fly={{ y: -6, duration: motionDuration(150), opacity: 0 }}
+>
 	<span class="label">{t('Mounting')}</span>
 	<div class="tool-group">
 		{#each MOUNT_PRESETS as preset (preset.mount)}
@@ -59,7 +66,7 @@
 		position: absolute;
 		top: var(--space-3, 12px);
 		left: 50%;
-		transform: translateX(-50%);
+		translate: -50% 0;
 		display: flex;
 		align-items: center;
 		gap: 6px;
@@ -135,3 +142,4 @@
 		color: #0b0d12;
 	}
 </style>
+

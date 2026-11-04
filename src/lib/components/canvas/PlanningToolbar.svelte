@@ -4,9 +4,11 @@
 	 *
 	 * Same strip as the wall and surface tools: what is being drawn, the actions that only
 	 * make sense while it is being drawn, and a green action that ends the mode. The sidebar
-	 * card can still close the loop, but drawing happens over the canvas 鈥?reaching for the
+	 * card can still close the loop, but drawing happens over the canvas 閳?reaching for the
 	 * panel between two corners is the step this bar removes.
 	 */
+	import { fly } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 	import { t } from '$state/i18n.svelte';
 	import Icon from '$components/shared/Icon.svelte';
 
@@ -24,7 +26,12 @@
 	} = $props();
 </script>
 
-<div class="planning-toolbar" role="toolbar" aria-label={t('Planning area')}>
+<div
+	class="planning-toolbar"
+	role="toolbar"
+	aria-label={t('Planning area')}
+	transition:fly={{ y: -6, duration: motionDuration(150), opacity: 0 }}
+>
 	<span class="label">{t('Planning area')}</span>
 	<span class="count">{corners}</span>
 	<span class="divider"></span>
@@ -49,7 +56,7 @@
 		position: absolute;
 		top: var(--space-3, 12px);
 		left: 50%;
-		transform: translateX(-50%);
+		translate: -50% 0;
 		display: flex;
 		align-items: center;
 		gap: 2px;
@@ -136,4 +143,5 @@
 		cursor: default;
 	}
 </style>
+
 
