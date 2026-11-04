@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { fade, fly } from 'svelte/transition';
 	import Button from '$components/shared/Button.svelte';
+	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
 	import { motionDuration } from '$lib/motion.js';
 	import { addFloor, floorState, getFloor, switchFloor } from '$state/floor-state.svelte.js';
@@ -16,6 +17,7 @@
 	} = $props();
 
 	let target = $state('new');
+	let targetOpen = $state(false);
 	let copyPlan = $state(true);
 	let copyWalls = $state(true);
 	let copyPlanningArea = $state(true);
@@ -24,6 +26,18 @@
 
 	const source = $derived(getFloor(sourceId) ?? null);
 	const targets = $derived(floorState.floors.filter((floor) => floor.id !== sourceId));
+	const targetOptions = $derived([
+		...targets.map((floor) => ({
+			value: floor.id,
+			label: floor.name,
+			meta: `L${floor.level}`,
+			isNew: false
+		})),
+		{ value: 'new', label: t('New floor'), meta: '+', isNew: true }
+	]);
+	const selectedTarget = $derived(
+		targetOptions.find((option) => option.value === target) ?? targetOptions.at(-1)!
+	);
 	const canCopy = $derived(
 		source !== null && (copyPlan || copyWalls || copyPlanningArea || copySurfaces || copyNotes)
 	);
@@ -31,7 +45,23 @@
 	$effect(() => {
 		if (!open) return;
 		target = targets[0]?.id ?? 'new';
+		targetOpen = false;
 	});
+
+	function chooseTarget(value: string) {
+		target = value;
+		targetOpen = false;
+	}
+
+	function handleTargetKeydown(event: KeyboardEvent) {
+		if (event.key === 'Escape') {
+			event.stopPropagation();
+			targetOpen = false;
+		} else if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+			event.preventDefault();
+			targetOpen = true;
+		}
+	}
 
 	function clone<T>(value: T): T {
 		return value == null ? value : (JSON.parse(JSON.stringify(value)) as T);
@@ -81,7 +111,11 @@
 
 <svelte:window
 	onkeydown={(e) => {
-		if (open && e.key === 'Escape') open = false;
+		if (!open) return;
+		if (e.key === 'Escape') {
+			if (targetOpen) targetOpen = false;
+			else open = false;
+		}
 	}}
 />
 
@@ -103,15 +137,43 @@
 				{t('Copies this floor’s layout to another floor. Access points are never copied.')}
 			</p>
 
-			<label class="field">
+			<div class="field">
 				<span class="field-label">{t('Target floor')}</span>
-				<select class="target" bind:value={target}>
-					{#each targets as floor}
-						<option value={floor.id}>{floor.name}</option>
-					{/each}
-					<option value="new">{t('New floor')}</option>
-				</select>
-			</label>
+				<button
+					class="target-trigger"
+					type="button"
+					aria-haspopup="listbox"
+					aria-expanded={targetOpen}
+					onclick={() => (targetOpen = !targetOpen)}
+					onkeydown={handleTargetKeydown}
+				>
+					<span>{selectedTarget.label}</span>
+					<Icon name="chevron-down" size={12} />
+				</button>
+
+				{#if targetOpen}
+					<button
+						class="target-backdrop"
+						aria-label={t('Close')}
+						onclick={() => (targetOpen = false)}
+					></button>
+					<div class="target-menu" role="listbox" aria-label={t('Target floor')}>
+						{#each targetOptions as option (option.value)}
+							<button
+								class="target-row"
+								class:active={option.value === target}
+								role="option"
+								aria-selected={option.value === target}
+								onclick={() => chooseTarget(option.value)}
+							>
+								<span class="target-dot" class:new={option.isNew}></span>
+								<span>{option.label}</span>
+								<span class="target-meta">{option.meta}</span>
+							</button>
+						{/each}
+					</div>
+				{/if}
+			</div>
 
 			<div class="checks">
 				<label><input type="checkbox" bind:checked={copyPlan} /> {t('Plan and scale')}</label>
@@ -165,6 +227,7 @@
 	}
 
 	.field {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-1);
@@ -176,13 +239,116 @@
 		color: var(--text-secondary);
 	}
 
-	.target {
-		height: 30px;
+	.target-trigger {
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
+		width: 100%;
+		height: 32px;
 		padding: 0 var(--space-2);
 		color: var(--text-primary);
-		background: var(--bg-primary);
+		background: var(--bg-secondary);
 		border: 1px solid var(--border-default);
+		border-radius: var(--radius-lg);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.target-trigger:hover {
+		border-color: var(--accent-primary-dim);
+	}
+
+	.target-trigger:focus-visible {
+		outline: 2px solid var(--accent-primary);
+		outline-offset: 1px;
+	}
+
+	.target-trigger :global(svg) {
+		color: var(--text-tertiary);
+		transition: transform var(--transition-fast);
+	}
+
+	.target-trigger[aria-expanded='true'] :global(svg) {
+		transform: rotate(180deg);
+	}
+
+	/* Same shell as the wall-material popup: secondary surface, large radius, one-pixel gap. */
+	.target-backdrop {
+		position: fixed;
+		inset: 0;
+		z-index: 10;
+		padding: 0;
+		background: transparent;
+		border: none;
+	}
+
+	.target-menu {
+		position: absolute;
+		top: calc(100% + 4px);
+		left: 0;
+		right: 0;
+		z-index: 11;
+		max-height: 220px;
+		overflow-y: auto;
+		display: flex;
+		flex-direction: column;
+		gap: 1px;
+		padding: var(--space-1);
+		background: var(--bg-secondary);
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-lg);
+		box-shadow: var(--shadow-lg);
+	}
+
+	.target-row {
+		display: flex;
+		align-items: center;
+		gap: var(--space-2);
+		width: 100%;
+		padding: var(--space-1) var(--space-2);
+		color: var(--text-primary);
+		background: transparent;
+		border: none;
 		border-radius: var(--radius-sm);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		text-align: left;
+		cursor: pointer;
+	}
+
+	.target-row:hover {
+		background: var(--bg-hover);
+	}
+
+	.target-row.active {
+		background: var(--accent-primary-glow);
+	}
+
+	.target-dot {
+		width: 12px;
+		height: 12px;
+		flex: none;
+		background: var(--border-strong);
+		border-radius: 2px;
+	}
+
+	.target-row.active .target-dot {
+		background: var(--accent-primary);
+	}
+
+	.target-dot.new {
+		background: transparent;
+		border: 1px dashed var(--border-strong);
+	}
+
+	.target-meta {
+		margin-left: auto;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
 	}
 
 	.checks {

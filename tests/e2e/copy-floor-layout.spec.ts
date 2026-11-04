@@ -137,10 +137,11 @@ test('a floor layout can be copied to another floor without its access points', 
 	await page.getByRole('button', { name: /Copy layout/ }).click();
 	const dialog = page.getByRole('dialog', { name: 'Copy floor layout' });
 	await expect(dialog).toBeVisible();
-	await dialog.locator('select').selectOption('f2');
+	await dialog.getByRole('button', { name: 'Floor 2' }).click();
+	await dialog.getByRole('option', { name: /Floor 2/ }).click();
 	await dialog.getByRole('button', { name: 'Copy', exact: true }).click();
 	await expect(page.getByRole('button', { name: 'Remove floorplan' })).toBeVisible();
-	await expect(page.getByRole('button', { name: 'Floor 2' })).toHaveClass(/active/);
+	await expect(page.locator('.floor-pill', { hasText: 'Floor 2' })).toHaveClass(/active/);
 
 	await page.waitForTimeout(6000);
 	await page.reload();
