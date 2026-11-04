@@ -45,7 +45,6 @@
 	import { FloorTilesLayer } from '$canvas/renderers/floor-tiles.js';
 	import { StackedFloorsLayer, MAX_PITCH } from '$canvas/renderers/stacked-floors.js';
 	import { Floor3DLayer } from '$canvas/renderers/floor-3d.js';
-	import { ViewTransitionLayer } from '$canvas/renderers/view-transition.js';
 	import { FloorCardCache } from '$canvas/renderers/floor-card.js';
 	import { DragHandler, type WallProbe } from '$canvas/interactions/drag.js';
 	import { PlaceHandler } from '$canvas/interactions/place.js';
@@ -72,6 +71,7 @@
 import { wallState } from '$state/wall-state.svelte.js';
 	import { projectMeta } from '$state/project-meta.svelte.js';
 	import { canvasEngineRef, canvasState, clearSelection } from '$state/canvas.svelte.js';
+	import { viewTransition } from '$state/view-transition.svelte.js';
 	import {
 		appState,
 		setFloorAlignMode,
@@ -626,7 +626,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	const stackedFloorsLayer = new StackedFloorsLayer(floorCards);
 	stackedFloorsLayer.onLoad = () => engine?.markDirty();
 	const floor3DLayer = new Floor3DLayer(floorCards);
-	const viewTransitionLayer = new ViewTransitionLayer(() => engine?.markDirty());
 	const calibrationLineLayer = new CalibrationLineLayer();
 	const planningAreaLayer = new PlanningAreaLayer();
 	const surfacesLayer = new SurfacesLayer();
@@ -700,7 +699,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// Published so the toolbar and the status bar can act on the live view: they
 		// export the frame, fit the plan and reset the camera. See `canvasEngineRef`.
 		canvasEngineRef.engine = engine;
-		engine.setViewTransition(viewTransitionLayer);
 
 		// Add layers in draw order: the array is the order.
 		engine.setLayers([
@@ -730,10 +728,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			vectorWallsLayer,
 			// The 3D view draws the whole floor itself, so it goes on top: when it is visible
 			// every layer beneath it has already switched itself off.
-			floor3DLayer,
-			// Above everything, including 3D: a snapshot of the view being left, faded out
-			// over the next few frames.
-			viewTransitionLayer
+			floor3DLayer
 		]);
 
 		// Create interaction handlers
@@ -2240,6 +2235,18 @@ import { wallState } from '$state/wall-state.svelte.js';
 		ontouchend={(e) => gestures.handleTouchEnd(e)}
 		ontouchcancel={(e) => gestures.handleTouchEnd(e)}
 	></canvas>
+	<!--
+		A DOM cover for the two-stage view change: the old view fades under it, the new view
+		is swapped in while it is fully opaque, then it fades away. It sits above the canvas
+		but below the floating toolbars, so turning the view off does not hide the controls
+		that frame it.
+	-->
+	<div
+		class="view-fade"
+		class:covering={viewTransition.covering}
+		class:active={viewTransition.active}
+		aria-hidden="true"
+	></div>
 	<LayerPanel />
 	{#if appState.wallVectorMode}
 		<WallToolbar
@@ -2371,6 +2378,34 @@ import { wallState } from '$state/wall-state.svelte.js';
 	/* Drawing a polygon: the cursor has to say that a click places a corner. */
 	canvas.drawing-area {
 		cursor: crosshair;
+	}
+
+	/*
+	 * The view change cover. 160ms is `VIEW_FADE_MS` in the state module: the JS waits for
+	 * the CSS transition before it swaps the view, so these two values must stay in step.
+	 */
+	.view-fade {
+		position: absolute;
+		inset: 0;
+		z-index: 5;
+		background: var(--canvas-bg);
+		opacity: 0;
+		pointer-events: none;
+		transition: opacity 160ms cubic-bezier(0.2, 0.8, 0.2, 1);
+	}
+
+	.view-fade.covering {
+		opacity: 1;
+	}
+
+	.view-fade.active {
+		pointer-events: auto;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.view-fade {
+			transition: none;
+		}
 	}
 
 	/* Floor stepping in the 3D view: a small HUD, out of the plan's way at the top. */

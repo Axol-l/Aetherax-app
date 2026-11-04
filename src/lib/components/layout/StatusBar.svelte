@@ -3,7 +3,7 @@
 	import { canvasEngineRef, canvasState } from '$state/canvas.svelte';
 	import { appState, type FloorView } from '$state/app.svelte';
 	import { fitCanvasToContent } from '$canvas/fit.js';
-	import { motionDuration } from '$lib/motion.js';
+	import { viewTransition } from '$state/view-transition.svelte.js';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
 
@@ -41,31 +41,31 @@
 	 * keeping the camera would land on empty canvas either way.
 	 */
 	function setView(v: FloorView) {
-		if (appState.floorView === v) return;
-		// Snapshot before the state write: the canvas still holds the view being left.
-		canvasEngineRef.engine?.beginViewTransition(motionDuration(180));
-		appState.floorView = v;
-		/*
-		 * The 3D view opens at an angle, not head-on.
-		 *
-		 * A box seen at zero yaw is a rectangle: two of its four walls are exactly edge-on
-		 * and vanish, which is correct geometry and a useless first impression — it reads as
-		 * a flat plan with a thick border. The first look is therefore oblique, and only
-		 * when the viewpoint is still the default, so an angle the user chose is never
-		 * overwritten.
-		 */
-		if (v === 'floor3d' && appState.stackYaw === 0) {
-			appState.stackYaw = 30;
-		}
-		// Frame on the next frame, not now.
-		//
-		// The overview layers are handed their floors by an effect, and `setFloors`
-		// only runs while an overview is active — so at this moment `contentBounds()`
-		// is still empty and the synchronous fit fell through to the floorplan/AP
-		// bounds, framing one floor instead of the layout. That is what made the
-		// first switch into the tiled view land at the wrong zoom, with the cards
-		// half off-screen.
-		requestAnimationFrame(() => handleFit());
+		if (appState.floorView === v || viewTransition.active) return;
+		void viewTransition.run(() => {
+			appState.floorView = v;
+			/*
+			 * The 3D view opens at an angle, not head-on.
+			 *
+			 * A box seen at zero yaw is a rectangle: two of its four walls are exactly edge-on
+			 * and vanish, which is correct geometry and a useless first impression — it reads as
+			 * a flat plan with a thick border. The first look is therefore oblique, and only
+			 * when the viewpoint is still the default, so an angle the user chose is never
+			 * overwritten.
+			 */
+			if (v === 'floor3d' && appState.stackYaw === 0) {
+				appState.stackYaw = 30;
+			}
+			// Frame on the next frame, not now.
+			//
+			// The overview layers are handed their floors by an effect, and `setFloors`
+			// only runs while an overview is active — so at this moment `contentBounds()`
+			// is still empty and the synchronous fit fell through to the floorplan/AP
+			// bounds, framing one floor instead of the layout. That is what made the
+			// first switch into the tiled view land at the wrong zoom, with the cards
+			// half off-screen.
+			requestAnimationFrame(() => handleFit());
+		});
 	}
 </script>
 
@@ -80,6 +80,7 @@
 				class="view-btn"
 				class:active={appState.floorView === 'single'}
 				aria-pressed={appState.floorView === 'single'}
+				disabled={viewTransition.active}
 				title={t('Show the current floor only')}
 				onclick={() => setView('single')}
 			>
@@ -89,6 +90,7 @@
 				class="view-btn"
 				class:active={appState.floorView === 'tiled'}
 				aria-pressed={appState.floorView === 'tiled'}
+				disabled={viewTransition.active}
 				title={t('Tile every floor side by side. Click a floor to select it.')}
 				onclick={() => setView('tiled')}
 			>
@@ -98,6 +100,7 @@
 				class="view-btn"
 				class:active={appState.floorView === 'stacked'}
 				aria-pressed={appState.floorView === 'stacked'}
+				disabled={viewTransition.active}
 				title={t('Stack every floor by its height. Click a floor to select it.')}
 				onclick={() => setView('stacked')}
 			>
@@ -107,6 +110,7 @@
 				class="view-btn"
 				class:active={appState.floorView === 'floor3d'}
 				aria-pressed={appState.floorView === 'floor3d'}
+				disabled={viewTransition.active}
 				title={t('The current floor in 3D: walls at their real height, in their material colours. Drag to turn the view.')}
 				onclick={() => setView('floor3d')}
 			>

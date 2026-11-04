@@ -197,7 +197,6 @@ docs/             架构、手册、测量与修复计划
 | `selection-rect.ts` | 框选矩形。 |
 | `shape-preview.ts` | 画墙、柱子、圆形的预览。 |
 | `stacked-floors.ts` | 堆叠视图布局、相机、楼层板、AP 高度标记。 |
-| `view-transition.ts` | 视图切换时保留旧画面并淡出的过渡图层。 |
 | `surfaces.ts` | 抬升面的填充、边缘、选中与高度标签。 |
 | `vector-walls.ts` | 墙体线段、柱子、选中与材质颜色。 |
 | `walls.ts` | 墙体掩膜着色与按材质着色。 |
@@ -356,6 +355,7 @@ docs/             架构、手册、测量与修复计划
 | `wall-state.svelte.ts` | 当前层墙体掩膜、材质掩膜、检测会话与复核状态。 |
 | `floorplan-state.svelte.ts` | 当前层底图、导入会话、单位制、检测提示。 |
 | `canvas.svelte.ts` | 画布引擎引用、AP 选择、悬停、复核高亮。 |
+| `view-transition.svelte.ts` | 视图切换的两段淡出/淡入状态与切换锁。 |
 | `history.svelte.ts` | 50 步撤销/重做快照，只含楼层与 AP。 |
 | `persistence.svelte.ts` | 本地存储、5 秒防抖自动保存、恢复、平面图键、关闭前落盘。 |
 | `storage.ts` | 存储后端抽象：localStorage/IndexedDB 与迁移。 |
