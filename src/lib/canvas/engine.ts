@@ -27,6 +27,11 @@ export interface RenderTarget {
 	background?: string;
 }
 
+/** A layer that can hold a snapshot of the canvas while the view changes. */
+export interface ViewTransitionTarget {
+	start(snapshot: HTMLCanvasElement, duration: number): void;
+}
+
 /** The colour the app paints behind everything; exports use it so they are not transparent. */
 export const RENDER_BACKGROUND = '#0a0c12';
 
@@ -35,6 +40,7 @@ export class CanvasEngine {
 	ctx: CanvasRenderingContext2D;
 	camera: Camera;
 	layers: Layer[] = [];
+	private viewTransition: ViewTransitionTarget | null = null;
 
 	private dirty = true;
 	private running = false;
@@ -87,6 +93,30 @@ export class CanvasEngine {
 
 	getLayer(id: string): Layer | undefined {
 		return this.layers.find((l) => l.id === id);
+	}
+
+	setViewTransition(target: ViewTransitionTarget | null): void {
+		this.viewTransition = target;
+	}
+
+	/**
+	 * Keep the picture on screen now as the first frame of a view change.
+	 *
+	 * Called before the state that selects the new view is written, so the snapshot is
+	 * guaranteed to be the old picture rather than whatever the next render produces.
+	 * Exports are unaffected: the transition layer is not exportable.
+	 */
+	beginViewTransition(duration: number): void {
+		if (!this.viewTransition || duration <= 0) return;
+		if (this.canvas.width === 0 || this.canvas.height === 0) return;
+		const snapshot = document.createElement('canvas');
+		snapshot.width = this.canvas.width;
+		snapshot.height = this.canvas.height;
+		const ctx = snapshot.getContext('2d');
+		if (!ctx) return;
+		ctx.drawImage(this.canvas, 0, 0);
+		this.viewTransition.start(snapshot, duration);
+		this.markDirty();
 	}
 
 	markDirty(): void {

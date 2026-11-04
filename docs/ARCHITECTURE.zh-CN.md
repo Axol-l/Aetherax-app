@@ -197,6 +197,7 @@ docs/             架构、手册、测量与修复计划
 | `selection-rect.ts` | 框选矩形。 |
 | `shape-preview.ts` | 画墙、柱子、圆形的预览。 |
 | `stacked-floors.ts` | 堆叠视图布局、相机、楼层板、AP 高度标记。 |
+| `view-transition.ts` | 视图切换时保留旧画面并淡出的过渡图层。 |
 | `surfaces.ts` | 抬升面的填充、边缘、选中与高度标签。 |
 | `vector-walls.ts` | 墙体线段、柱子、选中与材质颜色。 |
 | `walls.ts` | 墙体掩膜着色与按材质着色。 |

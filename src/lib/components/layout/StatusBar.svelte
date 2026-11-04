@@ -3,6 +3,7 @@
 	import { canvasEngineRef, canvasState } from '$state/canvas.svelte';
 	import { appState, type FloorView } from '$state/app.svelte';
 	import { fitCanvasToContent } from '$canvas/fit.js';
+	import { motionDuration } from '$lib/motion.js';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
 
@@ -41,6 +42,8 @@
 	 */
 	function setView(v: FloorView) {
 		if (appState.floorView === v) return;
+		// Snapshot before the state write: the canvas still holds the view being left.
+		canvasEngineRef.engine?.beginViewTransition(motionDuration(180));
 		appState.floorView = v;
 		/*
 		 * The 3D view opens at an angle, not head-on.

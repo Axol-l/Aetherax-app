@@ -45,6 +45,7 @@
 	import { FloorTilesLayer } from '$canvas/renderers/floor-tiles.js';
 	import { StackedFloorsLayer, MAX_PITCH } from '$canvas/renderers/stacked-floors.js';
 	import { Floor3DLayer } from '$canvas/renderers/floor-3d.js';
+	import { ViewTransitionLayer } from '$canvas/renderers/view-transition.js';
 	import { FloorCardCache } from '$canvas/renderers/floor-card.js';
 	import { DragHandler, type WallProbe } from '$canvas/interactions/drag.js';
 	import { PlaceHandler } from '$canvas/interactions/place.js';
@@ -625,6 +626,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	const stackedFloorsLayer = new StackedFloorsLayer(floorCards);
 	stackedFloorsLayer.onLoad = () => engine?.markDirty();
 	const floor3DLayer = new Floor3DLayer(floorCards);
+	const viewTransitionLayer = new ViewTransitionLayer(() => engine?.markDirty());
 	const calibrationLineLayer = new CalibrationLineLayer();
 	const planningAreaLayer = new PlanningAreaLayer();
 	const surfacesLayer = new SurfacesLayer();
@@ -698,6 +700,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// Published so the toolbar and the status bar can act on the live view: they
 		// export the frame, fit the plan and reset the camera. See `canvasEngineRef`.
 		canvasEngineRef.engine = engine;
+		engine.setViewTransition(viewTransitionLayer);
 
 		// Add layers in draw order: the array is the order.
 		engine.setLayers([
@@ -727,7 +730,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 			vectorWallsLayer,
 			// The 3D view draws the whole floor itself, so it goes on top: when it is visible
 			// every layer beneath it has already switched itself off.
-			floor3DLayer
+			floor3DLayer,
+			// Above everything, including 3D: a snapshot of the view being left, faded out
+			// over the next few frames.
+			viewTransitionLayer
 		]);
 
 		// Create interaction handlers
