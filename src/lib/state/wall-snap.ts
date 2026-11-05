@@ -1,19 +1,8 @@
 /**
- * "Put it on the wall": the nearest wall to a point, and which way that wall faces.
+ * 「贴到墙上」：找离某个点最近的墙，并给出这面墙的朝向。
  *
- * A wall-mounted access point only means anything against a wall. Its pattern has a
- * front and a back, and the front is the direction away from the surface it is
- * screwed to — so both of the things a wall mount needs, *where* it goes and *which
- * way* it points, come out of one measurement: the nearest wall pixel. That
- * measurement already exists for the distance caption drawn under an access point's
- * name (`canvas/wall-distance.ts`); this module turns it into the placement and the
- * bearing.
- *
- * The facing is the direction from that wall pixel to the point being placed, i.e.
- * away from the wall and into the room the unit is in. That is right for a unit on a
- * room's wall and for one in a corridor. A unit that looks *along* a wall is a turned
- * bracket, which is exactly why the facing is stored per access point and editable:
- * the wall suggests a direction, it does not own it.
+ * 壁挂 AP 的正面要背对安装面，所以「装在哪」和「朝哪」都来自一次测量：最近的墙体像素。
+ * 朝向取墙点到放置点的方向（背离墙、指向房间）。墙只给建议，最终朝向按 AP 存、可手改。
  */
 import { normaliseBearing, wrap180 } from '../rf/antenna.js';
 import { isVirtualMaterial, type WallMaterialId } from '$lib/domain/materials.js';
@@ -23,62 +12,53 @@ import { floorState } from './floor-state.svelte.js';
 import { wallState } from './wall-state.svelte.js';
 
 export interface WallSnap {
-	/** The point on the wall this was measured to, in world units. */
+	/** 量到的墙上那个点，世界坐标单位。 */
 	x: number;
 	y: number;
 	/**
-	 * Where the unit itself belongs: that point, backed off the wall by a bracket's
-	 * depth. An access point sitting *inside* the wall pixel would pay that wall on
-	 * every ray it radiates — including the ones that only leave the face — so the
-	 * unit goes just clear of it.
+	 * AP 本身该放的位置：墙上那个点再往房间退一个支架的深度。AP 要是落在墙体像素里，它
+	 * 每条射线（包括只离开正面的那些）都会多付一次穿墙损耗，所以要稍微让开墙面。
 	 */
 	apX: number;
 	apY: number;
-	/** Distance from the queried point to the wall, in world units. */
+	/** 查询点到墙的距离，世界坐标单位。 */
 	distanceW: number;
-	/** Degrees from +x towards +y, away from the wall. */
+	/** 从 +x 转向 +y 的角度，方向背离墙。 */
 	facingDeg: number;
 }
 
-/** How far off the wall face the unit is modelled as sitting, in metres. */
+/** 建模时 AP 离墙面多远，单位米。 */
 export const WALL_MOUNT_OFFSET_M = 0.1;
 
 /**
- * How deep the optimiser's band along a wall is, in metres.
+ * 优化器沿墙搜索的带宽，单位米。
  *
- * Wider than the bracket itself on purpose: the search slides a unit *along* a wall and
- * around corners, and the band is the domain it may do that in rather than a placement.
- * The exact position is put on the face afterwards, by the same measurement the editor
- * uses. A band narrower than the step sizes the search takes (Lloyd's move, PSO's
- * jitter, the polish's 5→1 unit walk) would leave it nothing legal to move to.
+ * 故意比支架本身宽：搜索会让 AP 沿着墙、绕着拐角滑动，这个带是它能动的范围，不是摆放位置。
+ * 最终位置之后再用编辑器那套测量贴回墙面。带宽要是比搜索的步长还窄（Lloyd 移动、PSO 抖动、
+ * 精修的 5→1 单位步进），它就没地方可挪了。
  */
 export const WALL_BAND_M = 0.5;
 
 /**
- * How far from a wall a click may be and still count as "on a wall", in metres.
+ * 点击离墙多远之内还算「点在墙上」，单位米。
  *
- * Generous enough that aiming at a wall does not demand pixel accuracy, tight enough
- * that a click in the middle of a room is refused rather than teleported to the
- * nearest wall — which would look like the editor ignoring where the user clicked.
+ * 放宽一点，瞄墙时不用像素级精确；又收紧一点，点房间中间会被拒绝，而不是瞬移到最近的墙上
+ * ——那样看起来像编辑器无视了用户点的位置。
  */
 export const WALL_MOUNT_REACH_M = 1;
 
 /**
- * How close a stored facing has to be to the wall's own to be treated as derived
- * from it rather than turned by hand.
+ * 存下的朝向和墙自身朝向差多少以内，就当成是从墙推出来的、不是手转过的。
  *
- * Used while dragging: a bracket that was left pointing away from its wall follows
- * the wall as it is moved, and one the user has turned to look down a corridor keeps
- * the angle they gave it.
+ * 拖拽时用：本来正对墙的支架会跟着墙走；用户手动转过、想顺着走廊看的，则保留他给的角度。
  */
 export const DERIVED_FACING_TOLERANCE_DEG = 15;
 
 /**
- * The nearest wall to a world point, from an already-built distance transform.
+ * 从已经建好的距离变换里，找离某个世界坐标点最近的墙。
  *
- * Pure and synchronous, so a drag can call it on every pointer move; the transform
- * is the caller's, because building one per frame would be absurd and the view
- * already owns one for the caption.
+ * 纯函数、同步，所以拖拽时每次指针移动都能调。距离变换归调用方持有：每帧重建太浪费，视图
+ * 那边本来就在为标注维护一份。
  */
 export function wallSnapFrom(
 	transform: WallDistanceTransform | null,
@@ -108,18 +88,16 @@ export function wallSnapFrom(
 	};
 }
 
-/** Whether a stored facing looks like the one this wall gives, i.e. was not turned. */
+/** 存下的朝向是否和这面墙给的一致，也就是没被手动转过。 */
 export function facingFollowsWall(facingDeg: number, wall: WallSnap): boolean {
 	return Math.abs(wrap180(facingDeg - wall.facingDeg)) <= DERIVED_FACING_TOLERANCE_DEG;
 }
 
 /**
- * One distance transform, kept for the mask it was built from.
+ * 一份距离变换缓存，按它来源的掩码区分。
  *
- * The transform is 8 bytes a mask pixel, so rebuilding it per call is not an option
- * and keeping many is not one either. `sourceKey` identifies the raster; the live
- * mask of a wall edit carries the constant key `'live'` while its pixels change, so
- * that case is never cached.
+ * 距离变换每个掩码像素占 8 字节，每次调用重建不现实，缓存很多份也不现实。`sourceKey` 标识
+ * 栅格；墙体编辑中的实时掩码固定用 `'live'`，因为它的像素一直在变，这种情况不缓存。
  */
 let cache: { key: string; transform: WallDistanceTransform | null } | null = null;
 
@@ -132,14 +110,13 @@ function transformFor(key: string, data: Uint8Array, width: number, height: numb
 }
 
 /**
- * The walls a wall mount may attach to: walls, minus the ones that are not surfaces.
+ * 壁挂 AP 能贴的墙：所有墙，去掉不是表面的那些。
  *
- * A **virtual partition** is a modelling device — a boundary that attenuates nothing, for
- * separating areas of one open plan. There is no surface to screw a bracket to, so a wall
- * mount must not attach to one: its facing would be derived from a line that radiates both
- * ways, and the unit would sit in the middle of a room pointing at nothing.
+ * **虚拟隔断**只是建模用的——它不衰减任何东西，只用来划分同一开放空间里的区域。它没有
+ * 可拧支架的表面，所以壁挂 AP 不能贴上去：朝向会从一条两边都辐射的线推出来，AP 会站在
+ * 房间中间对着空气。
  *
- * Exported so the rule can be read on its own; the transform below is built from it.
+ * 单独导出，方便直接看这条规则；下面的距离变换就是基于它建的。
  */
 export function attachableWallMask(
 	wallData: Uint8Array,
@@ -158,11 +135,10 @@ export function attachableWallMask(
 }
 
 /**
- * The distance transform of those walls.
+ * 这些墙的距离变换。
  *
- * Built as its own raster because the transform answers "the nearest wall" and cannot be
- * asked for "the nearest wall that is not virtual": the line has to not be there in the
- * first place. Cached per mask-and-material identity, like the plain transform.
+ * 单独栅格化一份，因为距离变换只会回答「最近的墙」，没法问「最近的、不是虚拟隔断的墙」：
+ * 那条线必须一开始就不存在。和普通变换一样，按掩码+材质的身份缓存。
  */
 let attachableCache: {
 	key: string;
@@ -191,7 +167,7 @@ function attachableTransformFor(
 	return transform;
 }
 
-/** The nearest wall of a floor to a world point, decoding that floor's mask if needed. */
+/** 楼层里离某个世界坐标点最近的墙；需要时顺带解码该楼层的掩码。 */
 export async function wallSnapForFloor(
 	floorId: string,
 	x: number,
@@ -200,8 +176,7 @@ export async function wallSnapForFloor(
 ): Promise<WallSnap | null> {
 	const mask = await getFloorMask(floorId);
 	if (!mask) return null;
-	// The floor's own default material, with the live value for the floor on screen: the
-	// same choice the canvas makes when it colours the walls.
+	// 楼层自己的默认材质，当前在看的楼层用实时值：和画布给墙着色时的选择一致。
 	const floor = floorState.floors.find((f) => f.id === floorId);
 	const defaultMaterial =
 		floorId === floorState.currentFloorId

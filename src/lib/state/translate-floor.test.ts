@@ -1,11 +1,9 @@
 /**
- * Moving a floor moves everything on it.
+ * 平移一层楼，要把这一层上的东西全带上。
  *
- * Alignment between two floors is a rigid translation, and it used to move the floorplan
- * offset and the three masks while leaving the *segments* where they were. The mask is derived
- * from the segments now, so the next derivation put the walls back: the drag released and the
- * floor snapped to where it started, and the stacked/3D views — which draw the segments — never
- * moved at all. These tests pin the whole floor down, geometry included.
+ * 层间对齐就是一次刚体平移。以前它只挪底图偏移和三张掩码，把墙体*线段*留在原地；而掩码现在是
+ * 由线段推导的，下一次推导又把墙放回去了：拖动一松手楼层弹回原位，按线段绘制的堆叠/三维视图干脆没动。
+ * 这些测试把整层都钉住，几何数据也算在内。
  */
 import { describe, expect, it } from 'vitest';
 import { addFloor, getFloor, translateFloor } from './floor-state.svelte.js';
@@ -45,8 +43,7 @@ describe('translateFloor', () => {
 
 		expect(moved.walls?.[0]).toMatchObject({ ax: 40, ay: -20, bx: 140, by: -20 });
 		expect(moved.walls?.[1]).toMatchObject({ ax: 140, ay: -20, bx: 140, by: 80 });
-		// A new array identity: the derived-mask cache is keyed on it, and an in-place edit
-		// would leave the cache holding the mask from before the move.
+		// 必须是新数组：推导掩码的缓存按数组引用做键，原地改会让缓存留着平移前的掩码。
 		expect(moved.walls).not.toBe(before);
 	});
 
@@ -89,10 +86,9 @@ describe('translateFloor', () => {
 		expect(moved.wallMask).toMatchObject({ originX: 21, originY: -3 });
 		expect(moved.materialMask).toMatchObject({ originX: 21, originY: -3 });
 		/*
-		 * The origin is baked into every field and interior derived from a mask, while the
-		 * caches holding those are keyed on the mask's identity — so a mask moved in place is,
-		 * to all of them, the mask it was before the floor moved. This is the difference
-		 * between "the heatmap followed the floor" and "the heatmap kept its old frame".
+		 * 原点被写进了由掩码推导出的每个字段和室内范围，而那些缓存是按掩码的引用做键的——
+		 * 所以原地平移的掩码，在所有缓存眼里还是平移前那张。这就是「热力图跟着楼层走」
+		 * 和「热力图还留在旧坐标系」的区别。
 		 */
 		expect(moved.wallMask).not.toBe(before);
 		expect(before).toMatchObject({ originX: 1, originY: 2 });
@@ -102,7 +98,7 @@ describe('translateFloor', () => {
 		const floor = seedFloor();
 		const before = floor.walls;
 		translateFloor(floor.id, 0, 0, []);
-		// The early return keeps the array identity, so nothing downstream invalidates.
+		// 提前返回保住了数组引用，下游就不会白算一遍。
 		expect(getFloor(floor.id)!.walls).toBe(before);
 	});
 });

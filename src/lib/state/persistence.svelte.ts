@@ -1,3 +1,9 @@
+/**
+ * 工程持久化：把工程存进浏览器存储，以及启动时读回来。
+ *
+ * 自动保存是防抖的，关页面前还有一次同步兜底；底板图按楼层各存一个键。
+ * 文档本身的结构和迁移都在 `project-document.ts`，这里只管存到哪、什么时候存。
+ */
 import { debug } from '$lib/log.js';
 import { floorCoverage as floorCoverageState } from './optimizer.svelte.js';
 import { floorState, onFloorRemoved } from './floor-state.svelte.js';
@@ -13,66 +19,55 @@ import {
 } from './storage.js';
 
 /**
- * Every key this app writes starts with this. Exported because `WelcomeDialog` has to
- * consult the same prefix before the app restores anything.
+ * 本应用写入的每个键都以这个开头。
+ *
+ * 导出来是因为 `WelcomeDialog` 在应用恢复数据之前也要查同一个前缀。
  */
 export const STORAGE_PREFIX = 'aetherax:';
-/** The prefix the app carried before it was renamed. Read-only, and never written. */
+/** 应用改名之前用的前缀。只读，永远不写。 */
 const LEGACY_PREFIX = 'deconflict:';
 
 const STORAGE_KEY = `${STORAGE_PREFIX}project`;
 const FLOORPLAN_KEY = `${STORAGE_PREFIX}floorplan`;
 /**
- * How long after the last edit an autosave runs.
+ * 最后一次编辑之后，隔多久跑一次自动保存。
  *
- * Two seconds is short enough that a drag or a run of wall edits finishes *inside* the
- * window and still triggers a write while the user is looking at the result: every snapshot
- * serialises every floor's mask data URLs, which is megabytes. Five seconds means one write
- * after a gesture instead of one during it, and nothing is lost — the delay is only the gap
- * between "the plan changed" and "the plan is on disk".
+ * 5 秒：一次拖动、一串墙体编辑都会在这个窗口内做完，最后只写一次盘。
+ * 每次保存都要序列化所有楼层的遮罩图（好几 MB），所以不能更短。
  */
 const SAVE_DELAY = 5000;
 
 /**
- * The key a floor's underlay is stored under.
+ * 某个楼层底板图（underlay）存在哪个键下。
  *
- * One function, because the same string used to be built by hand in three places — the
- * write, the restore and the clear — and the per-floor form is exactly the one the
- * migration that runs at startup swept for by *name* and therefore missed. Switching the
- * backend moved the project document and left every underlay behind.
+ * 只留一个函数：以前写入、恢复、清除三处各拼一遍字符串，
+ * 而启动时的数据迁移按名字扫，正好漏掉「每层一个键」这种形式，结果切后端时底板图全留在原地。
  */
 const floorplanKey = (floorId: string) => `${FLOORPLAN_KEY}:${floorId}`;
 
 /**
- * The underlay URL each floor has already had encoded and written, by floor id.
+ * 每个楼层已经编码并写过的底板图 URL，按楼层 id 记。
  *
- * A floor's `floorplanUrl` is a `blob:` URL from the moment it is imported until the page
- * reloads, so "does this floor still need writing?" cannot be answered from the floor —
- * the save path used to re-encode and re-write every imported plan on *every* autosave,
- * a `canvas.toDataURL` of a multi-megabyte image per floor every five seconds. Comparing
- * the URL remembers the answer for as long as the image is the same one.
+ * 楼层的 `floorplanUrl` 从导入到刷新一直是 `blob:`，所以没法从楼层本身判断「还要不要写」；
+ * 以前每次自动保存都把每张图重新 `canvas.toDataURL` 一遍。记住 URL 就等于记住了答案。
  */
 const encodedUnderlays = new Map<string, string>();
 
 /**
- * Whether an edit is still on its way to storage.
+ * 是否还有改动没写到存储里。
  *
- * Distinct from `saveTimeout`, which only says a timer is armed: the debounce can already
- * have fired, and the write it started can still be in flight. The unload flush is only
- * worth doing when one of the two is true.
+ * 和 `saveTimeout` 不是一回事：定时器可能只是「上好了弦」，它排在后面的那次写入可以还在路上。
+ * 关页面前只要两者之一为真，就值得补写一次。
  */
 let savePending = false;
 
 /**
- * Copy every stored key from the old prefix to the new one, once.
+ * 把旧前缀下的所有键复制到新前缀，只做一次。
  *
- * A prefix sweep rather than a list of keys, because per-floor floorplans are stored as
- * `<prefix>floorplan:<floorId>` — one key per floor, with ids that only exist at runtime.
- * Nothing is deleted, so a rollback to the previous build still finds the project, and an
- * existing key under the new prefix is never overwritten.
+ * 按前缀扫而不是列固定键：底板图是 `<prefix>floorplan:<floorId>`，楼层 id 只有运行时才有。
+ * 不删旧键，回滚到上个版本还能找到工程；新前缀下已经有的键也不覆盖。
  *
- * Safe to call more than once and safe to call before anything else has run: it only
- * copies, and a failure to reach localStorage leaves the app working, just forgetful.
+ * 重复调用安全，在任何东西之前调用也安全：只复制；localStorage 打不开也不影响应用运行，只是记不住东西。
  */
 export function migrateLegacyStorageKeys(): void {
 	try {
@@ -89,7 +84,7 @@ export function migrateLegacyStorageKeys(): void {
 			if (value !== null) localStorage.setItem(newKey, value);
 		}
 	} catch {
-		// Private mode or a full quota: the app still runs, it just starts fresh.
+		// 隐私模式或配额满了：应用照常跑，只是从空白开始。
 	}
 }
 
@@ -97,26 +92,20 @@ let saveTimeout: ReturnType<typeof setTimeout> | null = null;
 export const persistenceState = $state({ lastSaved: null as Date | null });
 
 /**
- * Write the project to whichever store is in use.
+ * 把工程写进当前使用的存储。
  *
- * Asynchronous because the backend is: IndexedDB, with localStorage as the fallback for a
- * browser that has none (see `state/storage.ts`). The debounced caller fires and forgets —
- * a failure is not silent, it lands in `appState.storageNotice`, which is the whole point
- * of the notice: with a five-megabyte quota and a PNG mask per floor, "saved nothing and
- * said nothing" is the failure mode that loses work.
+ * 后端本身是异步的（IndexedDB，没有就退回 localStorage，见 `state/storage.ts`），所以这里也异步。
+ * 防抖那头的调用方发完就不管，但失败不会静默：会落到 `appState.storageNotice`。
  *
- * The document itself is built by `project-document.ts`, which is also what a file export
- * and an import go through. This function only decides *where* it goes and what to say when
- * it cannot.
+ * 文档本身由 `project-document.ts` 组装，文件导入导出走的也是它；这个函数只管写到哪、写不了怎么提示。
  */
 async function saveToStorage(): Promise<void> {
 	/*
-	 * The timer has fired, so nothing is pending any more.
+	 * 定时器已经触发，说明没有待处理的东西了。
 	 *
-	 * Leaving the handle set made every later `scheduleSave(true)` return early
-	 * forever — the `keep` callers thought a save was on its way and no save was
-	 * ever scheduled again, so an access point's mounting (and anything else that
-	 * only ever asks for `keep`) reached storage once and never again.
+	 * 以前不清这个句柄，之后每次 `scheduleSave(true)` 都提前返回：
+	 * 用 `keep` 的调用方以为保存马上就来，结果再也没排过保存，
+	 * 一个 AP 的挂载写入只落盘一次，之后再也不写。
 	 */
 	if (saveTimeout) clearTimeout(saveTimeout);
 	saveTimeout = null;
@@ -125,29 +114,25 @@ async function saveToStorage(): Promise<void> {
 	try {
 		const started = performance.now();
 		const json = JSON.stringify(toDocument({ floorCoverage: floorCoverageState }));
-		// Timed and reported: a write that takes seconds is a stall in the middle of the
-		// user's work, and the only way to know is to print it.
+		// 计时并打日志：写入要是花了几秒，就是卡在用户干活中间，不打印就发现不了。
 		debug(
 			`[save] ${json.length} bytes serialised in ${Math.round(performance.now() - started)} ms`
 		);
 		await store.write(STORAGE_KEY, json);
 
 		/*
-		 * The underlays are part of this save, not a fire-and-forget afterthought.
+		 * 底板图是这次保存的一部分，不是随手一写的附属品。
 		 *
-		 * They used to be written from an `img.onload` callback whose failure went into an
-		 * empty `.catch`, while `lastSaved` and the save notice had already been set from
-		 * the document alone — so the app could tell the user "Project saved" and then come
-		 * back next session with a floor whose plan is missing. Now a failed underlay
-		 * write fails the save and lands in `storageNotice` like any other.
+		 * 以前它写在 `img.onload` 里，失败被空的 `.catch` 吞掉，而 `lastSaved` 和提示
+		 * 早就按文档设好了——于是可能提示「已保存」，下次打开却少了某层的图。
+		 * 现在底板图写失败，整次保存就算失败，也照样进 `storageNotice`。
 		 */
 		await writeUnderlays(store);
 
 		debug(`[save] written in ${Math.round(performance.now() - started)} ms`);
 		persistenceState.lastSaved = new Date();
 		savePending = false;
-		// A later save that works clears the warning: storage was full, and is not any
-		// more.
+		// 后面有一次保存成功了，就把警告清掉：之前是存储满了，现在已经不是。
 		appState.storageNotice = null;
 	} catch {
 		appState.storageNotice = t(
@@ -157,10 +142,10 @@ async function saveToStorage(): Promise<void> {
 }
 
 /**
- * Write every underlay that is not on disk yet.
+ * 把还没落盘的底板图都写进去。
  *
- * A plan arrives as a `blob:` URL and has to be a data URL to be stored. Only floors still
- * holding a blob are looked at, and only once per image: see `encodedUnderlays`.
+ * 图片进来时是 `blob:` URL，要存必须转成 data URL。只看还拿着 blob 的楼层，
+ * 而且每张图只编码一次（见 `encodedUnderlays`）。
  */
 async function writeUnderlays(store: KeyValueStore): Promise<void> {
 	const writes: Array<Promise<void>> = [];
@@ -178,7 +163,7 @@ async function writeUnderlays(store: KeyValueStore): Promise<void> {
 	await Promise.all(writes);
 }
 
-/** A floorplan image URL as a data URL, for storage. */
+/** 把底板图的 URL 转成 data URL，好存起来。 */
 function encodeUnderlay(url: string): Promise<string> {
 	return new Promise((resolve, reject) => {
 		const image = new Image();
@@ -200,23 +185,21 @@ function encodeUnderlay(url: string): Promise<string> {
 }
 
 /**
- * Which store the project is kept in.
+ * 工程存在哪个后端。
  *
- * `localstorage` today, on purpose, and the seam exists so that turning the other one on
- * is a one-line change rather than a rewrite. The reason it is still the old one: every
- * test helper that asks "what did the app save?" reads `localStorage`, and so may any tool
- * a user has around their projects. Moving the project into IndexedDB therefore has to
- * move those readers with it, and that is a change of its own — measured, not assumed.
- * `indexeddb` is implemented and unit-tested behind this switch; see `state/storage.ts`
- * for why it is the destination (a five-megabyte quota against a PNG mask per floor).
+ * 目前故意还是 `localstorage`；留这个开关，是为了以后换成另一个只改一行，不用重写。
+ * 之所以还没换：所有测试辅助函数都读 `localStorage` 判断「应用存了什么」，用户自己的工具可能也是。
+ * 所以搬去 IndexedDB 得把这些读取方一起搬，那是另一件事，得量过再说。
+ * `indexeddb` 的实现和单测都在这个开关后面；它为什么是目标，见 `state/storage.ts`
+ *（5 MB 配额 vs 每层一张 PNG 遮罩）。
  */
 const BACKEND: StorageBackend = 'localstorage';
 
 /**
- * The store the project is kept in, opened once.
+ * 当前用的存储，只打开一次。
  *
- * Whichever backend is selected, any record that only exists in localStorage is carried
- * over first, so a project saved by an older build is found by this one.
+ * 不管最后选哪个后端，只存在于 localStorage 里的记录都会先搬过来，
+ * 这样旧版本存的工程在这个版本里也能找到。
  */
 let projectStore: KeyValueStore | null = null;
 async function ensureStore(): Promise<KeyValueStore> {
@@ -224,8 +207,7 @@ async function ensureStore(): Promise<KeyValueStore> {
 	let store: KeyValueStore = localStore;
 	if (BACKEND === 'indexeddb') {
 		try {
-			// A round trip rather than a feature test: a private window can expose
-			// `indexedDB` and refuse to open a database.
+			// 真做一次读写，而不是只测特性：隐私窗口会暴露 `indexedDB`，却拒绝打开库。
 			await indexDbStore.keys();
 			store = indexDbStore;
 		} catch {
@@ -235,23 +217,20 @@ async function ensureStore(): Promise<KeyValueStore> {
 	try {
 		await migrateInto(store, await legacyRecordKeys(store));
 	} catch {
-		// The legacy copy is still there and still readable: carry on with what we have
-		// rather than starting the app with no project at all.
+		// 旧数据还在也还能读：就用手上有的继续，总比启动后什么工程都没有强。
 	}
 	projectStore = store;
 	return store;
 }
 
 /**
- * Every record an older build left in `localStorage` that this store should carry over.
+ * 旧版本留在 `localStorage` 里、这个存储应该搬过来的所有记录。
  *
- * Enumerated by prefix rather than listed, because the underlays are keyed
- * `floorplan:<floorId>` and the ids only exist at runtime: naming the two fixed keys was
- * exactly how a switch of backend moved the project document and dropped every floor's
- * plan on the floor.
+ * 按前缀枚举而不是写死，因为底板图的键是 `floorplan:<floorId>`，id 只有运行时才有。
+ * 以前只写死两个固定键，结果切后端时工程文档过去了，每层的图却全丢了。
  */
 async function legacyRecordKeys(store: KeyValueStore): Promise<string[]> {
-	// Nothing to carry over into the store that already holds everything.
+	// 这个存储本来就把所有东西都装着，没什么可搬的。
 	if (store.backend === 'localstorage') return [];
 	const keys = await localStore.keys();
 	return keys.filter(
@@ -259,14 +238,13 @@ async function legacyRecordKeys(store: KeyValueStore): Promise<string[]> {
 	);
 }
 
-/** Which backend the project is in, for the storage notice. Exported for diagnostics. */
+/** 工程在哪个后端，给存储提示用。导出是为了诊断。 */
 export function storageBackend(): StorageBackend | null {
 	return projectStore?.backend ?? null;
 }
 
 export async function restoreFromStorage(): Promise<boolean> {
-	// First thing: a project saved before the rename lives under the old prefix, and that
-	// is a localStorage concern — it runs before anything is read.
+	// 第一步：改名之前存的工程还在旧前缀下。这是 localStorage 的事，要在读任何东西之前做。
 	migrateLegacyStorageKeys();
 	const store = await ensureStore();
 	try {
@@ -274,12 +252,10 @@ export async function restoreFromStorage(): Promise<boolean> {
 		if (!raw) return false;
 
 		/*
-		 * A document from a newer build is kept, not removed.
+		 * 新版本写的文档要留着，不删。
 		 *
-		 * `migrate` cannot read it — it does not know the fields — and rewriting it would drop
-		 * them. Removing it, which is what the corrupt case does, would turn "this build cannot
-		 * open your project" into "your project is gone", so the record stays exactly where it is
-		 * and the notice says why nothing loaded.
+		 * `migrate` 读不懂它（不认识那些字段），重写会丢字段；删掉就等于把
+		 * 「这个版本打不开」变成「工程没了」。所以原样留在那里，只提示为什么没加载。
 		 */
 		const parsed: unknown = JSON.parse(raw);
 		if (isFromNewerVersion(parsed)) {
@@ -297,10 +273,9 @@ export async function restoreFromStorage(): Promise<boolean> {
 		}
 
 		/*
-		 * The underlays live under their own keys, one per floor, and are read back into
-		 * the document before it is applied — so a floor's image arrives with the floor
-		 * rather than being patched on afterwards. The old single key is the version 2
-		 * format's, kept for the one project that still has it.
+		 * 底板图各占一个键、每层一个，在应用文档之前先读回文档里，
+		 * 这样图是跟着楼层一起到位的，不用事后打补丁。
+		 * 旧版那个单键是 v2 格式的，留给仅存的那个还用它的工程。
 		 */
 		for (const floor of doc.floors) {
 			const perFloor = await store.read(floorplanKey(floor.id));
@@ -311,8 +286,7 @@ export async function restoreFromStorage(): Promise<boolean> {
 			if (legacyFloorplan) doc.floors[0]!.floorplanImage = legacyFloorplan;
 		}
 
-		// The undo history is cleared by `applyDocument`, which is the door every load goes
-		// through — see the note there.
+		// 撤销历史由 `applyDocument` 清掉，所有加载都会走那道门——见那里的说明。
 		applyDocument(doc, { floorCoverage: floorCoverageState });
 		return true;
 	} catch {
@@ -321,12 +295,10 @@ export async function restoreFromStorage(): Promise<boolean> {
 }
 
 /**
- * Forget everything this app has stored: the project and every floor's underlay.
+ * 忘掉本应用存过的所有东西：工程和每层的底板图。
  *
- * Enumerated by prefix rather than by the app's own key list, because the keys that
- * outlive a floor are the ones nobody is holding: a floor that has been removed is gone
- * from `floorState.floors` and its underlay is still there, taking megabytes out of a
- * five-megabyte quota, with no code path left that would ever delete it.
+ * 按前缀枚举而不是查应用自己的键表，因为有些键在楼层没了之后就成了没人管的孤儿：
+ * 楼层已从 `floorState.floors` 移除，它的图还占着几 MB 配额，而再没有代码会去删它。
  */
 export async function clearSavedState(): Promise<void> {
 	const store = await ensureStore();
@@ -340,11 +312,10 @@ export async function clearSavedState(): Promise<void> {
 }
 
 /**
- * Drop one floor's stored underlay, because the floor it belonged to is gone.
+ * 删掉某个楼层存的底板图，因为那个楼层没了。
  *
- * Separate from `clearSavedState` because removing a floor is not removing the project,
- * and the caller is the one that knows both (see `FloorStrip`); keeping the delete here
- * is what stops the key scheme from being spelled a fourth time.
+ * 和 `clearSavedState` 分开：删楼层不等于删工程，而且调用方才知道这两件事（见 `FloorStrip`）。
+ * 把删除留在这里，键的拼法就不用再写第四遍。
  */
 export async function forgetFloorplan(floorId: string): Promise<void> {
 	encodedUnderlays.delete(floorId);
@@ -352,27 +323,23 @@ export async function forgetFloorplan(floorId: string): Promise<void> {
 	try {
 		await store.remove(floorplanKey(floorId));
 	} catch {
-		// A store that cannot delete the record is not a reason to refuse the floor
-		// removal that has already happened in memory.
+		// 存储删不掉记录，不该成为拒绝删楼层的理由——内存里的删除已经发生了。
 	}
 }
 /*
- * A floor that goes away takes its underlay with it.
+ * 楼层没了，它的底板图跟着删。
  *
- * Registered rather than called from the UI: the storage keys are this module's business, and a
- * caller remembering to ask is a caller that eventually does not. `floor-state` cannot import this
- * module (this one reads it), so it calls back instead.
+ * 用注册回调而不是让 UI 来调：存储键是这个模块自己的事，靠调用方记得，迟早会忘。
+ * `floor-state` 不能反过来 import 这里（这里读它），所以它回调过来。
  */
 onFloorRemoved((floorId) => void forgetFloorplan(floorId));
 
 /**
- * Save now, because the user asked — and say so.
+ * 用户让存就马上存，而且要说一声。
  *
- * The debounced `scheduleSave` is right for an edit and wrong for a keystroke or a menu
- * click: the user is watching for an answer, and a save that happens two seconds later in
- * silence reads as a button that does nothing. This writes immediately, cancels the
- * pending timer so the same write does not happen twice, and shows the acknowledgment for
- * a moment.
+ * 防抖的 `scheduleSave` 适合编辑，不适合点菜单或按快捷键：用户在等回应，
+ * 两秒后才静默存完，看起来就像按钮没反应。这里立刻写、取消待触发的定时器（免得写两次），
+ * 然后短暂显示一下「已保存」。
  */
 export async function saveNow(): Promise<void> {
 	savePending = true;
@@ -392,30 +359,25 @@ export async function saveNow(): Promise<void> {
 let savedNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 
 /**
- * Save after the debounce, replacing any save already pending.
+ * 防抖之后保存，替换掉已经排着的那次。
  *
- * `keep` is for callers whose change is **background work** rather than a user edit: their
- * change still has to reach storage, but it must not push back a save the user's own edit
- * already scheduled. The automatic solver and the comparison's winning colouring both need
- * it — each used to write state and never save it, so what landed on disk was whatever the
- * optimiser had scheduled two seconds earlier, computed for the *previous* positions.
+ * `keep` 给「改动来自后台工作」的调用方：改动还是要落盘，但不能把用户自己编辑排好的保存往后推。
+ * 自动求解和对比结果的上色都需要它——以前它们改了 state 却从不保存，
+ * 落盘的是优化器两秒前按旧位置算出来的东西。
  */
 export function scheduleSave(keep = false): void {
 	savePending = true;
 	if (keep && saveTimeout) return;
 	if (saveTimeout) clearTimeout(saveTimeout);
-	// `saveToStorage` opens the store itself and reports its own failures; the debounce
-	// only has to decide *when*.
+	// `saveToStorage` 自己打开存储、自己报错；防抖只负责决定「什么时候」。
 	saveTimeout = setTimeout(() => {
 		saveTimeout = null;
 		/*
-		 * On an idle frame, not on the timer's frame.
+		 * 放在空闲帧里跑，不在定时器那一帧跑。
 		 *
-		 * The write serialises every floor's masks — megabytes of base64 — and the timer
-		 * fires two to five seconds after the last edit, which is exactly when a hand is
-		 * still on the mouse. An idle callback puts the same write in the gap between
-		 * gestures; the timeout is the guarantee that it still happens if the frame never
-		 * goes idle.
+		 * 一次写入要序列化每层的遮罩（好几 MB base64），而定时器正好在最后一次编辑后几秒触发，
+		 * 那会儿手可能还在鼠标上。空闲回调把这次写入挪到两个手势之间；
+		 * timeout 是兜底，保证帧一直不空闲也还是会写。
 		 */
 		const run = () => void saveToStorage();
 		if (typeof requestIdleCallback === 'function') {
@@ -432,28 +394,20 @@ export async function hasSavedState(): Promise<boolean> {
 }
 
 /**
- * Write the project synchronously, for the moment the window is going away.
+ * 同步写一次工程，给窗口即将关闭那一刻用。
  *
- * Autosave is a five-second debounce and the write behind it is asynchronous, which is
- * the right shape for an edit and the wrong shape for a window that is being destroyed:
- * closing within the debounce window used to lose the last edit, and there is nothing in
- * the app that could have caught it, because a promise chain does not survive the page it
- * belongs to.
+ * 自动保存是 5 秒防抖 + 异步写入，这对编辑合适，对正在销毁的窗口不合适：
+ * 在防抖窗口内关掉会丢最后一次编辑，而且没东西能补救——promise 链活不过它所属的页面。
  *
- * So this is the one write that can still land: no await, no idle callback. It only
- * touches the document — an underlay has to be decoded and encoded through an `<img>`,
- * which cannot be done synchronously — so it is a safety net, not a replacement for the
- * normal save, and it leaves the pending timer and `savePending` alone for exactly that
- * reason.
+ * 所以这是唯一还来得及的写法：不 await、不等空闲帧。它只写文档（底板图要用 `<img>`
+ * 解码再编码，没法同步），因此只是安全网，不是正常保存的替代品；也正因为如此，它不动待触发的定时器和 `savePending`。
  *
- * Returns whether it wrote. `false` means nothing was pending, or the backend in use
- * cannot be written synchronously (IndexedDB cannot: see `KeyValueStore.writeSync`).
+ * 返回有没有写成功。`false` 表示没有待写内容，或者当前后端不支持同步写（IndexedDB 就不支持，见 `KeyValueStore.writeSync`）。
  */
 export function flushSaveSync(): boolean {
 	if (!savePending) return false;
-	// `projectStore` is whatever `ensureStore` settled on; before the first open the only
-	// store that exists is localstorage's, and using it is right *because* that is the
-	// backend in use — not as a guess about which one it might become.
+	// `projectStore` 就是 `ensureStore` 定下来的那个。首次打开前只有 localstorage 存在，
+	// 用它是对的——因为当前后端就是它，不是猜它以后会变成谁。
 	const store = projectStore ?? (BACKEND === 'localstorage' ? localStore : null);
 	if (!store?.writeSync) return false;
 	try {
@@ -463,7 +417,7 @@ export function flushSaveSync(): boolean {
 		);
 		return true;
 	} catch {
-		// A full quota or a store that has gone away: the async path reports it properly.
+		// 配额满了或存储没了：交给异步那条路径去好好报错。
 		return false;
 	}
 }
@@ -471,20 +425,16 @@ export function flushSaveSync(): boolean {
 let unloadFlushInstalled = false;
 
 /**
- * Save before the page goes away.
+ * 页面离开前再存一次。
  *
- * Three arrivals, because no single one covers every way this app is closed:
+ * 三个入口，因为单独一个覆盖不了所有关闭方式：
  *
- * - `flush-before-close`, emitted by the desktop shell: it intercepts the window's close,
- *   asks the page, and destroys it either way a moment later (`src-tauri/src/lib.rs`).
- *   This is the only one that is *guaranteed* to run before a close, because a destroyed
- *   webview does not reliably fire `pagehide`.
- * - `pagehide`: the browser's own last call, for `pnpm dev` and any host that is not the
- *   shell.
- * - `visibilitychange` → hidden: the same thing one step earlier, and the only one that
- *   also fires when a phone or a lid suspends the page.
+ * - `flush-before-close`：桌面外壳发的事件。它拦下关窗、先问页面一声，随后照样销毁（`src-tauri/src/lib.rs`）。
+ *   只有这个是「保证」在关闭前跑到，因为被销毁的 webview 不一定还会发 `pagehide`。
+ * - `pagehide`：浏览器自己的最后一声，`pnpm dev` 和别的宿主靠它。
+ * - `visibilitychange` → hidden：早一步的同一件事，也是手机锁屏或合盖时唯一会发的。
  *
- * Idempotent, and a no-op outside a browser (the layout is prerendered at build time).
+ * 幂等；不在浏览器里（构建时预渲染）什么都不做。
  */
 export function installUnloadFlush(): void {
 	if (unloadFlushInstalled) return;
@@ -494,9 +444,8 @@ export function installUnloadFlush(): void {
 	const flush = (): void => {
 		if (!flushSaveSync()) return;
 		/*
-		 * The synchronous write covered the document. The underlays still need the
-		 * asynchronous path, and a page that survives — an alt-tab, a close the user
-		 * cancelled — must not be left with a plan that never reached storage.
+		 * 同步那次只写了文档。底板图还得走异步路径；
+		 * 页面活下来（切标签、用户取消了关闭）时，不能留着一张永远没进存储的图。
 		 */
 		void saveToStorage();
 	};
@@ -509,11 +458,10 @@ export function installUnloadFlush(): void {
 }
 
 /**
- * The shell's "about to close" event, when this build is running inside it.
+ * 外壳的「即将关闭」事件，只有跑在外壳里时才有。
  *
- * Imported lazily and defensively: the browser build has no `__TAURI_INTERNALS__`, and a
- * shell older than the event has nothing to listen to. Both are cases where `pagehide`
- * remains the fallback, not reasons to fail.
+ * 懒加载且容错：浏览器版本没有 `__TAURI_INTERNALS__`，旧外壳也没有这个事件可听。
+ * 这两种情况都只是退回 `pagehide`，不是失败。
  */
 async function listenForCloseRequest(flush: () => void): Promise<void> {
 	const host = (globalThis as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
@@ -522,6 +470,6 @@ async function listenForCloseRequest(flush: () => void): Promise<void> {
 		const { listen } = await import('@tauri-apps/api/event');
 		await listen('flush-before-close', () => flush());
 	} catch {
-		// No event API: the window still closes, `pagehide` is the fallback.
+		// 没有事件 API：窗口照样会关，`pagehide` 是兜底。
 	}
 }

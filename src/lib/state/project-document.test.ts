@@ -1,13 +1,9 @@
 /**
- * The project document is the one shape a save, a restore, an export and an import all go
- * through, so it is the one place where "a field was forgotten" is a data-loss bug rather
- * than a cosmetic one.
+ * 工程文档是保存、恢复、导出、导入共用的唯一结构，所以这里「漏了个字段」是丢数据，不是小毛病。
  *
- * These tests exist because that is exactly what happened: `export/json.ts` had its own
- * copy of the schema, the copy never learned about vector walls, columns, raised surfaces,
- * notes or the planning area, and exporting then importing a project dropped them. The
- * round-trip test below is the guard: every field in the fixture has to survive
- * `migrate → applyDocument → toDocument`, or the suite fails.
+ * 这组测试就是吃过亏才有的：`export/json.ts` 曾自己抄了一份结构，那副本一直不知道矢量墙、柱子、
+ * 抬升面、标注和规划区域，导出再导入就把它们弄没了。下面的往返测试是防线：fixture 里的每个字段
+ * 都得熬过 `migrate → applyDocument → toDocument`。
  */
 import { describe, expect, it } from 'vitest';
 import type { AccessPoint } from './ap-state.svelte.js';
@@ -30,7 +26,7 @@ import {
 const FLOORPLAN = 'data:image/png;base64,FLOORPLAN';
 const WALLS = 'data:image/png;base64,WALLS';
 
-/** One project using every field the editor can write, so nothing can be dropped quietly. */
+/** 一个用上编辑器能写的所有字段的工程，谁也别想悄悄漏掉。 */
 function fixture(): Record<string, unknown> {
 	return {
 		version: 3,
@@ -54,8 +50,8 @@ function fixture(): Record<string, unknown> {
 		],
 		floorCoverage: {
 			'floor-a': { coverage: 87, samples: 400 },
-			// A row for a floor the document does not have: a deleted floor's figure must
-			// not come back as a phantom in the building mean.
+			// 一条文档里已经没有的楼层的记录：已删楼层的数字不能借尸还魂，
+			// 混进整栋平均里。
 			ghost: { coverage: 1, samples: 1 }
 		},
 		floors: [
@@ -179,12 +175,12 @@ function fixture(): Record<string, unknown> {
 	};
 }
 
-/** The underlay is a file-only field; everything else must match between the two sides. */
+/** 底图是只存文件的字段；其余字段两边必须完全一致。 */
 function withoutFloorplans(floors: ProjectDocumentV3['floors']) {
 	return floors.map(({ floorplanImage: _image, ...rest }) => rest);
 }
 
-/** `applyDocument` re-derives radii from the propagation model, so they are compared apart. */
+/** `applyDocument` 会按传播模型重算半径，所以比较时先把半径去掉。 */
 function withoutRadii(aps: AccessPoint[]) {
 	return aps.map(({ interferenceRadius: _radius, ...rest }) => rest);
 }
@@ -204,11 +200,11 @@ describe('project document', () => {
 		expect(written.pathLossScenario).toBe('office');
 		expect(written.coverageFloorEveryFloor).toBe(true);
 
-		// Floors and APs, field for field.
+		// 楼层和 AP，逐个字段对。
 		expect(withoutFloorplans(written.floors)).toEqual(withoutFloorplans(first!.floors));
 		expect(withoutRadii(written.aps)).toEqual(withoutRadii(first!.aps));
 
-		// The fields the file format used to drop, named so a failure says which one.
+		// 文件格式以前会丢的字段，单独点名，挂了就知道是哪一个。
 		const floor = written.floors[0]!;
 		expect(floor.walls).toEqual([
 			{ id: 'w1', ax: 0, ay: 0, bx: 10, by: 0, material: 3, heightM: 2.4 }
@@ -218,7 +214,7 @@ describe('project document', () => {
 		expect(floor.notes).toEqual([{ id: 'n1', x: 5, y: 6, text: 'steel door' }]);
 		expect(floor.planningArea).toHaveLength(3);
 		expect(floor.wallMask).toEqual({ dataUrl: WALLS, width: 64, height: 48, originX: 5, originY: 6 });
-		// A mask stored before masks carried an origin comes back at (0, 0).
+		// 掩码还没有原点字段时存下的数据，读回来原点是 (0, 0)。
 		expect(floor.materialMask).toEqual({
 			dataUrl: 'data:image/png;base64,MAT',
 			width: 64,
@@ -227,19 +223,17 @@ describe('project document', () => {
 			originY: 0
 		});
 
-		// The other project-level fields.
+		// 其余工程级字段。
 		expect(written.customMaterials).toEqual([
 			{ id: 100, name: 'Lead door', dbPerCrossing: 30, thicknessM: 0.05, color: [10, 20, 30] }
 		]);
 		/*
-		 * Coverage is not carried: it is a measurement of the plan, not a property of the
-		 * project. A file that carried it would print a figure for a building that no longer
-		 * exists, and a reload would restore it as if it were data — see `toDocument` and
-		 * `coverageBasis`.
+		 * 覆盖率不写进文档：它是对方案的测量，不是工程的属性。写进去的话，文件会给一栋已经
+		 * 不存在的楼印数字，重新打开还会把它当成数据恢复——见 `toDocument` 和 `coverageBasis`。
 		 */
 		expect(written.floorCoverage).toEqual({});
 
-		// The interface reads the underlay through the current floor.
+		// 界面通过当前楼层读到底图。
 		expect(floorState.floors[0]!.floorplanUrl).toBe(FLOORPLAN);
 		expect(wallState.wallMask?.dataUrl).toBe(WALLS);
 		expect(floorplanState.calibration?.worldUnitsPerMeter).toBe(40);
@@ -249,21 +243,19 @@ describe('project document', () => {
 
 	it('does not put the underlay into the stored document', () => {
 		applyDocument(migrate(fixture())!);
-		// Storage keeps the underlay under its own key; a save must not inline megabytes
-		// of base64 into the project record.
+		// 底图存在自己的键下；保存时不能把几兆的 base64 塞进工程记录。
 		expect('floorplanImage' in toDocument().floors[0]!).toBe(false);
 	});
 
 	it('ends the undo history, so a snapshot cannot leak the previous project in', () => {
 		applyDocument(migrate(fixture())!);
-		// An edit worth undoing: the snapshot that follows belongs to *this* document.
+		// 一次值得撤销的修改：之后的快照属于*这个*文档。
 		floorState.floors = [...floorState.floors, { ...floorState.floors[0]!, id: 'second' }];
 		pushState();
 		expect(canUndo()).toBe(true);
 
-		// Opening another document must not leave that snapshot on the stack: undoing it
-		// would put the first project's floors into the second project's name, band, units
-		// and materials — a state that never existed, and one autosave would make permanent.
+		// 打开另一个文档不能把那个快照留在栈上：撤销它会把第一个工程的楼层塞进第二个工程
+		// 的名称、频段、单位和材质里——一个从未存在过的状态，自动保存还会把它坐实。
 		applyDocument(migrate({ ...fixture(), name: 'Imported' })!);
 		expect(canUndo()).toBe(false);
 		expect(canRedo()).toBe(false);
@@ -306,11 +298,11 @@ describe('project document', () => {
 		expect(floor.floorplanScale).toBe(0.6);
 		expect(floor.wallAttenuation).toBe(9);
 		expect(floor.wallMask?.originX).toBe(0);
-		// Fields the old format never had arrive as the model it assumed.
+		// 老格式从来没有的字段，按当时模型假设的值补上。
 		expect(floor.walls).toEqual([]);
 		expect(floor.surfaces).toEqual([]);
 		expect(floor.notes).toEqual([]);
-		// The single floor is the AP's floor, and an AP with no mounting is on the ceiling.
+		// 单层工程就是 AP 所在的层；没写安装方式的 AP 算吸顶。
 		expect(doc!.aps[0]!.floorId).toBe(floor.id);
 		expect(doc!.aps[0]!.mount).toBe('ceiling');
 		expect(doc!.aps[0]!.pinned).toBe(false);
@@ -325,19 +317,18 @@ describe('project document', () => {
 	});
 
 	/*
-	 * A newer document is not a broken one.
+	 * 版本更新的文档不等于坏文档。
 	 *
-	 * The two answers have to be distinguishable, because the callers act differently: a
-	 * corrupt record is deleted from storage, a newer one is left alone and reported. Reading it
-	 * with this build's field list and writing it back drops whatever the newer build added —
-	 * silently, and on the user's only copy.
+	 * 这两种情况必须区分开，因为调用方处理方式不同：坏记录从存储里删掉，
+	 * 新版本文档原样留着并提示用户。用当前版本的字段表读进来再写回去，
+	 * 会丢掉新版本新增的东西——而且是悄悄地丢在用户唯一的那份上。
 	 */
 	it('refuses a document from a newer version, and says that is what it is', () => {
 		const newer = { version: DOCUMENT_VERSION + 1, floors: [{ id: 'f1', name: 'F', level: 0 }] };
 		expect(migrate(newer)).toBeNull();
 		expect(isFromNewerVersion(newer)).toBe(true);
 
-		// Everything this build can read is not "newer": the guard is the version, not the parse.
+		// 当前版本读得懂的一律不算「更新版本」：判据是版本号，不是解析结果。
 		expect(isFromNewerVersion({ version: DOCUMENT_VERSION })).toBe(false);
 		expect(isFromNewerVersion({ version: 2 })).toBe(false);
 		expect(isFromNewerVersion(null)).toBe(false);

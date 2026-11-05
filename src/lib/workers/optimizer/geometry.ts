@@ -1,30 +1,21 @@
 /**
- * The plan a worker has been sent, held until it is sent another one.
+ * 缓存 Worker 手上那份户型几何，直到换新的为止。
  *
- * A run's payload is mostly geometry — a wall mask, a material mask, the room types, the
- * density map and every cross-floor source mask, which on a 3000² plan is tens of megabytes —
- * and the geometry of one floor does not change between its restarts, or between the passes of
- * an all-floor run. Sending it once and naming it afterwards is the difference between "ninety
- * megabytes of copying" and "a hundred bytes" for every run after the first.
- *
- * The contract has to be explicit, because getting it wrong is silent: a worker that scores a
- * plan it was not given produces a believable layout of the wrong floor. So the bridge clears
- * its idea of what the worker holds whenever it creates or terminates one, the message names
- * the geometry it is talking about, and a message that names something this cache does not hold
- * is refused rather than answered.
+ * 一次运行的消息里大半是几何数据（墙、材质、房间类型、密度图、跨层源掩码），大图上能有几十 MB，
+ * 而同一份几何在重启之间、多趟运行之间都不变，所以只发一次、之后按 id 复用。
+ * 传错了几何不会报错，只会算出别层的布局，所以对不上 id 就直接拒绝，不勉强作答。
  */
 export class GeometryCache<T> {
 	private held: { id: string; geometry: T } | null = null;
 
 	/**
-	 * The geometry a message is about.
+	 * 判断一条消息说的是哪份几何。
 	 *
-	 * `carried` is the geometry travelling with the message: it becomes what the worker holds.
-	 * Otherwise the message must name what is already held — `id` empty means "whatever you
-	 * have", which is how a caller that does not track identities behaves.
+	 * `carried` 是随消息带来的几何，收到后它就变成 Worker 手上的那份。没带的话，
+	 * 消息必须指明已缓存的那份（`id` 为空表示“你手上那份”，给不跟踪 id 的调用方用），
+	 * 而且要声明复用才返回。
 	 *
-	 * Null means the message and this worker disagree about what is loaded, and the caller has
-	 * to be told rather than served.
+	 * 返回 null 表示消息和这个 Worker 对不上，这时得让调用方知道，不能照样返回。
 	 */
 	resolve(
 		carried: { id: string; geometry: T } | null,

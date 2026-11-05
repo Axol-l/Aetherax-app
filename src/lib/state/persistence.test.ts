@@ -11,13 +11,11 @@ import { appState } from './app.svelte.js';
 import { DOCUMENT_VERSION } from './project-document.js';
 
 /*
- * The save path, against a `localStorage` this file controls.
+ * 本地存储的保存流程，用本文件自己控制的 `localStorage` 来测。
  *
- * There is no jsdom here, so the browser's storage is a `Map` with the four members the
- * app uses. That is enough for everything these tests are about — *when* a write happens,
- * which keys it touches, and what survives a clear — because none of it depends on a real
- * DOM. The one path that does (encoding an imported plan through an `<img>`) is covered by
- * the e2e suite instead.
+ * 这里没有 jsdom，所以用 `Map` 加应用真正用到的四个成员冒充浏览器存储。测的都是
+ * 「什么时候写、写到哪些键、清空后还剩什么」，这些跟真 DOM 无关。唯一要真 DOM 的路径
+ * （用 `<img>` 编码导入的图纸）放在 e2e 里测。
  */
 
 const PROJECT_KEY = 'aetherax:project';
@@ -52,9 +50,8 @@ describe('persistence', () => {
 		vi.useFakeTimers();
 		storage = installStorage();
 		/*
-		 * Start with nothing pending. `savePending` outlives a test — it is cleared by a
-		 * successful write and by nothing else — so each test begins by earning that
-		 * clean state the way the app does, with one full save.
+		 * 先保证没有待写的改动。`savePending` 会跨测试留着——只有成功写入才会清掉它——
+		 * 所以每个测试开头都像应用启动那样做一次完整保存，把这个干净状态挣回来。
 		 */
 		await saveNow();
 		storage.clear();
@@ -73,7 +70,7 @@ describe('persistence', () => {
 		});
 
 		it('does nothing when there is nothing to write', () => {
-			// Nothing was scheduled since the last successful save.
+			// 上次保存成功后没再排过新任务。
 			expect(flushSaveSync()).toBe(false);
 			expect(storage.has(PROJECT_KEY)).toBe(false);
 		});
@@ -83,10 +80,8 @@ describe('persistence', () => {
 			scheduleSave();
 			flushSaveSync();
 
-			// The synchronous write covers the document only: an underlay has to be decoded
-			// and encoded through an `<img>`, which cannot happen in the page's last turn.
-			// Cancelling the timer here would leave an imported plan that never reaches
-			// storage, so the normal save has to stay on the books.
+			// 同步写只覆盖工程文档：底图要经 `<img>` 解码再编码，页面最后一刻做不完。
+			// 这里把定时器取消掉，导入的图纸就永远进不了存储，所以正常保存必须留着。
 			expect(vi.getTimerCount()).toBe(timersBefore + 1);
 		});
 	});
@@ -128,11 +123,10 @@ describe('persistence', () => {
 	});
 
 	/*
-	 * What restore does with a record it cannot use.
+	 * 恢复时碰上一条用不了的记录，该怎么处理。
 	 *
-	 * "Cannot read" and "written by a newer build" look the same to `migrate` and must not act
-	 * the same: one is rubbish, the other is the user's project. Deleting the second is the only
-	 * way the app can destroy work it never opened.
+	 * 「读不出来」和「更新版本写的」在 `migrate` 眼里长得一样，但处理绝不能一样：
+	 * 前者是垃圾，后者是用户的项目。删掉后者，就是应用唯一可能毁掉一份从没打开过的工作的方式。
 	 */
 	describe('restoreFromStorage', () => {
 		it('keeps a document from a newer version, and says why nothing loaded', async () => {

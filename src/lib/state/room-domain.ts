@@ -1,40 +1,32 @@
 /**
- * What counts as a room, for everyone who has to agree about it.
+ * 什么才算一个房间区域——凡是需要在这件事上达成一致的地方都用这套定义。
  *
- * The optimiser's placement domain, the coverage sample set, the "is this point inside?"
- * guard behind a click, and the worker's own verifier all reduce to one question: which
- * enclosed regions is an access point allowed in? They used to answer it with "everything
- * the flood fill could not reach from the border", which is not rooms — it is rooms *plus*
- * every cavity and drawing gap a plan happens to enclose. A user reported the result as
- * "the optimiser put my AP outside the room again": the point was in a 0.6 m² pocket
- * between two drawn lines, 3 cm from a wall, and every check in the app agreed it was
- * inside.
+ * 优化器的放置范围、覆盖率采样点、点击时的「这个点在室内吗」检查、worker 自己的校验，
+ * 最后都归结成一个问题：AP 允许落在哪些封闭区域里。以前它们用「洪水填充从边界到不了的地方」
+ * 来回答，那不等于房间，而是房间加上图纸上所有被围住的缝隙和空腔。有用户反馈
+ * 「优化器又把 AP 放到房间外面了」：那个点位于两条墙线之间 0.6 m² 的缝里，离墙 3 cm，
+ * 而应用里每一处检查都说它在室内。
  *
- * So the threshold lives here, in metres, and each side converts it with its own scale —
- * mask pixels are world units, and the worker is told the calibration in its payload.
- * They must not each invent one: a domain here that the worker does not share is exactly
- * the disagreement `ap-interior.ts` exists to prevent.
+ * 所以门限放在这里，单位是米，各边用自己的比例换算——掩码像素是世界单位，
+ * worker 会在载荷里被告知标定值。谁都不许自己造一个：这里和 worker 不一致，
+ * 正是 `ap-interior.ts` 要防的那种分歧。
  */
 import { getEffectiveWupm, wupmForFloor } from './ap-state.svelte.js';
 
 /**
- * Smallest inscribed radius a region may have and still count as a room, in metres.
+ * 一个区域要算作房间，内切半径最小多少米。
  *
- * 0.3 m keeps a 0.6 m-wide space: narrower than that is a gap between lines rather than
- * somewhere a person stands, and an access point there reaches almost nothing. The
- * narrowest real space in the plan that prompted this was a 1.2 m corridor (0.6 m
- * radius), so the margin below it is a factor of two; the cavity that caused the report
- * measured 0.06 m.
+ * 0.3 m 能保住 0.6 m 宽的空间：再窄就是墙线之间的缝，不是站人的地方，AP 放进去也覆盖不到什么。
+ * 当初引发问题的那张图里，最窄的真实空间是 1.2 m 宽的走廊（半径 0.6 m），所以离它还有两倍余量；
+ * 而用户报的那道缝只有 0.06 m。
  */
 export const MIN_ROOM_RADIUS_M = 0.3;
 
 /**
- * The same threshold in mask pixels, for a floor's calibration.
+ * 同一个门限，换算成某一层标定下的掩码像素。
  *
- * Pass the floor whose mask is being built: the threshold is in metres, and a mask's pixels
- * are that floor's world units. Using the *selected* floor's scale while building another
- * floor's domain made a room on a differently-calibrated storey count as several rooms — or
- * as none.
+ * 要传正在建掩码的那一层：门限是米，而掩码像素是那一层的世界单位。用*选中*层的比例
+ * 去建另一层的范围，会让标定不同的楼层上一个房间区域被算成好几个，或者一个都算不上。
  */
 export function minRoomRadiusWu(floorId?: string): number {
 	return MIN_ROOM_RADIUS_M * (floorId ? wupmForFloor(floorId) : getEffectiveWupm());

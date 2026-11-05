@@ -4,13 +4,11 @@ import { floorState } from './floor-state.svelte.js';
 import { coverageBasis, dropStaleCoverage, floorCoverage } from './optimizer-state.svelte.js';
 
 /*
- * A coverage figure is a measurement of a *particular* plan.
+ * 覆盖率数字是*某一版*方案的测量结果。
  *
- * Nothing used to invalidate one: move a wall, delete an access point, undo either, and the
- * panel, the building mean and the PDF report kept printing the previous measurement — and
- * because the number was persisted with the document, a reload brought it back. `basis` is the
- * plan a figure describes; a figure whose basis no longer matches is dropped before the next
- * pass writes its own.
+ * 以前没有任何东西会把它作废：挪一堵墙、删一个 AP、撤销其中任一步，面板、整栋平均和 PDF 报告
+ * 还照印上一次的数字；而且数字是跟着文档存下来的，重新打开就又回来了。`basis` 就是这个数字
+ * 描述的方案；等下一轮跑之前，对不上的旧数字会先被丢掉。
  */
 
 function reseed() {
@@ -92,7 +90,7 @@ describe('coverage basis', () => {
 
 		const aBefore = coverageBasis('floor-a');
 		const bBefore = coverageBasis('floor-b');
-		// Calibrating floor 2 changes floor 2's basis and leaves floor 1's alone.
+		// 重新标定二层只会改二层的 basis，一层不受影响。
 		floorState.floors[1]!.calibration = { worldUnitsPerMeter: 60 };
 		expect(coverageBasis('floor-b')).not.toBe(bBefore);
 		expect(coverageBasis('floor-a')).toBe(aBefore);
@@ -124,8 +122,8 @@ describe('dropStaleCoverage', () => {
 	});
 
 	it('drops a figure that came back from a file', () => {
-		// A restored document carries the number and its sample count, and no basis — it was
-		// measured by a previous session against a plan this one has not verified.
+		// 从文件恢复的文档带着数字和采样点数，但没有 basis——那是上一次会话对一版方案测的，
+		// 这次还没核对过。
 		floorCoverage.set('floor-a', { coverage: 92, samples: 400 });
 
 		dropStaleCoverage();

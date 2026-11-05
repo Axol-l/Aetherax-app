@@ -1,19 +1,8 @@
 /**
- * Walls as line segments — the model the app is moving to.
+ * 把墙表示成线段——应用正在过渡到的模型。
  *
- * Today a wall is a band of pixels: the mask is painted with a brush, the interior is
- * inferred by flood fill, and the attenuation is charged by counting crossings. Every
- * class of bug the last months produced came from that: a wall drawn as two strokes comes
- * out hollow, a cavity between strokes reads as a room, an outline with a wide opening
- * reads as outside.
- *
- * A wall is a segment with a material. There is no inside to a line, so none of those can
- * happen; a ray either crosses it or does not; and drawing one is two clicks instead of a
- * brush stroke.
- *
- * This module is the model and the small geometry that makes drawing feel right — snapping
- * to an existing endpoint, locking to an axis. Nothing here touches the raster mask
- * machinery, so the two can coexist while the propagation is moved over.
+ * 以前墙是像素带，空心墙、缝被当房间、开口被当室外这些问题都从那儿来；线段没有「内部」，
+ * 射线要么穿过要么不穿。这里只有模型和让画墙手感正常的几何（吸附、锁轴），不碰栅格那套。
  */
 import type { WallMaterialId } from '$lib/domain/materials.js';
 
@@ -24,19 +13,18 @@ export interface VectorWall {
 	bx: number;
 	by: number;
 	material: WallMaterialId;
-	/** Wall height above the floor, in metres. Absent means "the floor's ceiling". */
+	/** 墙高出地面的高度，单位米。不填就取楼层的层高。 */
 	heightM?: number;
 }
 
 export interface VectorColumn {
 	id: string;
 	/**
-	 * A rectangle for a pier, a circle for a round column. Both are obstructions: a pillar
-	 * casts the same shadow a wall does, so they are rasterised into the mask the
-	 * propagation reads rather than being a drawing of one.
+	 * 墙墩用矩形，圆柱用圆形。两者都是障碍：柱子投的影子和墙一样，所以它们会被栅格化进
+	 * 传播读的掩码里，而不是只画个样子。
 	 */
 	shape: 'rect' | 'circle';
-	/** Opposite corners of the rectangle; for a circle, `a` is the centre and `b` a rim point. */
+	/** 矩形的两个对角；圆形时 `a` 是圆心、`b` 是圆周上一点。 */
 	ax: number;
 	ay: number;
 	bx: number;
@@ -49,21 +37,19 @@ export interface Point {
 	y: number;
 }
 
-/** How close, in screen pixels, a click has to be to an endpoint to snap to it. */
+/** 点击离端点多少屏幕像素内就吸附过去。 */
 export const SNAP_PX = 12;
 
-/** Length of a wall, in world units. */
+/** 墙的长度，世界坐标单位。 */
 export function wallLength(wall: VectorWall): number {
 	return Math.hypot(wall.bx - wall.ax, wall.by - wall.ay);
 }
 
 /**
- * Snap a point to the nearest endpoint within `tolerance`, in world units.
+ * 把点吸附到 `tolerance` 范围内最近的端点，单位是世界坐标。
  *
- * Snapping is what makes a drawn plan watertight: two walls that meet *near* each other are
- * two walls with a gap that a ray slips through, and the plan then behaves differently in
- * the model than it looks on the drawing. The tolerance is handed in world units so the
- * caller can keep it constant on screen at any zoom.
+ * 吸附是图纸能严丝合缝的关键：两面墙只是*差不多*接上，中间就有一条射线能钻的缝，模型里的
+ * 表现和图纸上看到的不一样。容差传世界坐标单位，调用方可以按缩放换算，保证屏幕上看着一样。
  */
 export function snapToEndpoint(
 	point: Point,
@@ -88,11 +74,10 @@ export function snapToEndpoint(
 }
 
 /**
- * Lock the segment from `from` to `to` onto an axis when it is nearly horizontal or
- * vertical, which is what a drawn plan almost always wants.
+ * 线段接近水平或垂直时，把它锁到坐标轴上——画平面图几乎总是想要这个。
  *
- * The test is on the *ratio*, not on an angle in degrees: a wall 100 px long and 3 px off is
- * worth locking, the same 3 px offset on a 10 px wall is a diagonal.
+ * 判断用的是*比例*，不是角度：100 px 长的墙偏 3 px 值得锁，10 px 长的墙偏同样 3 px 就是
+ * 根斜线了。
  */
 export function lockToAxis(from: Point, to: Point, ratio = 0.12): Point {
 	const dx = to.x - from.x;
@@ -104,15 +89,13 @@ export function lockToAxis(from: Point, to: Point, ratio = 0.12): Point {
 }
 
 /**
- * The closest point on any wall — an endpoint or anywhere along its length.
+ * 任意墙上的最近点——可以是端点，也可以是线身任意位置。
  *
- * Endpoint snapping alone leaves the commonest gesture in a plan impossible: running a
- * partition *into* the middle of a wall (a T-junction). The drawing then has two walls that
- * look joined and a model with a gap, which is the class of bug this model exists to remove.
- * So a point snaps to any wall within reach, and to the nearer of "an end" and "the side"
- * when both are close.
+ * 只吸端点，平面图里最常见的一个动作就做不了：把隔断插到另一面墙*中间*（T 形接头）。那样
+ * 图纸上看着是接上的，模型里却有条缝，正是这套模型要消灭的那类 bug。所以点会吸到够得着的
+ * 任意墙，而「端点」和「线身」都近时取更近的那个。
  *
- * The kind is returned so the drawing can say which happened.
+ * 返回类型是给图纸提示用的，说明吸到的是哪一种。
  */
 export function snapToWalls(
 	point: Point,
@@ -123,8 +106,7 @@ export function snapToWalls(
 	let bestDistance = tolerance;
 	let kind: 'endpoint' | 'edge' = 'edge';
 
-	// Ends first: two walls meeting at a corner should snap to the corner, not to the
-	// nearest spot on one of its sides.
+	// 先看端点：两面墙在拐角相接时应该吸到拐角，而不是某条边的最近点。
 	for (const wall of walls) {
 		for (const end of [
 			{ x: wall.ax, y: wall.ay },
@@ -139,7 +121,7 @@ export function snapToWalls(
 		}
 	}
 
-	// Then the sides, which may be closer than either end on a long wall.
+	// 再看线身：长墙上它可能比两端都近。
 	for (const wall of walls) {
 		const dx = wall.bx - wall.ax;
 		const dy = wall.by - wall.ay;
@@ -149,7 +131,7 @@ export function snapToWalls(
 		t = Math.max(0, Math.min(1, t));
 		const candidate = { x: wall.ax + t * dx, y: wall.ay + t * dy };
 		const distance = Math.hypot(candidate.x - point.x, candidate.y - point.y);
-		// Strictly closer, so an endpoint found at the same distance keeps winning.
+		// 必须严格更近，这样同样距离下找到的端点仍然优先。
 		if (distance < bestDistance) {
 			best = candidate;
 			bestDistance = distance;
@@ -160,7 +142,7 @@ export function snapToWalls(
 	return { point: best, kind };
 }
 
-/** Distance from a point to a segment, for selecting a wall by clicking near it. */
+/** 点到线段的距离，用来按点击位置选墙。 */
 export function distanceToSegment(point: Point, wall: VectorWall): number {
 	const dx = wall.bx - wall.ax;
 	const dy = wall.by - wall.ay;
@@ -171,7 +153,7 @@ export function distanceToSegment(point: Point, wall: VectorWall): number {
 	return Math.hypot(point.x - (wall.ax + t * dx), point.y - (wall.ay + t * dy));
 }
 
-/** The wall nearest to `point` within `tolerance`, or null. */
+/** `tolerance` 范围内离 `point` 最近的墙，没有就返回 null。 */
 export function wallNearPoint(
 	point: Point,
 	walls: readonly VectorWall[],
@@ -189,12 +171,12 @@ export function wallNearPoint(
 	return best;
 }
 
-/** Drop walls shorter than a pixel or two: a double-click through the same spot makes one. */
+/** 丢掉短于一两个像素的墙：在同一处双击一下就会生成一根。 */
 export function isDegenerate(wall: VectorWall, minLength = 2): boolean {
 	return wallLength(wall) < minLength;
 }
 
-/** A column's bounding box, in world units. */
+/** 柱的包围盒，世界坐标单位。 */
 export function columnBox(column: VectorColumn): {
 	x0: number;
 	y0: number;
@@ -210,7 +192,7 @@ export function columnBox(column: VectorColumn): {
 	return { x0, y0, x1, y1, width: x1 - x0, height: y1 - y0 };
 }
 
-/** A column too small to obstruct anything: a click without a drag makes one. */
+/** 小到挡不住任何东西的柱：只点一下、没拖动，就会生成一个。 */
 export function isDegenerateColumn(column: VectorColumn, minSize = 2): boolean {
 	if (column.shape === 'circle') {
 		return Math.hypot(column.bx - column.ax, column.by - column.ay) < minSize;
@@ -219,12 +201,12 @@ export function isDegenerateColumn(column: VectorColumn, minSize = 2): boolean {
 	return width < minSize && height < minSize;
 }
 
-/** The column under a point, or null. Circles test their radius, rectangles their box. */
+/** 点在哪个柱下面，没有就返回 null。圆看半径，矩形看包围盒。 */
 export function columnAtPoint(
 	columns: readonly VectorColumn[],
 	point: Point
 ): VectorColumn | null {
-	// Last drawn wins, which is what the user just placed when two overlap.
+	// 后画的优先：两个重叠时，用户刚放下的那个赢。
 	for (let i = columns.length - 1; i >= 0; i--) {
 		const column = columns[i]!;
 		if (column.shape === 'circle') {

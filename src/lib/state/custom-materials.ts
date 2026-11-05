@@ -1,24 +1,17 @@
 /**
- * User-defined wall materials.
+ * 用户自定义的墙体材质。
  *
- * The built-in table covers what a plan usually contains, but a survey is often about the
- * one thing the table does not have: a lead-lined door, a warehouse shelf, a glazed screen
- * whose datasheet somebody actually read. Ekahau lets you add materials for exactly this
- * reason, and so does this.
- *
- * The stored quantity is **dB per crossing plus a thickness**, because that is what a
- * datasheet states and what the user can check. The model charges per metre, so
- * `dbPerMeter = dbPerCrossing / thickness` — deriving instead of asking for both keeps the
- * two numbers from disagreeing, and a wall of that material costs exactly the figure the
- * user typed.
+ * 内置表覆盖常见情况，但勘测常碰到表里没有的东西：铅衬门、仓库货架、有规格书的玻璃隔断。
+ * 存的是“每次穿过的 dB + 厚度”，因为规格书就这么写、用户也能核对；模型按米算损耗，
+ * 所以内部按 `dbPerMeter = dbPerCrossing / thickness` 推导，只让人填一组数，省得两个数打架。
  */
 import { WALL_MATERIALS, type WallMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 
 export interface CustomMaterial {
-	/** Ids from 100 up, so they never collide with the built-in table. */
+	/** 从 100 起编号，避免和内置表撞号。 */
 	id: number;
 	name: string;
-	/** Loss for one crossing at `thicknessM`, in dB — the number a datasheet gives. */
+	/** 厚度为 `thicknessM` 时穿过一次的损耗（dB），即规格书上的数字。 */
 	dbPerCrossing: number;
 	thicknessM: number;
 	color: [number, number, number];
@@ -26,7 +19,7 @@ export interface CustomMaterial {
 
 export const CUSTOM_MATERIAL_ID_BASE = 100;
 
-/** The next free id, given what is already taken. */
+/** 在已占用的编号里找下一个空号。 */
 export function nextCustomMaterialId(existing: readonly CustomMaterial[]): number {
 	let id = CUSTOM_MATERIAL_ID_BASE;
 	const taken = new Set(existing.map((material) => material.id));
@@ -35,11 +28,10 @@ export function nextCustomMaterialId(existing: readonly CustomMaterial[]): numbe
 }
 
 /**
- * The built-in table plus the user's, in the shape the rest of the app expects.
+ * 内置表加上用户的材质，拉平成应用其它部分期望的形状。
  *
- * One flat list, so a picker, a swatch and the physics table all see the same set — the
- * alternative, threading a "customs" argument through every caller, is how one of them ends
- * up not knowing about them.
+ * 只维护一份平铺列表，选择器、色卡和物理表看到的才是同一套；否则就得把“自定义材质”参数
+ * 一层层传下去，迟早有一个调用方漏掉。
  */
 export function allWallMaterials(custom: readonly CustomMaterial[]): WallMaterial[] {
 	const builtIns = WALL_MATERIALS as readonly WallMaterial[];
@@ -62,7 +54,7 @@ export function allWallMaterials(custom: readonly CustomMaterial[]): WallMateria
 	];
 }
 
-/** One lookup for "what is this id", built-ins first. */
+/** 按 id 查材质，先查内置的。 */
 export function wallMaterialById(
 	id: number,
 	custom: readonly CustomMaterial[]

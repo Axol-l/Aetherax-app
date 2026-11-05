@@ -1,9 +1,9 @@
 /**
- * The catalogue is hand-written and the interface is large, so check it against the source
- * rather than trusting it: an untranslated key silently falls back to English, which is the
- * right behaviour at runtime and invisible in review.
+ * 译文表是手写的、界面又大，所以拿源码对一遍，别直接信它。
  *
- * The sources come in through Vite (`?raw`), so this needs no Node types in a browser tsconfig.
+ * 漏翻的键运行时只会悄悄回退成英文，看着没错，评审时也看不出来。
+ *
+ * 源码用 Vite 的 `?raw` 读进来，这样浏览器版 tsconfig 里不用引 Node 类型。
  */
 import { describe, expect, it } from 'vitest';
 import { FLOOR_MATERIALS } from '../canvas/floor-materials.js';
@@ -14,11 +14,11 @@ const sources = import.meta.glob('../../**/*.{svelte,ts}', {
 	eager: true
 }) as Record<string, string>;
 
-/** The catalogue itself, and the files that only talk about keys. */
+/** 译文表本身，以及只提到键名、不该参与统计的文件。 */
 const isCatalogue = (path: string) => path.endsWith('/i18n.svelte.ts');
 const isTest = (path: string) => /\.(test|spec)\.ts$/.test(path) || path.endsWith('.d.ts');
 
-/** Keys passed to `t('...')`, unescaped the way the runtime reads them. */
+/** 传给 `t('...')` 的键，按运行时的方式把转义还原。 */
 function usedKeys(): string[] {
 	const keys: string[] = [];
 	for (const [path, src] of Object.entries(sources)) {
@@ -30,7 +30,7 @@ function usedKeys(): string[] {
 	return keys;
 }
 
-/** Keys of the `zh` catalogue, including entries whose value sits on the next line. */
+/** `zh` 表里的键，也包括值写在下一行的那种条目。 */
 function catalogueKeys(): string[] {
 	const entry = Object.entries(sources).find(([path]) => isCatalogue(path));
 	if (!entry) throw new Error('catalogue not found');
@@ -49,8 +49,8 @@ describe('translation catalogue', () => {
 	});
 
 	it('covers the floor material names the picker translates at runtime', () => {
-		// The picker calls `t(material.name)`, so the scan above cannot see these keys: a
-		// missing entry would silently leave the option in English.
+		// 材质选择器是运行时调 `t(material.name)`，上面的扫描看不见这些键：
+		// 漏一条就会让那个选项一直显示英文。
 		const catalogue = new Set(catalogueKeys());
 		const missing = FLOOR_MATERIALS.map((material) => material.name).filter(
 			(name) => !catalogue.has(name)

@@ -1,19 +1,9 @@
 /**
- * The planning area: where the user says the floor actually is.
+ * 规划区域：用户亲手指出这一层到底在哪。
  *
- * Everything about "inside" in this app has been inferred — from the wall mask, by
- * flood-filling what the walls enclose. That inference is a guess, and it is wrong in both
- * directions on real plans: a room whose outline has a wide opening reads as *outside*
- * (which is how an access point standing in the middle of an office came to be reported as
- * outside the building), while a wall cavity between two drawn lines reads as *inside*.
- *
- * So the user can draw the area instead. Automatic detection stays the default — it is
- * right for a clean plan and it costs nothing — but once a polygon exists it is the
- * authority: warnings, placement and the optimiser's domain all use it. This is the same
- * reason site-survey tools have you draw the planning area by hand.
- *
- * Points are world coordinates. A polygon needs at least three; fewer is a line, not an
- * area, and every consumer treats it as absent.
+ * 「室内」原本靠墙线掩码填充猜出来，真实图纸上两个方向都会错：门洞开得宽的房间里会被判成室外，
+ * 两条墙线之间的墙腔反而被判成室内。所以允许用户自己画；自动识别仍是默认，但画了就以多边形为准，
+ * 告警、放置和优化器范围都看它。坐标是世界坐标，少于三个点一律当没有。
  */
 
 export interface PlanningPoint {
@@ -23,22 +13,20 @@ export interface PlanningPoint {
 
 export type PlanningArea = PlanningPoint[];
 
-/** The smallest polygon worth acting on. */
+/** 少于这个点数的多边形没法当区域用。 */
 export const MIN_PLANNING_POINTS = 3;
 
-/** Whether a polygon can be used as an area at all. */
+/** 这个多边形到底能不能当区域用。 */
 export function isUsablePlanningArea(area: PlanningArea | null | undefined): area is PlanningArea {
 	return !!area && area.length >= MIN_PLANNING_POINTS;
 }
 
 /**
- * Even-odd point-in-polygon, on world coordinates.
+ * 判断点是否在多边形内（奇偶规则，世界坐标）。
  *
- * Ray casting rather than a winding rule: the areas people draw are simple loops, and
- * even-odd gives the same answer for them while needing no orientation.
+ * 用射线法而不是绕数法：大家画的区域都是简单闭合环，奇偶规则结果一样，还不用管顶点顺序。
  *
- * A point exactly on an edge may come out either way — the two sides of a boundary line are
- * both defensible answers and the cost of being wrong is one pixel of a warning.
+ * 正好落在边上的点可能判里也可能判外——边界线两侧都说得过去，判错的代价只是告警里差一个像素。
  */
 export function pointInPlanningArea(point: PlanningPoint, area: PlanningArea): boolean {
 	if (!isUsablePlanningArea(area)) return false;
@@ -55,15 +43,12 @@ export function pointInPlanningArea(point: PlanningPoint, area: PlanningArea): b
 }
 
 /**
- * Intersect an interior mask with the planning area, in place.
+ * 把室内掩码和规划区域求交，就地改。
  *
- * The mask is the app's own domain — walls already excluded, voids already removed — and
- * this keeps only the part the user drew. Called on both sides of the worker boundary, from
- * the same polygon expressed in mask pixels, so the optimiser and the app's guard cannot
- * disagree about what is inside.
+ * 掩码本身已经是应用的适用范围——墙排除了、中空也挖掉了——这里只留下用户画的那部分。
+ * worker 两侧都会调，用的是同一个多边形按掩码像素表示，这样优化器和应用的检查不会各说各话。
  *
- * Returns how many pixels were kept, which is what the callers report when the answer is
- * "nothing left".
+ * 返回留下的像素数，调用方在「什么都不剩」时就报这个数。
  */
 export function clipInteriorToPlanningArea(
 	interior: Uint8Array,

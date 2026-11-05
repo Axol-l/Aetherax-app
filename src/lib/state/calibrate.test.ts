@@ -1,29 +1,28 @@
 /**
- * Calibration from a measured line.
+ * 用线段做标定的测试。
  *
- * The area route divides the stated area into the boundary the detector found, so it is
- * only as trustworthy as that boundary; measuring a line asks for something the user can
- * read off the plan, and works when the outline is open or the drawing is one room.
+ * 按面积算依赖检测出的轮廓，轮廓不准结果就不准；量线问的是图上能直接读出的尺寸，
+ * 轮廓没闭合或只画了一个房间时也能用。
  */
 import { describe, expect, it } from 'vitest';
 import { segmentLengthMetres, segmentLengthWorld, wupmFromSegment } from './calibrate.js';
 
 describe('wupmFromSegment', () => {
 	it('turns a measured line into a scale', () => {
-		// A 520 px segment that is really 10 m long is 52 px per metre.
+		// 520 像素实际是 10 米，就是 52 像素每米。
 		expect(wupmFromSegment({ a: { x: 0, y: 0 }, b: { x: 520, y: 0 } }, 10)).toBeCloseTo(52);
 	});
 
 	it('measures diagonals, not just horizontal runs', () => {
-		// 3-4-5 triangle: 5 units of world length against 2.5 m is 2 px/m.
+		// 3-4-5 直角三角形：世界长度 5 对应 2.5 米，即 2 像素每米。
 		expect(wupmFromSegment({ a: { x: 0, y: 0 }, b: { x: 3, y: 4 } }, 2.5)).toBeCloseTo(2);
 	});
 
 	it('refuses inputs that carry no scale', () => {
 		const point = { x: 10, y: 10 };
-		// Same point twice: the user clicked once per end of nothing.
+		// 两端点了同一个点：等于没量。
 		expect(wupmFromSegment({ a: point, b: { ...point } }, 5)).toBeNull();
-		// A real length of zero would divide by it, and a negative one is a typo.
+		// 实际长度为 0 会除爆，负数显然是填错了。
 		expect(wupmFromSegment({ a: { x: 0, y: 0 }, b: { x: 100, y: 0 } }, 0)).toBeNull();
 		expect(wupmFromSegment({ a: { x: 0, y: 0 }, b: { x: 100, y: 0 } }, -3)).toBeNull();
 		expect(wupmFromSegment({ a: { x: 0, y: 0 }, b: { x: 100, y: 0 } }, Number.NaN)).toBeNull();

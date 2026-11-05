@@ -1,14 +1,8 @@
 /**
- * The wall-mask accessor: the one seam every kernel reads a floor's walls through.
+ * 墙体掩码的访问口：所有内核都从这一个口子读楼层的墙。
  *
- * It used to hand back the stored raster, which made "the segments are the model" true only
- * on the floor on screen — that floor's mask is re-derived by the canvas, while another
- * floor's is whatever was saved with it. The optimiser's all-floor run reads *other* floors,
- * so this is where the claim has to be made true: when a floor has segments, the mask is
- * derived from them here.
- *
- * No canvas is involved on that path — `rasteriseWalls` is arithmetic — so this can be
- * tested without a browser.
+ * 「线段是模型」必须在这里做实，因为优化器的全楼层运行读的是*别层*，那层的掩码不会由画布
+ * 重新推导。这条路径只是算术、不涉及画布，所以不用浏览器也能测。
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import { floorState, type Floor } from './floor-state.svelte.js';
@@ -48,7 +42,7 @@ function floorWithWalls(over: Partial<Floor> = {}): Floor {
 	};
 }
 
-/** A pixel of a mask, by world coordinate. */
+/** 按世界坐标取掩码上的一个像素。 */
 function at(
 	mask: { wallData: Uint8Array; width: number; height: number; originX: number; originY: number },
 	x: number,
@@ -73,12 +67,12 @@ describe('getFloorMask', () => {
 	it('derives the raster from the segments when the floor has no stored mask', async () => {
 		const mask = await getFloorMask('f1');
 		expect(mask).not.toBeNull();
-		// A wall is painted where the segment is, and the room inside it is not.
+		// 线段覆盖到的地方画成了墙，里面的房间没有。
 		expect(at(mask!, 150, 100)).toBe(1);
 		expect(at(mask!, 100, 140)).toBe(1);
 		expect(at(mask!, 150, 140)).toBe(0);
-		// The frame is the segments' own bounding box plus the band's margin, not the
-		// whole world: a plan-less floor has nothing else to take a frame from.
+		// 坐标系取线段自己的包围盒加带宽余量，不是整个世界：没有图纸的楼层没有别的东西
+		// 可以定坐标系。
 		expect(mask!.width).toBeGreaterThan(100);
 		expect(mask!.width).toBeLessThan(200);
 	});
@@ -100,7 +94,7 @@ describe('getFloorMask', () => {
 	it('re-derives when the segments change, and not when nothing did', async () => {
 		const first = await getFloorMask('f1');
 		const again = await getFloorMask('f1');
-		// Same array object: the cache is what keeps a coverage drag from re-rasterising.
+		// 还是同一个数组对象：缓存就是为了拖覆盖率时不要反复栅格化。
 		expect(again).toBe(first);
 
 		const floor = floorState.floors[0]!;

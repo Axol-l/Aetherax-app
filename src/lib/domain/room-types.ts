@@ -451,18 +451,6 @@ export const ROOM_TYPES: readonly RoomType[] = [
 	},
 
 	// ─── No floor ────────────────────────────────────────────────
-	/**
-	 * Appended, never inserted. Room type ids are persisted inside the room type
-	 * mask, so inserting in the middle would silently relabel every room in every
-	 * saved project. New types go at the end.
-	 *
-	 * **And the id has to be free.** This was first added as 40, which `Huddle Room`
-	 * already used: `getRoomType` and `isVoidRoomType` both return the *first* match,
-	 * so painting a Void produced a Huddle Room — 0.5 devices/m² instead of none, a
-	 * label reading "Huddle", and no hole anywhere in the propagation or placement
-	 * code. Nothing caught it because nothing checked that ids are unique; the test
-	 * in `room-types.test.ts` now does.
-	 */
 	{
 		id: 48,
 		name: 'Void / Atrium',

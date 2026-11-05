@@ -1,11 +1,9 @@
 /**
- * Calibration is per floor.
+ * 标定按楼层来。
  *
- * The project used to carry one scale: calibrating any storey wrote the value onto every
- * floor, and every consumer read floor 1's copy. That made a plan imported at a different
- * resolution unrepresentable 鈥?measuring floor 2 silently changed floor 1's metres 鈥?so
- * these tests pin the two halves of the new rule: a scale belongs to one floor, and adding
- * a floor copies the scale of the floor it was added from.
+ * 以前项目只带一个比例：标定任何一层都会把值写到所有楼层，各处读的都是 1 层的副本 ——
+ * 于是不同分辨率的图纸没法表达（量了 2 层，1 层的米数也被改）。这些测试盯住新规则的两半：
+ * 比例只属于一个楼层；新增楼层时继承它加出来那一层的比例。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -103,9 +101,9 @@ describe('setFloorScale', () => {
 
 		expect(floorState.floors[0]!.calibration).toEqual({ worldUnitsPerMeter: 60 });
 		expect(floorState.floors[1]!.calibration).toEqual({ worldUnitsPerMeter: 40 });
-		// f2's AP keeps its own units: calibrating f1 must not rewrite its reach.
+		// f2 的 AP 用自己的单位：标定 f1 不能改它的覆盖范围。
 		expect(apState.aps.find((a) => a.id === 'a2')!.interferenceRadius).toBe(600);
-		// f1's AP is rescaled by the ratio 60/20, so its real reach is unchanged.
+		// f1 的 AP 按 60/20 的比例缩放，所以实际覆盖没变。
 		expect(apState.aps.find((a) => a.id === 'a1')!.interferenceRadius).toBe(900);
 	});
 
@@ -154,12 +152,12 @@ describe('scaleBetween', () => {
 
 describe('resampleRaster', () => {
 	it('keeps a mask readable across a factor-of-two calibration', () => {
-		// 2x2: wall in the top-left and bottom-right pixels.
+		// 2x2：左上和右下是墙。
 		const data = new Uint8Array([1, 0, 0, 1]);
 		const out = resampleRaster(data, 2, 2, 2);
 		expect(out.width).toBe(4);
 		expect(out.height).toBe(4);
-		// The top-left source pixel becomes a 2x2 block of wall.
+		// 左上那个源像素放大成 2x2 的墙。
 		expect(out.data[0]).toBe(1);
 		expect(out.data[5]).toBe(1);
 		expect(out.data[2]).toBe(0);

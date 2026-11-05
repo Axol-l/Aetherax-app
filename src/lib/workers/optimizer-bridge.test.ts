@@ -2,15 +2,11 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { OptimizerBridge, type OptimizeResult } from './optimizer-bridge.js';
 import type { ApInput } from './optimizer-protocol.js';
 /*
- * The bridge's half of the worker protocol.
+ * 桥接这一侧的 Worker 协议测试。
  *
- * A run is a request the main thread cannot take back once it is posted, so the only way to
- * stay correct is for every reply to say which run it answers. These tests pin that: a reply
- * for an abandoned run must be dropped rather than delivered, a cancel must reject at once
- * and name its run, and a second run must not be able to adopt the first one's result.
- *
- * The worker itself is replaced by a recorder — there is no `Worker` in the node environment
- * this suite runs in, and the part under test here is the filtering, not the search.
+ * 运行请求发出去就收不回来，所以每条回复都得说清自己在答哪次运行。测试钉住三件事：
+ * 被放弃的运行的回复要丢掉、取消要立刻 reject 并带上运行编号、第二次运行拿不到第一次的结果。
+ * Worker 换成了记录器：node 环境里没有 `Worker`，而且这里要测的是过滤，不是搜索。
  */
 
 interface Posted {
@@ -40,18 +36,18 @@ class FakeWorker {
 		return worker;
 	}
 
-	/** Deliver a reply from the worker. */
+	/** 模拟 Worker 发回一条消息。 */
 	reply(data: unknown): void {
 		this.onmessage?.({ data });
 	}
 
-	/** The last message of a kind the bridge posted. */
+	/** 桥接发过的某类消息里，最后那一条。 */
 	lastOfType(type: string): Posted['message'] | undefined {
 		return this.posted.filter((p) => p.message.type === type).at(-1)?.message;
 	}
 }
 
-/** A complete payload entry: the bridge takes `ApInput`, the antenna fields included. */
+/** 一条完整的消息数据：桥接要的是 `ApInput`，天线字段也得带上。 */
 function aps(): ApInput[] {
 	return [
 		{
@@ -72,7 +68,7 @@ function aps(): ApInput[] {
 	];
 }
 
-/** The smallest run that gets as far as posting a message. */
+/** 能走到发消息这一步的最小一次运行。 */
 function startRun(bridge: OptimizerBridge): Promise<OptimizeResult> {
 	return bridge.optimize(aps(), new Uint8Array(16), 4, 4, 5, { seed: 1 });
 }
@@ -109,8 +105,7 @@ describe('OptimizerBridge protocol', () => {
 		const worker = FakeWorker.latest();
 		const runId = worker.lastOfType('optimize')!.runId!;
 
-		// The layout of a run that outran its cancellation, arriving late. Delivering it
-		// would report one run's plan as this run's answer.
+		// 一次运行赶在取消之前跑完了，回复晚到。收下它就会把别人的布局当成本次运行的答案。
 		worker.reply(result('a-run-from-before', 999));
 		worker.reply(result(runId, 12));
 
@@ -125,7 +120,7 @@ describe('OptimizerBridge protocol', () => {
 
 		bridge.cancel();
 
-		// No round trip: the caller unwinds now, and the worker is told which run to stop.
+		// 不走来回：调用方立刻退出，同时告诉 Worker 停哪次运行。
 		await expect(settled).resolves.toMatchObject({ message: 'Cancelled' });
 		expect(worker.lastOfType('cancel')?.runId).toBe(runId);
 	});
@@ -138,8 +133,7 @@ describe('OptimizerBridge protocol', () => {
 		worker.reply(result(runId, 1));
 
 		return Promise.resolve().then(() => {
-			// A cancel that arrives after the run finished must not reach the worker: it
-			// would stop the next run, which is one the user has just asked for.
+			// 运行已经结束后才来的取消，不能发给 Worker：那会停掉下一次运行，也就是用户刚点的那次。
 			bridge.cancel();
 			expect(worker.lastOfType('cancel')).toBeUndefined();
 		});
@@ -156,7 +150,7 @@ describe('OptimizerBridge protocol', () => {
 		await expect(first).resolves.toMatchObject({ message: 'Superseded' });
 		expect(worker.lastOfType('cancel')?.runId).toBe(firstId);
 
-		// The first run's late reply must not answer the second one.
+		// 第一次运行迟到的回复，不能当成第二次的答案。
 		worker.reply(result(firstId, 999));
 		worker.reply(result(worker.lastOfType('optimize')!.runId!, 7));
 		await expect(second).resolves.toMatchObject({ score: 7 });
@@ -185,8 +179,7 @@ describe('OptimizerBridge protocol', () => {
 		worker.reply(result(firstMessage.runId!, 1));
 		await first;
 
-		// The same mask array is the same plan: a multi-start run must not ship nine megabytes
-		// of walls per restart.
+		// 同一个掩码数组就是同一份方案：多次重启不能每次都把 9MB 的墙体传一遍。
 		const second = bridge.optimize(aps(), mask, 4, 4, 5, { seed: 2 });
 		const secondMessage = worker.lastOfType('optimize')!;
 		expect(secondMessage.wallMask).toBeUndefined();
@@ -196,7 +189,7 @@ describe('OptimizerBridge protocol', () => {
 		worker.reply(result(secondMessage.runId!, 2));
 		await second;
 
-		// A different plan is a different geometry, and it is sent.
+		// 换了方案就是换了户型几何，得重新发。
 		const third = bridge.optimize(aps(), new Uint8Array(16), 4, 4, 5, { seed: 3 });
 		const thirdMessage = worker.lastOfType('optimize')!;
 		expect(thirdMessage.geometryReused).toBe(false);
@@ -216,8 +209,7 @@ describe('OptimizerBridge protocol', () => {
 
 		bridge.terminate();
 
-		// A new worker has been sent nothing, so "the geometry is still there" would be a lie
-		// and the run would be scored against whatever the new one had — which is nothing.
+		// 新建的 Worker 什么都没收到，还说「户型还在」就是骗自己，算分时手上根本没有数据。
 		const second = bridge.optimize(aps(), mask, 4, 4, 5, { seed: 2 });
 		const resent = FakeWorker.latest().lastOfType('optimize')!;
 		expect(resent.geometryReused).toBe(false);

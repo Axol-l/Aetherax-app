@@ -1,10 +1,8 @@
 /**
- * The geometry that makes drawing walls feel right: snapping, axis locking, picking.
+ * 让画墙手感正常的几何：吸附、锁轴、拾取。
  *
- * These are the parts a user notices immediately and that a canvas cannot be tested for, so
- * they are pure functions with the awkward cases pinned: a segment that is nearly axis
- * aligned gets locked, one that is genuinely diagonal stays diagonal, and snapping only
- * reaches as far as the caller allows.
+ * 这些用户一上手就感觉得到、画布又测不了，所以拆成纯函数，把难缠的情况固定下来：接近轴向
+ * 的会被锁，真正的斜线保持斜，吸附只在调用方允许的范围内生效。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -65,7 +63,7 @@ describe('picking a wall', () => {
 
 	it('measures the distance to the segment, not to its ends', () => {
 		expect(distanceToSegment({ x: 50, y: 7 }, walls[0]!)).toBeCloseTo(7);
-		// Beyond the end, the nearest point is the end itself.
+		// 超出端点之后，最近的点就是端点本身。
 		expect(distanceToSegment({ x: 110, y: 0 }, walls[0]!)).toBeCloseTo(10);
 	});
 

@@ -1,15 +1,13 @@
 /**
- * The storage seam: what it promises, and what the migration does.
+ * 存储这层：它承诺了什么，迁移做了什么。
  *
- * There is no IndexedDB in this environment, which is the point of the seam — the logic
- * worth testing (carrying legacy records into a store, deciding what "already there"
- * means, leaving the old copy alone when a write fails) is about strings and keys rather
- * than about any particular database.
+ * 这个环境里没有 IndexedDB，而这正是抽这层的原因——值得测的逻辑（把旧记录搬进 store、
+ * 怎么算「已经存在」、写失败时旧数据原样保留）跟字符串和键有关，跟具体哪个数据库无关。
  */
 import { describe, expect, it } from 'vitest';
 import { memoryStore, migrateInto, type KeyValueStore } from './storage.js';
 
-/** A store that can be told to fail, to check that a failed migration is not a loss. */
+/** 一个可以按需让写入失败的 store，用来验证迁移失败不等于丢数据。 */
 function failingStore(): KeyValueStore {
 	const inner = memoryStore();
 	return {
@@ -30,8 +28,7 @@ describe('migrateInto', () => {
 
 		expect(await migrateInto(to, ['aetherax:project', 'aetherax:floorplan'], from)).toBe(2);
 		expect(await to.read('aetherax:project')).toBe('{"version":3}');
-		// The legacy copy is left in place: this is a copy, not a move, so a failure after
-		// the migration cannot be a loss.
+		// 旧的那份原样留着：这是复制不是移动，迁移之后出错也不会丢东西。
 		expect(await from.read('aetherax:project')).toBe('{"version":3}');
 	});
 
@@ -60,7 +57,7 @@ describe('migrateInto', () => {
 		const to = failingStore();
 
 		await expect(migrateInto(to, ['aetherax:project'], from)).rejects.toThrow('quota');
-		// The whole point: the project is still readable from the store that has it.
+		// 关键就在这：工程在原来那个 store 里仍然读得出来。
 		expect(await from.read('aetherax:project')).toBe('legacy');
 	});
 });

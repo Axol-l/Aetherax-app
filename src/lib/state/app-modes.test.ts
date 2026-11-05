@@ -2,13 +2,11 @@ import { describe, expect, it, beforeEach } from 'vitest';
 import { appState, setTool } from './app.svelte.js';
 
 /*
- * One tool at a time.
+ * 同一时间只能有一个工具开着。
  *
- * The seven modes used to be seven booleans, each setter clearing the ones written before
- * it, and two of them (the wall tool and note mode) were written straight into the state by
- * the components that toggled them — so they were never in that scheme and could be armed
- * on top of the planning area. These tests pin the property that replaced it: whatever is
- * armed is the only thing armed, whichever door it came through.
+ * 以前七种模式是七个布尔值，每个 setter 自己清掉它前面的那些；其中两个（画墙工具和标注模式）
+ * 是切换它们的组件直接写进 state 的，压根没走这套逻辑，于是能和规划区域同时开着。
+ * 这些测试盯的是取代它的那条性质：不管从哪个入口开，开着的永远只有一个。
  */
 
 describe('the editing tool', () => {
@@ -21,8 +19,8 @@ describe('the editing tool', () => {
 		appState.wallVectorMode = true;
 		expect(appState.tool).toBe('wall');
 
-		// The case that used to be possible: the drawing tool and note mode both armed,
-		// because neither of them went through a setter that cleared the other.
+		// 以前真能出现的情况：画墙工具和标注模式同时开着，
+		// 因为两者都不走会清掉对方的 setter。
 		appState.noteMode = true;
 		expect(appState.wallVectorMode).toBe(false);
 		expect(appState.noteMode).toBe(true);
@@ -41,7 +39,7 @@ describe('the editing tool', () => {
 	it('treats a tool that is not armed as a no-op when it is turned off', () => {
 		appState.wallVectorMode = true;
 
-		// Every exit path calls its own "off", including paths that never turned it on.
+		// 每条退出路径都会调自己的「关掉」，哪怕它从来没被打开过。
 		appState.noteMode = false;
 		appState.calibrateMode = false;
 		appState.surfaceMode = false;

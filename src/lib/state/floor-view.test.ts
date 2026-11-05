@@ -1,12 +1,9 @@
 /**
- * The contract of the current-floor view: `wallState` and `floorplanState` are not copies
- * of the current floor, they *are* it — a write lands on the floor and a read follows the
- * floor that is selected.
+ * 当前楼层视图的约定：`wallState` 和 `floorplanState` 不是当前楼层的副本，它们就是当前楼层 ——
+ * 写会落到楼层上，读会跟着选中的楼层走。
  *
- * That is what removed the five hand-written copies of the same nine assignments (save,
- * restore, floor switch, undo, import). A copy can be forgotten; a view cannot be out of
- * date. These assertions are intentionally about the two directions, not about any
- * particular caller.
+ * 正因为这样，才删掉了五处手写的同样九行赋值（保存、恢复、切楼层、撤销、导入）：副本会忘，视图不会过期。
+ * 这些断言只关心两个方向，不针对某个具体调用方。
  */
 import { describe, expect, it } from 'vitest';
 import { addFloor, floorState, switchFloor } from './floor-state.svelte.js';
@@ -41,7 +38,7 @@ describe('current-floor view', () => {
 		const second = addFloor('Upper');
 		switchFloor(second.id);
 
-		// A fresh floor reads as itself, not as the floor that was on screen.
+		// 新楼层读出来是它自己的值，不是屏幕上原来那层的。
 		expect(wallState.wallAttenuation).toBe(5);
 		expect(floorplanState.floorplanBoundary).toBeNull();
 
@@ -49,7 +46,7 @@ describe('current-floor view', () => {
 		expect(second.wallAttenuation).toBe(11);
 		expect(first.wallAttenuation).toBe(4);
 
-		// Coming back shows the first floor's value, not the second's.
+		// 切回来读到的是第一层的值，不是第二层的。
 		switchFloor(first.id);
 		expect(wallState.wallAttenuation).toBe(4);
 	});

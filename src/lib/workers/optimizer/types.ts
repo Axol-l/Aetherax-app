@@ -1,10 +1,8 @@
 /**
- * The shapes the optimiser's search, evaluator and placement helpers exchange.
+ * 优化器内部各处交换的数据结构。
  *
- * One module because they are one vocabulary: `EvalContext` alone mentions the AP payload,
- * the fixed sources, the slab paths and the wall band, and the worker, the evaluator and
- * the placement helpers all speak it. Keeping the declarations here is what lets those
- * three be separate files without one importing another's runtime code.
+ * 搜索、评估器和布点工具共用这一套类型（`EvalContext` 一个就牵涉到 AP 消息数据、
+ * 固定源、跨层路径和穿墙损耗）。集中放这里，三者才能各自成文件又互不引用运行时代码。
  */
 import type { Band, ChannelWidth } from '@aetherax/channels';
 import type { AntennaProfile } from '../../rf/antenna.js';
@@ -19,85 +17,65 @@ export interface ApInput {
 	interferenceRadius: number;
 	band: Band;
 	/**
-	 * The channel the solver gave this AP, or null when it has none.
+	 * 求解器给这个 AP 分配的信道，没分配就是 null。
 	 *
-	 * Used only by the interference term (see `rf/interference.ts`): placement and
-	 * assignment are physically coupled, and the coverage objective alone cannot
-	 * see a co-channel second server. When any source is unassigned the term falls
-	 * back to the all-co-channel worst case, which is what the plan is in until the
-	 * solver has run.
+	 * 只有干扰项读它（见 `rf/interference.ts`）。只要有源还没分配，就按全同频的最坏
+	 * 情况算——求解器跑之前，方案就处在这个状态。
 	 */
 	assignedChannel?: number | null;
 	/**
-	 * A channel the user pinned. Pins are constraints on the in-worker colouring
-	 * rather than suggestions, so a pinned AP keeps its channel however the search
-	 * moves it — the same rule the main-thread solver applies.
+	 * 用户锁定的信道。锁定是约束，不是建议：搜索怎么挪这个 AP，信道都不变，
+	 * 和主线程求解器的规则一致。
 	 */
 	fixedChannel?: number | null;
 	/**
-	 * Channel width, for building the non-overlapping palette this AP may be given.
-	 * See `planningChannels`. Omitted ⇒ 20 MHz, the narrowest and the only width at
-	 * which every band's channels are mutually non-overlapping.
+	 * 信道宽度，用来生成这个 AP 可用的不重叠信道表，见 `planningChannels`。
+	 * 不传就是 20 MHz：最窄，也是每个频段信道都互不重叠的唯一宽度。
 	 */
 	channelWidth?: ChannelWidth;
 	/**
-	 * Vertical distance from this AP to the client, in world units.
+	 * 这个 AP 到客户端的垂直距离，世界坐标单位。
 	 *
-	 * A same-floor path is not flat once the project models mounting heights: an AP
-	 * on a desk is 0.7 m below a client at 1.5 m, and the path loss reads the 3D
-	 * distance. The caller computes it — the worker has no floor geometry — and it
-	 * is index-aligned with this array, because the search moves a position but
-	 * never changes where its access point is mounted.
-	 *
-	 * Zero leaves the path flat, which is the model every figure recorded before
-	 * mounting heights existed was taken with.
+	 * 开了安装高度后同层路径也不平，路径损耗按三维距离算。由调用方算好传进来
+	 * （Worker 没有楼层几何），和 AP 一一对应。传 0 就当路径是平的。
 	 */
 	verticalGap?: number;
 	/**
-	 * −3 dB beamwidth of this AP's vertical antenna cut, in degrees.
+	 * 这个 AP 垂直天线切面的 −3 dB 波束宽度，单位度。
 	 *
-	 * The pattern is a function of the ray's elevation, which changes per sample, so
-	 * the worker resolves it per sample from this and `aimDeg` — the same rolloff
-	 * the heatmap and the coverage pass use (`rf/antenna.ts`). Absent ⇒ the band's
-	 * default is *not* guessed here: the caller sends what the AP says.
+	 * 方向图随射线仰角变化，所以 Worker 每个采样点现算一次（见 `rf/antenna.ts`）。
+	 * 不传也不猜频段默认值，调用方传什么就是什么。
 	 */
 	beamwidthDeg?: number;
 	aimDeg?: number;
 	/**
-	 * The mounting and, for a wall mount, which way it faces.
+	 * 安装方式；壁挂时还包括朝向。
 	 *
-	 * Sent rather than inferred: a wall-mounted AP has a horizontal cut and an upright
-	 * omni does not, and the rule that decides it (`rf/antenna.ts`) has to see the
-	 * mount. Absent means an omni, which is what every caller before wall mounts sent.
+	 * 由调用方直接传，不靠推断：壁挂 AP 用水平切面、立式全向不用，判断规则
+	 * （`rf/antenna.ts`）必须拿到安装方式。不传就是全向。
 	 */
 	mount?: string;
 	facingDeg?: number;
 }
 
 /**
- * The wall mask of the floor an AP sits on, when that is not the floor being
- * optimised.
+ * AP 所在楼层的墙体掩码，仅当它和正在优化的楼层不是同一层时才用。
  *
- * A cross-floor path is two runs, not one: the ray leaves the AP through its own
- * storey, drops through the slab, and finishes in the storey below. Charging the
- * whole horizontal run against the client's floor — which is what the model did —
- * puts two thirds of a typical path (an AP 4.5 m above its client, slab crossed
- * two thirds along) against the wrong plan entirely.
+ * 跨层路径是两段：射线先从 AP 那层穿出去，过楼板，再落到目标层。
+ * 以前把整段水平路程都算在客户端那层墙上，结论会整个错位。
  */
 export interface SourceFloorMask {
 	data: Uint8Array;
 	width: number;
 	height: number;
 	materialMask: Uint8Array | null;
-	/** Material id this floor's unlabelled wall pixels carry. */
+	/** 这层没标材料的墙体像素用的材料 id。 */
 	defaultMaterial: number;
 	/**
-	 * This mask's origin expressed in the optimised floor's mask frame.
+	 * 这个掩码的原点，换算到被优化楼层的掩码坐标系里。
 	 *
-	 * Everything the worker handles is in the optimised floor's mask pixels, and
-	 * the two floors' masks do not share an origin once a floor has been aligned,
-	 * so the source mask is handed over pre-shifted rather than making the worker
-	 * carry a second coordinate frame.
+	 * Worker 里所有坐标都是被优化楼层的掩码像素；楼层对齐后两张掩码原点不一致，
+	 * 所以直接传平移好的掩码，省得 Worker 再维护一套坐标。
 	 */
 	originX: number;
 	originY: number;
@@ -107,111 +85,92 @@ export interface FixedApInput {
 	x: number;
 	y: number;
 	interferenceRadius: number;
-	signalScale: number; // floor slab attenuation factor (0-1)
+	signalScale: number; // 楼板衰减系数（0-1）
 	/**
-	 * Vertical distance from this AP to the floor being optimised, in world units.
+	 * 这个 AP 到被优化楼层的垂直距离，世界坐标单位。
 	 *
-	 * Cross-floor paths are 3D: an AP two storeys away is further away, not just
-	 * more attenuated. The heatmap always modelled this; the optimiser did not, so
-	 * the two disagreed about how far a cross-floor AP reaches.
+	 * 跨层路径按三维算：高两层就是更远，不只是衰减更多。
 	 */
 	verticalGap: number;
 	band: Band;
 	/**
-	 * The antenna's vertical cut, in degrees. See `ApInput.beamwidthDeg`.
+	 * 垂直天线切面，单位度。见 `ApInput.beamwidthDeg`。
 	 *
-	 * A fixed AP's pattern matters as much as a placed one's: it is the term that
-	 * says an AP on the storey above reaches the floor below better out to the side
-	 * than straight down.
+	 * 固定 AP 的方向图一样重要：「楼上的 AP 斜着打到楼下比直下更好」就是这一项。
 	 */
 	beamwidthDeg?: number;
 	aimDeg?: number;
-	/** The mounting and facing of this fixed AP. See `ApInput.mount`. */
+	/** 这个固定 AP 的安装方式和朝向。见 `ApInput.mount`。 */
 	mount?: string;
 	facingDeg?: number;
-	/** Channel of this fixed AP, or null. See `ApInput.assignedChannel`. */
+	/** 这个固定 AP 的信道，或 null。见 `ApInput.assignedChannel`。 */
 	assignedChannel?: number | null;
-	/** Pinned channel, if the user set one. See `ApInput.fixedChannel`. */
+	/** 用户锁定的信道，没锁就是空。见 `ApInput.fixedChannel`。 */
 	fixedChannel?: number | null;
 	/**
-	 * Channel width, for building the non-overlapping palette this AP may be given.
-	 * See `planningChannels`. Omitted ⇒ 20 MHz, the narrowest and the only width at
-	 * which every band's channels are mutually non-overlapping.
+	 * 信道宽度，用来生成这个 AP 可用的不重叠信道表，见 `planningChannels`。
+	 * 不传就是 20 MHz：最窄，也是每个频段信道都互不重叠的唯一宽度。
 	 */
 	channelWidth?: ChannelWidth;
 	/**
-	 * The AP's own floor's wall mask, for splitting the path at the slab.
+	 * AP 自己那层的墙体掩码，用来在楼板处把路径劈成两段。
 	 *
-	 * Omitted (or null) when the caller has no mask for that floor; the path is
-	 * then charged against the optimised floor's walls alone, as it was before.
+	 * 调用方拿不到那层的掩码就不传（或传 null），路径只按被优化楼层的墙算。
 	 */
 	source?: SourceFloorMask | null;
-	/** Fraction along the ray where it leaves the AP's own floor. See `cross-floor.ts`. */
+	/** 射线在哪一段离开 AP 自己那层（按比例）。见 `cross-floor.ts`。 */
 	sourceT?: number;
-	/** Fraction along the ray where it enters the optimised floor. */
+	/** 射线在哪一段进入被优化楼层（按比例）。 */
 	targetT?: number;
 	/**
-	 * Every storey boundary this path crosses, with the room types of the floor
-	 * that owns each slab.
+	 * 这条路径穿过的每层楼板，带各层所属房间的类型。
 	 *
-	 * A `Void / Atrium` label there is a hole in that slab, so the ray meets no
-	 * concrete at that crossing. Each entry carries the share of the path's
-	 * aggregate slab loss charged at that boundary, so a taller gap whose middle
-	 * storey is void waives that share rather than the whole figure. An empty list
-	 * leaves the slab loss in place everywhere, which is the conservative reading.
+	 * 标成 `Void / Atrium` 的是楼板上的洞，射线在那儿碰不到混凝土。每条还带它在
+	 * 总楼板损耗里占的份额，所以中间某层是洞只免那一份。空数组就是到处都算，偏保守。
 	 */
 	slabs?: SlabCrossing[] | null;
 }
 
-// ─── Precomputed wall-crossing cache ────────────────────────────────────
-// Built ONCE before optimization. Maps from a fixed grid of source
-// positions to sample points. AP positions snap to nearest grid source
-// via O(1) grid lookup (no linear scan).
+// ─── 预计算的穿墙缓存 ──────────────────────────────────────────────
+// 优化开始前只建一次：把固定网格上的源位置映射到采样点。
+// AP 位置用 O(1) 网格查找对齐到最近的源，不用线性扫描。
 
 /**
- * Lazily-built wall attenuation cache.
+ * 按需计算、算过就缓存的穿墙损耗表。
  *
- * The previous implementation precomputed a row for EVERY interior grid cell
- * (a 8 px lattice, so interiorPixels/64 of them) crossed with every sample
- * point, iterating `for si ... for sj` before the search even started. On a
- * 1500x1200 floorplan that is several million full ray marches up front, which
- * is what parked the progress bar at 0 for so long.
- *
- * The search only ever visits a few hundred distinct quantised positions, so
- * rows are now computed on demand and memoised. Output is unchanged: the
- * position is still floored onto the same 8 px lattice before marching, and the
- * same stride-3 ray march is used.
+ * 以前在搜索开始前把所有内部网格点（8 像素一格）×所有采样点全算一遍，1500x1200
+ * 的户型要几百万次射线步进，进度条才会长时间卡在 0。搜索实际只走几百个量化位置，
+ * 所以改成用到哪行现算哪行，算法和结果都没变。
  */
 export interface WallCache {
-	/** dB from each sample to a source at (x, y), quantised to the source lattice. */
+	/** 采样点到 (x, y) 处源的 dB 值，源按网格取整。 */
 	tableFor(x: number, y: number): Float32Array;
 	band: Band;
 }
 
 /**
- * Where a wall-mounted access point may sit, and which way the wall faces there.
+ * 壁挂 AP 能装在哪儿，以及那面墙朝哪边。
  *
- * A wall mount is not a smaller interior — it is a different one. The placement
- * domain for the other mountings deliberately trims the ring of pixels against every
- * wall ("an AP against a wall face is not a placement", `computeBuildingInterior`),
- * which is exactly the ring a wall mount belongs in. So the band is built separately:
- * a breadth-first flood out of the wall pixels into the floor beside them, a bracket's
- * depth deep, carrying each pixel's direction *away* from the wall that reached it.
- *
- * That direction is the facing, quantised to one byte of 22.5° steps. It is what makes
- * a wall mount a search rather than a point: as the optimiser slides a unit along a
- * wall — and around its corners — the horizontal cut of its pattern turns with it, so
- * its profile has to be rebuilt from where it landed (`resolveApProfiles`).
+ * 其他安装方式会特意剔掉靠墙一圈（见 `computeBuildingInterior`），而那圈正好是
+ * 壁挂的位置，所以这里从墙体像素往地面做广度优先扩散、深度约一个支架，单独生成一条带。
+ * 每个点记下背离墙的方向，量化成 22.5° 一格（一字节），存的就是朝向；AP 沿墙滑或
+ * 拐弯时水平切面跟着转，方向图要按落点重建（`resolveApProfiles`）。
  */
 export interface WallPlacement {
-	/** 1 where a wall-mounted AP may sit. */
+	/** 壁挂 AP 能放的位置为 1。 */
 	band: Uint8Array;
-	/** Snaps a stray position onto that band. */
+	/** 把跑偏的位置拉回这条带上。 */
 	field: InteriorField;
-	/** Facing in 22.5° steps, per mask pixel; 255 where the pixel is not in the band. */
+	/** 每个掩码像素的朝向，22.5° 一格；不在带上为 255。 */
 	facingStep: Uint8Array;
 }
 
+/**
+ * 搜索过程中一个接入点的位置。
+ *
+ * `radius` 是关联范围，按 3D 距离算；搜索移动的是水平位置，所以每次评估都要
+ * 用 `sourceMargin` 换算回水平距离。
+ */
 export interface Position {
 	id: string;
 	x: number;
@@ -221,26 +180,24 @@ export interface Position {
 }
 
 /**
- * The two runs a cross-floor AP's path is split into, per sample.
+ * 跨层 AP 的路径按采样点劈成的两段。
  *
- * A fixed AP never moves, so both runs are constant for a whole run: `source` is
- * the AP's own floor from the AP down to the slab crossing, `suffix` is the
- * optimised floor from the crossing to the sample. They are per *sample* rather
- * than per AP because the crossing moves with the sample.
+ * 固定 AP 不动，所以整轮里两段都是常量：`source` 是 AP 自己那层、从 AP 到楼板交点，
+ * `suffix` 是被优化楼层、从交点到采样点。按采样点而非按 AP 存，因为交点随采样点变。
  */
 export interface SplitRows {
 	source: Float32Array;
 	suffix: Float32Array;
 }
 
-/** Everything about a fixed AP's path that does not depend on the search. */
+/** 固定 AP 路径里与搜索无关的部分。 */
 export interface FixedPath {
-	/** Wall loss rows when the path is split at the slab; null = use the projected run. */
+	/** 在楼板处劈开时的穿墙损耗；null 表示用投影出来的那一段。 */
 	split: SplitRows | null;
 	/**
-	 * Multiplier on the aggregate slab loss, per sample: 1 everywhere by default,
-	 * less where a crossing is a hole. A share rather than a flag because a taller
-	 * gap crosses several slabs and only some of them may be void.
+	 * 每个采样点上，总楼板损耗要乘的系数：默认全是 1，楼板是洞的地方更小。
+	 *
+	 * 用份额而不是开关，因为隔得高会穿好几层楼板，其中可能只有几层是空的。
 	 */
 	slabFactor: Float32Array | null;
 }
@@ -256,224 +213,184 @@ export interface EvalContext {
 	materialMask: Uint8Array | null;
 	defaultMaterial: number;
 	/**
-	 * Per-fixed-AP path data: the wall split, and whether the slab loss applies at
-	 * each sample (a void is a hole in the slab).
+	 * 每个固定 AP 的路径数据：墙体的两段拆分，以及每个采样点要不要算楼板损耗（洞就不算）。
 	 *
-	 * Built once per run by `buildFixedPaths` and carried here so every evaluation —
-	 * the Lloyd's loop, the PSO scoring, the final exact pass — reads the same
-	 * numbers instead of each deriving its own.
+	 * 每轮由 `buildFixedPaths` 建一次放这儿，所有评估——Lloyd 迭代、PSO 打分、
+	 * 最后的精确评估——读的都是同一份数，不各自再算。
 	 */
 	fixedPaths: FixedPath[];
 	/**
-	 * Channels of every source the evaluators see, in the order they see them:
-	 * the candidate positions first, then `fixedAps`.
+	 * 评估器能看到的所有源的信道，顺序就是它们出现的顺序：先候选位置，再 `fixedAps`。
 	 *
-	 * Only the interference term reads these. `resolveChannels` has already
-	 * collapsed "any source unassigned" into the all-co-channel bound, so the
-	 * evaluators never branch on it.
+	 * 只有干扰项读。`resolveChannels` 已经把「有源没分配」并成全同频上界，
+	 * 所以评估器不用再判断。
 	 */
 	sourceChannels: number[];
 	/**
-	 * Channels each source may take, when the worker is to colour the layout
-	 * itself: candidates first, then `fixedAps`, matching `sourceChannels`. A
-	 * single-element list is a pin. Null when no regulatory domain was supplied,
-	 * in which case `sourceChannels` as given is used instead.
+	 * 每个源可选的信道，让 Worker 自己给布局着色时用：候选在前、`fixedAps` 在后，
+	 * 和 `sourceChannels` 对齐。只有一个元素就是锁定。没给监管区域时为 null，
+	 * 这时直接用 `sourceChannels`。
 	 */
 	sourceAllowed: number[][] | null;
 	/**
-	 * Band of every source, in the same order as `sourceChannels`.
+	 * 每个源的频段，顺序和 `sourceChannels` 一致。
 	 *
-	 * The interference term is per band: channel numbers repeat across bands (6
-	 * GHz uses 1/5/9/…, 2.4 GHz uses 1-13), so a pair can only be co-channel when
-	 * it is in the same band. See `violatesAt`.
+	 * 干扰项是按频段算的：信道号在不同频段会重复（6 GHz 用 1/5/9…，2.4 GHz 用 1-13），
+	 * 只有同频段才可能同频。见 `violatesAt`。
 	 */
 	sourceBands: string[];
 	/**
-	 * Vertical distance from each access point being placed to the client, world
-	 * units, index-aligned with `positions`. Zero for every AP while the project
-	 * leaves mounting heights off. See `ApInput.verticalGap`.
+	 * 每个待布点 AP 到客户端的垂直距离，世界坐标单位，和 `positions` 对齐。
+	 * 项目没开安装高度时全是 0。见 `ApInput.verticalGap`。
 	 */
 	apGaps: Float64Array;
 	/**
-	 * How high the client stands at each sample, world units, index-aligned with
-	 * `samples`. Null when the floor has no raised surfaces, so a flat plan pays
-	 * nothing for the feature.
+	 * 每个采样点上客户端站多高，世界坐标单位，和 `samples` 对齐。
+	 * 楼层没有抬升面时为 null，平的户型就不为这个特性付代价。
 	 *
-	 * This is the half of the gap that belongs to the *sample* rather than to the AP: a
-	 * mezzanine's client is closer to a ceiling-mounted unit than the floor's is, and a
-	 * stair climbs between the two. See `rf/surface-height.ts`.
+	 * 这是间距里属于采样点的那一半：夹层上的客户端离吊顶 AP 更近。见 `rf/surface-height.ts`。
 	 */
 	sampleLift: Float64Array | null;
 	/**
-	 * The raised surfaces themselves, for the deck test.
+	 * 抬升面本身，用来判断路径有没有穿平台。
 	 *
-	 * `sampleLift` says how high the client is; this says whether the path from a source
-	 * below had to pass through a deck to reach it (and what that costs). Kept as geometry
-	 * because the answer depends on the *source's* height as well as the sample's.
+	 * `sampleLift` 说客户端多高，这里说从下面来的路径要不要穿过平台、穿一次多少损耗。
+	 * 留成几何数据，是因为答案还取决于源自己的高度。
 	 */
 	surfaces: SurfaceRect[];
-	/** World units per metre, for the deck's thickness against a gap in world units. */
+	/** 每米多少世界坐标单位，用来把平台厚度（米）和世界坐标单位的间隔对上。 */
 	wupm: number;
 	/**
-	 * Each placed access point's vertical antenna cut, index-aligned with
-	 * `positions` and `apGaps`. See `ApInput.beamwidthDeg`.
+	 * 每个已布点 AP 的垂直天线切面，和 `positions`、`apGaps` 对齐。
+	 * 见 `ApInput.beamwidthDeg`。
 	 */
 	apProfiles: AntennaProfile[];
-	/** The same, for the fixed APs, in `fixedAps` order. */
+	/** 同上，固定 AP 的，顺序按 `fixedAps`。 */
 	fixedProfiles: AntennaProfile[];
 	/**
-	 * Weight of the interference share in the objective. Zero restores the
-	 * coverage-only objective exactly, which is what the A/B measurement uses.
+	 * 目标函数里干扰那一项的权重。设成 0 就完全回到只看覆盖的目标，
+	 * A/B 对比实验就是这么做的。
 	 */
 	interferenceWeight: number;
 	/**
-	 * How far below the coverage threshold a sample still earns utility, in dB.
+	 * 采样点低于覆盖阈值多少 dB 以内还能拿到一点效用。
 	 *
-	 * Zero is the hard threshold every measurement before 2026-09-23 was taken
-	 * with; see `DEFAULT_COVERAGE_SOFTNESS_DB` for why the objective wants a
-	 * transition there and what the measurement showed.
+	 * 设 0 就是硬阈值，2026-09-23 之前的测量都是这么做的；为什么目标函数需要一段过渡、
+	 * 测量结果如何，见 `DEFAULT_COVERAGE_SOFTNESS_DB`。
 	 */
 	coverageSoftnessDb: number;
 	/**
-	 * Vertical drop of a same-floor path, world units. The path *loss* treats a same-floor
-	 * path as 2D on purpose; the wall march cannot, because it charges the length of material
-	 * the ray passes through. See `OptimizeMessage.localVerticalDrop`.
+	 * 同层路径的垂直落差，世界坐标单位。路径损耗故意把同层当二维算，
+	 * 但穿墙步进不能，它要算射线穿过的材料长度。见 `OptimizeMessage.localVerticalDrop`。
 	 */
 	localVerticalDropWu: number;
 	/**
-	 * Covered share the result must reach, as a 0-1 fraction. Zero is no constraint.
-	 * See `COVERAGE_FLOOR_MULTIPLIER`.
+	 * 结果必须达到的覆盖比例，0-1。0 表示不约束。见 `COVERAGE_FLOOR_MULTIPLIER`。
 	 */
 	coverageFloor: number;
 	/**
-	 * Narrowest channel width in the run, in MHz.
+	 * 整轮里最窄的信道宽度，单位 MHz。
 	 *
-	 * Sets the CCA threshold, because preamble detect scales with the width a receiver is
-	 * listening on: a station on a 20 MHz channel defers at −82 dBm regardless of what its
-	 * neighbours do with 80 MHz, so a mixed-width run is scored at the most sensitive
-	 * threshold present. See `ccaThresholdDbm`.
+	 * 它决定 CCA 阈值：前导检测的灵敏度跟接收方听的宽度有关，20 MHz 的终端不管邻居
+	 * 用不用 80 MHz，都在 −82 dBm 退让，所以混宽度的场景按最灵敏的那个阈值打分。
+	 * 见 `ccaThresholdDbm`。
 	 */
 	minChannelWidthMhz: number;
-	/** True when `sourceChannels` are real assignments rather than the worst case. */
+	/** 为 true 表示 `sourceChannels` 是真的分配结果，不是最坏情况。 */
 	channelsKnown: boolean;
 	/**
-	 * Frequency overlap between two sources' assignments, for the graded
-	 * interference figure. Built once per run from the sources' bands and widths;
-	 * see `makeOverlapLookup` and `interferenceAt`.
+	 * 两个源分到的频谱重叠程度，用来算分级的干扰值。每轮按源的频段和宽度建一次，
+	 * 见 `makeOverlapLookup` 和 `interferenceAt`。
 	 */
 	overlap: OverlapLookup;
 	/**
-	 * The APs as the caller sent them, index-aligned with `positions`.
+	 * 调用方传进来的 AP 原始数据，和 `positions` 对齐。
 	 *
-	 * Kept so a wall-mounted unit's profile can be rebuilt from its own numbers when
-	 * the search moves it: see `resolveApProfiles`.
+	 * 留着是为了壁挂 AP 被挪动时，能按它自己的参数重建方向图，见 `resolveApProfiles`。
 	 */
 	apSources: ApInput[];
 	/**
-	 * Which of the placed APs are wall-mounted, index-aligned with `positions`.
+	 * 哪些待布点 AP 是壁挂的，和 `positions` 对齐。
 	 *
-	 * A wall mount is a different search: its positions are the band of floor along
-	 * the walls rather than the whole interior, and its pattern turns with the wall it
-	 * is on, so its antenna profile is a function of where it is.
+	 * 壁挂是另一种搜索：位置是沿墙一圈而不是整个内部，方向图也跟着所在的墙转，
+	 * 所以它的天线方向图是位置的函数。
 	 */
 	wallMounted: boolean[];
 	/**
-	 * The wall band: where a wall-mounted AP may sit, and which way the wall faces
-	 * there. Null when the run has no wall mounts, or the floor has no walls.
+	 * 壁挂带：能装在哪、墙朝哪边。没有壁挂 AP 或楼层没有墙时为 null。
 	 */
 	wallPlacement: WallPlacement | null;
 }
 
-/** What one exact evaluation produces. */
+/** 一次精确评估的结果。 */
 export interface ExactEval {
 	/**
-	 * Density-weighted mean coverage utility *minus*
-	 * `interferenceWeight · interference` — the quantity being optimised.
+	 * 按密度加权的平均覆盖效用，减去 `interferenceWeight · interference`，
+	 * 就是要优化的那个量。
 	 */
 	score: number;
 	/**
-	 * Density-weighted share of samples whose best server is degraded by a
-	 * co-channel secondary within `COCHANNEL_REUSE_DB` of it. Zero when no AP is
-	 * co-channel with any other, and zero-weighting it leaves `score` unchanged.
+	 * 被同频的第二个源压到 `COCHANNEL_REUSE_DB` 以内的采样点占比（按密度加权）。
+	 * 没有任何 AP 同频时为 0；权重设 0 时对 `score` 没影响。
 	 */
 	interference: number;
 	/**
-	 * Density-weighted share of samples that are *covered*, i.e. whose best
-	 * source reached the coverage threshold.
+	 * 被覆盖的采样点占比（按密度加权），也就是最好的源达到了覆盖阈值。
 	 *
-	 * Counted as `best > 0` rather than by re-deriving the margin:
-	 * `coverageUtility` returns 0 at or below the threshold and rises above it,
-	 * so a positive best is exactly "covered". That keeps this figure on the same
-	 * definition `updateCoverage` reports without a second margin pipeline that
-	 * could drift from it.
+	 * 用 `best > 0` 判断，不另算一遍余量：`coverageUtility` 在阈值及以下返回 0、
+	 * 之上才涨，所以最佳值大于 0 就是被覆盖，和 `updateCoverage` 报的定义一致。
 	 */
 	coverage: number;
 	/**
-	 * How far below the ε-constraint's floor the plan fell, as a 0-1 fraction. Zero
-	 * when there is no floor or the floor is met.
+	 * 方案离 ε 约束下限还差多少，0-1。没有下限或已经达标就是 0。
 	 */
 	shortfall: number;
-	/** Samples the figure was computed from, before density weighting. */
+	/** 算这个结果用了多少采样点，还没按密度加权。 */
 	samples: number;
 	/**
-	 * Share of the floor where two APs on overlapping channels are both above the CCA
-	 * threshold — airtime the plan shares, whether or not their levels are far enough
-	 * apart for the interference term to care. Reported, not optimised, and zero
-	 * unless the caller asked for it. See `contentionShare`, `ROADMAP.md` B4/B5.
+	 * 两个 AP 信道重叠、且都高于 CCA 阈值的区域占比——不管电平差得够不够让干扰项在意，
+	 * 这部分空口时间都要分掉。只上报、不参与优化，默认 0。
+	 * 见 `contentionShare`、`ROADMAP.md` B4/B5。
 	 */
 	contention: number;
 }
 
 /**
- * Every source's margin at every sample, and the conflict graph those margins
- * imply. One definition, two consumers.
+ * 每个源在每个采样点上的余量，以及由这些余量推出的冲突图。一份数据两处用。
  *
- * Split out of `evaluateExactDetailed` for the assignment graph
- * (`buildConflictGraph`): the main-thread solver has to colour the *same* graph
- * the objective scores, and the only way to guarantee that is for both to read
- * this one field. Duplicating the loop instead would let the margin formula, the
- * horizon test or the band filter drift between the two paths, which is exactly
- * the fault this split exists to fix — the solver used to build its edges from
- * circle overlap plus an AP-to-AP distance heuristic while the objective used
- * these margins, and the two disagreed about the same placement.
+ * 从 `evaluateExactDetailed` 里拆出来给分配图（`buildConflictGraph`）用：主线程求解器
+ * 必须给目标函数打分的同一张图着色，唯一可靠的办法就是两边都读这一个字段。以前求解器
+ * 按圆重叠加 AP 间距猜边、目标函数用这些余量，同一个布局能得出不同结论。
  *
- * A margin is `-Infinity` outside its source's coverage reach, so a source that
- * cannot serve a sample cannot be its interference either.
+ * 源覆盖不到的地方余量是 `-Infinity`，所以服务不了的源也干扰不到。
  */
 export interface MarginField {
-	/** `samples.length * count`, one row of `count` per sample, in the coverage domain. */
+	/** `samples.length * count`，每个采样点一行 `count` 个值，在覆盖域里。 */
 	allMargins: Float64Array;
 	/**
-	 * The same margins, kept down to `CCA_BELOW_THRESHOLD_DB` below the coverage
-	 * threshold instead of clipped at it.
+	 * 同样的余量，但保留到覆盖阈值以下 `CCA_BELOW_THRESHOLD_DB`，不直接在阈值处截断。
 	 *
-	 * Only the contention figure reads this. The objective's domain is the coverage
-	 * circle — a sample nobody covers earns no utility and no interference term — but
-	 * airtime is shared outside it, so the report needs the wider set and the score
-	 * must not have it.
+	 * 只有竞争度那个指标读它。目标函数的范围是覆盖圈：没人覆盖的采样点既没效用也没
+	 * 干扰，但空口时间在圈外照样分，所以报表要这份更宽的，得分不能用。
 	 */
 	ccaMargins: Float64Array;
-	/** `count x count`, 1 where a pair must not share a channel. See `markSampleConflicts`. */
+	/** `count x count`，一对源不能共用信道的地方为 1。见 `markSampleConflicts`。 */
 	conflicts: Uint8Array;
 	/**
-	 * The same pairs, weighted by how many density-weighted samples they spoil.
+	 * 同一批冲突对，按它们毁掉多少密度加权采样点加权。
 	 *
-	 * Read by the colourer, which has to decide *which* conflict to leave standing when
-	 * the palette is short. See `conflictWeights`.
+	 * 着色器读它：信道不够时要决定留下哪个冲突。见 `conflictWeights`。
 	 */
 	weights: Float32Array;
-	/** Best margin at each sample, i.e. the best server. */
+	/** 每个采样点上的最佳余量，也就是最好的服务源。 */
 	bestBySample: Float64Array;
-	/**
-	 * Margin the coverage utility reads at each sample; the same value as
-	 * `bestBySample`.
-	 */
+	/** 每个采样点上覆盖效用读的余量，值和 `bestBySample` 相同。 */
 	utilityMargin: Float64Array;
-	/** Sources the field covers: the positions, then the fixed APs. */
+	/** 这份数据覆盖的源数：先待布点，再固定 AP。 */
 	count: number;
 }
 
-/** One AP's power after the TPC pass, in dBm, with the radius it implies. */
+/** 一个 AP 过完 TPC 之后的功率，单位 dBm，以及对应的覆盖半径。 */
 export interface PowerChoice {
 	id: string;
 	power: number;
@@ -481,7 +398,7 @@ export interface PowerChoice {
 }
 
 export interface InteriorField {
-	nearest: Int32Array; // pixel index of the nearest interior pixel, or -1
+	nearest: Int32Array; // 最近的内部像素下标，没有就是 -1
 	w: number;
 	h: number;
 }

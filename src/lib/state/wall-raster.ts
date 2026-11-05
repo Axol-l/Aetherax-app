@@ -1,14 +1,8 @@
 /**
- * Rasterising the vector walls, so the rest of the app can be driven by them today.
+ * 把矢量墙栅格化成掩码，让应用现有逻辑直接吃上矢量数据。
  *
- * The plan has always been "the segments are the truth, the mask is derived". The cheap way
- * to get there is not to rewrite the march and the attenuation field — it is to make the mask
- * *be* the derivation. Every consumer the app already has (the heatmap's field, the
- * optimiser's domain, the coverage samples, the interior test) reads a wall mask and a
- * material mask; feed those from the segments and they are vector-driven with no change to
- * any of their own maths.
- *
- * That also makes the change reversible in one action: re-detect to go back to the drawing.
+ * 下游（热力图、优化器、覆盖采样、室内判定）都只读墙掩码和材质掩码，于是「线段是真相、
+ * 掩码是推导」就落在这里：从线段喂给它们，它们不改算法就变成矢量驱动，而且一步能回退。
  */
 import type { WallMaterialId } from '$lib/domain/materials.js';
 
@@ -20,7 +14,7 @@ export interface RasterWall {
 	material: number;
 }
 
-/** A column as the rasteriser takes it: a footprint and a material. */
+/** 栅格化时的柱：一个占地形状加一种材质。 */
 export interface RasterColumn {
 	shape: 'rect' | 'circle';
 	ax: number;
@@ -40,12 +34,10 @@ export interface RasterisedMasks {
 }
 
 /**
- * Paint the segments into a wall mask and a material mask.
+ * 把线段画进墙掩码和材质掩码。
  *
- * The band is the width the vector layer draws with, so what the model charges is what the
- * plan shows, whichever way the walls were entered. Material ids go into their own array:
- * zero there means "unpainted" and the floor's default applies, which is the distinction
- * the comparison proved matters.
+ * 带宽就是矢量层绘制时用的宽度，所以模型算的和图纸画的一致，不管墙是哪种方式录入的。材质
+ * id 单独放一个数组：那里 0 表示「没画」，改用楼层默认材质——这个区分实测很关键。
  */
 export function rasteriseWalls(
 	walls: readonly RasterWall[],
@@ -53,9 +45,8 @@ export function rasteriseWalls(
 	padding = 8,
 	extent?: { width: number; height: number; originX: number; originY: number },
 	/**
-	 * Columns to paint as solid obstruction: a pier is a wall with no length to draw, and a
-	 * round column is one with no line at all. They are filled rather than stroked, because
-	 * what they obstruct is their footprint.
+	 * 要画成实心障碍的柱：墙墩是长度画不出来的墙，圆柱是一根线都没有的柱。它们要填充，
+	 * 不是描边，因为挡路的是整个占地。
 	 */
 	columns: readonly RasterColumn[] = []
 ): RasterisedMasks | null {
@@ -71,8 +62,8 @@ export function rasteriseWalls(
 		maxY = Math.max(maxY, wall.ay, wall.by);
 	}
 	for (const column of columns) {
-		// A circle reaches its radius past the point it was dragged to, so the frame has to
-		// grow by that much on every side or the disc is cropped by the mask it lives in.
+		// 圆会从拖到的那个点再往外伸一个半径，所以包围框每边都得加这么多，否则圆盘会被
+		// 自己所在的掩码裁掉。
 		const r =
 			column.shape === 'circle' ? Math.hypot(column.bx - column.ax, column.by - column.ay) : 0;
 		minX = Math.min(minX, column.ax - r, column.bx - r);
@@ -83,20 +74,17 @@ export function rasteriseWalls(
 	if (!Number.isFinite(minX) || !Number.isFinite(minY)) return null;
 
 	/*
-	 * The extent is the *existing* mask's when there is one, and that is not a detail.
+	 * 有现成掩码时，尺寸就用*现有*掩码的，这点不是小事。
 	 *
-	 * Everything downstream — the sample grid, the heatmap's texels, the interior test, the
-	 * coverage figure — addresses the mask the plan was drawn in. A mask sized to the walls'
-	 * bounding box is a different frame: samples fall outside it, the field is generated for
-	 * the wrong rectangle, and the heatmap comes out as a fan of colour around the AP rather
-	 * than over the floor.
+	 * 下游的一切——采样网格、热力图纹理、室内判定、覆盖率数值——都按图纸当初的掩码坐标系
+	 * 定位。按墙的包围盒另起一个尺寸就是换了坐标系：采样点落到外面、场按错误的矩形生成，
+	 * 热力图会变成 AP 周围一扇彩色，而不是铺在地板上。
 	 */
 	const originX = extent ? extent.originX : Math.floor(minX) - padding;
 	const originY = extent ? extent.originY : Math.floor(minY) - padding;
 	const width = extent ? extent.width : Math.max(1, Math.ceil(maxX - originX) + padding);
 	const height = extent ? extent.height : Math.max(1, Math.ceil(maxY - originY) + padding);
-	// A cap on the working size: a stray far-out segment would otherwise allocate a mask of
-	// millions of pixels and stall the tab.
+	// 给工作尺寸封顶：否则一根跑得很远的杂散线段会分配几百万像素的掩码，把标签页卡死。
 	if (width * height > 16_000_000) return null;
 
 	const wall = new Uint8Array(width * height);
@@ -123,13 +111,11 @@ export function rasteriseWalls(
 		}
 
 		/*
-		 * Round caps, one disc at each end.
+		 * 圆头：两端各补一个圆盘。
 		 *
-		 * The square above is stamped at rounded pixel centres, so two segments whose ends sit
-		 * within a pixel of each other can still leave a diagonal pinhole at the corner — and a
-		 * one-pixel hole is a hole a ray passes through, which paints a bright spike out of every
-		 * junction. A disc of the band's own radius at each endpoint closes the joint without
-		 * changing the band's width anywhere else.
+		 * 上面的方块是按四舍五入后的像素中心盖的，所以两根线段端点相距不到一个像素时，拐角
+		 * 仍可能留个斜着的一像素小孔——一像素的孔射线就能穿过去，每个交点都会画出一道亮
+		 * 刺。在端点补一个同半径的圆盘能把接头封上，又不改变别处的带宽。
 		 */
 		for (const end of [
 			{ x: segment.ax - originX, y: segment.ay - originY },
@@ -151,17 +137,16 @@ export function rasteriseWalls(
 		}
 	}
 
-	// Columns are filled, not stroked: their whole footprint is obstruction.
+	// 柱是填充的，不是描边：整个占地都算障碍。
 	for (const column of columns) {
 		const cx = column.ax - originX;
 		const cy = column.ay - originY;
 		/*
-		 * A circle's bounds are the circle, not the drag box.
+		 * 圆的边界是圆本身，不是拖拽框。
 		 *
-		 * A column is dragged from its centre to its edge, so the box between the two points
-		 * is one quadrant — scanning it filled a quarter of the disc while the vector layer
-		 * drew the whole ring, which read as "the column only blocks half the heatmap". The
-		 * circle scans its own square now.
+		 * 柱是从圆心拖到边缘的，两点之间的框只是一个象限——照它扫描只填了四分之一个圆盘，
+		 * 而矢量层画的是整个圆，看起来就像「这根柱只挡了一半热力图」。现在按圆自己的外接
+		 * 正方形扫。
 		 */
 		const circle = column.shape === 'circle';
 		const radius = circle ? Math.hypot(column.bx - column.ax, column.by - column.ay) : 0;
@@ -187,11 +172,10 @@ export function rasteriseWalls(
 }
 
 /**
- * A mask that says "no walls here", in a frame the caller already knows.
+ * 一张「这里没有墙」的掩码，坐标系用调用方已经知道的那个。
  *
- * Deleting the last wall has to empty the mask without moving the frame: every label,
- * sample and room type on the floor is addressed in that frame, and dropping the mask
- * entirely would read as "this floor has no plan" rather than "this floor has no walls".
+ * 删掉最后一面墙时，必须清空掩码但不能挪坐标系：楼层上的每个标注、采样和房间类型都按那个
+ * 坐标系定位，把掩码整个丢掉会被读成「这层没有图纸」，而不是「这层没有墙」。
  */
 export function emptyWallMasks(extent: {
 	width: number;
@@ -210,12 +194,12 @@ export function emptyWallMasks(extent: {
 	};
 }
 
-/** A band one pixel wide, for tests and for reasoning about the geometry alone. */
+/** 一像素宽的带，给测试用，也方便只关心几何时推理。 */
 export function rasteriseThin(walls: readonly RasterWall[], padding = 2): RasterisedMasks | null {
 	return rasteriseWalls(walls, 1, padding);
 }
 
-/** How many pixels the segments cover, for a caller that wants to sanity-check the result. */
+/** 线段一共盖了多少像素，调用方想粗略校验时用。 */
 export function paintedPixels(masks: RasterisedMasks): number {
 	let count = 0;
 	for (let i = 0; i < masks.wall.length; i++) if (masks.wall[i]) count++;

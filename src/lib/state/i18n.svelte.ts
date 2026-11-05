@@ -1,28 +1,12 @@
-/**
- * Interface language.
- *
- * **The English source string is the key.** That keeps the change to a component to wrapping
- * the literal it already has (`t('Import Floorplan')`), and it makes a missing translation
- * degrade to English rather than to a key name — which matters because there is no compiler
- * check that a catalogue keeps up with the interface.
- *
- * Two locales: `en` and Simplified Chinese (`zh`). The choice persists in `localStorage`
- * beside the project, and `document.documentElement.lang` follows it so the browser stops
- * offering to translate a page that is already Chinese.
- *
- * Deliberately *not* translated here: the PDF report and the optimiser's console lines. The
- * report is a document a user hands to somebody else and its numbers are the ones recorded in
- * `docs/PHYSICAL_MODELS.md`; the console lines are read against those documents.
- */
 export type Locale = 'en' | 'zh';
 
 const STORAGE_KEY = 'aetherax:locale';
 
 export const i18nState = $state<{ locale: Locale }>({ locale: 'en' });
 
-/** Chinese translations, keyed by the English string. */
+/** 中文译文表：键是英文原文，值是对应的中文。 */
 const zh: Record<string, string> = {
-	// ── chrome: toolbar, sidebar, status bar ─────────────────────────────
+	// ── 界面框架：工具栏、侧栏、状态栏 ─────────────────────────────
 	File: '文件',
 	'New Project': '新建工程',
 	'Open Project...': '打开工程…',
@@ -114,7 +98,7 @@ const zh: Record<string, string> = {
 	'Wireless Channel Planner': '无线信道规划器',
 	'Drop a floorplan image here': '把平面图拖到这里',
 
-	// ── dialogs ──────────────────────────────────────────────────────────
+	// ── 对话框 ──────────────────────────────────────────────────────────
 	'Welcome to Aetherax': '欢迎使用 Aetherax',
 	'Get Started': '开始使用',
 	'Don\'t show this again': '不再显示',
@@ -131,7 +115,7 @@ const zh: Record<string, string> = {
 	'About Aetherax': '关于 Aetherax',
 	'Aetherax 使用手册': 'Aetherax 使用手册',
 
-	// ── panel: coverage and the optimiser ────────────────────────────────
+	// ── 面板：覆盖率与优化器 ────────────────────────────────
 	Coverage: '覆盖率',
 	'Whole building': '整栋建筑',
 	'Placement optimiser': '放置优化器',
@@ -172,7 +156,7 @@ const zh: Record<string, string> = {
 	measured: '已测量',
 	'below 50%': '低于 50%',
 
-	// ── panel: placement advice ──────────────────────────────────────────
+	// ── 面板：放置建议 ──────────────────────────────────────────
 	'Placement advice': '放置建议',
 	Dismiss: '关闭',
 	'Set the scale': '先设置比例',
@@ -199,7 +183,7 @@ const zh: Record<string, string> = {
 		'{count} 个 AP 覆盖了本层 {coverage}%——暂无调整建议。',
 	'Based on the last optimisation run.': '以上基于最近一次优化运行的结果。',
 
-	// ── panel: floorplan controls ───────────────────────────────────────
+	// ── 面板：平面图控件 ───────────────────────────────────────
 	'Import Floorplan': '导入平面图',
 	'Read from vector geometry': '按矢量几何识别',
 	'{walls} walls · {windows} windows · {doors} doors': '{walls} 面墙 · {windows} 扇窗 · {doors} 扇门',
@@ -298,7 +282,7 @@ const zh: Record<string, string> = {
 	'Room density': '房间密度',
 	'Site Area': '场地面积',
 
-	// ── panel: access points ────────────────────────────────────────────
+	// ── 面板：AP 列表 ────────────────────────────────────────────
 	'ACCESS POINTS': 'AP 列表',
 	'All': '全部',
 	Clear: '清除',
@@ -331,7 +315,7 @@ const zh: Record<string, string> = {
 	'Decrease': '减小',
 	'Increase': '增大',
 
-	// ── canvas: layers, tools, room types ───────────────────────────────
+	// ── 画布：图层、工具、房间类型 ───────────────────────────────
 	Layers: '图层',
 	'Signal heatmap': '信号热力图',
 	'Walls': '墙体',
@@ -373,8 +357,8 @@ const zh: Record<string, string> = {
 	'click the canvas': '在画布上点击',
 	'or try a sample:': '或者试试样例：',
 
-	// ── generated: every remaining key the collector found ───────────────
-	// ── help ────────────────────────────────────────────────────────────
+	// ── 收集器扫出来的其余所有键 ───────────────
+	// ── 帮助 ────────────────────────────────────────────
 	SHORTCUTS: '快捷键',
 	'GETTING STARTED': '上手',
 	'THE NUMBERS': '读数',
@@ -407,7 +391,7 @@ const zh: Record<string, string> = {
 	'Behind the gear next to Placement optimiser: Interference (how much co-channel is traded against coverage; 0 scores coverage alone) · Min coverage (ε-constraint: the result must cover at least this much; 0 = off) · Restarts (how many seeds to try, best kept) · Min signal (heatmap floor; below it stays transparent) · Client height and Allow APs outside rooms.':
 		'在「放置优化器」旁边的齿轮里：干扰权重（拿多少同信道去换覆盖率；0 = 只看覆盖）·最低覆盖率（ε-约束：结果至少覆盖这么多；0 = 关闭）·重跑次数（试几个种子，取最好）·最低信号（热力图下限，低于它保持透明）·客户端高度、允许 AP 放在房间外。',
 
-	// ── help dialog, rest of it ─────────────────────────────────────────
+	// ── 帮助对话框的其余部分 ─────────────────────────────────────────
 	'Add floors': '添加楼层',
 	'Click a wall': '点墙',
 	'Ctrl/⌘+Shift+Z': 'Ctrl/⌘+Shift+Z',
@@ -422,7 +406,7 @@ const zh: Record<string, string> = {
 	'devices/m²': '设备/m²',
 	'Optimizing…': '优化中…',
 
-	// ── data names: rooms, their canvas labels, categories, materials ───
+	// ── 数据名称：房间、画布简写、分类、材质 ───
 	'Drywall': '干墙',
 	'Wood': '木质',
 	'Glass': '玻璃',
@@ -615,7 +599,7 @@ const zh: Record<string, string> = {
 	'Click the canvas to place access points': '在画布上点击以放置 AP',
 	'Turn on Place APs, then click the canvas': '打开「放置 AP」，然后在画布上点击',
 
-	// ── help dialog and panel prose ─────────────────────────────────────
+	// ── 帮助对话框与面板里的说明文字 ─────────────────────────────────────
 	'Drop a floorplan, place APs, get optimal channels. Multi-floor, with physics-based propagation through walls and floor slabs.': '导入平面图、放置 AP，自动求出最优信道。支持多层，墙体与楼板按物理模型计算衰减。',
 	'is a mode, off by default: turn it on (top of the sidebar), click the plan,': '是一个模式，默认关闭：在侧边栏顶部打开它，然后在平面上点击，',
 	'to leave.': '退出。',
@@ -642,14 +626,13 @@ const zh: Record<string, string> = {
 	'The building figure is each measured floor’s coverage weighted by that floor’s sample count, so a small storey does not count as much as a large one. Optimising it means optimising the floors in turn and repeating until the building-wide number stops improving — "passes" counts those rounds, and the weakest floor is named rather than folded in, because a mean hides exactly the storey you would want to know about. It is never optimised *for*: a min-max objective is far sharper to search and buys little on average.': '整栋楼的数值是各已测楼层覆盖率按该层采样点数加权的结果，因此小楼层不会和大楼层等权。优化它意味着逐层优化并反复迭代，直到整栋楼的数值不再提升——“轮数”统计的就是这些迭代；最弱的一层会被单独列出而不是并入平均，因为平均值恰好会掩盖你最想知道的那一层。它从不会被直接当作优化目标：min-max 目标搜索起来锐利得多，平均下来收益却很小。',
 	'All APs ({count})': '全部 AP（{count}）',
 	'Custom (manual settings)': '自定义（手动设置）',
-	// ── reports and console ─────────────────────────────────────────────
+	// ── 报告与控制台输出 ─────────────────────────────────────────────
 };
 
 /**
- * Translate an English interface string.
+ * 把界面上的英文原文翻成当前语言。
  *
- * Unknown keys come back unchanged, which is the point: a component can be translated before
- * the catalogue is complete without the interface showing key names.
+ * 找不到译文时直接用原文，所以漏翻只会显示英文，不会报错。
  */
 export function t(key: string, vars?: Record<string, string | number>): string {
 	let out = i18nState.locale === 'zh' ? (zh[key] ?? key) : key;
@@ -661,7 +644,7 @@ export function t(key: string, vars?: Record<string, string | number>): string {
 	return out;
 }
 
-/** Keys the current locale has no translation for. Used by the catalogue test, not the UI. */
+/** 当前语言里没有译文的键。只给译文表测试用，界面不走这里。 */
 export function untranslatedKeys(keys: readonly string[]): string[] {
 	if (i18nState.locale !== 'zh') return [];
 	return keys.filter((k) => !(k in zh));
@@ -672,20 +655,20 @@ export function setLocale(next: Locale): void {
 	try {
 		localStorage.setItem(STORAGE_KEY, next);
 	} catch {
-		// Private mode: the choice lasts for the session, which is better than throwing.
+		// 无痕模式下写不进去：这次选择只管本次会话，总比直接抛错好。
 	}
 	if (typeof document !== 'undefined') {
 		document.documentElement.lang = next === 'zh' ? 'zh-CN' : 'en';
 	}
 }
 
-/** Read the stored choice, if there is one. Called once from the root layout. */
+/** 读取上次存下的语言选择。根布局启动时调一次。 */
 export function restoreLocale(): void {
 	try {
 		const stored = localStorage.getItem(STORAGE_KEY);
 		if (stored === 'zh' || stored === 'en') setLocale(stored);
 	} catch {
-		// Nothing to restore.
+		// 没存过，不用恢复。
 	}
 }
 

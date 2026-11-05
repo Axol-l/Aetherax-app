@@ -1,3 +1,8 @@
+/**
+ * 信道求解器状态。
+ *
+ * 负责建冲突图、调 worker 里的着色算法，把结果摊匀后落到各 AP 上，再估算吞吐。
+ */
 import { debug } from '$lib/log.js';
 import { buildInterferenceGraph } from '@aetherax/geometry';
 import { planningChannels, planningCandidates, estimateThroughput } from '@aetherax/channels';
@@ -25,15 +30,15 @@ type Algorithm = 'greedy' | 'dsatur' | 'welsh-powell' | 'backtracking';
 const bridge = new SolverBridge();
 
 /**
- * The last conflict graph and the geometry it was built from.
+ * 上一次的冲突图，以及它是按哪份几何建的。
  *
- * See `buildSerializedGraph`: building the graph runs the optimiser's margin pass and costs
- * hundreds of milliseconds, so an unchanged plan must not pay for it twice.
+ * 见 `buildSerializedGraph`：建图要跑优化器那套边缘评估，几百毫秒起步，
+ * 方案没变就不该付两次这个钱。
  */
 let lastGraph: { signature: string; graph: Awaited<ReturnType<typeof buildGraphUncached>> } | null =
 	null;
 
-/** Everything the conflict graph is a function of, as a string. */
+/** 冲突图依赖的所有输入，拼成一个字符串。 */
 function graphSignature(): string {
 	const aps = apState.aps
 		.map(
@@ -52,7 +57,7 @@ function graphSignature(): string {
 	return `${aps}##${walls}##${wallState.wallMaterial}##${projectMeta.clientHeight}`;
 }
 
-/** Attenuated signal between AP pairs: "apIdA:apIdB" 鈫?signal (0-1). */
+/** AP 两两之间的衰减后信号："apIdA:apIdB" → 信号（0-1）。 */
 export const edgeSignals = new Map<string, number>();
 
 export const solverState = $state({
@@ -66,7 +71,7 @@ export const solverState = $state({
 	throughputEstimates: [] as ThroughputEstimate[]
 });
 
-/** Compute cumulative z-position (in world units) for each floor level. */
+/** 算每层累计的 z 位置（世界单位）。 */
 function getFloorZ(): Map<string, number> {
 	const wupm = wupmForFloor(floorState.currentFloorId);
 	const sorted = [...floorState.floors].sort((a, b) => a.level - b.level);
@@ -83,9 +88,8 @@ function getApPositions() {
 	const floorZ = getFloorZ();
 	const reference = floorState.currentFloorId;
 	return apState.aps.map((ap) => {
-		// Positions, radii and z are compared across floors, so everything is brought into
-		// the current floor's units: a storey calibrated at twice the resolution would
-		// otherwise look twice as far away, and its AP twice as large.
+		// 位置、半径和 z 是要跨楼层比的，所以统一换算到当前楼层的单位：否则标定分辨率
+		// 翻倍的那层会看着远一倍，它的 AP 也大一倍。
 		const k = scaleBetween(ap.floorId, reference);
 		return {
 			id: ap.id,
@@ -97,14 +101,13 @@ function getApPositions() {
 	});
 }
 
-// 鈹€鈹€鈹€ Decoded wall mask cache (per floor) 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ─── 解码后的墙体掩码缓存（按楼层） ──────────────────────────────────────
 
 /**
- * The cache lives in `floor-mask.ts` now: the optimiser's payload needs it too,
- * and while it lived here `optimizer.svelte.ts` had to import this module, which
- * is the wrong way round once the solver needs the optimiser's margin pass to
- * build its conflict graph (see `buildAssignmentConflictEdges`). Re-exported so
- * every existing importer keeps working.
+ * 缓存现在住在 `floor-mask.ts`：优化器的载荷也要用它。放在这儿的时候，
+ * `optimizer.svelte.ts` 得反过来 import 本模块，而 solver 又需要优化器的边缘评估来
+ * 建冲突图（见 `buildAssignmentConflictEdges`），方向就反了。这里再导出一次，
+ * 原来那些 import 都不用改。
  */
 export {
 	getFloorMask,
@@ -116,17 +119,17 @@ import { scaleBetween } from './floor-scale.js';
 import { projectMeta } from '$state/project-meta.svelte.js';
 
 
-// 鈹€鈹€鈹€ Attenuation helpers 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ─── 衰减相关的辅助函数 ──────────────────────────────────────────────────
 
-/** Floor-by-ID lookup, built once per solve. */
+/** 按 id 查楼层，每次求解建一次。 */
 let floorByIdCache = new Map<string, (typeof floorState.floors)[0]>();
 
 function prepareSortedFloors(): void {
 	floorByIdCache = new Map(floorState.floors.map((f) => [f.id, f]));
 }
 
-/** Wall attenuation between two APs on the same floor: one flat figure per crossing,
- *  out of the material table, exactly as the objective and the heatmap charge it. */
+/** 同一层两个 AP 之间的墙体衰减：每次穿墙按材料表给一个固定值，
+ *  口径和目标函数、热力图完全一致。 */
 function getWallLoss(
 	mask: DecodedFloorMask,
 	ax: number,
@@ -139,7 +142,7 @@ function getWallLoss(
 ): number {
 	const matDb = getMaterialDbTable(band);
 	const defaultDb = getFlatAttenuation(defaultMaterial as WallMaterialId, band) || 5;
-	// Convert world coords to mask-local for ray march
+	// 世界坐标转成掩码局部坐标，再走射线步进
 	const ox = mask.originX ?? 0;
 	const oy = mask.originY ?? 0;
 	return rayMarchWallAtten(
@@ -158,42 +161,33 @@ function getWallLoss(
 	);
 }
 
-// 鈹€鈹€鈹€ Graph building 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ─── 建冲突图 ────────────────────────────────────────────────────────────
 
 /**
- * What must not share a channel, and how strong each pair's coupling is.
+ * 谁不能和谁共用信道，以及每一对之间的耦合强度。
  *
- * Two products, deliberately separate:
+ * 两个产物，故意分开：
  *
- * - **The edges** are the optimiser's own conflict graph, asked for through
- *   `buildAssignmentConflictEdges`: a pair is an edge when, at some sample, one of
- *   them is the best server and the other is within `COCHANNEL_REUSE_DB` of it.
- *   The solver used to build its own graph here 鈥?circle overlap plus an AP-to-AP
- *   distance heuristic, `1/(1+r鈦?` filtered at a CCI threshold 鈥?which is a
- *   *different* question, and on the measured four-AP floor the two disagreed: the
- *   assignment that graph produced scored 14.75% on the objective's graph while a
- *   proper colouring of that graph scored 0%. Colouring what the objective
- *   measures is the only way the figure in the panel can describe the plan on
- *   screen.
- * - **`edgeSignals`** stays as it was: an attenuated coupling figure per pair, for
- *   the AP editor's readout and the throughput estimate. It is a *display and
- *   throughput* input, not a conflict criterion, so it keeps its own definition 鈥?
- *   and it is now filled for every pair, because the pairs the old filter dropped
- *   are exactly the ones whose signal a user may still want to see.
+ * - **边**用优化器自己的冲突图，通过 `buildAssignmentConflictEdges` 要：某个采样点上
+ *   一个是最好的服务 AP、另一个在 `COCHANNEL_REUSE_DB` 以内，这一对才算边。以前
+ *   solver 在这里自己建图 —— 圆重叠加一个 AP 间距启发式，`1/(1+r⁴)` 再按 CCI 门限
+ *   过滤 —— 那是*另一个*问题；实测的四 AP 楼层上两边结论不一致：那张图给出的分配在
+ *   目标函数的图上算 14.75%，而给那张图正经着色是 0%。按目标函数衡量的东西着色，
+ *   面板上的数字才可能描述屏幕上的方案。
+ * - **`edgeSignals`** 保持原样：每对的衰减耦合值，给 AP 编辑器的读数和吞吐估算用。
+ *   它是*显示和吞吐*的输入，不是冲突判据，所以保留自己的定义 —— 而且现在每对都填，
+ *   因为老过滤器丢掉的正好是用户可能还想看的那些对。
  *
- * Falls back to the old geometric graph when the optimiser cannot build one (no
- * enclosed interior to sample: walls that do not close, or a plan with none at
- * all). Auto-assignment still has to do something sensible there, and a plan with
- * no interior is still a plan with APs on it.
+ * 优化器建不出图时（没有可采样的封闭内部：墙没闭合，或者压根没墙）退回老的几何图。
+ * 自动分配在那儿也得给个说得过去的结果，没有内部的方案也仍然是摆了 AP 的方案。
  */
 async function buildSerializedGraph() {
 	/*
-	 * The graph is a function of the plan, so it is cached against the plan.
+	 * 图是方案的函数，所以就按方案缓存。
 	 *
-	 * Building it means running the optimiser's own margin pass over a fine sample grid 鈥?
-	 * measured at 344鈥?12 ms on a two-AP floor 鈥?and an auto-solve is scheduled on every
-	 * change of the key. When nothing about the geometry changed, rebuilding it produced the
-	 * same adjacency for half a second of blocked main thread. See `graphSignature`.
+	 * 建一次图要在很细的采样网格上把优化器那套边缘评估跑一遍 —— 两个 AP 的楼层实测
+	 * 344→12 ms —— 而键一变就排一次自动求解。几何没变时重建，只是白占半秒主线程，
+	 * 还得到一样的邻接表。见 `graphSignature`。
 	 */
 	const signature = graphSignature();
 	if (lastGraph && lastGraph.signature === signature) return lastGraph.graph;
@@ -208,17 +202,16 @@ async function buildGraphUncached() {
 	const aps = getApPositions();
 	const apMap = new Map(apState.aps.map((ap) => [ap.id, ap]));
 
-	// Pre-decode wall masks for floors that have APs (parallel decode)
+	// 先把有 AP 的那些楼层的墙体掩码并行解码
 	const apFloorIds = new Set(apState.aps.map((ap) => ap.floorId));
 	const maskPromises = [...apFloorIds].map(async (fid) => [fid, await getFloorMask(fid)] as const);
 	const masks = new Map(await Promise.all(maskPromises));
 
-	// Build z-position lookup for O(1) access in the loop
+	// 建 z 位置查找表，循环里 O(1) 取值
 	const apZMap = new Map(aps.map((a) => [a.id, a.z ?? 0]));
 
-	// Coupling figure for every pair, whatever the conflict graph says. Computed
-	// first and unconditionally: it feeds the AP editor and the throughput model,
-	// and both want the number for pairs that are not edges.
+	// 不管冲突图怎么判，每一对都算一个耦合值，先无条件算完：它喂给 AP 编辑器和吞吐
+	// 模型，而这两者都需要那些不是边的对的数值。
 	for (let i = 0; i < aps.length; i++) {
 		for (let j = i + 1; j < aps.length; j++) {
 			const apA = aps[i]!;
@@ -229,10 +222,10 @@ async function buildGraphUncached() {
 
 			let totalDb = 0;
 			if (entityA.floorId === entityB.floorId) {
-				// Same floor: wall attenuation
+				// 同层：算墙体衰减
 				const mask = masks.get(entityA.floorId);
 				if (mask) {
-					// Use wallState for current floor (always up-to-date), floor entity for others
+					// 当前楼层用 wallState（永远是最新的），其他楼层用楼层对象
 					const defMat =
 						entityA.floorId === floorState.currentFloorId
 							? wallState.wallMaterial
@@ -244,18 +237,17 @@ async function buildGraphUncached() {
 						entityB.x,
 						entityB.y,
 						defMat,
-						// The mask is this floor's, in this floor's pixels.
+						// 掩码是这层楼的，用的是这层的像素。
 						wupmForFloor(entityA.floorId),
 						entityA.band as Band
 					);
 				}
 			} else {
-				// Cross-floor: slab attenuation (use worst-case band for conservative estimate)
+				// 跨楼层：算楼板衰减（取最坏频段，偏保守）
 				totalDb = getFloorSlabAttenuation(entityA.floorId, entityB.floorId, entityA.band as Band);
 			}
 
-			// Attenuated signal between this AP pair. Inverse-quartic in distance,
-			// then the wall/slab loss as a power factor.
+			// 这对 AP 之间的衰减后信号：距离上按四次方反比，再乘上墙体/楼板损耗这个功率因子。
 			const dx = apA.x - apB.x;
 			const dy = apA.y - apB.y;
 			const dz = (apZMap.get(apA.id) ?? 0) - (apZMap.get(apB.id) ?? 0);
@@ -271,14 +263,13 @@ async function buildGraphUncached() {
 
 	const graph = await buildAssignmentConflictEdges();
 	let conflicting: Array<[string, string]>;
-	/** What each conflicting pair costs. See `buildAssignmentConflictEdges`. */
+	/** 每一对冲突要付多少代价。见 `buildAssignmentConflictEdges`。 */
 	let conflictWeights: Map<string, number>;
 	if (graph.complete) {
 		conflicting = graph.edges;
 		conflictWeights = graph.weights;
 	} else {
-		// No interior to sample. Fall back to circle overlap for the pairs the old
-		// filter kept, so a plan whose walls do not close still gets channels.
+		// 没有可采样的内部。退回老过滤器留下的那些圆重叠对，这样墙不闭合的方案也还能分到信道。
 		console.warn(
 			'[solver] no enclosed interior to build a conflict graph from; ' +
 				'falling back to circle overlap. Coverage and interference are not ' +
@@ -288,12 +279,11 @@ async function buildGraphUncached() {
 		conflicting = edges
 			.filter((edge) => (edgeSignals.get([edge.a, edge.b].sort().join(':')) ?? 0) >= 0.005)
 			.map((edge) => [edge.a, edge.b] as [string, string]);
-		// The fallback graph has no sample counts behind it, so every edge weighs the
-		// same 鈥?which is exactly the unweighted behaviour.
+		// 退回的图背后没有采样计数，所以每条边权重一样 —— 正好就是不加权的行为。
 		conflictWeights = new Map();
 	}
 
-	// Convert to adjacency list format for the worker
+	// 转成 worker 要的邻接表格式
 	const nodes = aps.map((ap) => ap.id);
 	const adjacency = new Map<string, string[]>();
 	for (const node of nodes) {
@@ -307,23 +297,22 @@ async function buildGraphUncached() {
 	return {
 		nodes,
 		edges: Array.from(adjacency.entries()),
-		// What each edge costs, carried out with the graph: the colourers below need it
-		// to know which conflict to leave standing. See `buildAssignmentConflictEdges`.
+		// 每条边的代价跟图一起带出去：下面几个着色器要靠它知道哪个冲突该留着。
+		// 见 `buildAssignmentConflictEdges`。
 		weights: conflictWeights
 	};
 }
 
 /**
- * The widest channel width in use on a band, which is what a non-overlapping palette
- * has to be built from: a set that does not overlap at 80 MHz does not overlap at 20
- * either. See `planningChannels`.
+ * 某个频段上实际在用的最大信道宽度，非重叠的信道集合得按它来建：在 80 MHz 下都不
+ * 重叠的一组，在 20 MHz 下更不会重叠。见 `planningChannels`。
  */
 function widestWidthOn(band: Band): ChannelWidth {
 	const widths = apState.aps.filter((ap) => ap.band === band).map((ap) => ap.channelWidth);
 	return (widths.length > 0 ? Math.max(...widths) : 20) as ChannelWidth;
 }
 
-/** Channels the planner may assign on a band: non-overlapping, so `number_a === number_b` means "interferes". */
+/** 规划器在某频段可以分配的信道：互不重叠，所以 `number_a === number_b` 就等于"互相干扰"。 */
 function planningChannelNumbers(band: Band): number[] {
 	return planningChannels(band, apState.regulatoryDomain, widestWidthOn(band)).map(
 		(ch) => ch.number
@@ -331,7 +320,7 @@ function planningChannelNumbers(band: Band): number[] {
 }
 
 function getColorOptions(): number[] {
-	// Use the most common band among APs, falling back to project default
+	// 用 AP 里最常见的频段，没有就退回项目默认值
 	const bandCounts = new Map<string, number>();
 	for (const ap of apState.aps) {
 		bandCounts.set(ap.band, (bandCounts.get(ap.band) ?? 0) + 1);
@@ -362,22 +351,19 @@ function applyAssignments(assignment: Map<string, number>): void {
 		updateAp(apId, { assignedChannel: channel });
 	}
 	/*
-	 * The interference figure is measured over the channels the plan actually has, so it has to
-	 * be re-measured when they change.
+	 * 干扰数字是按方案实际的信道量的，所以信道一变就得重新量。
 	 *
-	 * It used to keep whatever the optimiser run reported, which was measured under the
-	 * colouring the *worker* chose for that layout 鈥?a different assignment from the one applied
-	 * here, because the worker may colour with the whole band while this hands out the
-	 * non-overlapping palette. On a plan with more access points than channels the figure read
-	 * 0% while two units shared one. See `optimizer-coverage.svelte.ts`.
+	 * 以前这个数字一直留着优化器那次运行报的值，而那是按*worker*给该布局挑的着色量的
+	 * —— 跟这里落地的分配不是一回事，因为 worker 可能拿整个频段去着色，这里发的是不
+	 * 重叠的那套信道。AP 比信道多的时候，数字显示 0%，实际却有两个设备挤在一个信道上。
+	 * 见 `optimizer-coverage.svelte.ts`。
 	 */
 	void updateCoverage();
 }
 
 function computeThroughput(): void {
 	const inputs: ThroughputInput[] = apState.aps.map((ap) => {
-		// Use real attenuated signal from edgeSignals (computed during graph build
-		// with wall + floor attenuation), not geometric overlap
+		// 用 edgeSignals 里真实的衰减后信号（建图时算了墙体和楼板衰减），不用几何重叠
 		const coChannelOverlaps: number[] = [];
 		for (const other of apState.aps) {
 			if (other.id === ap.id) continue;
@@ -388,7 +374,7 @@ function computeThroughput(): void {
 				coChannelOverlaps.push(signal);
 			}
 		}
-		// Look up model specs for accurate PHY rate
+		// 查设备型号参数，好把 PHY 速率算准
 		const model = ap.modelId ? findModel(ap.modelId) : null;
 		const bandSpec = model?.bands.find((b) => b.band === ap.band);
 		return {
@@ -421,7 +407,7 @@ export async function runSolver(): Promise<void> {
 		const fixedAssignments = getFixedAssignments();
 		debug(`[solve] graph built in ${Math.round(performance.now() - started)} ms`);
 
-		// Solve each band independently 鈥?different bands don't interfere
+		// 各个频段分开解 —— 不同频段互不干扰
 		const bands = new Set(apState.aps.map((ap) => ap.band));
 		const mergedAssignment = new Map<string, number>();
 		let totalConflicts: [string, string][] = [];
@@ -432,7 +418,7 @@ export async function runSolver(): Promise<void> {
 			const bandApIds = new Set(
 				apState.aps.filter((ap) => ap.band === band).map((ap) => ap.id)
 			);
-			// Filter graph to only this band's APs
+			// 把图裁到只剩这个频段的 AP
 			const bandNodes = graph.nodes.filter((id) => bandApIds.has(id));
 			const bandEdges = graph.edges
 				.filter(([id]) => bandApIds.has(id))
@@ -453,21 +439,16 @@ export async function runSolver(): Promise<void> {
 				}
 			);
 
-			// Two passes over the worker's colouring, both app-side because the worker
-			// only knows channel *numbers*:
+			// 对 worker 的着色做两趟后处理，都得在应用这边做，因为 worker 只认信道*号*：
 			//
-			// 1. `widenAssignment` moves any source that shares spectrum with something
-			//    it conflicts with onto a clearer centre. With a non-overlapping palette
-			//    that only happens when the palette ran out 鈥?more mutually conflicting
-			//    APs than channels 鈥?and the band may still hold a narrower centre that
-			//    is genuinely clear of everything this source conflicts with. That is
-			//    the case B3's palette approximation used to get wrong.
-			// 2. `balanceAssignment` spreads the palette over what the graph leaves free,
-			//    because a greedy colourer puts a whole band on channel 1 and those
-			//    channels are not equivalent for airtime.
+			// 1. `widenAssignment` 把跟冲突对象共频谱的源，挪到一个更干净的中心信道上。
+			//    用不重叠的信道集合时，这只有在集合用光时才会发生 —— 互冲突的 AP 比信道
+			//    还多 —— 而频段里可能还有个更窄的中心，跟这个源冲突的东西确实都不沾。
+			//    B3 的信道集合近似以前就是在这一步算错的。
+			// 2. `balanceAssignment` 把信道摊开，用图留给它的余量，因为贪心着色器会把
+			//    一整段都塞到 1 号信道，而这些信道对空中时间来说并不等价。
 			//
-			// Neither can create interference: both only ever move onto a candidate with
-			// no overlap against the neighbours that matter.
+			// 这两趟都造不出干扰：它们只会挪到跟相关邻居不重叠的候选信道上。
 			const bandIndex = new Map(bandNodes.map((id, i) => [id, i]));
 			const neighbours = new Map(bandEdges);
 			const pinnedIds = new Set(bandFixed.map(([id]) => id));
@@ -476,17 +457,16 @@ export async function runSolver(): Promise<void> {
 					.map((n) => bandIndex.get(n))
 					.filter((n): n is number => n !== undefined)
 			);
-			// Named `bandNames`, not `bands`: the outer loop iterates a `Set` called
-			// `bands`, and shadowing it inside the body worked only because the loop head
-			// is evaluated before the body's binding exists 鈥?a trap for the next edit.
+			// 这里叫 `bandNames` 而不是 `bands`：外层循环迭代的 `Set` 就叫 `bands`，
+			// 在函数体里重名遮蔽原本能跑，只是因为循环头在函数体的绑定存在之前就求值了
+			// —— 给下一次改动的坑。
 			const bandNames = bandNodes.map(() => band as string);
 			const widths = bandNodes.map(
 				(id) => apState.aps.find((ap) => ap.id === id)?.channelWidth ?? 20
 			);
 			const overlap = makeOverlapLookup(bandNames, widths);
-			// The graph's weights, in this band's own index space, so the widening pass
-			// can tell a cheap shared channel from an expensive one. Zero where the two
-			// do not conflict at all, which is every pair it is not an edge for.
+			// 图的权重，放在这个频段自己的下标空间里，加宽那一趟才分得清共用一个信道是便宜
+			// 还是贵。完全不冲突的位置是 0，也就是所有不是边的对。
 			const weightMatrix = new Float32Array(bandNodes.length * bandNodes.length);
 			for (let i = 0; i < bandNodes.length; i++) {
 				for (const j of adjacency[i] ?? []) {
@@ -497,7 +477,7 @@ export async function runSolver(): Promise<void> {
 			const pinnedFlags = bandNodes.map((id) => pinnedIds.has(id));
 			const candidates = bandNodes.map((id) => {
 				const ap = apState.aps.find((a) => a.id === id);
-				// A pin is a single-element list, exactly as in the worker's colourer.
+				// 锁定的 AP 就是单元素列表，跟 worker 里的着色器完全一致。
 				if (!ap || ap.fixedChannel !== null) return [ap?.fixedChannel ?? availableColors[0]!];
 				return planningCandidates(
 					ap.band,
@@ -507,8 +487,8 @@ export async function runSolver(): Promise<void> {
 			});
 			const order = bandNodes.map((id) => result.assignment.get(id) ?? availableColors[0]!);
 			const widened = widenAssignment(order, adjacency, candidates, overlap, pinnedFlags, weightMatrix);
-			// Balance over the palette alone, as before: the widened candidates are for
-			// escaping a forced overlap, not for spreading traffic up the band.
+			// 只在信道集合内做均衡，跟以前一样：加宽后的候选是用来逃出被迫重叠的，
+			// 不是用来把流量往频段上方摊的。
 			const spread = balanceAssignment(
 				widened,
 				adjacency,
@@ -518,7 +498,7 @@ export async function runSolver(): Promise<void> {
 			);
 			bandNodes.forEach((id, i) => mergedAssignment.set(id, spread[i]!));
 			for (const [id, ch] of result.assignment) {
-				// Pinned APs keep exactly what the worker was told to keep.
+				// 锁定的 AP 保持 worker 被告知的那个信道，一个不改。
 				if (pinnedIds.has(id)) mergedAssignment.set(id, ch);
 			}
 			totalConflicts = [...totalConflicts, ...result.conflicts];
@@ -536,19 +516,14 @@ export async function runSolver(): Promise<void> {
 		clearAssignments();
 		applyAssignments(mergedAssignment);
 		apState.aps = [...apState.aps];
-		// The assignment is part of the project, so it has to be persisted like any
-		// other change to it. It used to be written to state and never saved: the only
-		// save in flight when the automatic solver ran was the one the *optimiser* had
-		// scheduled for its new positions, 2 s earlier 鈥?so the file that landed
-		// carried the channels the solver had computed for the *previous* positions
-		// whenever the solve had not finished inside that window. Reloading such a
-		// project showed different channels than the session had, and the stored
-		// assignment could be improper on its own plan (measured: the same seeded run,
-		// same positions, persisted 1, 6, 11, 1 on a loaded machine and 1, 6, 11, 11
-		// idle 鈥?14.75% interference on the objective's graph against 0%). See
-		// `ROADMAP.md` B6, whose "the two paths meet" claim the measurement checks.
-		// `keep`: the solve is background work, so it must not push back a save the
-		// user's own edit has already scheduled.
+		// 分配结果属于项目，所以得像项目里其他改动一样存盘。以前只写进状态、从不保存：
+		// 自动 solver 跑起来时唯一在飞的保存，是*优化器*两秒前给它的新位置排的那次 ——
+		// 于是只要这次求解没在那两秒内跑完，落盘的文件带的就是 solver 给*上一份*位置算
+		// 出来的信道。重新打开这样的项目，看到的信道和当时会话里的不一样，而且存下来的
+		// 分配单看它自己那份方案都可能不合规（实测：同一种子、同样的位置，机器忙时存下
+		// 1、6、11、1，空闲时存 1、6、11、11 —— 在目标函数的图上是 14.75% 干扰对 0%）。
+		// 见 `ROADMAP.md` B6，它说的"两条路会合"就是这次测量要验证的事。
+		// `keep`：求解是后台活儿，不能把用户自己编辑已经排好的保存往后推。
 		scheduleSave(true);
 		computeThroughput();
 		debug(`[solve] done in ${Math.round(performance.now() - started)} ms`);
@@ -579,7 +554,7 @@ export async function runComparison(): Promise<void> {
 
 		solverState.comparisonResults = result;
 
-		// Apply the best result (fewest colors, fastest time)
+		// 用最好的那次结果（信道最少、最快）
 		if (result.results.length > 0) {
 			const best = result.results[0]!;
 			solverState.lastResult = best;
@@ -588,8 +563,7 @@ export async function runComparison(): Promise<void> {
 			clearAssignments();
 			applyAssignments(best.assignment);
 			apState.aps = [...apState.aps];
-			// Same reason as in `runSolver`: the assignment is project state, and the
-			// comparison's winning colouring used not to be saved at all.
+			// 原因同 `runSolver`：分配结果属于项目状态，而以前比出来的获胜着色压根没保存。
 			scheduleSave(true);
 			computeThroughput();
 		}

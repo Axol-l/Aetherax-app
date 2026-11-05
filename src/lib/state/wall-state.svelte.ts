@@ -1,3 +1,8 @@
+/**
+ * 墙体状态：当前楼层的墙体掩膜、材质和标定数据，以及本次会话的检测记录。
+ *
+ * 掩膜这类数据存在楼层对象上，这里只是读写代理；会话状态不随工程保存。
+ */
 import type { WallMaterialId } from '$lib/domain/materials.js';
 import type { RasterReason } from '$canvas/detect-floorplan.js';
 import type { ElementRole } from '$canvas/vector-elements.js';
@@ -13,62 +18,54 @@ export interface WallMaskData {
 }
 
 /**
- * What the vector detector made of the current plan, and what the user has since said
- * about it.
+ * 矢量检测器对当前平面图读出了什么，以及用户之后改了什么。
  *
- * Session state, not project state: it describes one detection run, and a plan reloaded
- * from storage has masks but no memory of how they were made. Counts are of *elements*,
- * not pixels — that is the useful quantity for "did it find my doors".
+ * 会话状态，不是工程状态：它描述的是某一次检测，从存储重新载入的平面图只剩掩膜、
+ * 不记得是怎么来的。数量按**元素**算而不是像素——回答"门找到了吗"要的是这个数。
  *
- * It holds the **source markup** as well as the result because an override has to be
- * answered by re-reading the drawing: the classifier's verdict for one element cannot be
- * undone in the mask it produced, and an element the reader called a fixture is not in
- * the mask at all. The markup is a string in memory for the life of the session; the
- * blob URL it came from may be revoked by then.
+ * 它连**源标记**一起存，因为用户改判要重新读图才能生效：分类器对某个元素的判定没法
+ * 在它生成的掩膜里撤销，而被读成设备的元素根本不在掩膜里。标记是内存里的字符串，
+ * 活到会话结束；它原来那个 blob URL 到那时可能已经被撤销了。
  */
 export interface VectorReview {
 	summary: VectorDetectionSummary;
-	/** Every element the reader looked at, in the drawing's order. */
+	/** 读取器看过的每个元素，按图里的顺序。 */
 	elements: ReviewableElement[];
-	/** Overrides the user has made, by element id. */
+	/** 用户改判的结果，按元素 id 索引。 */
 	overrides: Map<number, ElementRole>;
-	/** The drawing, as it was handed to the reader. */
+	/** 原始图纸，就是交给读取器的那份。 */
 	source: string;
-	/** The working width the masks are rasterised at. */
+	/** 掩膜光栅化时用的工作宽度。 */
 	targetWidth: number;
 }
 
 /**
- * The session-only wall state: what a detection made of the plan, and how it failed.
+ * 只属于会话的墙体状态：这次检测读出了什么、怎么失败的。
  *
- * None of this belongs to a floor — a plan reloaded from storage has masks but no memory of
- * the run that produced them — so it is the only thing `wallState` still stores.
+ * 这些都不属于某一层——从存储载入的平面图有掩膜，但不记得产生它的那次运行——
+ * 所以它是 `wallState` 里唯一还自己存着的东西。
  */
 const session = $state({
 	vectorReview: null as VectorReview | null,
 	/**
-	 * Why the pixel detector ran, when it did.
+	 * 像素检测器为什么跑起来（跑了的话）。
 	 *
-	 * The sidebar reports it. A mask that came from thresholds and a mask that came from
-	 * reading the drawing's own objects are different claims about the same plan, and the
-	 * user is the only one who can say which is wrong — but only if they are told which
-	 * one they are looking at.
+	 * 侧边栏会显示它。靠阈值得到的掩膜和靠读图里对象得到的掩膜，是对同一份平面图的两种
+	 * 不同说法，只有用户能判断哪个不对——但前提是有人告诉他现在看的是哪一种。
 	 */
 	rasterReason: null as RasterReason | null
 });
 
 /**
- * The current floor's wall data, read and written through the floor itself.
+ * 当前楼层的墙体数据，读写都穿过楼层对象。
  *
- * These used to be a second copy of five `Floor` fields, kept in step by hand: save,
- * restore, floor switch, undo and import each copied all nine `wallState`/`floorplanState`
- * fields in both directions, and a missed copy showed up as a mask from the wrong floor.
- * The copy is gone — each getter reads the current floor and each setter writes it — so
- * there is one owner and no synchronisation to forget.
+ * 以前这里是五个 `Floor` 字段的第二份拷贝，靠手工同步：保存、恢复、切楼层、撤销、导入
+ * 每个都要把 `wallState`/`floorplanState` 的九个字段双向拷一遍，漏一次就表现为拿到别层的
+ * 掩膜。拷贝已经删掉——每个 getter 读当前楼层，每个 setter 写当前楼层——只剩一个主人，
+ * 没有需要记得的同步。
  *
- * Reading through a getter stays reactive: the getter reads `$state` inside the effect that
- * called it, which is exactly what a plain property read did. Writing assigns a new object
- * to `floor.wallMask`, which is the rule `mask-registry.ts` documents for cache keys.
+ * 走 getter 读仍然响应式：getter 在调用它的 effect 里读 `$state`，和直接读属性一样。
+ * 写入是给 `floor.wallMask` 赋一个新对象，这也是 `mask-registry.ts` 对缓存键的要求。
  */
 export const wallState = {
 	get wallMask(): Floor['wallMask'] {

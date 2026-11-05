@@ -1,15 +1,12 @@
 import { motionDuration } from '$lib/motion.js';
 
 /**
- * A view change is two fades, not a cross-fade.
+ * 视图切换是两次淡出淡入，不是交叉淡化。
  *
- * The old view fades to the canvas background, the new view is swapped in while the canvas
- * is completely covered, and only then does it fade back. That keeps the two layouts from
- * being visible at the same time and makes the 3D view — which is drawn by a different
- * layer — behave like every other view.
+ * 旧视图淡到画布背景色，画布被完全盖住时换上新视图，然后再淡回来。这样两套布局不会同时露脸，
+ * 也顺带让用另一层绘制的三维视图和其它视图表现一致。
  *
- * `active` also locks the view buttons and the canvas for the whole run. The CSS transition
- * duration in `CanvasView` must stay in step with `VIEW_FADE_MS`.
+ * `active` 期间视图按钮和画布都锁住。`CanvasView` 里 CSS 过渡的时长必须和 `VIEW_FADE_MS` 保持一致。
  */
 export const VIEW_FADE_MS = 160;
 
@@ -36,11 +33,10 @@ class ViewTransitionState {
 		this.active = true;
 		this.covering = true;
 		try {
-			// Let the cover reach full opacity before the old view is replaced.
+			// 等遮罩完全变不透明，再换掉旧视图。
 			await delay(VIEW_FADE_MS);
 			commit();
-			// The new layers are installed in an effect and drawn on the next frame. Waiting
-			// two frames keeps the fade-in from revealing a half-built overview.
+			// 新图层是在 effect 里装的、下一帧才画出来。等两帧，免得淡入时露出半成品。
 			await nextFrame();
 			await nextFrame();
 			this.covering = false;

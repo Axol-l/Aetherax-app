@@ -1,9 +1,8 @@
 /**
- * The optimiser’s observable state.
+ * 优化器对外暴露的状态。
  *
- * Its own module so the run and the real-time coverage pass can both read it without
- * importing each other: they are two consumers of the same numbers and nothing more.
- * The per-floor coverage cache lives here for the same reason.
+ * 单独成一个模块，是为了让"一次运行"和"实时覆盖计算"互不 import 也能读同一份数；
+ * 按楼层缓存的覆盖结果也放这里，理由相同。
  */
 import { SvelteMap } from 'svelte/reactivity';
 import { apState, wupmForFloor } from './ap-state.svelte.js';
@@ -18,98 +17,85 @@ export const optimizerState = $state({
 	isRunning: false,
 	progress: 0,
 	score: 0,
-	coverage: 0, // real-time coverage percentage, updated on AP/mask changes
+	coverage: 0, // 实时覆盖百分比，AP 或掩膜变化时更新
 	error: null as string | null,
-	/** What a multi-floor run is doing right now, e.g. "Floor 2 of 3, pass 1". */
+	/** 多楼层运行当前在干什么，例如 "Floor 2 of 3, pass 1"。 */
 	status: '',
 	/**
-	 * Building-wide coverage from the last all-floor run, as a density-weighted
-	 * mean over floors. Null when no all-floor run has happened.
+	 * 上一次全楼运行得到的整栋覆盖率：按各层样本数加权平均。
+	 * 还没跑过全楼运行时为 null。
 	 */
 	buildingCoverage: null as number | null,
-	/** Weakest floor from the last all-floor run: its percentage and its name. */
+	/** 上次全楼运行里最差的楼层：百分比和名称。 */
 	worstFloor: null as { id: string; name: string; coverage: number } | null,
 	/**
-	 * Co-channel interference share of the current layout, as a percentage, from
-	 * the last run that evaluated it. The other half of what the objective trades
-	 * off against coverage: the optimiser's score is
-	 * `coverageUtility − interferenceWeight · interference`.
+	 * 当前布局的同频干扰占比（百分比），取自最近一次评估它的运行。
+	 * 它是目标函数里和覆盖做权衡的另一半：分数 = `coverageUtility − interferenceWeight · interference`。
 	 */
 	interference: 0,
 	/**
-	 * Share of the floor where two APs on overlapping channels are both above the CCA
-	 * threshold (≈ −82 dBm at 20 MHz), as a percentage.
+	 * 本层上有两个信道重叠的 AP 都高于 CCA 门限（20 MHz 时约 −82 dBm）的面积占比，百分比。
 	 *
-	 * Airtime the plan shares, reported and **not** optimised. It is the half of
-	 * "interference" a relative criterion cannot see: two co-channel APs can be far
-	 * enough apart in level for the interference term to read 0% while every station
-	 * between them still defers to the other. See `ROADMAP.md` B4/B5.
+	 * 只报告、**不**优化，表示这份方案要共享多少空口时间。它是相对判据看不到的那一半：
+	 * 两台同频 AP 的功率可能拉得够开，让干扰项读成 0%，而中间的终端仍在互相让路。
+	 * 见 `ROADMAP.md` B4/B5。
 	 */
 	contention: 0,
 	/**
-	 * True once a run has measured the interference figures for the layout on screen.
+	 * 是否已经对屏幕上这份布局真正测过干扰。
 	 *
-	 * Both bars read 0% before that, which is not a measurement but a default — and a
-	 * panel that says "0% interference" about a plan nobody has scored is worse than one
-	 * that shows nothing. The coverage bar is gated the same way (`coverage > 0`).
+	 * 在那之前两个进度条都读 0%，那是默认值而不是测量值——对一个还没评过分的方案显示
+	 * "干扰 0%"，比什么都不显示更糟。覆盖率条也用同样的门槛（`coverage > 0`）。
 	 */
 	interferenceMeasured: false,
 	/**
-	 * False when `interference` was measured against the all-co-channel bound
-	 * because some AP had no channel yet. It is then an upper bound, not the
-	 * current plan's figure.
+	 * 为 false 表示有 AP 还没分信道，`interference` 是按"全部同频"的上界算的，
+	 * 那是上界，不是当前方案的数。
 	 */
 	interferenceKnown: true,
-	/** How many alternating passes the last all-floor run took. */
+	/** 上次全楼运行交替跑了几轮。 */
 	passes: 0,
 	/**
-	 * How many times to run the optimiser on a floor and keep the best result.
+	 * 一层上把优化器跑几遍、取最好的一次。
 	 *
-	 * Default 1, which is the previous behaviour. Above 1 each run starts from a
-	 * different seed, so the comparison is between genuinely different attempts
-	 * rather than the same one repeated — the PRNG is seeded and deterministic.
+	 * 默认 1（和以前一样）。大于 1 时每次用不同种子，比较的才是真正不同的尝试，
+	 * 而不是把同一次重复几遍——PRNG 是有种子的，结果确定。
 	 */
 	restarts: 1,
 	/**
-	 * When the last run finished, as an epoch millisecond, or null if none has.
+	 * 上次运行结束的时间戳（epoch 毫秒），没跑过为 null。
 	 *
-	 * A timestamp rather than a boolean because the placement advice panel has to
-	 * be able to tell one run from the next: it pops up on a completed run, is
-	 * dismissible, and has to come back after the *next* one. Comparing the value
-	 * is how "a new measurement arrived" is expressed without a second flag that
-	 * can be left stale.
+	 * 用时间戳而不是布尔量："放置建议"面板要靠它区分两次运行——跑完弹出、可以关掉、
+	 * 下一次运行后还得再弹。比一下这个值就知道"有新的测量结果"，不用再加一个容易过期的标志。
 	 */
 	lastRunAt: null as number | null
 });
 
 /**
- * Per-floor coverage cache: floorId →{ coverage %, sampleCount (proxy for area) }.
+ * 按楼层缓存的覆盖结果：floorId → { 覆盖百分比, 样本数（当作面积的近似） }。
  *
- * A `SvelteMap` rather than a plain `Map`. The panel derives both the building mean and
- * the weakest floor from this cache, and a plain `Map` is not reactive: `$derived` saw
- * no dependency, so after "Optimise all floors" the per-floor rows were right while the
- * building row and the weakest-floor line kept the values from the first render.
+ * 用 `SvelteMap` 而不是普通 `Map`：面板要从这份缓存推整栋均值和最差楼层，而普通 `Map`
+ * 不是响应式的，`$derived` 看不到依赖——跑完"优化所有楼层"后，分行数据是对的，
+ * 整栋那行和最差楼层却还停在首次渲染的值。
  */
 export const floorCoverage = new SvelteMap<string, FloorCoverageEntry>();
 
 /**
- * A coverage figure and the plan it was measured on.
+ * 一个覆盖数字，以及它是在哪份方案上测出来的。
  *
- * `basis` is what makes the figure usable: without it the panel, the building mean and the
- * PDF report all keep printing a measurement of a plan that no longer exists. It is
- * deliberately not persisted (`toDocument` writes the figure and its sample count only), so a
- * figure that comes back from disk arrives without one and is dropped on the next pass —
- * which is the honest reading, because it was measured by a previous session against a state
- * this one has not verified.
+ * `basis` 决定这个数字还能不能用：没有它，面板、整栋均值和 PDF 报告会一直打印一份已经
+ * 不存在的方案的测量值。它故意不写盘（`toDocument` 只存数字和样本数），所以从磁盘读回来
+ * 的数字没有 `basis`，下一轮就被丢掉——这是诚实的读法，因为那是上一个会话在本会话没验证过
+ * 的状态上测的。
  */
 export interface FloorCoverageEntry {
 	coverage: number;
 	samples: number;
-	/** The plan the figure describes. Absent on anything restored from a file. */
+	/** 这个数字对应的方案。从文件恢复的数据没有这一项。 */
 	basis?: string;
 }
 
-/** Identity of a mask object, for the basis below. */
+/** 给掩膜对象一个身份编号，供下面的 basis 用。 */
 const maskIds = new WeakMap<object, number>();
 let nextMaskId = 1;
 function maskId(mask: object | null | undefined): string {
@@ -123,13 +109,11 @@ function maskId(mask: object | null | undefined): string {
 }
 
 /**
- * The plan a floor's coverage figure is a measurement *of*.
+ * 某层的覆盖数字是在哪份方案上测出来的（拼成 `basis` 字符串）。
  *
- * Everything the pass reads, in one string: the walls and the mask they were rasterised into,
- * where that mask sits, the materials, the calibration (the figure is an area share, and the
- * area comes from the scale), and every access point on the floor with the power and channel
- * the pass scored it at. Two states with the same basis produce the same figure, which is the
- * whole point — a changed one produces a new string and the old figure is dropped.
+ * 把这一遍计算读到的东西拼成一个串：墙体和它光栅化出的掩膜、掩膜的位置、材质、标定
+ * （结果是面积比，面积来自比例），以及本层每台 AP 连同评分时的功率和信道。
+ * 两份状态拼出同样的串就得到同样的数字——这正是目的：一变就生成新串，旧数字被丢掉。
  */
 export function coverageBasis(floorId: string): string {
 	const floor = floorState.floors.find((f) => f.id === floorId);
@@ -156,12 +140,10 @@ export function coverageBasis(floorId: string): string {
 }
 
 /**
- * Forget every coverage figure that no longer describes the plan.
+ * 把所有已经不能描述当前方案的覆盖数字删掉。
  *
- * Called at the start of each pass. Only the current floor can be edited — its walls, its
- * calibration, the access points standing on it — so a sweep at every recomputation covers
- * every floor that could have changed, and a floor that was never visited has no entry to
- * drop.
+ * 每一遍计算开始时调用。只有当前楼层能被编辑（它的墙、标定、上面的 AP），所以每次重算时
+ * 扫一遍就覆盖了所有可能变过的楼层；没访问过的楼层本来就没有条目可删。
  */
 export function dropStaleCoverage(): void {
 	for (const [floorId, entry] of floorCoverage) {
@@ -170,38 +152,32 @@ export function dropStaleCoverage(): void {
 }
 
 /**
- * The access points that sit outside their floor's detected interior, by name.
+ * 落在本层识别出的室内区域之外的 AP 名称。
  *
- * A plan saved before the detection agreed with itself — or one whose access point was
- * dropped in by hand — can carry an AP in the margin outside the walls, and nothing used to
- * say so. The callers are the components that can show it: the state module must not import
- * app state, because `app.svelte.ts` reaches this module through persistence and the cycle
- * leaves the optimiser half-initialised at load.
+ * 在检测规则统一之前存的方案，或者手工拖进去的 AP，可能落在墙外的边角，以前没有任何提示。
+ * 由能显示它的组件来调用：状态模块不能 import 应用状态，因为 `app.svelte.ts` 会经持久化
+ * 绕回这个模块，循环依赖会让优化器在载入时初始化到一半。
  *
- * Returns an empty list while a floor's mask is still undecoded: the check is meaningless
- * before there are walls to judge against, and it is re-run when the mask arrives.
+ * 某层掩膜还没解码时返回空列表：没有墙可比，这个检查没意义；掩膜到位后会再跑一次。
  */
 export async function apsOutsideInterior(): Promise<string[]> {
 	if (projectMeta.allowOutsideRooms) return [];
 	const outside: string[] = [];
 	/*
-	 * The drawn planning area decides, when there is one.
+	 * 画了规划区域时，以它为准。
 	 *
-	 * It is the user's own statement of where the floor is, so a point outside it is outside
-	 * the floor by definition — no inference about whether a doorway means "outside", no
-	 * morphology, nothing to argue with. Without one the detected interior is still the only
-	 * answer there is, and that is where the walls' sealing applies.
+	 * 那是用户自己声明"本层在哪"，落在它外面的点按定义就在本层之外——不用猜门口算不算
+	 * 外面，不用做形态学处理，没什么可争的。没画时只能退回识别出的室内区域，
+	 * 墙体的封闭处理也就用在那里。
 	 */
 	const planned = currentFloor().planningArea;
 	const hasPlan = isUsablePlanningArea(planned);
 	for (const ap of apState.aps) {
 		/*
-		 * A wall mount is on a wall by construction, and the inferred interior
-		 * deliberately trims the ring of pixels against every wall (`trimWallAdjacent`) —
-		 * so judging one there reports every bracket in the building as outside. That is
-		 * what made the warning stand on a wall mount and re-appear on every later edit,
-		 * including a facing change. Placement already refuses to put a wall mount away
-		 * from a wall, so there is nothing left for this check to add.
+		 * 壁挂 AP 按定义就在墙上，而推断出的室内区域会刻意削掉贴着每面墙的那圈像素
+		 * （`trimWallAdjacent`）——拿这个判它，会把整栋楼的每个支架都报成在外面。
+		 * 以前就是这样：警告盯着壁挂 AP 不放，之后每次编辑（连改朝向都算）都再冒出来。
+		 * 放置时已经不允许把壁挂 AP 放在远离墙的地方，这里也就没什么可补的了。
 		 */
 		if (ap.mount === 'wall') continue;
 		const inside = hasPlan
@@ -212,7 +188,7 @@ export async function apsOutsideInterior(): Promise<string[]> {
 	return outside;
 }
 
-/** Weighted average coverage across all floors with data. */
+/** 有数据的各楼层覆盖率的加权平均。 */
 export function getBuildingCoverage(): number {
 	if (floorCoverage.size === 0) return 0;
 	let totalWeighted = 0;

@@ -1,3 +1,6 @@
+/**
+ * 全局界面状态：当前工具、图层开关、画布视图和角落提示。
+ */
 import type { SurfaceKind, SurfaceMaterialId } from '$lib/rf/surface-height.js';
 import type { ApMount } from './ap-state.svelte.js';
 
@@ -5,10 +8,7 @@ export type SidebarPanel = 'floorplan' | 'aps';
 export type FloorView = 'single' | 'tiled' | 'stacked' | 'floor3d';
 
 /**
- * The editing tool, if one is armed.
- *
- * One value, so two tools cannot be armed at once — they all own the same bare-canvas click,
- * and two of them armed means one click doing two things.
+ * 当前启用的编辑工具，没启用时是 none
  */
 export type ToolKind =
 	| 'none'
@@ -21,51 +21,18 @@ export type ToolKind =
 	| 'place-ap';
 
 /**
- * Limits of the stacked view's angles, in degrees.
- *
- * Shared by the panel's sliders and the canvas drag so the two cannot drift: the
- * sliders' range *is* the drag's clamp, which is what lets a drag stop at the limit
- * instead of winding up slack behind it. Yaw is clamped at ±180 rather than allowed
- * to run on, because ±180 is the same orientation and a value outside the slider's
- * range would leave the control unable to show where the view is.
+ * 叠层视图的角度限制，单位是度
  */
 export const STACK_YAW_LIMIT_DEG = 180;
 export const STACK_MIN_PITCH_DEG = 5;
 export const STACK_MAX_PITCH_DEG = 75;
 
 export const appState = $state({
-	/**
-	 * Why the last click on the canvas did not place anything, if it did not.
-	 *
-	 * Rendered in the corner notice. Transient by nature: it belongs to one click, and
-	 * the next successful placement clears it.
-	 */
 	placementNotice: null as string | null,
-	/**
-	 * Why the project could not be written to the browser's storage, if it could not.
-	 *
-	 * Its own slot, and the most important of the three: the other two are about the plan
-	 * being wrong, this one is about work being lost. The save path used to swallow the
-	 * failure — a quota of about five megabytes with a PNG mask per floor is easy to
-	 * reach — so the first sign of trouble was a project that came back short after a
-	 * reload.
-	 */
 	storageNotice: null as string | null,
-	/**
-	 * The acknowledgment of a save the user asked for, briefly.
-	 *
-	 * Autosave is silent by design — the work is saved two seconds after an edit and the
-	 * status bar carries the timestamp — but a save the user *asked* for has to answer, or
-	 * the shortcut and the menu item both look broken. Cleared by `saveNow`'s own timer.
-	 */
 	savedNotice: null as string | null,
 	/**
-	 * The standing warning about access points that sit outside the building, if any.
-	 *
-	 * Kept in a slot of its own rather than sharing `placementNotice`, because the two
-	 * are written by different things at different times: this one is recomputed
-	 * whenever walls or access points move, and while it shared the slot every such
-	 * recomputation wiped a refusal the user had just been shown.
+	 * 有 AP 落在建筑外面时的常驻警告
 	 */
 	outsideNotice: null as string | null,
 	sidebarPanel: 'floorplan' as SidebarPanel,
@@ -73,31 +40,14 @@ export const appState = $state({
 	showGrid: true,
 	showLabels: true,
 	showHeatmap: false,
-	/** Notes left on the plan: pins anyone can read, in the layer switch like any other. */
 	showNotes: true,
 	/**
-	 * The editing tool, if one is armed.
-	 *
-	 * One field rather than seven booleans, because the seven are mutually exclusive by
-	 * nature: every one of them owns the same bare-canvas click, so two armed at once means
-	 * one click doing two things. That used to be maintained by hand — each setter cleared
-	 * the ones written before it, which is O(n) per mode and easy to forget — and two of the
-	 * modes were written straight into the state by the components that toggled them, so
-	 * they were never in that scheme at all: the wall tool and note mode could be armed on
-	 * top of the planning area, and were.
-	 *
-	 * The `*Mode` accessors below are views over this field. Every existing reader and
-	 * writer keeps working, and none of them can bypass the exclusivity any more:
-	 * `appState.noteMode = true` *is* `setTool('note')`.
+	 * 当前启用的编辑工具。
 	 */
 	tool: 'none' as ToolKind,
 
 	/**
-	 * Drawing walls as line segments.
-	 *
-	 * Its own tool, next to the raster brush, because the two are different models of the
-	 * same thing and a plan should be drawn in one of them at a time. The first click of a
-	 * wall lands in `wallVectorDraft`; the second commits the segment.
+	 * 用线段画墙。
 	 */
 	get wallVectorMode(): boolean {
 		return this.tool === 'wall';
@@ -107,33 +57,22 @@ export const appState = $state({
 		else if (this.tool === 'wall') setTool('none');
 	},
 	/**
-	 * Which shape the wall tool draws: a line, a rectangular pier, or a round column.
-	 *
-	 * One mode with three tools rather than three modes: they share the gesture (two clicks),
-	 * the material, and the layer, so switching between them must not drop the wall tool —
-	 * a plan is drawn by alternating partition walls and the piers that break them.
+	 * 墙工具画什么形状：线段、矩形墙垛，还是圆柱。
 	 */
 	wallTool: 'line' as 'line' | 'rect' | 'circle' | 'eraser',
-	/** The pier or column being drawn, as two opposite corners. */
+	/** 正在画的墙垛或圆柱，用两个对角点表示。 */
 	columnDraft: null as { shape: 'rect' | 'circle'; ax: number; ay: number; bx: number; by: number } | null,
-	/** The column under the pointer or just drawn, for the delete key. */
+	/** 指针下或刚画好的柱子，给删除键用。 */
 	wallColumnSelected: null as string | null,
 	wallVectorDraft: null as { x: number; y: number } | null,
-	/** The segment under the pointer or the one just drawn, for the delete key. */
+	/** 指针下或刚画好的那段墙，给删除键用。 */
 	wallVectorSelected: null as string | null,
 	/**
-	 * What just happened to the walls, in the corner for a few seconds.
-	 *
-	 * Its own slot rather than sharing the placement refusal: tracing a detected plan is
-	 * neither a refusal nor a save, and it happens as a side effect of pressing Draw wall.
+	 * 墙体刚发生了什么，在角落显示几秒。
 	 */
 	wallNotice: null as string | null,
 	/**
-	 * Note editing: a click on the plan drops a note.
-	 *
-	 * A tool rather than a modifier key, because the canvas already uses ctrl/cmd for
-	 * selection and alt for panning, and because leaving it on by accident would litter a
-	 * plan with notes.
+	 * 备注编辑：在图上点一下就放一个备注。
 	 */
 	get noteMode(): boolean {
 		return this.tool === 'note';
@@ -142,19 +81,19 @@ export const appState = $state({
 		if (on) setTool('note');
 		else if (this.tool === 'note') setTool('none');
 	},
-	/** The note under the pointer, for the hover bubble. */
+	/** 指针下的备注，给悬停气泡用。 */
 	noteHoverId: null as string | null,
-	/** The note being edited, if any. */
+	/** 正在编辑的备注，没有就是 null。 */
 	noteSelectedId: null as string | null,
 	showFloorplan: true,
 	showAPs: true,
 	showWalls: true,
 	showRoomLabels: true,
-	/** Ghost of the floor below, for checking that two floors line up. */
+	/** 下一层的半透明底图，用来对齐上下两层。 */
 	showFloorBelow: false,
 	/**
-	 * Drag on the canvas moves the whole current floor instead of panning or
-	 * selecting. Used to bring one floor onto another.
+	 * 在画布上拖动时整个当前楼层跟着走，而不是平移或框选。
+	 * 用来把一层对准另一层。
 	 */
 	get floorAlignMode(): boolean {
 		return this.tool === 'align';
@@ -163,7 +102,7 @@ export const appState = $state({
 		if (on) setTool('align');
 		else if (this.tool === 'align') setTool('none');
 	},
-	/** Picking two points on the plan to calibrate the scale from a measured line. */
+	/** 在图上点两个点，用一条已知长度的线来标定比例。 */
 	get calibrateMode(): boolean {
 		return this.tool === 'calibrate';
 	},
@@ -172,10 +111,7 @@ export const appState = $state({
 		else if (this.tool === 'calibrate') setTool('none');
 	},
 	/**
-	 * Drawing the planning area: a click adds a vertex, Enter closes it.
-	 *
-	 * Its own tool because it owns the bare-canvas click. The draft lives here rather than
-	 * in the canvas so the sidebar can show what is being drawn and offer to finish it.
+	 * 画规划区域：点一下加一个顶点，回车闭合。
 	 */
 	get planningDrawMode(): boolean {
 		return this.tool === 'planning';
@@ -186,20 +122,11 @@ export const appState = $state({
 	},
 	planningDraft: [] as Array<{ x: number; y: number }>,
 	/**
-	 * The draft loop has been closed on its first corner, but not confirmed yet.
-	 *
-	 * Clicking the first corner is a statement about the *shape*, not about the floor: the
-	 * bar stays up with the green confirm so the area can still be undone or cancelled
-	 * before it replaces the floor's area.
+	 * 草稿已经点回第一个角闭合了，但还没确认。
 	 */
 	planningDraftClosed: false,
 	/**
-	 * Drawing a raised surface: a mezzanine, a stair, a ramp.
-	 *
-	 * Two clicks, like a wall and unlike the planning area: a surface is a rectangle, and
-	 * the height belongs to the end of it rather than to each corner. The kind and the two
-	 * heights live here too, so the sidebar's controls and the canvas preview cannot
-	 * disagree about what is about to be drawn.
+	 * 画抬升面：夹层、楼梯、坡道。
 	 */
 	get surfaceMode(): boolean {
 		return this.tool === 'surface';
@@ -211,33 +138,25 @@ export const appState = $state({
 	surfaceDraft: null as { ax: number; ay: number; bx: number; by: number } | null,
 	surfaceKind: 'platform' as SurfaceKind,
 	/**
-	 * The deck material picked for the next raised surface, or null for "type the loss".
-	 *
-	 * A preset for `surfaceAttenuationDb`, not a second source of truth: choosing one
-	 * writes its figure into the field, and clearing back to null leaves whatever was typed.
+	 * 下一个抬升面用的台面材质，null 表示「自己填损耗」。
 	 */
 	surfaceMaterial: null as SurfaceMaterialId | null,
-	/** Height of the walking surface at the low end, metres above the floor's own. */
+	/** 低端行走面的高度，单位米，相对本层地面。 */
 	surfaceHeightM: 2,
-	/** Height at the high end, metres. A platform keeps this equal to `surfaceHeightM`. */
+	/** 高端的高度，单位米。平台会让它跟 `surfaceHeightM` 相等。 */
 	surfaceTopHeightM: 2,
-	/** Loss through the deck, dB: what a path from below pays for crossing it. */
+	/** 穿过台面的损耗，dB：从下面上来穿过它的路径要付多少。 */
 	surfaceAttenuationDb: 15,
-	/** The deck's own thickness, metres. 3D, and whether a path passes *through* it. */
+	/** 台面本身的厚度，米。影响 3D 显示，也决定路径算不算穿过它。 */
 	surfaceThicknessM: 0.2,
-	/** Whether the volume under the deck is filled to the floor, in the 3D view. */
+	/** 3D 里台面下方到地面之间的体积是否填实。 */
 	surfaceSolidBase: false,
-	/** The surface under the pointer or just drawn: the card edits it, Delete removes it. */
+	/** 指针下或刚画好的抬升面：卡片编辑它，Delete 删它。 */
 	surfaceSelected: null as string | null,
-	/** The clicks collected so far while calibrating, in world coordinates. */
+	/** 标定过程中收集到的点击，世界坐标。 */
 	calibrationPoints: [] as Array<{ x: number; y: number }>,
 	/**
-	 * A click on empty canvas adds an access point.
-	 *
-	 * Off by default: with it on, the canvas is in "add" mode all the time, so a
-	 * click meant to deselect, or a drag meant to pan, leaves a stray AP behind.
-	 * Selecting and dragging APs is unaffected — this only decides what a click on
-	 * *nothing* does.
+	 * 点画布空白处就新增一个接入点
 	 */
 	get apPlaceMode(): boolean {
 		return this.tool === 'place-ap';
@@ -247,54 +166,27 @@ export const appState = $state({
 		else if (this.tool === 'place-ap') setTool('none');
 	},
 	/**
-	 * The mounting the next placed AP uses, when the toolbar has picked one.
-	 *
-	 * Null means "the last AP's mounting", which is the behaviour that existed before the
-	 * placement toolbar: a floor is normally described with one kind of hardware, and
-	 * re-picking a mounting for every AP is the repetition that makes the setting go
-	 * unused. The toolbar sets this, and it stays set for the session so a run of wall
-	 * mounts does not need re-picking either.
+	 * 下一个放置的 AP 用哪种安装方式
 	 */
 	apPlaceMount: null as ApMount | null,
-	/**
-	 * `single` draws the current floor on its own, `tiled` draws a read-only card
-	 * per floor side by side, and `stacked` draws the same cards stacked by their
-	 * real elevation in an oblique projection. Both overviews hide the editing
-	 * layers rather than trying to run the wall editor and the heatmap once per
-	 * floor; `stacked` is the one that answers "how do the storeys line up".
-	 */
 	floorView: 'single' as FloorView,
 	/**
-	 * Where the stacked overview is being looked at from.
+	 * 叠层总览从哪个角度看。
 	 *
-	 * `stackYaw` spins the building about its vertical axis and `stackPitch` tilts
-	 * down onto the floors; the two together are the whole viewpoint. Pitching is
-	 * also what separates the storeys on screen (`z·sin(pitch)`), which is why the
-	 * default looks down at 40° rather than straight down — from straight above, a
-	 * stack is indistinguishable from one floor. `stackSpread` multiplies the storey
-	 * spacing *on screen only*, so a stack can be pulled apart to see into it without
-	 * touching the geometry the RF model reads. View settings, not project settings:
-	 * they change nothing about the plan, so they are not persisted.
+	 * `stackYaw` 绕竖轴转，`stackPitch` 往下俯，两者合起来就是全部视角。
 	 */
 	stackYaw: 0,
 	stackPitch: 40,
 	stackSpread: 1,
-	/** Draw only the current floor and the one either side of it. */
+	/** 只画当前层和它上下各一层。 */
 	stackFocus: false
 });
 
-/** True when alignment mode is what switched the ghost on, so it can undo it. */
+/** 为真表示底图是对齐模式打开的，退出时好还原。 */
 let alignOwnsGhost = false;
 
 /**
- * Arm one tool, or none.
- *
- * The single place that decides what is armed, so exclusivity is a property of the type
- * rather than a list every setter has to repeat. It also owns the two things a tool can
- * drag along with it: floor alignment switches the ghost of the floor below on (it is the
- * only way to see what you are aligning to) and puts it back on the way out unless the user
- * had it on for their own reasons, and a tool that collects a draft drops it when the tool
- * changes — an abandoned loop or half-drawn rectangle is not a decision.
+ * 启用一个工具，或者全都不启用
  */
 export function setTool(tool: ToolKind): void {
 	const current = appState.tool;
@@ -321,12 +213,7 @@ export function setTool(tool: ToolKind): void {
 }
 
 /**
- * Enter or leave floor-alignment mode.
- *
- * Kept as a named entry point because the mode can also be left with Escape or a
- * right-click on the canvas, and every exit path has to put the ghost back. Having only the
- * sidebar know about it was the bug: the mode closed and the ghost of the floor below
- * stayed on the canvas with nothing to explain it.
+ * 进入或退出楼层对齐模式
  */
 export function setFloorAlignMode(on: boolean): void {
 	if (on) setTool('align');
@@ -334,12 +221,7 @@ export function setFloorAlignMode(on: boolean): void {
 }
 
 /**
- * Turn AP placement on or off.
- *
- * A tool rather than a permanent state of the canvas: while it is on, a click on empty
- * canvas creates an AP and nothing else uses that gesture. Leaving it on by default meant
- * every stray click — deselecting, starting a marquee, fumbling a pan — dropped an AP on
- * the plan.
+ * 打开或关闭放置 AP。
  */
 export function setApPlaceMode(on: boolean): void {
 	if (on) setTool('place-ap');
@@ -347,13 +229,7 @@ export function setApPlaceMode(on: boolean): void {
 }
 
 /**
- * Calibrating by measuring a line on the plan.
- *
- * The area route asks for the floorplan's total area and divides it into the outline the
- * detector found, which is only as good as that outline. Measuring asks something the user
- * can read off the drawing — this wall is twelve metres — and works on a plan whose
- * outline is open or which is a detail of one room. The points live here rather than in the
- * panel because the canvas is what collects them and the panel is what consumes them.
+ * 用图上量一条线的方式来标定
  */
 export function setCalibrateMode(on: boolean): void {
 	if (on) setTool('calibrate');
@@ -361,11 +237,7 @@ export function setCalibrateMode(on: boolean): void {
 }
 
 /**
- * Record a click while calibrating: the first point, then the second.
- *
- * A third click starts over rather than being ignored — the user's second point is
- * usually the one they got wrong, and having to leave the mode to correct it is worse than
- * losing the first point.
+ * 标定时记一次点击：先第一点，再第二点
  */
 export function addCalibrationPoint(point: { x: number; y: number }): void {
 	if (appState.calibrationPoints.length >= 2) appState.calibrationPoints = [point];
@@ -373,10 +245,7 @@ export function addCalibrationPoint(point: { x: number; y: number }): void {
 }
 
 /**
- * Drawing the planning area, one click per corner.
- *
- * Leaving the mode throws the draft away — an abandoned loop is not a decision. See
- * `setTool`, which also drops the draft.
+ * 画规划区域，一下一个顶点
  */
 export function setPlanningDrawMode(on: boolean): void {
 	if (on) setTool('planning');
@@ -388,20 +257,14 @@ export function addPlanningPoint(point: { x: number; y: number }): void {
 }
 
 /**
- * Close the loop being drawn, without confirming it.
- *
- * The first corner is where a polygon tool closes the shape; here that is a preview the bar
- * can still undo or cancel. Only the green confirm replaces the floor's area.
+ * 把正在画的圈闭合
  */
 export function closePlanningDraft(): void {
 	if (appState.planningDraft.length >= 3) appState.planningDraftClosed = true;
 }
 
 /**
- * Drawing a raised surface.
- *
- * Leaving the mode drops a half-drawn rectangle rather than keeping it — an unfinished
- * shape is not a statement about the floor. See `setTool`.
+ * 画抬升面
  */
 export function setSurfaceMode(on: boolean): void {
 	if (on) setTool('surface');
@@ -409,12 +272,7 @@ export function setSurfaceMode(on: boolean): void {
 }
 
 /**
- * Say something that happened to the walls, briefly.
- *
- * The messages are not warnings and not the save acknowledgment: they explain a change
- * the user did not ask for in those words — "the detected plan was traced into segments
- * so your new wall sits on top of it". They expire on their own, so the canvas does not
- * carry a permanent sentence about an action that is already visible on it.
+ * 说一句墙体刚发生的事
  */
 let wallsNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 export function notifyWalls(message: string): void {

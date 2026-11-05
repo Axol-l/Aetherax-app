@@ -1,28 +1,23 @@
 /**
- * Setting a floor's scale, and keeping its access points the physical size they were.
+ * 设置楼层比例，同时让这层的 AP 保住原来的物理尺寸。
  *
- * Calibration is per floor now: one building can hold plans scanned at different
- * resolutions, and the project-wide setter it replaced made calibrating the second storey
- * overwrite the first. The scale itself is one field on the floor; the second half of the
- * job is the AP radii, which are stored in world units and would otherwise silently change
- * their real-world reach when the floor's units change.
+ * 标定按楼层来：一栋楼里可能混着不同分辨率的图纸，以前项目级设置会在标定二层时覆盖一层。
+ * 比例本身只是楼层上的一个字段；另一半工作是 AP 半径 —— 它按世界单位存，单位一变实际覆盖范围就会悄悄变。
  */
 import { apState, DEFAULT_WUPM, wupmForFloor } from './ap-state.svelte.js';
 import { getFloor } from './floor-state.svelte.js';
 import { scheduleSave } from './persistence.svelte.js';
 
-/** The radius an uncalibrated AP is drawn with, in world units (15 m at `DEFAULT_WUPM`). */
+/** 未标定楼层的 AP 用这个半径画，世界单位（`DEFAULT_WUPM` 下是 15 米）。 */
 function uncalibratedRadius(): number {
 	return Math.round(15 * DEFAULT_WUPM);
 }
 
 /**
- * The factor that converts a length from `fromFloorId`'s world units into `toFloorId`'s.
+ * 把长度从 `fromFloorId` 的世界单位换算成 `toFloorId` 的世界单位。
  *
- * A point at `x` on a floor calibrated at 40 units/m is `x / 40` metres from that floor's
- * origin; drawn in a frame calibrated at 20 units/m it is `(x / 40) * 20 = x * 0.5`. Every
- * place that combines two floors — the cross-floor optimiser paths, the channel solver and
- * the overview cards — needs this one number, and they must all compute it the same way.
+ * 比例 40 单位/米的楼层上，x 点离原点 x/40 米；画在 20 单位/米的坐标里就是 (x/40)*20 = x*0.5。
+ * 凡是把两层放在一起算的地方（跨层优化路径、信道求解、总览卡片）都要这个系数，且必须算法一致。
  */
 export function scaleBetween(fromFloorId: string, toFloorId: string): number {
 	const to = wupmForFloor(toFloorId);
@@ -31,12 +26,10 @@ export function scaleBetween(fromFloorId: string, toFloorId: string): number {
 }
 
 /**
- * Resample a mask from one floor's units into another's.
+ * 把一个掩码从某层楼的比例重采样到另一层的比例。
  *
- * Masks are one byte per world unit, so a mask cannot simply be handed across floors when
- * the scales differ: the ray that indexes it would measure a wall in the wrong units. The
- * nearest-neighbour resample is the same convention the rest of the mask code uses (a pixel
- * is a world unit, and there is no interpolation between wall and floor).
+ * 掩码每个世界单位一个字节，两层比例不同时不能直接混用：按它索引的射线会用错单位来量墙。
+ * 用最近邻，和掩码其余部分的约定一致（一个像素就是一个世界单位，墙和地面之间不做插值）。
  */
 export function resampleRaster(
 	data: Uint8Array,
@@ -61,12 +54,10 @@ export function resampleRaster(
 }
 
 /**
- * Set one floor's scale and rescale that floor's AP radii to preserve their metres.
+ * 设置某楼层比例，并按比例缩放该层 AP 半径，让它们代表的米数不变。
  *
- * Only APs on this floor are touched: a floor's units are its own, and scaling a unit on a
- * storey whose scale did not change would change its real reach. The first calibration of a
- * floor also promotes the uncalibrated placeholder radius to a real 15 m, which is the
- * number the editor shows before the plan says what a metre is.
+ * 只动这一层的 AP：单位是各层自己的，去缩放没改比例的楼层反而会改它的实际覆盖。
+ * 楼层第一次标定时还会把占位半径换成真实的 15 米 —— 就是图纸还没说明一米多长时编辑器显示的那个数。
  */
 export function setFloorScale(floorId: string, worldUnitsPerMeter: number): void {
 	if (!Number.isFinite(worldUnitsPerMeter) || worldUnitsPerMeter <= 0) return;
@@ -78,9 +69,8 @@ export function setFloorScale(floorId: string, worldUnitsPerMeter: number): void
 	for (const ap of apState.aps) {
 		if (ap.floorId !== floorId) continue;
 		if (old === null) {
-			// Read at call time: this module can be evaluated inside a cycle (persistence
-			// imports the optimiser), where `DEFAULT_WUPM` is not initialised yet — a
-			// module-level constant became NaN and the placeholder was never promoted.
+			// 调用时才读：本模块可能处在循环依赖里（persistence 引了优化器），那时 `DEFAULT_WUPM` 还没初始化 ——
+			// 以前写成模块级常量，结果算成 NaN，占位半径一直没被提升。
 			if (ap.interferenceRadius === uncalibratedRadius()) {
 				ap.interferenceRadius = Math.round(15 * worldUnitsPerMeter);
 			}

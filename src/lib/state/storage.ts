@@ -1,46 +1,35 @@
 /**
- * Where a project lives between sessions.
+ * 工程两次打开之间存在哪儿。
  *
- * One seam, so that changing the backend is a change in one place rather than a rewrite
- * of the save path. It exists because the backend has to change: `localStorage` gives the
- * app about five megabytes, and a floor's wall mask is a PNG data URL, so a three-storey
- * plan is already within sight of the quota — the failure mode being a project that comes
- * back short after a reload.
- *
- * IndexedDB is the replacement: hundreds of megabytes rather than five, and writes that
- * do not have to happen on the main thread's critical path. The interface is therefore
- * **asynchronous** even though the localStorage implementation is not, because retrofitting
- * async onto the callers later is exactly the kind of change this module is meant to avoid.
- *
- * Values are strings. The project document is JSON and the masks are data URLs, so nothing
- * here needs to know what a blob or a schema is — that belongs to `persistence`.
+ * 垫这一层是因为后端迟早要换：`localStorage` 只有约 5 MB，而一层楼的墙体掩码就是一张 PNG data URL，
+ * 三层楼就快撑爆，满了以后工程重新加载回来会少东西。换成 IndexedDB 有几百 MB，写入也不必卡在主线程，
+ * 所以接口**一律异步**——哪怕现在的实现不需要；以后再往调用方里补异步，正是这模块想避免的事。
+ * 值统一是字符串：工程是 JSON，掩码是 data URL，这里不需要懂 blob 或 schema，那是 `persistence` 的事。
  */
 
 export type StorageBackend = 'indexeddb' | 'localstorage';
 
 export interface KeyValueStore {
-	/** Which implementation this is, for the notice the user may have to read. */
+	/** 这是哪种实现，用于可能要给用户看的提示。 */
 	readonly backend: StorageBackend;
 	read(key: string): Promise<string | null>;
 	write(key: string, value: string): Promise<void>;
 	/**
-	 * Write without handing back a promise, for the one caller that cannot await.
+	 * 不返回 promise 的写入，只给那个等不了异步的调用方用。
 	 *
-	 * A window that is being destroyed does not get to finish a promise chain: the page
-	 * gets one synchronous turn and then it is gone. That is the whole reason this exists
-	 * — see `persistence.flushSaveSync`, which is its only caller.
+	 * 正在关闭的窗口没机会跑完 promise 链：页面只剩一个同步回合，然后它就是没了。它存在就是为了
+	 * 这个——见 `persistence.flushSaveSync`，也是唯一的调用方。
 	 *
-	 * Optional, because a backend may not be able to honour it. IndexedDB cannot: its
-	 * transaction commits when it commits, and there is no synchronous write. A caller
-	 * that needs one has to check for it instead of assuming.
+	 * 是可选项，因为不是每个后端都做得到。IndexedDB 就做不到：事务什么时候提交就什么时候提交，
+	 * 没有同步写入。需要它的调用方得先检查有没有，不能想当然。
 	 */
 	writeSync?(key: string, value: string): void;
 	remove(key: string): Promise<void>;
-	/** Every key this store holds, for migration and for a project list. */
+	/** 这个存储里的所有键，给迁移和工程列表用。 */
 	keys(): Promise<string[]>;
 }
 
-/** The browser's own storage, as a store. */
+/** 浏览器自带的存储，包成一个 store。 */
 export const localStore: KeyValueStore = {
 	backend: 'localstorage',
 	async read(key) {
@@ -70,10 +59,9 @@ const STORE_NAME = 'kv';
 const DB_VERSION = 1;
 
 /**
- * An in-memory store, for tests and for the one case where the browser has neither.
+ * 内存里的 store，给测试用，也给浏览器两种都不可用时兜底。
  *
- * A private window with storage disabled is the real case: the app then keeps working for
- * the session and says so, rather than throwing on every save.
+ * 真实场景是无痕窗口禁用了存储：应用照常跑完这次会话并给出提示，而不是每次保存都抛错。
  */
 export function memoryStore(): KeyValueStore {
 	const map = new Map<string, string>();
@@ -109,7 +97,7 @@ function openDatabase(): Promise<IDBDatabase> {
 	});
 }
 
-/** IndexedDB as a store. One object store, string keys, string values. */
+/** 用 IndexedDB 实现的 store：一个对象仓库，字符串键，字符串值。 */
 export const indexDbStore: KeyValueStore = {
 	backend: 'indexeddb',
 	async read(key) {
@@ -166,13 +154,12 @@ export const indexDbStore: KeyValueStore = {
 };
 
 /**
- * Move records that only exist in localStorage into `store`.
+ * 把只存在于 localStorage 里的记录搬进 `store`。
  *
- * Runs on every start and is idempotent: a key already present in the target is left
- * alone, so this is a copy rather than a move and the old copy stays until the write is
- * known to have landed. Callers remove the legacy keys afterwards, once, deliberately.
+ * 每次启动都跑，且幂等：目标里已经有这个键就跳过。所以这是复制不是移动，旧数据在写入
+ * 确认落地之前一直留着，由调用方之后自己一次性删掉。
  *
- * Returns how many keys were carried over.
+ * 返回搬过去多少个键。
  */
 export async function migrateInto(
 	store: KeyValueStore,

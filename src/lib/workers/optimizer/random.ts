@@ -1,21 +1,9 @@
 /**
- * The optimiser's seeded PRNG.
+ * 优化器用的带种子伪随机数发生器（mulberry32）。
  *
- * A run is stochastic, and every before/after comparison of a model change is meaningless
- * if two runs on identical input cannot be repeated. The seed is reported back in the
- * result so a run can be replayed exactly.
- */
-/**
- * Seeded PRNG (mulberry32).
- *
- * The optimiser used bare `Math.random()` in three places — the k-means++ seed
- * pick, the PSO position jitter and the PSO velocity update — with no way to
- * set or recover the stream. Two runs on identical input could therefore return
- * different placements, which makes every before/after comparison of a model
- * change meaningless: you cannot tell an improvement from a lucky draw.
- *
- * The seed actually used is reported back in the result message, so a run can be
- * repeated exactly by passing that seed in again.
+ * 运行本身带随机性：同样的输入如果两次结果不同，前后对比就没意义，所以种子固定，
+ * 而且会随结果返回，传回去就能原样重跑。优化器里三处随机都走这里：
+ * k-means++ 选种子、PSO 位置抖动、PSO 速度更新。
  */
 export function mulberry32(seed: number): () => number {
 	let a = seed >>> 0;

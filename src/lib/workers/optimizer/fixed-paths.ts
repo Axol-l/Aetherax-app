@@ -1,23 +1,18 @@
 /**
- * The fixed half of a run's geometry: one row per sample, per access point that does not move.
+ * 一轮里固定不变的那半几何：每个不动的 AP、每个采样点一行。
  *
- * Everything here depends only on the plan and the cross-floor sources, never on where the
- * optimiser has put the access points it is moving — so it is built once per run and read by
- * every evaluation. It lives in its own module because that is the only thing this file has to
- * know about it: the search, the exact pass and the report are what the worker is for, and
- * everything they do to a wall goes through `rf/link-budget.ts` from here.
+ * 这里只依赖户型和跨层源，跟优化器把 AP 挪到哪无关，所以每轮建一次、每次评估复用。
+ * 单独一个模块是因为它只关心这一件事；搜索、精确评估和报表都得从这儿走 `rf/link-budget.ts`。
  */
 import { crossFloorSegments, slabLossFactor } from '../../rf/cross-floor.js';
 import { wallRunLoss, type WallRun } from '../../rf/link-budget.js';
 import { getMaterialDbTable } from '$lib/domain/materials.js';
 import type { FixedApInput, FixedPath } from './types.js';
 /**
- * Build the per-sample path data for every fixed AP that has a mask for its own
- * floor, or room types for the slab it crosses.
+ * 给每个固定 AP 生成逐采样点的路径数据——前提是它有自己那层的掩码，或者知道穿过的楼板类型。
  *
- * Computed once per run, alongside the per-band caches, and reused by every
- * evaluation — the search moves the optimised floor's APs, and none of this
- * depends on where they are.
+ * 每轮和按频段的缓存一起算一次，之后每次评估复用：搜索动的是被优化楼层的 AP，
+ * 这些数据跟它们在哪无关。
  */
 export function buildFixedPaths(
 	fixedAps: readonly FixedApInput[],
@@ -31,18 +26,16 @@ export function buildFixedPaths(
 ): FixedPath[] {
 	const numSamples = samples.length;
 	return fixedAps.map((fap) => {
-		// Slab loss can be waived at a hole even when there is no wall split to make
-		// (an AP ceiling-mounted on the storey below crosses the slab at its own
-		// position), so this is built independently of `source`.
+		// 就算没有墙体拆分也得能免掉洞处的楼板损耗（比如楼下吊顶的 AP 在自己
+		// 位置上就穿了楼板），所以这段和 `source` 独立算。
 		let slabFactor: Float32Array | null = null;
 		const slabs = fap.slabs;
 		if (slabs && slabs.length > 0) {
 			slabFactor = new Float32Array(numSamples);
 			for (let s = 0; s < numSamples; s++) {
 				const sample = samples[s]!;
-				// One multiplier per sample over *all* the crossings: each void share
-				// is subtracted, so N storeys with k holes waive exactly k/N of a
-				// uniform aggregate. See `slabLossFactor`.
+				// 每个采样点一个系数，作用在*所有*交点上：每份 void 的份额都减掉，
+				// 所以隔 N 层、有 k 个洞，就正好免掉均匀总和里的 k/N。见 `slabLossFactor`。
 				slabFactor[s] = slabLossFactor(slabs, fap.x, fap.y, sample.x, sample.y);
 			}
 		}
@@ -51,13 +44,11 @@ export function buildFixedPaths(
 		if (!src) return { split: null, slabFactor };
 		const sourceT = fap.sourceT ?? 0;
 		const targetT = fap.targetT ?? 0;
-		// Nothing to split: the AP is on this floor, or level with its client, so the
-		// caller's single-floor path is already the right one.
+		// 不用拆：AP 就在这层，或者和客户端同高，调用方给的单层路径就是对的。
 		if (sourceT <= 0 && targetT <= 0) return { split: null, slabFactor };
 
 		const db = getMaterialDbTable(fap.band);
-		// Without a material map every wall costs the same, so honour each floor's
-		// own project-level attenuation rather than substituting Drywall's value.
+		// 没有材料掩码时每面墙损耗一样，就用各层自己的项目级损耗，别拿石膏板的值顶。
 		const targetDefault = materialMask ? (db[defaultMaterial] ?? wallAttenuation) : wallAttenuation;
 		const sourceDefault = src.materialMask
 			? (db[src.defaultMaterial] ?? wallAttenuation)
@@ -66,16 +57,13 @@ export function buildFixedPaths(
 		const sourceRow = new Float32Array(numSamples);
 		const suffixRow = new Float32Array(numSamples);
 		/*
-		 * Two runs, and the shared march charges them.
+		 * 两段路径，共用同一次步进。
 		 *
-		 * This used to call `rayMarchWallAtten` twice, subtracting each mask's origin itself and
-		 * picking the default material out of the table by hand — a copy of what
-		 * `rf/link-budget.ts` does for the coverage pass, the heatmap and the solver. The numbers
-		 * were the same; the arrangement was not, and a layer that four places re-implement is a
-		 * layer where one of them eventually differs. Both halves are marched from the crossing
-		 * rather than as "the whole run minus its prefix": the marcher's step follows the
-		 * segment length, so a prefix march is not a prefix of the full one and the subtraction
-		 * could move a thin wall across a step boundary.
+		 * 以前这里调两次 `rayMarchWallAtten`，自己减掩码原点、自己查材料表——等于把
+		 * `rf/link-budget.ts` 里覆盖评估、热力图和求解器用的那套又抄了一遍。数一样，
+		 * 写法不一样，四处重写的层早晚有一处会走偏。两段都从交点起算，而不是
+		 * 「整段减去前缀」：步进器按线段长度定步长，前缀步进不是整段步进的前缀，
+		 * 相减可能让一堵薄墙跨过步长边界。
 		 */
 		const sourceRun: WallRun = {
 			mask: src.data,
@@ -88,7 +76,7 @@ export function buildFixedPaths(
 			originY: src.originY,
 			defaultMaterialId: src.defaultMaterial
 		};
-		// The run's own mask is in the frame its positions are in, so its origin is zero here.
+		// 目标段的掩码就是位置所在的坐标系，所以原点记 0。
 		const targetRun: WallRun = {
 			mask,
 			width: w,

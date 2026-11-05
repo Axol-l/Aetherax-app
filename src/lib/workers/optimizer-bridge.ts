@@ -1,3 +1,9 @@
+/**
+ * 主线程和优化 Worker 之间的桥接
+ *
+ * 一次优化运行的收发都走这里：把户型几何和参数打包发过去、转发进度，再把结果或取消还原成 Promise。
+ * 户型几何按数组身份缓存，同一份户型只传一次，之后只传参数。
+ */
 import type { Band, ChannelWidth, RegulatoryDomain } from '@aetherax/channels';
 import type { PathLossScenario } from '../rf/propagation.js';
 import { debug } from '../log.js';
@@ -12,7 +18,7 @@ import type {
 } from './optimizer-protocol.js';
 export type { OptimizeProgress, OptimizeResult } from './optimizer-protocol.js';
 
-/** A request in flight, and who to tell when the worker answers. */
+/** 一个还在等结果的任务，以及 Worker 回复时要通知谁。 */
 interface PendingRun {
 	runId: string;
 	resolve: (value: OptimizeResult) => void;
@@ -21,11 +27,7 @@ interface PendingRun {
 }
 
 /**
- * Identity of an input array, for `geometryIdentity`.
- *
- * Object identity, not contents: the caller caches its decodes, so "the same plan" and "the
- * same array" are the same statement — and hashing a nine-megabyte mask to find that out would
- * cost more than sending it.
+ * 给输入数组编个号，供 `geometryIdentity` 用。
  */
 const inputIds = new WeakMap<object, number>();
 let nextInputId = 1;
@@ -43,10 +45,7 @@ export class OptimizerBridge {
 	private worker: Worker | null = null;
 	private pending: PendingRun | null = null;
 	/**
-	 * The geometry the worker is holding, or null when it is holding none.
-	 *
-	 * A fresh worker has been sent nothing, so this is cleared with it — the one case where the
-	 * cache would otherwise be wrong rather than merely useless.
+	 * Worker 手上缓存的户型几何编号，没有缓存就是 null。
 	 */
 	private loadedGeometry: string | null = null;
 
@@ -59,11 +58,6 @@ export class OptimizerBridge {
 			this.worker.onmessage = (event: MessageEvent<WorkerReply>) => {
 				const message = event.data;
 				const pending = this.pending;
-				/*
-				 * A reply nobody is waiting for belongs to a run that has already been
-				 * superseded or cancelled. Dropping it is the whole point of the id: the
-				 * alternative was delivering one run's result to another run's caller.
-				 */
 				if (!pending || message.runId !== pending.runId) return;
 				if (message.type === 'progress') {
 					pending.onProgress?.(message);
@@ -90,14 +84,6 @@ export class OptimizerBridge {
 		this.pending = null;
 	}
 
-	/*
-	 * `ApInput`, not a shape of its own.
-	 *
-	 * This parameter used to restate a subset of the payload — id, position, radius, band, the
-	 * channels — so a caller could hand the bridge an access point with no antenna on it, and the
-	 * worker would score an upright omni the panel never showed. The type the message declares is
-	 * the type the caller has to satisfy.
-	 */
 	optimize(
 		aps: ApInput[],
 		wallMask: Uint8Array,
@@ -110,20 +96,18 @@ export class OptimizerBridge {
 				y: number;
 				interferenceRadius: number;
 				signalScale: number;
-				/** Channel of this AP, or null. Read by the interference term. */
+				/** 这个接入点用的信道，可能为 null。干扰项会读它。 */
 				assignedChannel?: number | null;
-				/** Pinned channel, if the user set one. A constraint on the colouring. */
+				/** 用户固定的信道。它是信道着色的一个约束。 */
 				fixedChannel?: number | null;
-				/** Channel width, for the non-overlapping palette. */
+				/** 信道宽度，用来生成互不重叠的信道表。 */
 				channelWidth?: ChannelWidth;
-				/** Vertical distance to the floor being optimised, in world units. */
+				/** 到被优化楼层的垂直距离，用世界坐标单位。 */
 				verticalGap: number;
 				band: Band;
 				/**
-				 * The wall mask of the floor this AP sits on, when the optimised floor
-				 * is a different one. The path is then split at the slab: the run from
-				 * the AP to the crossing is charged against this mask, and the rest
-				 * against the optimised floor's.
+				 * 接入点自己那层楼的墙掩码，只在跨层时才需要。
+				 * 路径在楼板处会切成两段：接入点到穿板点这段按这份掩码算，剩下的按被优化楼层的算。
 				 */
 				source?: {
 					data: Uint8Array;
@@ -131,19 +115,17 @@ export class OptimizerBridge {
 					height: number;
 					materialMask: Uint8Array | null;
 					defaultMaterial: number;
-					/** This mask's origin in the optimised floor's mask frame. */
+					/** 这份掩码的原点，落在被优化楼层掩码的坐标系里。 */
 					originX: number;
 					originY: number;
 				} | null;
-				/** Fraction along the ray where it leaves the AP's own floor. */
+				/** 射线离开接入点自己那层的位置，用 0-1 的比例表示。 */
 				sourceT?: number;
-				/** Fraction along the ray where it enters the optimised floor. */
+				/** 射线进入被优化楼层的位置，用 0-1 的比例表示。 */
 				targetT?: number;
 				/**
-				 * Every storey boundary this path crosses, with the room types of the
-				 * floor that owns each slab, in the optimised floor's mask frame, and
-				 * the share of the aggregate slab loss charged at that boundary. A void
-				 * there is a hole, and the ray pays that share less.
+				 * 这条路径穿过的每个楼层边界：每个边界连同楼板所属那层的房间类型（坐标在被优化楼层的
+				 * 掩码坐标系里），以及总楼板损耗分摊到该边界的比例。那里如果是空洞（洞口），射线承担的这份损耗要少一些。
 				 */
 				slabs?: Array<{
 					t: number;
@@ -159,88 +141,58 @@ export class OptimizerBridge {
 			densityMap?: Float32Array | null;
 			medianDensity?: number;
 			materialMask?: Uint8Array | null;
-			/**
-			 * Raw room type ids. Carries the voids: a hole contributes no density,
-			 * so it cannot be recovered from the density map.
-			 */
+			/** 原始房间类型 id */
 			roomTypeMask?: Uint8Array | null;
 			defaultMaterial?: number;
 			metersPerPixel?: number;
-			/** Default false: APs are constrained to the detected building interior. */
+			/** 默认 false：接入点会被限制在识别出的建筑内部。 */
 			allowOutside?: boolean;
-			/** Omit for a random seed; the seed used is returned on the result. */
+			/** 不传就用随机种子，实际用到的种子会在结果里带回来。 */
 			seed?: number;
-			/**
-			 * Weight of the co-channel interference share in the objective. Zero
-			 * scores coverage alone, which is the previous behaviour and the A/B
-			 * switch for measuring what the term is worth.
-			 */
+			/** 同频干扰占比在目标函数里的权重 */
 			interferenceWeight?: number;
 			/**
-			 * When set, the worker colours each evaluated layout itself and scores the
-			 * interference that remains *after* the best assignment of that layout,
-			 * instead of the assignment the payload happened to carry. Pins
-			 * (`fixedChannel`) and the band's channel list then come from here rather
-			 * than from `assignedChannel`. Omit to score the payload's own assignment.
+			 * 传了之后，Worker 会给每个评估过的布局自己做信道着色，按该布局最优分配「之后」剩下的
+			 * 干扰打分。
 			 */
 			regulatoryDomain?: RegulatoryDomain;
 			/**
-			 * How far below the coverage threshold a sample still earns utility, in
-			 * dB. Zero is the hard threshold; see `DEFAULT_COVERAGE_SOFTNESS_DB`.
+			 * 采样点低于覆盖门限多少 dB 以内还算有收益
 			 */
 			coverageSoftnessDb?: number;
-			/** ITU-R P.1238 environment for the distance term. */
+			/** 距离项用的 ITU-R P.1238 环境类型。 */
 			pathLossScenario?: PathLossScenario;
 			/**
-			 * Ask for the conflict graph of the payload's own positions instead of a
-			 * placement. The result then carries `graph` and nothing is moved: this is
-			 * how the main-thread solver gets the same edges the objective scores.
+			 * 只按消息数据里的现有位置算冲突图，不做布点。
 			 */
 			graphOnly?: boolean;
 			/**
-			 * Transmit power levels each AP may be given, in dBm, descending, one list
-			 * per AP in payload order. Omitted ⇒ power is not a decision variable.
-			 * See `refinePower` in `optimizer-worker.ts`.
+			 * 每个接入点能选的发射功率，单位 dBm，从大到小；按消息数据顺序，一个接入点一个列表。
+			 * 不传就说明功率不参与寻优。
 			 */
 			powerLevelsDbm?: number[][];
-			/** World units per metre, so a power level can be turned into a radius. */
+			/** 每米多少世界坐标单位，用来把功率换算成半径。 */
 			worldUnitsPerMeter?: number;
 			/**
-			 * Vertical drop of a same-floor path, in world units: `(ceilingHeight −
-			 * clientHeight) × worldUnitsPerMetre`. Feeds the wall march's material-path
-			 * factor — a ray descending through a wall crosses more material than its plan
-			 * path (`PHYSICAL_MODELS.md` §B1). Omit to leave the walk uncorrected.
+			 * 同层路径的垂直落差。
+			 * 它进的是穿墙步进的材质路径系数 —— 射线斜着穿墙，比平面上看过去走的材质更多。不传就不做修正。
 			 */
 			localVerticalDrop?: number;
 			/**
-			 * How deep the band of floor along a wall is, in world units: the domain a
-			 * wall-mounted AP is placed in. Omit for a run with no wall mounts, or when the
-			 * default of four world units is close enough.
+			 * 沿墙那条带的深度，世界坐标单位：壁挂接入点就布在这条带里。
 			 */
 			wallBandWu?: number;
 			/**
-			 * Smallest inscribed radius an enclosed region may have and still be placed in,
-			 * in world units. Omit to count every enclosed region, which is the behaviour
-			 * before wall cavities were understood to be a placement bug — see
-			 * `minRegionRadius` in `computeBuildingInterior`, and `room-domain.ts`.
+			 * 封闭区域能被布点所需的最小内切半径，世界坐标单位。
 			 */
 			minRoomRadiusWu?: number;
 			/**
-			 * The planning area in mask coordinates, when the user has drawn one.
-			 *
-			 * The worker clips its placement domain to this, exactly as the app's own guard
-			 * does, so the optimiser and the warnings answer "inside" from the same shape
-			 * instead of from two independent guesses about the drawing.
+			 * 用户画好的规划区域，掩码坐标。
+			 * Worker 会把布点范围裁到这块区域里，和应用自己的校验用同一个形状。
 			 */
 			planningArea?: Array<{ x: number; y: number }> | null;
 			/**
-			 * Raised walking surfaces on this floor, in **mask coordinates**.
-			 *
-			 * The client's height above the slab is what its vertical gap to an AP is made
-			 * of, so a mezzanine is a different set of margins from the floor underneath
-			 * it. Sent as geometry rather than as a per-sample height array because the
-			 * worker builds its own sample grid — the heights have to follow *that* grid,
-			 * and only the worker knows where its samples are. See `rf/surface-height.ts`.
+			 * 本层的抬升面，掩码坐标。
 			 */
 			surfaces?: Array<{
 				ax: number;
@@ -253,11 +205,7 @@ export class OptimizerBridge {
 				attenuationDb?: number;
 			}>;
 			/**
-			 * The user's custom wall materials, in the table's own shape.
-			 *
-			 * The worker registers them before it scores anything, so a wall painted with one
-			 * costs the figure the user typed rather than the built-in fallback. Sent every
-			 * run rather than cached, because the same worker instance serves several projects.
+			 * 用户自定义的墙体材质，用材质表里那套字段。
 			 */
 			customMaterials?: Array<{
 				id: number;
@@ -267,33 +215,16 @@ export class OptimizerBridge {
 				color: [number, number, number];
 			}>;
 			/**
-			 * ε-constraint (F3): the covered share the result must reach, as a 0-1
-			 * fraction. Zero is no constraint.
+			 * ε 约束：结果必须达到的覆盖率，0-1 的小数。传 0 就是不加约束。
 			 */
 			coverageFloor?: number;
 		}
 	): Promise<OptimizeResult> {
 		const runId = crypto.randomUUID();
-		/*
-		 * The geometry is the expensive half of a payload and the half that does not change
-		 * between the restarts of one floor or the repeated runs of one plan: a wall mask, a
-		 * material mask, the room types, the density map and every cross-floor source mask, on
-		 * a 3000² plan tens of megabytes, copied and transferred for each of them.
-		 *
-		 * It is identified by the *identity* of the arrays it is made of, which the caller
-		 * caches per floor (`state/floor-mask.ts`, `optimizer-support.ts`). Same arrays, same
-		 * plan: the worker keeps what it was sent last time and this message carries the
-		 * parameters only.
-		 */
 		const geometryId = this.geometryIdentity(wallMask, options);
 		return new Promise((resolve, reject) => {
 			const previous = this.pending;
 			if (previous) {
-				/*
-				 * Superseded on purpose: tell the worker to stop the run it is executing, and
-				 * stop waiting for it. Its replies are dropped by the id check rather than
-				 * landing in this promise.
-				 */
 				this.pending = null;
 				this.getWorker().postMessage({ type: 'cancel', runId: previous.runId });
 				previous.reject(new Error('Superseded'));
@@ -301,23 +232,19 @@ export class OptimizerBridge {
 			this.pending = { runId, resolve, reject, onProgress: options?.onProgress ?? null };
 
 			/*
-			 * The worker first. Creating one clears what it is holding, and that has to happen
-			 * before the decision below reads it — otherwise the very first call remembers its
-			 * geometry and then immediately forgets it again.
+			 * 先把 Worker 取出来。新建 Worker 会清掉它手上的缓存。
 			 */
 			const worker = this.getWorker();
 
 			/*
-			 * `reuse` says the worker already holds this exact geometry. It cannot while it is
-			 * fresh — a new worker has been sent nothing — which is why the flag is cleared
-			 * whenever one is created or terminated.
+			 * `reuse` 表示 Worker 手上正好有这份户型。每次新建或销毁 Worker 都要把这个标记清掉。
 			 */
 			const reuse = geometryId === this.loadedGeometry;
 			const transferable: ArrayBuffer[] = [];
 			let geometry: Partial<WireGeometry> = {};
 
 			if (!reuse) {
-				// Copy buffers so we can transfer them
+				// 先拷一份 buffer，才能 transfer 给 Worker
 				const maskCopy = new Uint8Array(wallMask);
 				const densityCopy = options?.densityMap ? new Float32Array(options.densityMap) : null;
 				const materialCopy =
@@ -329,12 +256,7 @@ export class OptimizerBridge {
 				if (materialCopy) transferable.push(materialCopy.buffer);
 				if (roomTypeCopy) transferable.push(roomTypeCopy.buffer);
 
-				// Cross-floor source masks. Copied rather than transferred in place: the
-				// caller caches decoded masks per floor, so handing the buffer over would
-				// neuter a cache entry that the next run still expects to read. Room-type
-				// ids appear once per *floor* in the caller's data but once per *crossing*
-				// here, so a floor a path crosses twice is copied twice — never shared,
-				// because transfer detaches the buffer.
+				// 跨层来源掩码：只拷贝，不原地 transfer。
 				const fixedAps = (options?.fixedAps ?? []).map((fap) => {
 					const src = fap.source;
 					const slabs = fap.slabs;
@@ -396,16 +318,11 @@ export class OptimizerBridge {
 				planningArea: options?.planningArea ?? null,
 				surfaces: options?.surfaces ?? [],
 				customMaterials: options?.customMaterials ?? [],
-				// The payload shape this bridge builds. See `optimizer-protocol.ts`: the
-				// worker checks it when present, so a bundle left in a browser cache while
-				// the app around it moved on fails loudly instead of scoring a different
-				// model.
 				payloadVersion: OPTIMIZER_PAYLOAD_VERSION,
 				coverageFloor: options?.coverageFloor
 			};
 			if (reuse) {
-				// Reported because it is the difference between a hundred bytes and a hundred
-				// megabytes, and because a wrong reuse is otherwise invisible.
+				// 打这条日志，是因为这一下差着几百字节和上百 MB，而且缓存用错了平时根本看不出来。
 				debug(`[optimizer] reusing the plan the worker holds (${geometryId})`);
 			} else {
 				this.loadedGeometry = geometryId;
@@ -415,11 +332,9 @@ export class OptimizerBridge {
 	}
 
 	/**
-	 * Identity of the geometry a run needs, without looking inside it.
+	 * 算出一次运行需要的户型几何编号。
 	 *
-	 * The arrays are the caller's cached decodes, so the same plan hands over the same objects
-	 * on every restart and every repeat. Anything the caller rebuilds per call simply misses
-	 * the cache and is sent again — the wrong answer here costs a copy, never a wrong plan.
+	 * 这些数组是调用方缓存好的解码结果，同一份方案每次重跑都会交出同一批对象。
 	 */
 	private geometryIdentity(
 		wallMask: Uint8Array,
@@ -449,12 +364,7 @@ export class OptimizerBridge {
 	}
 
 	/**
-	 * Stop the run in flight, and stop waiting for it.
-	 *
-	 * The promise is rejected here rather than when the worker acknowledges, so the caller
-	 * (whose loops check the same cancellation) unwinds immediately instead of after a round
-	 * trip. A cancel that names no run is dropped: sending it anyway would stop whichever run
-	 * the worker had started in the meantime — the one the user has just asked for.
+	 * 停掉正在跑的那次运行，并且不再等它。
 	 */
 	cancel(): void {
 		const pending = this.pending;
@@ -467,7 +377,6 @@ export class OptimizerBridge {
 	terminate(): void {
 		this.worker?.terminate();
 		this.worker = null;
-		// The next worker is born empty, whatever this one was holding.
 		this.loadedGeometry = null;
 		this.cleanup();
 	}

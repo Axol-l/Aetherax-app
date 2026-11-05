@@ -1,12 +1,8 @@
 /**
- * "Put it on the wall": the nearest wall to a point, and the direction that faces
- * away from it.
+ * 「贴到墙上」：最近墙的测量，以及背离它的朝向。
  *
- * The measurement itself is `canvas/wall-distance.ts` and is tested there. What is
- * tested here is the two things a wall-mounted access point is built from — where it
- * goes and which way it looks — because getting either wrong is invisible in a
- * picture: a unit on the wrong side of a wall still paints heat, just on the wrong
- * side of it.
+ * 测量本身在 `canvas/wall-distance.ts` 里测；这里测壁挂 AP 的「装在哪、朝哪边」——弄错
+ * 哪个在图上都看不出来，AP 装到墙另一侧照样画热力图，只是画错了边。
  */
 import { describe, expect, it } from 'vitest';
 import { wallDistanceTransform } from '$canvas/wall-distance.js';
@@ -16,7 +12,7 @@ import {
 	wallSnapFrom
 } from './wall-snap.js';
 
-/** A 100×100 mask with one vertical wall, 4 px thick, at x = 20..23. */
+/** 100×100 的掩码，x = 20..23 处一道 4 px 厚的竖墙。 */
 function oneWallMask(): Uint8Array {
 	const mask = new Uint8Array(100 * 100);
 	for (let y = 0; y < 100; y++) {
@@ -26,24 +22,22 @@ function oneWallMask(): Uint8Array {
 }
 
 const transform = wallDistanceTransform(oneWallMask(), 100, 100);
-const WUPM = 32.8084; // a metre, at the default calibration
+const WUPM = 32.8084; // 默认校准下一米等于多少世界单位
 
 describe('wallSnapFrom', () => {
 	it('measures to the nearest wall and faces away from it', () => {
-		// The wall occupies x = 20..23, so its near face is x = 23 and a point at
-		// x = 54 is 31 world units clear of it.
+		// 墙占 x = 20..23，所以近侧表面是 x = 23，x = 54 的点离它 31 个世界单位。
 		const snap = wallSnapFrom(transform, 0, 0, 54, 50, WUPM);
 		expect(snap).not.toBeNull();
 		expect(snap!.x).toBe(23);
 		expect(snap!.distanceW).toBe(31);
-		// The wall is to the -x side, so the room — and the facing — is +x.
+		// 墙在 -x 一侧，所以房间、也就是朝向，是 +x。
 		expect(snap!.facingDeg).toBeCloseTo(0, 6);
 	});
 
 	it('puts the unit just off the face, not inside the wall', () => {
 		const snap = wallSnapFrom(transform, 0, 0, 54, 50, WUPM)!;
-		// A bracket's depth into the room, so the unit does not sit in the wall pixel
-		// and pay that wall on every ray it radiates.
+		// 往房间里退一个支架的深度，AP 就不会落在墙体像素里、每条射线都多付一次穿墙。
 		expect(snap.apX - snap.x).toBeCloseTo(WALL_MOUNT_OFFSET_M * WUPM, 6);
 		expect(snap.apY).toBeCloseTo(snap.y, 6);
 	});
@@ -52,7 +46,7 @@ describe('wallSnapFrom', () => {
 		const snap = wallSnapFrom(transform, 0, 0, 5, 50, WUPM)!;
 		expect(snap.x).toBe(20);
 		expect(snap.facingDeg).toBeCloseTo(180, 6);
-		// Backed off to the -x side, i.e. into the room it is actually in.
+		// 退到了 -x 一侧，也就是它真正所在的那个房间。
 		expect(snap.apX).toBeLessThan(snap.x);
 	});
 
@@ -70,7 +64,7 @@ describe('facingFollowsWall', () => {
 		expect(facingFollowsWall(10, snap)).toBe(true);
 		expect(facingFollowsWall(-10, snap)).toBe(true);
 		expect(facingFollowsWall(350, snap)).toBe(true);
-		// Turned by hand to look along the wall: it keeps that angle when dragged.
+		// 手动转成顺着墙看：拖拽时会保留这个角度。
 		expect(facingFollowsWall(90, snap)).toBe(false);
 		expect(facingFollowsWall(180, snap)).toBe(false);
 	});

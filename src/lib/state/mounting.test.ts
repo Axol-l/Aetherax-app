@@ -1,11 +1,8 @@
 /**
- * Mounting geometry: where an access point is, and what that changes.
+ * 安装几何：AP 挂在哪、多高，以及这会改变什么。
  *
- * The functions under test are the only places the vertical term is decided, and
- * every consumer of it — the heatmap, the live coverage figure, the optimiser's
- * payload and the worker — reads them rather than deriving its own. An AP's height
- * is always modelled, so these are not two models to switch between: the ceiling
- * preset is simply the one a new AP starts from.
+ * 垂直方向的计算只在这一组函数里做，热力图、覆盖率、优化器载荷和 worker 都直接读它们，不自己算一遍。
+ * AP 高度始终参与建模，不是两套模型二选一——天花板安装只是新建 AP 时的默认预设。
  */
 import { afterEach, describe, expect, it } from 'vitest';
 import {
@@ -23,7 +20,7 @@ import { azimuthLossDb, WALL_MOUNT_AZIMUTH } from '$lib/rf/antenna.js';
 import { floorState } from './floor-state.svelte.js';
 import { projectMeta } from './project-meta.svelte.js';
 
-/** Two storeys, 3 m and 2.5 m, and nothing else in the store. */
+/** 两层楼，层高 3 m 和 2.5 m，其他状态清空。 */
 function seedFloors(): void {
 	floorState.floors = [
 		{
@@ -89,8 +86,8 @@ describe('defaultMountHeight', () => {
 	});
 
 	it('never puts an access point through the slab above it, or under the floor', () => {
-		// A storey shorter than the ceiling drop leaves the AP on the floor rather
-		// than below it, and one shorter than a desk leaves it there too.
+		// 层高比吸顶下探距离还小时，AP 落在地面上而不是穿到楼板下面；
+		// 比桌面还矮时也留在地面。
 		expect(defaultMountHeight('floor', 1)).toBeCloseTo(0.8, 6);
 		expect(defaultMountHeight('ceiling', 0.05)).toBe(0);
 	});
@@ -109,17 +106,17 @@ describe('apHeightAboveFloor', () => {
 describe('apVerticalOffsetTo', () => {
 	it('is the height difference to a client on the same floor', () => {
 		seedFloors();
-		// 0.8 m to a 1.5 m client is 0.7 m: a same-floor path is not flat.
+		// 0.8 m 的 AP 对 1.5 m 的终端差 0.7 m：同层路径也不是平的。
 		expect(apVerticalOffsetTo({ floorId: 'f1', mountHeightM: 0.8 }, 'f1', 1.5)).toBeCloseTo(
 			0.7,
 			6
 		);
-		// Sign does not matter: only the distance does.
+		// 符号无所谓，只看距离。
 		expect(apVerticalOffsetTo({ floorId: 'f1', mountHeightM: 2.9 }, 'f1', 1.5)).toBeCloseTo(
 			1.4,
 			6
 		);
-		// A floor-mounted AP below a client is the same 0.7 m from the other side.
+		// AP 在地面、终端在它上方，还是同样的 0.7 m。
 		expect(apVerticalOffsetTo({ floorId: 'f1', mountHeightM: 2.2 }, 'f1', 1.5)).toBeCloseTo(
 			0.7,
 			6
@@ -128,19 +125,18 @@ describe('apVerticalOffsetTo', () => {
 
 	it('is the whole geometric gap to a client on another floor', () => {
 		seedFloors();
-		// A floor-mounted AP 0.8 m up on floor 1, a client 1.5 m above floor 2 (3 m up):
-		// 3 + 1.5 - 0.8 = 3.7 m.
+		// 一层 AP 落地高 0.8 m，二层终端离二层地面 1.5 m（即离一层地面 3 m）：
+		// 3 + 1.5 - 0.8 = 3.7 m。
 		expect(apVerticalOffsetTo({ floorId: 'f1', mountHeightM: 0.8 }, 'f2', 1.5)).toBeCloseTo(
 			3.7,
 			6
 		);
-		// A ceiling-mounted one on floor 1: 3 + 1.5 - 2.9 = 1.6 m, which is the mount
-		// the model assumed before heights existed.
+		// 一层吸顶：3 + 1.5 - 2.9 = 1.6 m，正是还没有高度概念时模型假设的安装高度。
 		expect(apVerticalOffsetTo({ floorId: 'f1', mountHeightM: 2.9 }, 'f2', 1.5)).toBeCloseTo(
 			1.6,
 			6
 		);
-		// From floor 2 down to a client on floor 1: AP at 3 + 1.6 = 4.6, client at 1.5.
+		// 从二层往下打到一层终端：AP 在 3 + 1.6 = 4.6，终端在 1.5。
 		expect(apVerticalOffsetTo({ floorId: 'f2', mountHeightM: 1.6 }, 'f1', 1.5)).toBeCloseTo(
 			3.1,
 			6
@@ -159,8 +155,8 @@ describe('apSplitFor', () => {
 
 	it('splits a path that never leaves the client floor’s volume nowhere', () => {
 		seedFloors();
-		// A ceiling-mounted AP on floor 1 is at 3 m and the client on floor 2 at 4.5 m:
-		// the only plane between them is floor 2's at 3 m, which is the endpoint itself.
+		// 一层吸顶 AP 在 3 m，二层终端在 4.5 m：两点之间只有二层 3 m 那层楼板，
+		// 而它正好是端点本身，所以不切。
 		expect(apSplitFor({ floorId: 'f1', mountHeightM: 3 }, 'f2', 1.5)).toEqual({
 			sourceT: 0,
 			targetT: 0
@@ -169,8 +165,7 @@ describe('apSplitFor', () => {
 
 	it('splits a floor-mounted path at the plane it crosses', () => {
 		seedFloors();
-		// From 0.8 m up to 4.5 m the ray crosses floor 2's plane at 3 m, i.e. 2.2/3.7
-		// of the way along.
+		// 从 0.8 m 到 4.5 m，射线在 3 m 处穿过二层楼板，也就是走完 2.2/3.7 的位置。
 		const floorMounted = apSplitFor({ floorId: 'f1', mountHeightM: 0.8 }, 'f2', 1.5);
 		expect(floorMounted.sourceT).toBeCloseTo(2.2 / 3.7, 6);
 		expect(floorMounted.targetT).toBeCloseTo(2.2 / 3.7, 6);
@@ -198,8 +193,7 @@ describe('addAp', () => {
 
 	it('takes the mounting the placement toolbar picked, and its preset height', () => {
 		seedFloors();
-		// The last AP is a wall mount, so inheriting would make the next one a wall mount
-		// too; the toolbar's choice has to win.
+		// 上一个 AP 是壁挂，继承下去的话下一个也会变成壁挂；工具栏的选择必须优先。
 		const first = addAp(10, 10);
 		first.mount = 'wall';
 		first.mountHeightM = 1.5;
@@ -211,7 +205,7 @@ describe('addAp', () => {
 		const wall = addAp(30, 30, 90, 'wall');
 		expect(wall.mount).toBe('wall');
 		expect(wall.mountHeightM).toBeCloseTo(2, 6);
-		// The caller's measured facing still wins for a wall mount.
+		// 壁挂时，调用方实测的朝向仍然优先。
 		expect(wall.facingDeg).toBe(90);
 	});
 
@@ -232,8 +226,8 @@ describe('addAp', () => {
 		seedFloors();
 		const ap = addAp(10, 10);
 		ap.band = '2.4ghz';
-		// A band change does not rewrite an antenna's numbers — they are the
-		// hardware's — but a new AP on that band starts from the 2.4 GHz defaults.
+		// 换频段不改写天线的参数——那是硬件决定的；但该频段上新建的 AP
+		// 会从 2.4 GHz 的默认值起步。
 		apState.aps = [];
 		apState.band = '2.4ghz';
 		expect(addAp(10, 10).beamwidthDeg).toBe(120);
@@ -246,10 +240,9 @@ describe('addAp', () => {
 		first.mountHeightM = 1.5;
 		first.facingDeg = 90;
 
-		// A run of wall mounts along one wall inherits the direction of the last one.
+		// 沿同一面墙连续壁挂，会沿用上一个的方向。
 		expect(addAp(20, 20).facingDeg).toBe(90);
-		// But a wall the caller measured wins: placing on a wall knows better than
-		// the previous unit did.
+		// 但调用方实测的那面墙说了算：在墙上放置时，位置比上一个 AP 更可信。
 		expect(addAp(20, 20, 180).facingDeg).toBe(180);
 	});
 
@@ -258,9 +251,8 @@ describe('addAp', () => {
 		const first = addAp(10, 10);
 		expect(first.pinned).toBe(false);
 		/*
-		 * A new AP is the optimiser's to place. Carrying the pin over would silently
-		 * freeze the next AP the user drops, which is the opposite of what pinning one
-		 * AP is for.
+		 * 新 AP 是交给优化器去放的。把固定状态继承过来，会悄悄锁死用户下一个放下的 AP，
+		 * 正好和「固定某一个 AP」的用意相反。
 		 */
 		first.pinned = true;
 		expect(addAp(20, 20).pinned).toBe(false);
@@ -288,15 +280,14 @@ describe('the wall mount as an antenna', () => {
 				mount,
 				facingDeg: 90
 			});
-			// No horizontal cut at all, so the model is what it was before wall
-			// mounts existed — a facing on a ceiling mount is a field that does
-			// nothing, not a pattern.
+			// 完全没有水平方向图，模型就和壁挂出现之前一样——吸顶 AP 上的
+			// 朝向只是个没人用的字段，不是方向图。
 			expect(omni.azBeamwidthDeg).toBeUndefined();
 			expect(azimuthLossDb(180, omni)).toBe(0);
-			// Facing 90° in the plan, so 270° is straight behind it: the front-to-back
-			// figure, and nothing like the 0 dB it would have had without a cut.
+			// 平面里朝向 90°，那 270° 就是正后方：衰减等于前后比，
+			// 而不是没有方向图时的 0 dB。
 			expect(azimuthLossDb(270, wall)).toBeCloseTo(WALL_MOUNT_AZIMUTH.frontToBackDb, 6);
-			// Sideways is between the two: this is a lobe, not a half-space switch.
+			// 侧面介于两者之间：这是一个波瓣，不是非黑即白的遮挡开关。
 			const side = azimuthLossDb(180, wall);
 			expect(side).toBeGreaterThan(3);
 			expect(side).toBeLessThan(WALL_MOUNT_AZIMUTH.frontToBackDb);

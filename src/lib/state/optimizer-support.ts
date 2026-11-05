@@ -1,10 +1,9 @@
 /**
- * Shared building blocks of the placement optimiser.
+ * 布点优化器共用的基础件。
  *
- * The payload conversions, the density map, the cross-floor slab list and the power
- * pass are used by both the search (`optimizer.svelte.ts`) and the real-time coverage
- * estimate (`optimizer-coverage.svelte.ts`); they are geometry and conversion, not
- * state, so they live here rather than in either consumer.
+ * 载荷转换、密度图、跨楼层楼板列表、功率下调，搜索（`optimizer.svelte.ts`）和实时覆盖
+ * 估算（`optimizer-coverage.svelte.ts`）都要用；这些都是几何和换算，不是状态，
+ * 所以放在这里，两个调用方都不用背。
  */
 import { updateAp, beginMove } from './ap-state.svelte.js';
 import {
@@ -31,30 +30,27 @@ interface DensityMapResult {
 	map: Float32Array;
 	medianDensity: number;
 	/**
-	 * The raw room type ids the density map was built from.
+	 * 密度图用的原始房间类型 id。
 	 *
-	 * Needed because a void contributes no density but does change the geometry:
-	 * the optimiser has to know which pixels are holes, and it cannot recover that
-	 * from a density of zero, which is also a legitimate density for a room.
+	 * 空洞不贡献密度，但会改变几何：优化器得知道哪些像素是洞，而密度 0 本身
+	 * 也是房间的合法取值，光看密度分不出来。
 	 */
 	roomTypeData: Uint8Array;
 }
 
 /**
- * Build a per-pixel device density map (Float32Array, same dims as wall mask).
- * Combines room type default densities with per-region overrides.
- * Returns null if no room type data is available.
+ * 逐像素生成设备密度图（Float32Array，尺寸与墙体掩码一致）。
+ * 把房间类型的默认密度和逐区域覆盖设置合在一起。
+ * 没有房间类型数据时返回 null。
  */
-// 鈹€鈹€鈹€ Density-map input caching 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ─── 密度图输入的缓存 ────────────────────────────────────────────────────
 //
-// Density overrides change on every slider tick, but the inputs they are
-// combined with do not. Recomputing them per tick meant two PNG decodes, a
-// morphological close, a connected-component labelling pass and a sort over
-// every labelled pixel 鈥?that is what made dragging a density slider stutter.
+// 密度覆盖值每拖一次滑块就变，但跟它一起算的输入不变。每拖一次都重算，意味着
+// 两次 PNG 解码、一次形态学闭运算、一次连通域标记，再对每个标记过的像素排序
+// —— 滑块卡顿就是这么来的。
 //
-// Cached against the object identity of the stored mask wrappers. Those are
-// replaced wholesale whenever their contents change, so identity is a sound key
-// and avoids comparing multi-megabyte data URLs on every call.
+// 按存储的掩码包装对象的引用缓存。内容一变整个对象就换掉，所以用引用当键是
+// 可靠的，也省得每次都比较几 MB 的 data URL。
 
 let densityRtMaskRef: unknown = null;
 let densityRtData: Uint8Array | null = null;
@@ -79,17 +75,15 @@ async function getDensityRoomLabels(
 	wallMask: { dataUrl: string; width: number; height: number } | null,
 	floorId: string
 ): Promise<Int32Array | null> {
-	// Taken as a parameter rather than read from `wallState`, which only ever holds
-	// the *current* floor's mask, while an all-floor run optimises floors other
-	// than the one on screen.
+	// 从参数传进来，而不是去读 `wallState`：它只存*当前*楼层的掩码，
+	// 而全楼层运行会算到屏幕上没显示的那些楼层。
 	const wm = wallMask;
 	if (!wm) return null;
 	if (densityWallMaskRef === wm && densityRoomLabels) return densityRoomLabels;
 	const decoded = await decodeMask(wm.dataUrl, wm.width, wm.height);
-	// Rooms, not cavities: this drives the per-room density the objective weights samples
-	// by, and a wall cavity is not a room with an occupancy. Untrimmed, because the wall-
-	// adjacent pixels are still part of the room the user drew 鈥?and because the canvas's own
-	// labels, which key the overrides read below, are untrimmed too. See `canvas/rooms.ts`.
+	// 要房间，不要空腔：这份结果决定目标函数怎么给采样点加权，而墙体夹缝不是
+	// 有人活动的房间。这里不裁掉墙边像素，因为墙边像素仍属于用户画的那个房间，
+	// 而且下面读覆盖设置用的画布标签也没裁。见 `canvas/rooms.ts`。
 	const { labels } = buildRoomDomain(decoded.data, maskWidth, maskHeight, {
 		minRegionRadius: minRoomRadiusWu(floorId),
 		trimWallAdjacent: false
@@ -110,26 +104,24 @@ export async function buildDensityMap(
 	const rtData = await getRoomTypeData(rtMask);
 	const overrides = floor.roomDensityOverrides ?? {};
 
-	// -1 = unlabeled (use median baseline), >= 0 = explicit density (including 0)
+	// -1 表示未标注（用中位数当基准），>= 0 表示显式密度（含 0）
 	const densityMap = new Float32Array(maskWidth * maskHeight).fill(-1);
 	let hasAnyLabeled = false;
 
-	// Type ID -> default density lookup
+	// 房间类型 id -> 默认密度 的查表
 	const typeDensity = new Map<number, number>();
 	for (const t of ROOM_TYPES) typeDensity.set(t.id, t.defaultDensity);
 
-	// Histogram of labelled densities. The median is only used as a baseline for
-	// unlabelled pixels, so counting distinct values avoids sorting up to a few
-	// million entries on every rebuild.
+	// 已标注密度的直方图。中位数只用来给未标注像素当基准，所以只统计不同取值的
+	// 个数，就免了每次重建都排序几百万条数据。
 	const counts = new Map<number, number>();
 	let labeledCount = 0;
 
 	for (let i = 0; i < rtData.length; i++) {
 		const typeId = rtData[i]!;
 		if (typeId === 0) continue;
-		// A void is a hole, not a room. Counting it as a zero-density room would
-		// drag the median baseline down and make every unlabelled pixel count for
-		// less, which is the opposite of what a hole should do.
+		// 空洞是个洞，不是房间。把它当成密度 0 的房间会把中位数基准压低，
+		// 让所有未标注像素都变得更不值钱 —— 跟洞该起的作用正好相反。
 		if (isVoidRoomType(typeId)) continue;
 		const d = typeDensity.get(typeId) ?? 0;
 		densityMap[i] = d;
@@ -138,7 +130,7 @@ export async function buildDensityMap(
 		hasAnyLabeled = true;
 	}
 
-	// Apply per-region density overrides if we have room labels
+	// 有房间标签时，应用逐区域的密度覆盖
 	if (Object.keys(overrides).length > 0) {
 		const labels = await getDensityRoomLabels(maskWidth, maskHeight, floor.wallMask, floor.id);
 		if (labels) {
@@ -159,7 +151,7 @@ export async function buildDensityMap(
 
 	if (!hasAnyLabeled) return null;
 
-	// Median of labelled densities, taken from the histogram.
+	// 已标注密度的中位数，从直方图里取。
 	let medianDensity = 0.3;
 	if (labeledCount > 0) {
 		const target = labeledCount >> 1;
@@ -177,69 +169,66 @@ export async function buildDensityMap(
 	return { map: densityMap, medianDensity, roomTypeData: rtData };
 }
 
-/** What one floor's optimisation produced, for the caller to aggregate. */
+/** 单层优化的产出，交给调用方汇总。 */
 export interface FloorOutcome {
 	floorId: string;
-	/** Covered share of the floor, 0..1, on the same definition the panel shows. */
+	/** 该楼层被覆盖的比例，0..1，口径和面板上显示的一样。 */
 	coverage: number;
-	/** Co-channel interference share, 0..1. See `optimizerState.interference`. */
+	/** 同频干扰占比，0..1。见 `optimizerState.interference`。 */
 	interference: number;
 	/**
-	 * Airtime share with two overlapping-channel APs above the CCA threshold, 0..1.
-	 * Reported, not optimised. See `optimizerState.contention`.
+	 * 有两个重叠信道的 AP 都超过 CCA 门限时的空中时间占比，0..1。
+	 * 只上报，不参与优化。见 `optimizerState.contention`。
 	 */
 	contention: number;
-	/** False when the interference share was measured against the worst case. */
+	/** 干扰占比是按最坏情况估的时候为 false。 */
 	interferenceKnown: boolean;
-	/** Samples it was computed from, used to weight floors against each other. */
+	/** 算它用了多少个采样点，用来给各楼层加权。 */
 	samples: number;
 	score: number;
 	ok: boolean;
-	/** Where the APs would go, in world coordinates. */
+	/** AP 会放到哪里，世界坐标。 */
 	positions: Array<{ id: string; x: number; y: number }>;
 	/**
-	 * The conflict graph of the floor's own plan, present only on a graph request
-	 * (`{ graphOnly: true }`). `sourceIds` names the payload's sources in the
-	 * worker's order 鈥?its APs first, then the fixed APs 鈥?so `pairs` can be read
-	 * as AP ids. See `buildAssignmentConflictEdges`.
+	 * 该楼层自己方案的冲突图，只在请求图时（`{ graphOnly: true }`）才有。
+	 * `sourceIds` 按 worker 的顺序给出载荷里各源的 id —— 先是自带 AP，再是锁定 AP ——
+	 * 这样 `pairs` 就能当 AP id 读。见 `buildAssignmentConflictEdges`。
 	 */
 	graph?: { pairs: Array<[number, number]>; count: number; weights?: number[] };
 	sourceIds?: string[];
 }
 
-/** How one floor run should behave. */
+/** 单层一次运行的行为选项。 */
 export interface FloorRunOptions {
-	/** PRNG seed. Omit for the worker's fixed default, which is deterministic. */
+	/** PRNG 种子。不填就用 worker 的固定默认值，结果可复现。 */
 	seed?: number;
 	/**
-	 * False to score a result without moving anything. The multi-start run needs
-	 * to compare several attempts before committing to one, and applying on the
-	 * way would leave the plan oscillating through the losers.
+	 * 设成 false 就是只打分、不落地。多次重启的跑法要先比完几次尝试再定用哪个，
+	 * 边算边落地会让方案在几次失败的尝试之间来回跳。
 	 */
 	apply?: boolean;
 	/**
-	 * Ask the worker for the floor's conflict graph instead of a placement. Used by
-	 * the solver, which has to colour the same graph the objective scores. Nothing
-	 * is searched and nothing is applied whatever `apply` says.
+	 * 让 worker 只返回该楼层的冲突图，不做布点。给 solver 用：它要给着色和
+	 * 目标函数打分用同一张图。这时不搜索、也不落地，`apply` 写什么都不管。
 	 */
 	graphOnly?: boolean;
 	/**
-	 * Coverage floor for this block, in percent, overriding the project setting.
+	 * 这一段用的覆盖率下限，百分比，会盖掉项目设置。
 	 *
-	 * Only the all-floor run sets it: A1's building guarantee is enforced one *block* at a
-	 * time, so the floor has to be attached to the block rather than to the project.
+	 * 只有全楼层运行会设：A1 的整栋保证是按 *block* 逐块保证的，
+	 * 所以下限要挂在 block 上，不能挂在项目上。
 	 */
 	floorPct?: number;
 }
 
-/** Move the given APs to the given world positions, as one undoable step. */
+/** 把指定 AP 挪到指定世界坐标，整个动作算一步可撤销操作。 */
 export function applyPositions(
 	positions: Array<{ id: string; x: number; y: number; facingDeg?: number }>
 ): void {
 	beginMove();
 	for (const pos of positions) {
-		// A wall mount's direction is part of where it was put: the wall it landed on
-		// decides which way it looks, so the two are written together.
+		// 壁挂的朝向也是"放在哪"的一部分：落在哪面墙决定它朝哪边看，
+		// 所以位置和朝向一起写。
 		updateAp(
 			pos.id,
 			pos.facingDeg === undefined
@@ -247,18 +236,16 @@ export function applyPositions(
 				: { x: pos.x, y: pos.y, facingDeg: pos.facingDeg }
 		);
 	}
-	// Force a small state mutation to guarantee canvas reactivity triggers.
+	// 故意改一下状态，保证画布的响应式能触发。
 	apState.aps = [...apState.aps];
 }
 
 /**
- * Transmit power levels to offer one AP, in dBm, descending.
+ * 一个 AP 可以用的发射功率（dBm），从高到低。
  *
- * 3 dB steps down to 12 dB below the configured power, and never below 5 dBm: the
- * pass is a *transmit power control* pass (802.11h), so its job is to spend range
- * the plan does not need, not to search a device's whole capability envelope. A
- * coarser step would miss the range where the reuse band disappears; a finer one
- * multiplies the evaluations for a difference the objective cannot resolve.
+ * 从配置功率往下每 3 dB 一档，最多降 12 dB，且不低于 5 dBm。这趟是*发射功率控制*
+ * （802.11h）：只为把方案用不上的覆盖收回来，不是把设备的能力全试一遍。步长再粗会
+ * 跳过复用带消失的那段区间，再细只会成倍增加评估，而这点差别目标函数分不出来。
  */
 const POWER_STEP_DB = 3;
 const POWER_STEPS = 4;
@@ -275,13 +262,11 @@ export function powerLevelsFor(configuredPower: number): number[] {
 }
 
 /**
- * Commit the transmit power the run settled on.
+ * 把这次运行定下来的发射功率写回去。
  *
- * Applied together with the positions, in the same undoable step conceptually: a
- * plan scored with 14 dBm and shown at 20 dBm would not be the plan the objective
- * measured. The radius comes back from the worker already derived the way the app
- * derives it, so writing both keeps the stored cache and the power in agreement 鈥?
- * `refreshApRanges` on the next load is then a no-op.
+ * 要和位置一起、当成同一步撤销操作落地：按 14 dBm 打分、却按 20 dBm 显示，那就不是
+ * 目标函数量过的那个方案。worker 回来的半径已经按本应用的口径算好，两个一起写，
+ * 存下来的缓存和功率才一致，下次加载时 `refreshApRanges` 就什么都不用做。
  */
 export function applyPowers(
 	powers: Array<{ id: string; power: number; radius: number }> | undefined
@@ -295,27 +280,26 @@ export function applyPowers(
 }
 
 /**
- * One other floor's wall mask, decoded, in the optimised floor's mask frame.
+ * 另一层楼的墙体掩码，已解码，并对齐到被优化楼层的掩码坐标系。
  *
- * Needed because a cross-floor path is two runs on two different plans: the AP's
- * own floor's walls up to the slab crossing, then the client's floor's walls. The
- * optimiser used to charge the whole run against the client's floor, so on a
- * three-metre storey two thirds of every cross-floor path was attenuated by the
- * wrong plan.
+ * 跨楼层路径其实是两段、两个户型：先是 AP 自己那层从 AP 到穿楼板处，然后才是客户端
+ * 那层的墙。以前优化器整段都按客户端的户型算，三层楼里每段跨层路径有三分之二被
+ * 错的户型衰减掉了。
  *
- * Returns null when that floor has no mask, which leaves the path unsplit and the
- * model exactly as it was. Goes through the shared per-floor cache, so hanging
- * this off the real-time coverage estimate costs no extra PNG decodes.
+ * 那层楼没有掩码时返回 null，路径就不分段，模型和原来一样。走的是共用的每层缓存，
+ * 所以实时覆盖估算挂上它也不会多解一次 PNG。
+ *
+ * 路径几何（哪次跨越量哪个户型、各自分摊多少楼板损耗）在 `rf/slab-crossings.ts` 里，
+ * 单测不用浏览器就能跑。
  */
 export async function sourceFloorMaskFor(
 	floorId: string,
 	targetOriginX: number,
 	targetOriginY: number,
 	/**
-	 * The floor whose units the result must be in. Masks are one byte per world unit, so a
-	 * source on a different calibration has to be resampled into this floor's pixels 鈥?the
-	 * worker marches one frame and cannot tell that the walls it indexes were measured in a
-	 * different one.
+	 * 结果要用哪个楼层自己的单位。掩码是一个世界单位一个字节，所以标定不同的源楼层
+	 * 要重采样到这一层的像素里 —— worker 只走一个坐标系，它不知道索引到的墙是按
+	 * 另一套单位量的。
 	 */
 	targetFloorId: string
 ): Promise<{
@@ -346,63 +330,42 @@ export async function sourceFloorMaskFor(
 		materialMask: materials?.data ?? null,
 		roomTypeData: roomTypes?.data ?? null,
 		defaultMaterial: floor?.wallMaterial ?? 0,
-		// The two floors' masks do not share an origin once either has been aligned, and
-		// the offset itself is in the source's units 鈥?so the source origin is converted
-		// first, then expressed relative to the target's.
+		// 任一层做过对齐之后，两层掩码的原点就不在一起了；而且这个偏移量本身是
+		// 源楼层单位下的 —— 所以先把源原点换算过来，再表示成相对目标原点的值。
 		originX: decoded.originX * k - targetOriginX,
 		originY: decoded.originY * k - targetOriginY
 	};
 }
 
 /**
- * Storey-boundary data for one cross-floor path, in the optimised floor's frame.
+ * 从 `floor` 层的 AP 到客户端，路径要下降的垂直距离（世界单位）：AP 挂在该层天花板，
+ * 客户端在楼层平面上方 `clientHeight` 处。
  *
- * Only the parts that need this module's state live here: each floor's decoded
- * room-type mask, and its origin shifted so the worker can index the mask in the
- * frame it marches in. The geometry 鈥?which crossing tests which plan, and how much
- * of the aggregate slab loss each one carries 鈥?is in `rf/slab-crossings.ts`, where
- * a unit test can read it without a browser.
- *
- * Returns null when nothing can be tested, in which case the caller leaves the
- * aggregate slab loss in place: the conservative reading, and the behaviour before
- * voids existed.
- */
-/**
- * Vertical drop of a path from an AP on `floor` to a client, in world units: the AP hangs at
- * the floor's ceiling and the client sits `clientHeight` above the floor's plane.
- *
- * The path *loss* deliberately treats a same-floor path as 2D 鈥?over metres of plan a 1.2 m
- * drop is a few percent of distance 鈥?but the wall march cannot: it charges the length of
- * material the ray passes through 鈥?which is why the wall charge is one flat figure per
+ * 链路*损耗*故意把同层路径按 2D 算 —— 几十米的水平距离上 1.2 m 落差只占百分之几 ——
+ * 但墙体步进不能这么算：它计的是射线穿过材料的长度，所以墙体那份按固定值给，
+ * 不跟着落差变。
  */
 export function localVerticalDropFor(floor: Floor | undefined): number {
 	if (!floor) return 0;
-	// The floor object is the authority here: an all-floor run may hold a floor that is not
-	// the selected one, and looking its id up in state would read the wrong storey's scale
-	// if the list has been replaced under the run.
+	// 这里以 floor 对象为准：全楼层运行手上可能是个不是当前选中的楼层，
+	// 而按 id 去 state 里查，万一列表在运行期间被整个换掉，读到的就是别的楼层的比例尺。
 	const wupm = floor.calibration?.worldUnitsPerMeter ?? DEFAULT_WUPM;
 	return Math.abs(floor.ceilingHeight - projectMeta.clientHeight) * wupm;
 }
 
 /**
- * One access point, as the worker's payload wants it.
+ * 一个接入点，按 worker 载荷要的样子拼出来。
  *
- * The body of this function used to be an object literal inlined at each construction
- * site, which is how a payload ends up missing a field the model reads: forgetting
- * `mount` did not fail to compile, it silently meant "an upright omni". The type is
- * `ApInput`, derived in `optimizer-protocol.ts` from the app's own `AccessPoint`, so a
- * new antenna field is a compile error here and at every other caller.
+ * 以前这段是各处复制的对象字面量，载荷很容易漏掉模型要读的字段：漏了 `mount` 不会
+ * 编译报错，只会悄悄变成"竖直全向天线"。类型 `ApInput` 在 `optimizer-protocol.ts`
+ * 里从应用自己的 `AccessPoint` 派生，所以天线字段一改，这里和别的调用方都会编译报错。
  *
- * Two things happen that the worker cannot do for itself, both of them coordinate
- * conversions rather than copies:
- *  - the AP is stored in **world** coordinates and the worker indexes the floor's own
- *    mask, which starts at `(originX, originY)` because a tiled mask materialises on a
- *    256 px lattice that can extend into negative space;
- *  - the vertical gap to the client is floor geometry, which this side has and the
- *    worker does not (`apVerticalOffsetTo`, in world units).
+ * 有两件事 worker 自己做不了，都是坐标换算，不是拷贝：
+ *  - AP 按**世界**坐标存，而 worker 索引的是楼层自己的掩码，掩码从 `(originX, originY)`
+ *    开始（掩码按 256 px 分块生成，可能伸进负坐标区）；
+ *  - 到客户端的垂直落差是楼层几何，只有这边有（`apVerticalOffsetTo`，世界单位）。
  *
- * The antenna fields travel as they are: they are properties of the hardware, and the
- * worker resolves the pattern from them per sample.
+ * 天线字段原样传过去：那是硬件属性，worker 按采样点自己算方向图。
  */
 export function toApInput(
 	ap: AccessPoint,
@@ -414,15 +377,14 @@ export function toApInput(
 		y: ap.y - frame.originY,
 		interferenceRadius: ap.interferenceRadius,
 		band: ap.band,
-		// Channels are per AP and survive the move: the interference term scores the
-		// layout the solver last coloured, and null means "no assignment yet", which the
-		// worker reads as the all-co-channel bound.
+		// 信道是每个 AP 自己的，移动后要保留：干扰项打的是 solver 上次着色的布局，
+		// null 表示"还没分配"，worker 按全部同频（最坏情况）处理。
 		assignedChannel: ap.assignedChannel,
-		// A pin is a constraint rather than a starting point: the worker re-colours every
-		// layout it scores, so it must treat a pinned channel as fixed.
+		// 锁定信道是约束，不是起点：worker 给每个打分的布局都要重新着色，
+		// 所以它必须把锁定的信道当成不能改的。
 		fixedChannel: ap.fixedChannel,
-		// The palette the colourer may use has to be non-overlapping at the width actually
-		// in use, and it has to be the same palette the solver uses. See `planningChannels`.
+		// 着色能用的信道集合，在实际用的带宽上必须互不重叠，而且要和 solver 用同一套。
+		// 见 `planningChannels`。
 		channelWidth: ap.channelWidth,
 		verticalGap:
 			apVerticalOffsetTo(ap, frame.floorId, projectMeta.clientHeight) *
@@ -443,10 +405,8 @@ export async function crossingSlabsFor(
 	clientOriginY: number,
 	clientRoomTypes: Uint8Array | null,
 	/**
-	 * The AP's own height above its floor, metres. Omitted means the ceiling of its
-	 * storey, which is the mount this geometry assumed before mounting heights
-	 * existed; the ray's slope 鈥?and so which planes it meets and where 鈥?follows
-	 * from it.
+	 * AP 在它自己那层楼上的高度，米。不填就按该层天花板算，也就是有挂高概念之前
+	 * 这套几何假设的挂法；射线的斜率 —— 因而它撞上哪些平面、撞在哪 —— 由它决定。
 	 */
 	apHeightM?: number
 ): Promise<SlabCrossing[] | null> {
@@ -472,8 +432,8 @@ export async function crossingSlabsFor(
 				originY: number;
 			};
 			if (floor.id === clientFloorId) {
-				// The client floor's own mask is already in its own frame, so its origin is
-				// the identity: the caller works in the optimised floor's pixels.
+				// 客户端那层的掩码本来就在自己的坐标系里，所以原点是恒等：
+				// 调用方用的是被优化楼层的像素坐标。
 				slice = {
 					roomTypes: clientRoomTypes,
 					width: floor.wallMask?.width ?? 0,
@@ -487,9 +447,8 @@ export async function crossingSlabsFor(
 					slice = cached;
 				} else {
 					const decoded = await getFloorMask(floor.id);
-					// The client's frame is in the optimised floor's units; this floor's
-					// room-type raster is in its own, so it is resampled and its origin
-					// scaled before the slab geometry indexes it.
+					// 客户端的坐标系用的是被优化楼层的单位；这层的房间类型栅格用的是
+					// 自己的单位，所以先重采样、再缩放原点，楼板几何再来索引它。
 					const k = scaleBetween(floor.id, clientFloorId);
 					const roomTypes = decoded?.roomTypeData
 						? resampleRaster(
@@ -503,8 +462,8 @@ export async function crossingSlabsFor(
 						roomTypes: roomTypes?.data ?? null,
 						width: roomTypes?.width ?? 0,
 						height: roomTypes?.height ?? 0,
-						// Both origins are world coordinates 鈥?in their own units 鈥?so this
-						// one is converted to the client's before the difference is taken.
+						// 两个原点都是世界坐标，各用各的单位 —— 所以先把这个换算成客户端
+						// 的单位，再求差。
 						originX: (decoded?.originX ?? 0) * k - clientOriginX,
 						originY: (decoded?.originY ?? 0) * k - clientOriginY
 					};

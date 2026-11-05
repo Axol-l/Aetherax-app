@@ -1,3 +1,9 @@
+/**
+ * 主线程和信道分配求解器 Worker 之间的桥接。
+ *
+ * 求解在 Worker 里跑，主线程这边把图发过去、等结果。Worker 只能传结构化克隆的数据，
+ * `Map` 传不了，所以结果里的 assignment 用数组传输，收到后再转成 `Map`。
+ */
 import type { SolverResult, ComparisonResult } from '@aetherax/solver';
 
 type Algorithm = 'greedy' | 'dsatur' | 'welsh-powell' | 'backtracking';
@@ -29,16 +35,6 @@ export class SolverBridge {
 
 	private getWorker(): Worker {
 		if (!this.worker) {
-			/*
-			 * The solver is a workspace package and its worker is compiled from source, so
-			 * this is a path *out* of the app: three levels up from `src/lib/workers` is
-			 * the repository root.
-			 *
-			 * It was five in the monorepo this was ported from, where the app lived at
-			 * `apps/web` and the packages at the root — keep the two in step if the layout
-			 * moves again, because Rollup reports a missing worker as a plain unresolved
-			 * entry module rather than as anything to do with the solver.
-			 */
 			this.worker = new Worker(
 				new URL('../../../packages/solver/src/worker.ts', import.meta.url),
 				{ type: 'module' }
@@ -82,7 +78,7 @@ export class SolverBridge {
 		}
 	): Promise<SolverResult> {
 		return new Promise((resolve, reject) => {
-			// Reject any pending request
+			// 上一个请求还没结束的话，直接让它失败
 			if (this.pendingReject) {
 				this.pendingReject(new Error('Superseded by new request'));
 			}
@@ -101,7 +97,7 @@ export class SolverBridge {
 		}
 	): Promise<ComparisonResult> {
 		return new Promise((resolve, reject) => {
-			// Reject any pending request
+			// 上一个请求还没结束的话，直接让它失败
 			if (this.pendingReject) {
 				this.pendingReject(new Error('Superseded by new request'));
 			}

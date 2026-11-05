@@ -1,14 +1,9 @@
 /**
- * The placement optimiser: the run, its worker, and the public entry points.
+ * 优化器：一次运行、它用的 Worker，以及对外的入口。
  *
- * The evaluator itself is in `workers/optimizer-worker.ts`; this module assembles one
- * floor’s payload, runs the search (possibly from several seeds), and commits the winner.
- * The shared state is in `optimizer-state.svelte.ts` and the real-time coverage estimate —
- * a different pass over a different evaluator — in `optimizer-coverage.svelte.ts`.
- *
- * The name and the exports are unchanged on purpose: everything that used to import
- * `optimizer.svelte.ts` still does, and this is the module that knows what the optimiser
- * *does* rather than where its numbers are kept.
+ * 负责拼好单层的数据、跑搜索（可能换多个随机种子）、提交胜出的布点；评估器本身在
+ * `workers/optimizer-worker.ts`，共享状态在 `optimizer-state.svelte.ts`。
+ * 名字和导出故意没改，以前 import 这个模块的代码都还能用。
  */
 import { debug } from '$lib/log.js';
 import {
@@ -41,37 +36,29 @@ import { applyPositions, applyPowers, buildDensityMap, crossingSlabsFor, localVe
 const bridge = new OptimizerBridge();
 
 /**
- * A second worker, used only for conflict-graph requests.
+ * 第二个 Worker，只用来算冲突图。
  *
- * The two must not share one: `OptimizerBridge` rejects a request that is still
- * pending when the next one arrives ("Superseded"), which is right for runs of the
- * same kind — a new placement run should replace an old one — and wrong across
- * kinds. Auto-assignment asks for a graph on every AP move, so a solve landing
- * while a run was in flight would kill the run, and the user would see a click on
- * Optimize Placement do nothing but report "Superseded".
+ * 不能和运行共用一个 Worker：`OptimizerBridge` 在新请求到来时会拒掉还挂着的旧请求（报「Superseded」）。
+ * 同类请求这样处理是对的（新的布点运行就该顶掉旧的），跨类就错了——自动选信道每移动一次 AP 就要算一次图，
+ * 如果这时正好有一次运行在跑，运行会被掐掉，用户点「优化布点」只会看到「Superseded」。
  */
 const graphBridge = new OptimizerBridge();
 
 /**
- * Set for the duration of a run, and aborted by `cancelOptimizer`.
+ * 一次运行期间有效，`cancelOptimizer` 会 abort 它。
  *
- * Cancellation used to be one `bridge.cancel()` and nothing else: the worker stopped the
- * request it was executing, `optimizeFloor` turned the rejection into `ok: false`, and every
- * loop above it read that as "this restart bought nothing" and carried on — so the remaining
- * restarts, floors and passes ran to completion and the panel kept saying it was running.
- *
- * One controller per run, so a cancel from the last run cannot stop the next one.
+ * 以前取消只调一次 `bridge.cancel()`：Worker 停掉当前请求，`optimizeFloor` 把拒绝变成 `ok: false`，
+ * 上层循环当成「这次重启没收获」继续跑，剩下的重启、楼层、轮次全跑完，面板还显示正在运行。
+ * 一次运行一个 controller，上一次的取消不会停掉下一次。
  */
 let runAbort: AbortController | null = null;
 
 /**
- * Run one floor's optimisation.
+ * 跑一层的优化。
  *
- * `floorId` is explicit rather than read from `floorState.currentFloorId`
- * because the all-floor run optimises floors other than the one on screen. Every
- * per-floor input — wall mask, material mask, default material, wall
- * attenuation, room types, density overrides — is read from that floor rather
- * than from the `wallState` properties, which describe the current one.
+ * `floorId` 是显式传的，不从 `floorState.currentFloorId` 读，因为全楼运行会优化屏幕之外的楼层。
+ * 每层的输入——墙体掩码、材质掩码、默认材质、墙体衰减、房间类型、密度覆盖——都按这一层读，
+ * 而不是读描述当前层的 `wallState`。
  */
 async function optimizeFloor(
 	floorId: string,
@@ -93,22 +80,19 @@ async function optimizeFloor(
 	};
 
 	if (apState.aps.length === 0) return nothing;
-	// Asked before the expensive part — the mask decode, the density map and the payload
-	// assembly — so a cancel does not spend one more floor's work to find out it was one.
+	// 在耗时的部分之前先问一次——掩码解码、密度图、数据装配之后才检查，
+	// 就会为一次已经取消的运行白干一层。
 	if (signal?.aborted) return nothing;
 	/*
-	 * The floor's geometry, from whichever model states it.
+	 * 这一层的户型几何，以当前最新的模型为准。
 	 *
-	 * A floor with drawn segments has its mask derived on the spot — the segments are the
-	 * model, and this is the one accessor the worker's payload and the solver's graph both
-	 * go through, so a floor that was never opened (and therefore has a stored mask from
-	 * before its walls were drawn, or none at all) is optimised against its *segments*.
-	 * The stored mask, when there is one, is only the frame.
+	 * 画了墙段的楼层就地生成掩码：墙段才是模型。Worker 的数据和求解器的图都走这里，
+	 * 所以没打开过的楼层（存的还是画墙之前的旧掩码，或者根本没有）也会按墙段来优化。
+	 * 存下来的掩码最多只当边框用。
 	 */
 	const hasWalls = (floor?.walls ?? []).length > 0;
 	if (!floor || (!floor.wallMask && !hasWalls)) {
-		// Only worth surfacing when it is the floor on screen; during an all-floor
-		// run a floor that has no plan is simply skipped.
+		// 只有屏幕上这层才值得报错；全楼运行时，没有户型的楼层直接跳过就行。
 		if (floorId === floorState.currentFloorId) optimizerState.error = t('Load a floorplan first');
 		return nothing;
 	}
@@ -124,24 +108,19 @@ async function optimizeFloor(
 		} as { width: number; height: number; originX: number; originY: number };
 		const curFloorId = floorId;
 
-		// The wall mask is indexed from (originX, originY) in world space, not from
-		// zero: TiledMask materialises on a 256 px tile lattice which can extend
-		// into negative coordinates. Everything handed to the worker must be
-		// shifted into mask-local space, and everything coming back shifted out.
-		// The heatmap already does this; the optimiser did not, so its results were
-		// offset from the geometry the canvas draws by exactly this amount.
+		// 墙体掩码的原点在世界坐标的 (originX, originY)，不是 0：TiledMask 按 256 px
+		// 的瓦片网格铺开，可能伸到负坐标。发给 Worker 的数据要先平移成掩码局部坐标，
+		// 回来的结果再平移回去。热力图早就这么做了，优化器以前漏了，结果就整体偏了一段。
 		const originX = mask.originX ?? 0;
 		const originY = mask.originY ?? 0;
 
-		// Only optimize APs on the current floor (or all APs if single floor)
+		// 只优化当前楼层的 AP；只有一层时就全算
 		const singleFloor = floorState.floors.length === 1;
 		const onThisFloor = apState.aps.filter((ap) => singleFloor || ap.floorId === curFloorId);
 		/*
-		 * A **pinned** AP is not the optimiser's to move. It is handed over as a fixed
-		 * source instead — the same shape another floor's AP arrives in, minus the slab
-		 * crossing — so it still serves clients, is still scored, and is still coloured;
-		 * it simply keeps its place. Everything else is a movable AP, wall mounts
-		 * included: their domain is the band along the walls (`wallBandWu` below).
+		 * 钉住的 AP 不由优化器移动，而是当成固定信号源传下去——形状和别的楼层的 AP 一样，
+		 * 只是不跨楼板。它照样服务客户端、照样计分、照样参与配色，只是位置不动。
+		 * 其余都是可移动的 AP，壁挂的也算：它们的可放范围是沿墙的一条带（见下面的 `wallBandWu`）。
 		 */
 		const pinnedAps = onThisFloor.filter((ap) => ap.pinned);
 		const localAps: ApInput[] = onThisFloor
@@ -160,27 +139,27 @@ async function optimizeFloor(
 			return nothing;
 		}
 
-		// Virtual APs from other floors — fixed signal sources (not moved)
+		// 别的楼层的「虚拟 AP」——固定信号源，不移动
 		const fixedAps: Array<{
-			/** Carried so a graph request can name both ends of an edge. */
+			/** 带上它，算图时才知道一条边的两头是谁。 */
 			id: string;
 			x: number;
 			y: number;
 			interferenceRadius: number;
 			signalScale: number;
-			/** Vertical distance to this floor, in world units. */
+			/** 到这一层的垂直距离，世界坐标单位。 */
 			verticalGap: number;
-			/** This AP's antenna cuts. See `ApInput.beamwidthDeg` in the worker. */
+			/** 这个 AP 的天线切角。见 Worker 里的 `ApInput.beamwidthDeg`。 */
 			beamwidthDeg: number;
 			aimDeg: number;
 			mount: string;
 			facingDeg: number;
 			band: Band;
-			/** Channel of this AP, or null. Read by the interference term. */
+			/** 这个 AP 的信道，没有就是 null。干扰项要读它。 */
 			assignedChannel: number | null;
-			/** Pinned channel, if the user set one. A constraint on the colouring. */
+			/** 用户钉死的信道，没钉就是 null。对配色来说是个约束。 */
 			fixedChannel: number | null;
-			/** Channel width, for the non-overlapping palette. See `planningChannels`. */
+			/** 信道宽度，用来算不重叠的信道表。见 `planningChannels`。 */
 			channelWidth: ChannelWidth;
 			source?: {
 				data: Uint8Array;
@@ -193,52 +172,43 @@ async function optimizeFloor(
 			} | null;
 			sourceT?: number;
 			targetT?: number;
-			/** Every storey boundary this path crosses; empty when none can be tested. */
+			/** 这条路径穿过的每一道楼板；一道都测不了时是空数组。 */
 			slabs: SlabCrossing[];
 		}> = [];
 		const wupmCur = wupmForFloor(curFloorId);
 		/*
-		 * This floor's pinned APs, as fixed sources.
+		 * 把这一层钉住的 AP 当成固定源。
 		 *
-		 * A same-floor path crosses no slab, so these carry no `source`, no `slabs` and a
-		 * `signalScale` of 1 — the shape a local AP has in the coverage pass, with the one
-		 * difference that the worker may not move it. The colourer still sees it, because
-		 * a pinned AP competes for airtime exactly like any other.
+		 * 同层的路径不穿楼板，所以它们没有 `source`、没有 `slabs`，`signalScale` 是 1——
+		 * 和覆盖计算里本地 AP 的形状一样，区别只是 Worker 不许移动它。
+		 * 配色器照样看得见它，因为钉住的 AP 一样抢空口时间。
 		 */
 		for (const ap of pinnedAps) {
 			fixedAps.push({
-				// The same fields, from the same mapper the movable APs use, plus the ones
-				// that only a fixed source carries: a slab factor of 1 (a same-floor path
-				// crosses nothing) and no wall-split data.
+				// 字段和可移动 AP 用同一个映射函数，只多两样固定源才有的：
+				// 楼板系数 1（同层路径不穿楼板）和空的墙体切分数据。
 				...toApInput(ap, { originX, originY, floorId: curFloorId }),
 				signalScale: 1,
 				slabs: []
 			});
 		}
-		// Decoded before the loop: the slab check needs this floor's own room types
-		// when the AP is the lower of the two floors.
+		// 在循环之前就解码好：判断楼板时要这一层自己的房间类型（当 AP 在两层中较低那层时）。
 		const densityResult = await buildDensityMap(mask.width, mask.height, floor);
 		for (const otherFloor of floorState.floors) {
 			if (otherFloor.id === curFloorId) continue;
 			const otherAps = apState.aps.filter((ap) => ap.floorId === otherFloor.id);
 			if (otherAps.length === 0) continue;
-			// Decoded once per other floor, not once per AP: the ray split needs the
-			// AP's own floor's walls, and a PNG decode per AP would be absurd.
+			// 每个别的楼层只解码一次，不要每个 AP 解一次：射线切分要的是 AP 所在层的墙，
+			// 一个 AP 解一次 PNG 太离谱。
 			const source = await sourceFloorMaskFor(otherFloor.id, originX, originY, curFloorId);
-			// A void is a hole in a slab, so the ray pays that boundary's share of the
-			// aggregate loss less. Every boundary the path crosses is tested at its
-			// own crossing point, so a two-storey atrium waives one of the two rather
-			// than all or nothing.
+			// 空洞就是楼板上开了个洞，这条射线在这一道边界上少摊一份总损耗。路径每穿过一道
+			// 边界就在自己的交点处单独判断，所以两层挑空只是免掉两道里的一道，不是全免也不是全收。
 			//
-			// Per band, because the shares are built from the slab loss and that is band
-			// dependent — concrete reads 75 dB/m at 2.4 GHz and 100 at 5 GHz. Per mount
-			// height too, because the ray's slope decides which planes it meets and
-			// where. Building them once from the first AP would charge every other AP
-			// that AP's geometry, and make the result depend on the order of the list.
+			// 按频段分开算：分摊比例由楼板损耗推出来，而楼板损耗和频段有关（混凝土 2.4 GHz
+			// 是 75 dB/m，5 GHz 是 100）。也按安装高度分：射线的斜率决定它碰到哪些平面、在哪碰。
+			// 如果拿第一个 AP 算一份给所有 AP 用，其他 AP 就背上了它的几何，结果还会随列表顺序变。
 			const slabsByKey = new Map<string, SlabCrossing[]>();
-			// The vertical gap and the split are per AP for the same reason: an AP on
-			// a desk is lower than one on the ceiling, and the two are not the same
-			// distance from the client.
+			// 垂直间距和分摊也按 AP 各算各的，同理：放桌上的 AP 比吊顶的低，到客户端的距离不一样。
 			for (const ap of otherAps) {
 				const apHeightM = apHeightAboveFloor(ap);
 				const key = `${ap.band}|${apHeightM}`;
@@ -258,9 +228,8 @@ async function optimizeFloor(
 					);
 				}
 			}
-			// The other floor's geometry is in its own units; the worker marches in this
-			// floor's, so positions, radii and the source mask above are converted by the
-			// one ratio between the two calibrations.
+			// 别的楼层用的是它自己的单位，而 Worker 按本层的单位走，所以坐标、半径和上面的源掩码
+			// 都要按两个标定之间的那个比例换算。
 			const k = scaleBetween(otherFloor.id, curFloorId);
 			for (const ap of otherAps) {
 				const key = `${ap.band}|${apHeightAboveFloor(ap)}`;
@@ -274,10 +243,8 @@ async function optimizeFloor(
 					signalScale: Math.pow(10, -slabDb / 10),
 					verticalGap:
 						apVerticalOffsetTo(ap, curFloorId, projectMeta.clientHeight) * wupmCur,
-					// A fixed AP's pattern counts as much as a placed one's: it is what
-					// says an AP on the storey above reaches the floor below better out
-					// to the side than straight down — and a wall-mounted one on that
-					// storey has a front and a back on this floor too.
+					// 固定 AP 的天线方向图也要算：正是它说明楼上的 AP 往侧面比往下更能打到下一层，
+					// 而楼上壁挂的 AP 在这一层同样有正反两面。
 					beamwidthDeg: ap.beamwidthDeg,
 					aimDeg: ap.aimDeg,
 					mount: ap.mount,
@@ -295,22 +262,17 @@ async function optimizeFloor(
 		}
 
 		/*
-		 * The mask itself, already decoded: `getFloorMask` either derived it from the
-		 * segments or decoded the stored PNG, so there is no second decode here — and the
-		 * geometry the worker receives is the same one every other consumer reads.
+		 * 掩码本身已经解好了：`getFloorMask` 要么从墙段现推，要么解开存的 PNG，这里不用再解一次。
+		 * 这样 Worker 拿到的几何和别的调用方读到的是同一份。
 		 */
 		const decoded = { data: decodedFloor.wallData, width: decodedFloor.width, height: decodedFloor.height };
 
-		// Material-aware wall loss: the per-pixel material map on this floor's own grid,
-		// so the worker applies each material's per-crossing attenuation for the band.
+		// 按材质算墙体损耗：用本层网格上的逐像素材质图，让 Worker 按频段给每种材质算单次穿墙衰减。
 		const materialMask = decodedFloor.materialMap;
 
-		// Graph request: hand the worker the same payload a run would get and take
-		// back the conflict graph, so the solver colours exactly what the objective
-		// will afterwards measure. Everything above this line — the mask-local
-		// positions, the cross-floor fixed APs and their splits, the density map —
-		// is the assembly a real run uses, which is the point: a graph built from a
-		// second, parallel construction is how the two criteria drifted apart.
+		// 算图请求：把和一次真实运行完全一样的数据交给 Worker，换回冲突图，这样求解器配出来的颜色
+		// 正好就是目标函数随后要量的东西。上面这些装配（掩码局部坐标、跨层固定 AP 及其分摊、密度图）
+		// 走的都是真实运行的路径，这正是重点：另起一套装配算图，就是两个标准开始跑偏的原因。
 		if (opts.graphOnly) {
 			const graphResult = await graphBridge.optimize(
 				localAps,
@@ -330,9 +292,8 @@ async function optimizeFloor(
 					regulatoryDomain: apState.regulatoryDomain,
 					coverageSoftnessDb: projectMeta.coverageSoftnessDb,
 					pathLossScenario: projectMeta.pathLossScenario,
-					// The graph the solver colours is built from the same margins the run
-					// will score, so the geometry a client's height depends on belongs here
-					// too — otherwise the two disagree exactly where a mezzanine is.
+					// 求解器配色的图必须和运行计分时用的是同一个客户高度，
+					// 所以这部分几何也得传，不然有夹层的地方两边就会对不上。
 					surfaces: (floor.surfaces ?? []).map((surface) => ({
 						ax: surface.ax - originX,
 						ay: surface.ay - originY,
@@ -353,7 +314,7 @@ async function optimizeFloor(
 				ok: true,
 				samples: graphResult.sampleCount ?? 0,
 				graph: graphResult.graph,
-				// The worker's source order: this floor's APs, then the fixed APs.
+				// 顺序跟 Worker 一致：先本层 AP，再固定 AP。
 				sourceIds: [...localAps.map((a) => a.id), ...fixedAps.map((f) => f.id ?? '')]
 			};
 		}
@@ -373,31 +334,26 @@ async function optimizeFloor(
 				defaultMaterial: floor.wallMaterial,
 				metersPerPixel: 1 / wupmCur,
 				allowOutside: projectMeta.allowOutsideRooms,
-				// B4: power is a decision variable, offered as reductions from each AP's
-				// configured maximum. The pass can only lower it — raising it would
-				// invent a capability the user did not configure — and only when the
-				// exact objective strictly improves, so an AP whose power buys nothing
-				// keeps it. See `refinePower`.
+				// B4：功率也是决策变量，以每个 AP 配置上限的「降低档」形式给出来。这一步只能降——
+				// 升上去等于凭空多出用户没配的能力——而且只在精确目标函数严格变好时才降，所以
+				// 降了也没好处的 AP 保持原样。见 `refinePower`。
 				powerLevelsDbm: localAps.map((ap) =>
 					powerLevelsFor(apState.aps.find((a) => a.id === ap.id)?.power ?? 20)
 				),
 				worldUnitsPerMeter: wupmCur,
-				// The drop a same-floor path has and the path loss deliberately ignores. The
-				// wall march cannot ignore it: it charges the material the ray walks through.
+				// 同层路径有、但路径损耗模型故意忽略的那部分衰减。墙体推进不能忽略它：
+				// 射线穿过的材质是要计损耗的。
 				localVerticalDrop: localVerticalDropFor(floor),
-				// The band a wall-mounted AP is placed in, as a physical depth: the worker
-				// indexes the mask in world units and has no calibration of its own. The
-				// face itself is where `wallSnapForFloor` puts the AP afterwards.
+				// 壁挂 AP 的可用带，换成物理深度：Worker 按世界坐标索引掩码，自己不知道比例。
+				// 最后贴到哪个墙面由 `wallSnapForFloor` 决定。
 				wallBandWu: WALL_BAND_M * wupmCur,
-				// What counts as a room, so the worker's placement domain agrees with the
-				// app's own "is this point inside?" guard. See `room-domain.ts` — a domain
-				// the two do not share is how an optimised AP ends up in a wall cavity.
+				// 什么算一个房间，得和 App 自己的「这点在不在室内」判断一致。见 `room-domain.ts`——
+				// 两边不共用同一套范围，优化出来的 AP 就会落进墙缝里。
 				minRoomRadiusWu: minRoomRadiusWu(curFloorId),
 				/*
-				 * The planning area, in the mask's own coordinates, when the user has drawn
-				 * one. The worker clips its placement domain to it — the same clip the app's
-				 * guard applies — so "draw the floor" reaches the optimiser as well as the
-				 * warnings, and the two cannot disagree about where the floor is.
+				 * 用户画了规划区域的话，按掩码坐标传过去。Worker 会把布点范围裁剪到这块区域，
+				 * 和 App 自己的判断用同一个裁剪——这样「画出楼层范围」对警告和优化器同时生效，
+				 * 两边不会对「楼层在哪」有分歧。
 				 */
 				planningArea: isUsablePlanningArea(floor.planningArea)
 					? floor.planningArea!.map((point) => ({
@@ -406,10 +362,8 @@ async function optimizeFloor(
 						}))
 					: null,
 				/*
-				 * Raised surfaces, in the same mask frame as the planning area. The worker
-				 * reads the client's height at each of its own samples from this, because
-				 * a mezzanine changes a sample's vertical gap to every AP and it builds the
-				 * sample grid itself.
+				 * 抬升面，坐标系和规划区域一样。Worker 自己生成采样网格，所以每个采样点上的
+				 * 客户高度要从这里读——夹层会改变该点到各 AP 的垂直间距。
 				 */
 				surfaces: (floor.surfaces ?? []).map((surface) => ({
 					ax: surface.ax - originX,
@@ -421,8 +375,7 @@ async function optimizeFloor(
 					thicknessM: surface.thicknessM,
 					attenuationDb: surface.attenuationDb
 				})),
-				// The user's own materials, so the worker charges their figures rather than the
-				// built-in fallback for an id it has never seen.
+				// 用户自定义材质，让 Worker 按用户填的数值算，而不是套内置的默认值。
 				customMaterials: projectMeta.customMaterials.map((material) => ({
 					id: material.id,
 					name: material.name,
@@ -434,46 +387,36 @@ async function optimizeFloor(
 					typicalThickness: material.thicknessM,
 					color: material.color
 				})),
-				// F3's ε-constraint. Zero means no constraint, which is the objective every
-				// figure recorded before it was measured on. The per-floor switch changes who
-				// the requirement is about, not how it is enforced: this block scores one
-				// floor's samples, so the number here is always that floor's own.
+				// F3 的 ε-约束。0 表示不约束，也就是这个功能之前的那些数值所用的目标函数。
+				// 每层的开关改的是「要求针对谁」，不是怎么执行：这里只给一层打分，所以填的永远是这层自己的数。
 				coverageFloor: (opts.floorPct ?? projectMeta.coverageFloorPct) / 100,
 				onProgress: (p: OptimizeProgress) => {
 					/*
-					 * The bar follows every pass; the score only the pass that will be kept.
+					 * 进度条跟着每一次搜索走，得分只跟最终留下的那次走。
 					 *
-					 * A restart is scored with `apply: false`, and the old guard returned before
-					 * touching anything — so during a four-restart run the bar stood still for
-					 * four whole searches, which reads as a hang rather than as work. Progress is
-					 * the run's progress, whichever restart produced it; the score is not, because
-					 * a restart that loses is not the run on screen.
+					 * 重启是用 `apply: false` 跑的，以前的判断会直接 return，于是四次重启的运行里
+					 * 进度条四个整搜索都不动，看起来像卡死而不是在干活。进度算整次运行的进度，
+					 * 不管来自哪次重启；得分不能这么算，因为输掉的重启不是屏幕上这次运行的结果。
 					 */
 					optimizerState.progress = Math.round((p.iteration / p.totalIterations) * 100);
 					if (!apply) return;
 					optimizerState.score = Math.round(p.score * 100);
 				},
 				seed: opts.seed,
-				// One weight for the whole run, from the project settings, so a run
-				// and its A/B twin differ in nothing else.
+				// 整次运行只用一个权重，取自项目设置，这样一次运行和它的 A/B 对照只差这一项。
 				interferenceWeight: projectMeta.interferenceWeight,
-				// The objective's threshold: how far below the coverage threshold a
-				// sample still earns utility. See `DEFAULT_COVERAGE_SOFTNESS_DB`.
+				// 目标函数的阈值：采样点比覆盖门限低多少以内还算有得分。见 `DEFAULT_COVERAGE_SOFTNESS_DB`。
 				coverageSoftnessDb: projectMeta.coverageSoftnessDb,
-				// The distance term's environment. The worker cannot read project state, so
-				// every run carries it.
+				// 距离项用的传播环境。Worker 读不到项目状态，所以每次运行都得带上。
 				pathLossScenario: projectMeta.pathLossScenario,
-				// Handing the domain over is what makes the worker re-colour: it then
-				// knows every band's channel list and every pin, so each layout it
-				// scores is measured under its own best assignment rather than under
-				// the assignment left over from before the search moved anything.
+				// 把监管域传过去，Worker 才会重新配色：它由此知道各频段的信道表和所有钉死的信道，
+				// 于是每个布局都按它自己当时最优的分配来评分，而不是沿用搜索挪动之前的旧分配。
 				regulatoryDomain: apState.regulatoryDomain
 			}
 		);
 
-		// The worker reports a reason when it could not place anything (for
-		// example no enclosed interior was detected). Surface it: without this the
-		// user just sees the APs sitting where they were and no explanation.
+		// Worker 放不下任何东西时会带一个原因回来（比如没识别出封闭的室内区域）。要显示出来：
+		// 否则用户只看到 AP 停在原地，也没有任何解释。
 		if (result.error) {
 			if (floorId === floorState.currentFloorId) {
 				optimizerState.error = result.error;
@@ -482,9 +425,8 @@ async function optimizeFloor(
 			return nothing;
 		}
 
-		// The optimiser is stochastic, so record the seed it ran with. Without it
-		// a different result on the next run is indistinguishable from a change
-		// in the model, which makes before/after comparisons meaningless.
+		// 优化器是随机的，所以把它用的随机种子记下来。不然下次结果不同，你分不清是模型变了
+		// 还是种子变了，前后对比就没意义了。
 		debug(
 			`[optimizer] seed ${result.seed}, score ${result.score.toFixed(4)}, improvement ${result.improvement.toFixed(2)}%` +
 				`, coverage ${(result.coverage * 100).toFixed(1)}%` +
@@ -493,8 +435,7 @@ async function optimizeFloor(
 				(result.channelsKnown === false ? ' (all-co-channel bound: no assignment yet)' : '') +
 				(result.reverted ? ' — the search scored worse than its own input, input kept' : '')
 		);
-		// The ε-constraint's outcome, when one was set: a constraint the user set but
-		// the run says nothing about is indistinguishable from one that was ignored.
+		// 设了 ε-约束就把它结果打出来：用户设了约束而运行完全不提，跟被忽略没区别。
 		if (projectMeta.coverageFloorPct > 0) {
 			const floor = projectMeta.coverageFloorPct;
 			const covered = (result.coverage * 100).toFixed(1);
@@ -504,12 +445,9 @@ async function optimizeFloor(
 					: `[optimizer] coverage floor ${floor}%, reached ${covered}% — met`
 			);
 		}
-		// What the transmit-power pass decided, and why nothing changed when nothing
-		// did. Reporting the *declined* case matters as much as the applied one: the
-		// interference criterion compares levels *relative* to the best server, so
-		// lowering power slides the band where two APs are within the reuse distance of
-		// each other rather than narrowing it, and a cut that buys nothing is correctly
-		// refused. Silence here would look like the pass did not run.
+		// 发射功率那一步的结论，以及没改动时为什么没改。报「没降」和报「降了」一样重要：
+		// 干扰准则是相对最强服务 AP 来比电平的，降功率往往只是把「两个 AP 落进复用距离内」
+		// 的那段区间整体挪一挪，并不会让它变窄，所以降了没收益就应当拒绝。这里不出声会被当成没跑。
 		{
 			const powers = result.powers ?? [];
 			const lowered = powers.filter((p) => {
@@ -530,11 +468,9 @@ async function optimizeFloor(
 				);
 			}
 		}
-		// The diagnostic that answers "this coverage number looks wrong": how big
-		// is one AP's coverage circle compared with the floor it sits on? If the
-		// radius is comparable to the whole plan, a high coverage figure is
-		// arithmetic, not a bug — and an uncalibrated plan is the usual cause of a
-		// radius that large.
+		// 用来回答「这个覆盖率看着不对」的诊断：单个 AP 的覆盖圈和它所在的整层比有多大？
+		// 如果半径跟整个户型差不多大，覆盖率虚高是算术结果而不是 bug——而户型没标定比例
+		// 通常就是半径这么大的原因。
 		{
 			const wupm = wupmCur;
 			const floorAps = apState.aps.filter((a) => a.floorId === curFloorId);
@@ -547,20 +483,17 @@ async function optimizeFloor(
 			);
 		}
 
-		// Independently verify the result against the same interior the worker
-		// used, and report the geometry when an AP lands outside it. The failure
-		// mode this guards against is invisible otherwise: the optimiser reports
-		// success and the APs simply sit somewhere unexpected.
+		// 拿 Worker 用的同一份室内区域再独立校验一遍，AP 落到外面时把几何信息报出来。
+		// 这个失败模式平时看不出来：优化器说成功了，AP 却停在莫名其妙的地方。
 		if (!projectMeta.allowOutsideRooms) {
-			// Same domain the worker placed into, or this check would be comparing an AP
-			// against a different interior from the one it was placed in — including which
-			// regions count as rooms. See `canvas/rooms.ts`.
+			// 必须和 Worker 布点时的范围一样，否则这个检查就是拿 AP 和另一块室内区域比，
+			// 连「哪些区域算房间」都可能不同。见 `canvas/rooms.ts`。
 			const { interior: check } = buildRoomDomain(decoded.data, mask.width, mask.height, {
 				minRegionRadius: minRoomRadiusWu(curFloorId),
 				trimWallAdjacent: true
 			});
-			// Mirror the worker's void exclusion, or a void reads as "AP landed
-			// outside the interior" when the worker deliberately placed it there.
+			// 和 Worker 的排除规则保持一致，否则明明是 Worker 故意放进空洞的，
+			// 这里会读成「AP 落到了室内区域外面」。
 			const rtData = densityResult?.roomTypeData;
 			if (rtData && rtData.length === check.length) {
 				for (let i = 0; i < check.length; i++) {
@@ -583,9 +516,8 @@ async function optimizeFloor(
 				if (y > maxY) maxY = y;
 			}
 			const outside = result.positions.filter((p) => {
-				// A wall-mounted AP is *meant* to be against a wall, and the trimmed
-				// interior the check reads excludes exactly that ring. Its domain is the
-				// band, which the worker enforced.
+				// 壁挂 AP 本来就该贴着墙，而检查用的室内区域恰好把贴墙那一圈削掉了。
+				// 它的范围是墙边那条带，Worker 已经管过了。
 				const ap = apState.aps.find((a) => a.id === p.id);
 				if (ap?.mount === 'wall') return false;
 				const ix = Math.round(p.x);
@@ -602,19 +534,15 @@ async function optimizeFloor(
 			}
 		}
 
-		// Optimized positions, shifted back out of mask-local space into world
-		// coordinates and rounded, so they clearly differ from the originals and
-		// trigger reactive updates.
+		// 优化后的位置平移回世界坐标并取整，这样和原值明显不同，才能触发响应式更新。
 		const worldPositions: Array<{ id: string; x: number; y: number; facingDeg?: number }> = [];
 		for (const pos of result.positions) {
 			const x = Math.round(pos.x) + originX;
 			const y = Math.round(pos.y) + originY;
 			/*
-			 * The band is a *domain* rather than a placement, so a wall-mounted AP is put
-			 * exactly on the wall face here — by the same measurement the editor uses when
-			 * the mounting is chosen, which gives it the direction as well. What the
-			 * optimiser leaves behind is then a position and a facing the user could have
-			 * picked by hand, rather than a spot a bracket's depth off a wall.
+			 * 墙边带只是「范围」，不是落点，所以壁挂 AP 在这里被精确贴到墙面上——用的是编辑器
+			 * 选安装方式时同一个测量，顺手也能得到朝向。这样优化器留下的位置和朝向，用户自己
+			 * 手动也点得出来，而不会离墙差一个支架的厚度。
 			 */
 			const ap = apState.aps.find((a) => a.id === pos.id);
 			if (ap?.mount === 'wall') {
@@ -632,8 +560,7 @@ async function optimizeFloor(
 			worldPositions.push({ id: pos.id, x, y });
 		}
 
-		// A multi-start run scores several restarts before committing to one, so
-		// applying is the caller's decision rather than a side effect of running.
+		// 多次重启的运行要先比较再选定，所以「应用」是调用方的决定，不是跑完的副作用。
 		if (apply) {
 			applyPositions(worldPositions);
 			applyPowers(result.powers);
@@ -654,7 +581,7 @@ async function optimizeFloor(
 		};
 	} catch (err) {
 		if (err instanceof Error && err.message === 'Cancelled') {
-			// User cancelled - no error
+			// 用户主动取消，不算错误
 		} else {
 			optimizerState.error = err instanceof Error ? err.message : t('Optimization failed');
 		}
@@ -663,33 +590,27 @@ async function optimizeFloor(
 }
 
 /**
- * The conflict graph the automatic channel assignment must colour.
+ * 自动分配信道时要配色的那张冲突图。
  *
- * Built one floor at a time through the optimiser's own payload and its own
- * margin pass (`fillMargins` in `optimizer-worker.ts`), so the edges the solver
- * sees are the edges the objective will afterwards measure against. That is the
- * whole point: the solver used to build its own graph from circle overlap plus an
- * AP-to-AP distance heuristic, and on the measured four-AP floor the two
- * disagreed — the solver's assignment scored 14.75% interference on the
- * objective's graph while a proper colouring of that same graph scored 0%.
+ * 逐层用优化器自己的数据、走它自己的余量计算（`optimizer-worker.ts` 里的 `fillMargins`）建出来，
+ * 这样求解器看到的边，就是目标函数随后要量的边。这正是重点：求解器以前自己按覆盖圆重叠加
+ * 一个 AP 间距离经验公式建图，在实测的四 AP 楼层上两边对不上——求解器配出来的方案在目标函数的
+ * 图上算出 14.75% 干扰，而同一张图正经配色是 0%。
  *
- * A floor whose graph cannot be built (no enclosed interior to sample, no
- * floorplan) is reported as `complete: false`, and the caller decides what to do;
- * this does not invent a graph it could not measure.
+ * 建不出图的楼层（没有可采样的封闭室内、没有户型图）报 `complete: false`，由调用方决定怎么办；
+ * 这里不会凭空造一张量不出来的图。
  *
- * Edges are undirected and named by AP id. A floor with no APs on it contributes
- * nothing: it is not a floor the optimiser ever scores, so including it would make
- * the assignment graph a different graph from the objective's again.
+ * 边是无向的，用 AP id 标识。没有 AP 的楼层不贡献任何东西：优化器从来不给它打分，
+ * 把它算进来，分配用的图就又和目标函数的图不是同一张了。
  */
 export async function buildAssignmentConflictEdges(): Promise<{
 	edges: Array<[string, string]>;
 	/**
-	 * What each edge costs, keyed as the edges are (`"a:b"` with the ids sorted).
+	 * 每条边的代价，键和边一样（id 排序后用 `"a:b"`）。
 	 *
-	 * A pair that meets at one corner of a corridor and a pair whose whole served area
-	 * overlaps are both edges, and the colourers had no way to tell them apart. This is
-	 * the missing number: the density-weighted count of samples at which one source is
-	 * within the reuse threshold of the other. See `conflictWeights`.
+	 * 只在走廊一角相遇的一对，和整片服务区都重叠的一对，都算一条边，配色器以前分不出轻重。
+	 * 这里补的就是这个数：一个源的采样点里，有多少同时落在另一个源的复用门限内（按密度加权）。
+	 * 见 `conflictWeights`。
 	 */
 	weights: Map<string, number>;
 	complete: boolean;
@@ -703,9 +624,8 @@ export async function buildAssignmentConflictEdges(): Promise<{
 	let samples = 0;
 	const multiFloor = floorState.floors.length > 1;
 	for (const floor of floorState.floors) {
-		// Single-floor plans optimise every AP in one pass (see `optimizeFloor`), so
-		// the first floor is the whole graph. Multi-floor plans are scored a floor at
-		// a time, and a floor with no APs on it is never scored at all.
+		// 单层项目一次就把所有 AP 优化完（见 `optimizeFloor`），所以第一层就是整张图。
+		// 多层项目是一层一层打分的，没有 AP 的楼层根本不会打分。
 		if (multiFloor && !apState.aps.some((ap) => ap.floorId === floor.id)) continue;
 		const outcome = await optimizeFloor(floor.id, { apply: false, graphOnly: true });
 		if (!outcome.ok || !outcome.graph || !outcome.sourceIds) {
@@ -724,9 +644,8 @@ export async function buildAssignmentConflictEdges(): Promise<{
 			if (!a || !b) continue;
 			const key = [a, b].sort().join(':');
 			edges.set(key, [a, b]);
-			// A pair on two floors appears in both floors' graphs; the heavier reading
-			// wins rather than the two being added, which would double-count the shared
-			// samples between them.
+			// 跨两层的一对会在两层的图里各出现一次；取较大的那个，而不是相加，
+			// 相加会把两层共用的采样点算两遍。
 			const w = pairWeights ? (pairWeights[i * count + j] ?? 0) : 1;
 			weights.set(key, Math.max(weights.get(key) ?? 0, w));
 		}
@@ -736,11 +655,10 @@ export async function buildAssignmentConflictEdges(): Promise<{
 }
 
 /**
- * Guard and progress bookkeeping shared by the single-floor and all-floor runs.
+ * 单层运行和全楼运行共用的防重入与进度清理。
  *
- * `isRunning` is set here rather than inside `optimizeFloor` because the
- * all-floor run calls that repeatedly — a guard down there would abort the run
- * on its second floor.
+ * `isRunning` 放在这里而不是 `optimizeFloor` 里面：全楼运行会反复调用它，
+ * 放到里面的话第二次调用就会把整次运行掐掉。
  */
 async function withOptimizerRun(body: (signal: AbortSignal) => Promise<unknown>): Promise<void> {
 	if (optimizerState.isRunning) return;
@@ -753,11 +671,9 @@ async function withOptimizerRun(body: (signal: AbortSignal) => Promise<unknown>)
 	runAbort = abort;
 	try {
 		await body(abort.signal);
-		// Stamped here rather than inside `body`, so it dates *any* completed run —
-		// the single-floor button and the all-floor one alike. The placement advice
-		// panel keys off this to know a fresh measurement exists to advise on. A
-		// cancelled run is not one: it stopped wherever it had got to, and what it
-		// left on the plan is not what the last figure describes.
+		// 时间戳打在这里而不是 `body` 里面，这样单层按钮和全楼按钮跑完都会记上。
+		// 布点建议面板靠它判断有没有新的测量结果可用。取消的运行不算：它停在半路，
+		// 留在图上的东西不是最后一个数字描述的样子。
 		if (!abort.signal.aborted) optimizerState.lastRunAt = Date.now();
 	} finally {
 		if (runAbort === abort) runAbort = null;
@@ -766,13 +682,12 @@ async function withOptimizerRun(body: (signal: AbortSignal) => Promise<unknown>)
 	}
 }
 
-/** Commit a floor's winning outcome and refresh the figures that describe it. */
+/** 提交某一层胜出的结果，并刷新描述它的那些数字。 */
 function commitFloorOutcome(floorId: string, outcome: FloorOutcome): void {
 	applyPositions(outcome.positions);
 	optimizerState.score = Math.round(outcome.score * 100);
-	// The panel's figure describes the floor on screen. During an alternating run
-	// most floors are not that one, and writing their numbers here would label the
-	// panel with the wrong storey.
+	// 面板上的数字说的是屏幕上这一层。交替运行时大多数楼层不是它，
+	// 把别的层的数写进来，面板就会标错楼层。
 	if (floorId === floorState.currentFloorId) {
 		optimizerState.coverage = Math.round(outcome.coverage * 100);
 		optimizerState.interference = Math.round(outcome.interference * 100);
@@ -783,31 +698,25 @@ function commitFloorOutcome(floorId: string, outcome: FloorOutcome): void {
 	floorCoverage.set(floorId, {
 		coverage: Math.round(outcome.coverage * 100),
 		samples: outcome.samples,
-		// The run measured this floor, so its figure describes the plan it just committed.
+		// 这次运行量过这一层，所以这个数字说的是它刚提交的方案。
 		basis: coverageBasis(floorId)
 	});
 	scheduleSave();
 }
 
 /**
- * Optimise one floor, optionally repeating from several seeds and keeping the
- * best.
+ * 优化一层，可以换几个随机种子重复跑，取最好的那个。
  *
- * This is the cheapest improvement on the table. Oustry et al. (Networks 81(1),
- * 2023) report that merely *restarting* a greedy placer — their GH1 to GH2, a
- * mechanical change carrying no modelling content at all — gained 11% mean and
- * 6% median, against 7% mean and **0% median** for the far more expensive
- * business of alternating placement with channel assignment. In their results the
- * restart was worth more than the model. This optimiser is stochastic behind a
- * fixed seed, so repeating it from other seeds is the same trick.
+ * 这是性价比最高的一项改进。Oustry 等人（Networks 81(1), 2023）的报告说，光是给贪心布点器
+ * 加重启（他们的 GH1 换 GH2，纯机械改动，不含任何建模内容）就带来均值 11%、中位数 6% 的提升；
+ * 而贵得多的「布点与信道分配交替迭代」只有均值 7%、**中位数 0%**。在他们结果里重启比模型更值钱。
+ * 这个优化器在固定种子下是随机的，所以换种子重跑就是同一招。
  *
- * The spread across restarts is printed, not just the winner. It is the only
- * headroom measurement this project has, and without it a restart count is a
- * guess: if every restart lands on the same score the extra runs buy nothing, and
- * if they scatter, the search is leaving something on the table.
+ * 各次重启的分布也要打出来，不能只报冠军。这是本项目唯一能衡量「还剩多少空间」的指标：
+ * 没有它，重启次数就是瞎猜——如果每次都落在同一个得分上，多跑几遍纯属浪费；如果散得开，
+ * 说明搜索还有东西没捞到。
  *
- * Both entry points go through here, so a per-floor optimise means the same thing
- * whether it was asked for by the single-floor button or by the alternating run.
+ * 两个入口都走这里，所以单层按钮和交替运行里的「优化一层」是同一回事。
  */
 async function optimizeFloorBest(
 	floorId: string,
@@ -830,8 +739,7 @@ async function optimizeFloorBest(
 	for (let i = 0; i < n; i++) {
 		if (signal?.aborted) break;
 		optimizerState.status = t('Restart {index} of {count}', { index: i + 1, count: n });
-		// Seeds are 1..n rather than random, so a multi-start run is exactly as
-		// reproducible as a single-start one.
+		// 种子取 1..n 而不是随机的，这样多次重启和单次运行一样可复现。
 		const outcome = await optimizeFloor(floorId, { ...extra, seed: i + 1, apply: false }, signal);
 		if (!outcome.ok) continue;
 		scores.push(outcome.score);
@@ -852,7 +760,7 @@ async function optimizeFloorBest(
 	return best;
 }
 
-/** Optimise the floor currently on screen. */
+/** 优化屏幕上当前这一层。 */
 export async function runOptimizer(): Promise<void> {
 	await withOptimizerRun((signal) =>
 		optimizeFloorBest(floorState.currentFloorId, optimizerState.restarts, true, {}, signal)
@@ -860,18 +768,14 @@ export async function runOptimizer(): Promise<void> {
 }
 
 /**
- * Optimise every floor in turn, repeating until the building figure stops
- * improving.
+ * 逐层优化，一层优化时其他层固定不动，反复几轮直到整栋楼的数字不再上升。
  *
- * Floors go one at a time with the others held fixed — block coordinate descent.
- * Each pass leaves every floor at least as good as it was, so the sequence is
- * monotone and the run can stop when a pass stops gaining. There is no
- * convergence guarantee beyond that: the objective is not convex, and a later
- * pass may move APs to a different, equally good arrangement.
+ * 一层一次、其余层冻结，就是块坐标下降。每一轮都不会让任何一层变差，所以序列是单调的，
+ * 一轮不再有收益就可以停。除此之外没有收敛保证：目标函数不是凸的，后面的轮次可能把 AP
+ * 挪到另一个同样好的排布上去。
  *
- * The building figure is the density-weighted mean of the floors' covered-area
- * shares, weighted by the samples each floor contributed, so a small floor does
- * not count for as much as a large one.
+ * 整栋楼的数字是各层覆盖比例的密度加权平均，权重是各层贡献的采样点数，
+ * 这样小楼层不会和大楼层占一样的分量。
  */
 async function runAlternatingPasses(signal: AbortSignal): Promise<void> {
 	const order = [...floorState.floors].sort((a, b) => a.level - b.level);
@@ -883,9 +787,9 @@ async function runAlternatingPasses(signal: AbortSignal): Promise<void> {
 		return;
 	}
 
-	/** Gain below which another pass is not worth the time it costs, as a fraction. */
+	/** 收益低于这个比例就不值得再跑一轮了。 */
 	const MIN_GAIN = 0.002;
-	/** Hard stop. Each pass is a full optimisation per floor, so this bounds the wait. */
+	/** 硬上限。每轮都要把每层完整优化一遍，用它兜住等待时间。 */
 	const MAX_PASSES = 4;
 
 	let best = -1;
@@ -907,9 +811,8 @@ async function runAlternatingPasses(signal: AbortSignal): Promise<void> {
 				index: i + 1,
 				count: runnable.length
 			});
-			// The same per-floor path the single-floor button uses, so restarts apply
-			// here too. The readout is refreshed by `commitFloorOutcome` from the very
-			// figure the objective uses, so the panel and the run cannot disagree.
+			// 和单层按钮走同一条按层路径，所以重启次数在这里同样生效。面板数字由
+			// `commitFloorOutcome` 用目标函数同一个数刷新，两边不会打架。
 			const outcome = await optimizeFloorBest(
 				f.id,
 				optimizerState.restarts,
@@ -929,9 +832,8 @@ async function runAlternatingPasses(signal: AbortSignal): Promise<void> {
 		const building = weighted / weight;
 		optimizerState.buildingCoverage = Math.round(building * 100);
 
-		// Name the weakest floor. Reported, never optimised for: a min-max objective
-		// is far sharper to search and buys little, while the mean is what the
-		// per-floor runs actually improve.
+		// 把最弱的那层点出来。只报告，不为它单独优化：min-max 目标函数难搜得多，
+		// 收益却很小，而按层跑真正提升的是平均值。
 		if (perFloor.length > 0) {
 			const worst = perFloor.reduce((a, b) => (b.coverage < a.coverage ? b : a));
 			optimizerState.worstFloor = {
@@ -945,18 +847,14 @@ async function runAlternatingPasses(signal: AbortSignal): Promise<void> {
 		best = building;
 	}
 
-	// A1's per-floor guarantee, as one extra block.
+	// A1 的逐层保证，作为额外的一块。
 	//
-	// The loop above names the weakest floor and never optimises for it, which is right for
-	// the *objective* — min-max is far sharper to search and buys little on average — but it
-	// means a floor can sit arbitrarily far below a requirement with nothing acting on it.
-	// When the user asks for a per-floor floor, the weakest floor gets one more pass with
-	// that floor as its own ε-constraint: the same F3 mechanism, on the one block that needs
-	// it, with the others held where they are.
+	// 上面的循环只会点出最弱的楼层，从不为它单独优化——这对*目标函数*是对的（min-max 难搜、
+	// 平均收益小），但后果是某层可能远远低于要求却没人管它。用户要求每层都达标时，
+	// 最弱的那层再跑一遍，把它自己的要求当 ε-约束：同一套 F3 机制，只用在这块上，其他层不动。
 	//
-	// One extra block rather than a constraint inside every block, on purpose: the constraint
-	// has to be the *building's* weakest floor to mean anything, and inside a pass nobody
-	// knows which floor that is until every floor has been scored.
+	// 特意做成额外一块而不是塞进每一块里：约束必须针对*整栋楼*最弱的那层才有意义，
+	// 而一轮里面，所有楼层都打过分之前没人知道最弱的是谁。
 	if (
 		!signal.aborted &&
 		projectMeta.coverageFloorEveryFloor &&
@@ -998,25 +896,23 @@ async function runAlternatingPasses(signal: AbortSignal): Promise<void> {
 		}
 	}
 
-	// A cancel stops here too: the figures the panel shows describe the plan on screen, and
-	// a run that stopped half way has not finished producing them.
+	// 取消也在这里停：面板上的数字说的是屏幕上的方案，跑到一半停下的运行还没算完。
 	if (signal.aborted) return;
 	optimizerState.passes = passes;
 	optimizerState.progress = 100;
 	scheduleSave();
 }
 
-/** Optimise every floor, alternating until the building figure stops improving. */
+/** 优化所有楼层，逐轮交替，直到整栋楼的数字不再上升。 */
 export async function optimizeAllFloors(): Promise<void> {
 	await withOptimizerRun((signal) => runAlternatingPasses(signal));
 }
 
 /**
- * Stop the run in flight.
+ * 停掉正在跑的那次运行。
  *
- * Three things, because cancellation lives at three levels: the worker that is searching,
- * the loops on this thread that would otherwise treat a cancelled floor as "this restart
- * bought nothing" and start the next one, and the graph request a run may be waiting on.
+ * 要动三处，因为取消有三个层级：正在搜的 Worker；本线程上的循环（否则它会把取消掉的楼层
+ * 当成「这次重启没收获」，接着跑下一次）；以及运行可能正在等的那个算图请求。
  */
 export function cancelOptimizer(): void {
 	runAbort?.abort();
@@ -1025,8 +921,7 @@ export function cancelOptimizer(): void {
 }
 
 
-// The public surface, unchanged: the state and the coverage pass used to live here and
-// callers should not have to know which module a number moved to.
+// 对外导出保持不变：状态和覆盖计算以前就住在这个文件里，调用方不该关心某个数字搬去了哪个模块。
 export { optimizerState, floorCoverage };
 export { apsOutsideInterior, getBuildingCoverage } from './optimizer-state.svelte.js';
 export { updateCoverage } from './optimizer-coverage.svelte.js';

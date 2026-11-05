@@ -4,42 +4,33 @@ import { rasteriseWalls, DEFAULT_WALL_BAND } from './wall-raster.js';
 import { floorState } from './floor-state.svelte.js';
 
 /**
- * Decoded wall masks, cached per floor.
+ * 按楼层缓存的已解码墙体掩码。
  *
- * Extracted from `solver.svelte.ts`, where the solver's graph and the optimiser's
- * payload both used to reach in for it. That made `optimizer.svelte.ts` import
- * `solver.svelte.ts` while the solver was about to need the optimiser's own
- * margin pass for its conflict graph — a cycle between two `$state` modules, which
- * is the kind of thing that works until someone adds a top-level read. The cache
- * belongs to neither of them: it is "the floorplan as a raster", which both want.
- *
- * PNG decode is expensive (megabytes of data URL per floor) and the optimiser asks
- * for the same floor repeatedly, so this is a cache rather than a function.
+ * 楼层有矢量墙时，掩码在这里从线段推导：所有用掩码的地方都走这个口子，这样连不在屏幕上
+ * 的那层也是矢量驱动的。掩码坐标系沿用存储掩码，PNG 解码很贵，所以按身份缓存。
  */
 
 export interface DecodedFloorMask {
 	wallData: Uint8Array;
 	materialMap: Uint8Array | null;
 	/**
-	 * Room type ids on the same pixel grid, or null when the floor has none.
+	 * 同一像素网格上的房间类型 id；楼层没有就为 null。
 	 *
-	 * Carried here because a void is a hole in the slab, and whether a cross-floor
-	 * ray passes through one is decided at the point it crosses — see
-	 * `slabIsVoid` in `rf/cross-floor.ts`.
+	 * 放在这里是因为空洞是楼板上的洞，跨楼层射线穿不穿由一个点决定——见
+	 * `rf/cross-floor.ts` 里的 `slabIsVoid`。
 	 */
 	roomTypeData: Uint8Array | null;
 	width: number;
 	height: number;
 	originX: number;
 	originY: number;
-	sourceKey: string; // for cache invalidation
+	sourceKey: string; // 用来判断缓存是否失效
 }
 
 /**
- * Identity for a stored mask, so a cache key can notice it was replaced.
+ * 存储掩码的身份标识，让缓存键能看出它被换掉了。
  *
- * The data URLs are megabytes, and concatenating one into a key copies all of it;
- * object identity is what actually changes when a mask is edited.
+ * data URL 有几 MB，拼进键里会把整份复制一遍；掩码被编辑时真正变的是对象引用。
  */
 const maskIds = new WeakMap<object, number>();
 let nextMaskId = 1;
@@ -56,11 +47,10 @@ function maskId(mask: object | null | undefined): number {
 const floorMaskCache = new Map<string, DecodedFloorMask>();
 
 /**
- * Identity for a floor's wall segments, so the derived mask can be cached.
+ * 楼层墙线段数组的身份标识，用来缓存推导出的掩码。
  *
- * The array is replaced on every edit (drawing, tracing, changing a material), which is
- * the same discipline `mask-registry.ts` documents for masks: a cache keyed on the object
- * is safe exactly as long as a change produces a new object.
+ * 每次编辑（画、描摹、改材质）都会换掉这个数组，和 `mask-registry.ts` 给掩码定的规矩
+ * 一样：只要改动会产生新对象，拿对象做缓存键就是安全的。
  */
 const wallsIds = new WeakMap<object, number>();
 let nextWallsId = 1;
@@ -75,41 +65,29 @@ function wallsId(walls: object | null | undefined): number {
 }
 
 /**
- * Get decoded wall mask for a floor.
+ * 取某个楼层解码后的墙体掩码。
  *
- * **The segments are the model.** When a floor has vector walls, its mask is derived from
- * them here rather than read from storage: that is the one place every consumer of a wall
- * mask goes through — the optimiser's payload, the solver's conflict graph, a cross-floor
- * path's source mask, the coverage samples, the interior — so deriving at this seam makes
- * all of them vector-driven, including a floor that is not on screen and whose stored mask
- * is therefore stale. It is also cheaper than the alternative: no PNG decode.
- *
- * The stored mask is still the frame. A derived mask takes the existing mask's size and
- * origin when there is one, because samples, texels and the interior are all addressed in
- * the plan's frame and a mask sized to the walls' bounding box puts every one of them off
- * it.
- *
- * The cache key carries the mask's origin as well as its size. Aligning a floor
- * moves the origin without touching a single pixel, so a size-and-material key
- * kept handing out the pre-alignment origin — and everything that converts world
- * coordinates into mask pixels then read the wrong part of the raster.
+ * **线段才是模型。** 楼层有矢量墙时，掩码在这里从线段推导：所有用掩码的地方都走这个口子，
+ * 所以连不在屏幕上的楼层也是矢量驱动的，还省了 PNG 解码。
+ * 坐标系沿用存储掩码（采样、纹理、室内都按图纸定位）；缓存键必须带原点，因为对齐只挪原点、
+ * 不动像素，键里没有原点就会一直返回旧原点，之后世界坐标换算全会读错位置。
  */
 export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | null> {
 	const floor = floorState.floors.find((f) => f.id === floorId);
 
 	/*
-	 * A floor whose walls are segments: derive the mask from them.
+	 * 墙是线段的楼层：从线段推导掩码。
 	 *
-	 * The frame is the stored mask's when the floor has one; otherwise the segments' own
-	 * bounding box, which is the frame a plan-less floor's mask was first written in.
+	 * 有存储掩码就沿用它的坐标系；没有就用线段自己的包围盒，那是这种没有图纸的楼层最早
+	 * 写掩码时用的坐标系。
 	 */
 	const walls = floor?.walls ?? [];
 	const columns = floor?.columns ?? [];
 	if (walls.length > 0 || columns.length > 0) {
 		const stored = floor?.wallMask;
 		const rtMask = floor?.roomTypeMask;
-		// An empty list is not an identity: `floor.columns ?? []` is a new array on every
-		// call, so keying on it would miss the cache forever.
+		// 空数组不算一种身份：`floor.columns ?? []` 每次调用都是新数组，拿它做键会永远
+		// 命中不了缓存。
 		const key = `${floorId}:walls${wallsId(walls)}:cols${columns.length > 0 ? wallsId(columns) : 0}:${stored ? `${stored.width}x${stored.height}@${stored.originX ?? 0},${stored.originY ?? 0}` : 'own'}:rt${maskId(rtMask)}`;
 		const cached = floorMaskCache.get(floorId);
 		if (cached && cached.sourceKey === key) return cached;
@@ -158,12 +136,11 @@ export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | 
 	}
 
 	/*
-	 * The floor's stored mask, for a floor whose walls are not segments.
+	 * 墙不是线段的楼层，用它存着的掩码。
 	 *
-	 * This used to have a branch of its own for the current floor, reading the
-	 * `wallState` copy because that was "always up to date" while the floor was only
-	 * synced on a switch. `wallState` *is* the current floor now (see `wall-state.ts`),
-	 * so the two branches were the same code against the same object.
+	 * 这里以前对当前楼层单开一个分支，读 `wallState` 的副本，理由是它「总是最新」，而楼层
+	 * 只在切换时才同步。现在 `wallState` *就是*当前楼层（见 `wall-state.ts`），两个分支
+	 * 其实是同一份代码、同一个对象。
 	 */
 	if (!floor?.wallMask) return null;
 	const wm = floor.wallMask;
@@ -190,10 +167,9 @@ export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | 
 }
 
 /**
- * Decode a stored room type mask, if it is on the same grid as the wall mask.
+ * 解码存储的房间类型掩码，前提是它和墙掩码在同一张网格上。
  *
- * Anything else is treated as "no room data": a mask of the wrong size would be
- * read at the wrong stride, and the only thing it feeds is the void test.
+ * 不满足就当成「没有房间数据」：尺寸不对的掩码会按错误的步长读，而它只喂给空洞判定。
  */
 async function decodeRoomTypes(
 	rtMask: { dataUrl: string; width: number; height: number } | null | undefined,
@@ -204,7 +180,7 @@ async function decodeRoomTypes(
 	return decodeMaterialMask(rtMask.dataUrl, rtMask.width, rtMask.height);
 }
 
-/** Invalidate mask cache when walls change. */
+/** 墙体变化时让掩码缓存失效。 */
 export function invalidateSolverMaskCache(): void {
 	floorMaskCache.clear();
 }

@@ -1,16 +1,14 @@
 /**
- * Where an AP may sit, and what the walls between it and a sample cost.
+ * AP 能放在哪，以及它和采样点之间的墙要多少损耗。
  *
- * The wall cache, the wall-mount band and the interior snapping are geometry: they read a
- * mask and a context and return numbers, with no search state. They were the densest
- * cluster of helpers in the worker and the least dependent on it.
+ * 穿墙缓存、壁挂带、内部吸附都是纯几何：读掩码和上下文，返回数字，不含搜索状态。
  */
 import type { Band } from '@aetherax/channels';
 import { getMaterialDbTable, isVirtualMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 import { rayMarchWallAtten } from '../../rf/propagation.js';
 import type { InteriorField, WallCache, WallPlacement } from './types.js';
 
-/** Source quantisation lattice, in mask pixels. */
+/** 源的位置量化网格，单位是掩码像素。 */
 const SOURCE_GRID = 8;
 
 export function createWallCache(
@@ -23,11 +21,9 @@ export function createWallCache(
 	materialMask: Uint8Array | null,
 	defaultMaterial: number
 ): WallCache {
-	// Per-band material tables: the figure for one crossing of each material, which is what
-	// `rayMarchWallAtten` charges and what the heatmap's field charges for the same crossing.
+	// 按频段取材料表：每种材料穿一次多少 dB。`rayMarchWallAtten` 和热力图算的是同一张。
 	const materialDb = getMaterialDbTable(band);
-	// Without a material mask every wall costs the same, so honour the project's
-	// explicit wall attenuation rather than substituting Drywall's value.
+	// 没有材料掩码时每面墙损耗一样，就用项目自己设的穿墙损耗，别拿石膏板的值顶。
 	const defaultDb = materialMask
 		? (materialDb[defaultMaterial] ?? wallAttenuation)
 		: wallAttenuation;
@@ -48,7 +44,7 @@ export function createWallCache(
 			const sy = qy * SOURCE_GRID;
 			const row = new Float32Array(numSamples);
 			for (let s = 0; s < numSamples; s++) {
-				// Stride-3 DDA; this is the approximation stage 3 later redoes exactly.
+				// 步长 3 的 DDA，粗算用；第 3 阶段会精确重算。
 				row[s] = rayMarchWallAtten(
 					mask,
 					w,
@@ -70,7 +66,7 @@ export function createWallCache(
 	};
 }
 
-/** Facing of a band pixel, in degrees, or null when it is not in the band. */
+/** 带内像素的朝向，单位度；不在带内返回 null。 */
 export function facingAt(placement: WallPlacement, x: number, y: number, w: number, h: number): number | null {
 	const ix = Math.round(x);
 	const iy = Math.round(y);
@@ -80,12 +76,10 @@ export function facingAt(placement: WallPlacement, x: number, y: number, w: numb
 }
 
 /**
- * The band of floor beside the walls, and the facing each point on it looks in.
+ * 靠墙那一圈地面，以及每个点朝哪个方向。
  *
- * `inside` is the *untrimmed* interior — the wall mask's complement within the
- * building — because the trimmed one has already given up the pixels this needs. The
- * flood is 8-connected and capped at `radiusWu` steps, so it costs one pass over the
- * band rather than a dilation of the whole mask.
+ * `inside` 要用*没修剪过*的内部区域——修剪过的已经把这一圈让出去了。扩散是 8 邻域、
+ * 最多 `radiusWu` 步，所以只扫一遍带子，不用把整张掩码做膨胀。
  */
 export function buildWallPlacement(
 	wallMask: Uint8Array,
@@ -94,12 +88,10 @@ export function buildWallPlacement(
 	h: number,
 	radiusWu: number,
 	/**
-	 * Materials per wall pixel and the floor's default, when the caller sent them.
+	 * 墙体像素的材料和楼层默认值，调用方给了才用。
 	 *
-	 * A **virtual partition** is a modelling line, not a surface: it attenuates nothing,
-	 * and a bracket cannot be screwed to it. Such pixels are not seeds here, so the band
-	 * never forms against one and a wall-mounted AP is never placed facing a line that
-	 * radiates both ways. See `wall-snap.ts`, which applies the same rule on the app side.
+	 * **虚拟隔断**只是建模线，不挡信号也拧不上支架。这些像素不作为种子，带子就不会
+	 * 贴着它生成。见 `wall-snap.ts`，应用侧用的是同一条规则。
 	 */
 	materialMap: Uint8Array | null = null,
 	defaultMaterial = 0
@@ -141,13 +133,12 @@ export function buildWallPlacement(
 				if (nx < 0 || nx >= w) continue;
 				const nIdx = ny * w + nx;
 				if (dist[nIdx] !== -1) continue;
-				// The flood runs through floor only: a wall pixel is a seed, not a
-				// corridor, and starting one from another wall pixel would push the
-				// band through a thick wall into the room behind it.
+				// 扩散只在地面里走：墙像素是种子、不是通道，
+				// 从另一面墙起走会把带子推过厚墙进到后面的房间。
 				if (!inside[nIdx]) continue;
 				dist[nIdx] = d + 1;
-				// The seed travels with the pixel, so the facing is away from the wall
-				// that actually reached it rather than away from some other wall.
+				// 种子像素跟着一起传，朝向才是背离真正够到它的那面墙，
+				// 而不是背离别的墙。
 				const sx0 = d === 0 ? x : seedX[idx]!;
 				const sy0 = d === 0 ? y : seedY[idx]!;
 				seedX[nIdx] = sx0;
@@ -175,6 +166,16 @@ export function buildWallPlacement(
 	return { band, field: buildInteriorField(band, w, h), facingStep };
 }
 
+/**
+ * 最近室内像素的查找场。
+ *
+ * `snapToInterior` 以前每次调用都要扫一遍所有室内像素，是 O(P)，而 P 常在几万到几十万，
+ * 这个查找又要被调 `PSO_ITERS * SWARM * numAps` 量级的次数。改成在掩码上跑多源 BFS，
+ * 查一次就是 O(1)。
+ *
+ * BFS 用 8 邻域，所以给出的距离是切比雪夫式的近似，不是精确欧氏距离。这里够用：
+ * 吸附只在搜索步子迈出建筑时才决定落到哪，而且第 3 阶段还会拿 `interior` 把候选再校验一遍。
+ */
 export function buildInteriorField(interior: Uint8Array, w: number, h: number): InteriorField {
 	const n = w * h;
 	const nearest = new Int32Array(n).fill(-1);
@@ -182,7 +183,7 @@ export function buildInteriorField(interior: Uint8Array, w: number, h: number): 
 	let head = 0;
 	let tail = 0;
 
-	// Seed: every interior pixel is its own nearest neighbour.
+	// 初始化：每个内部像素先指向自己。
 	for (let i = 0; i < n; i++) {
 		if (interior[i]) {
 			nearest[i] = i;
@@ -190,8 +191,7 @@ export function buildInteriorField(interior: Uint8Array, w: number, h: number): 
 		}
 	}
 
-	// Multi-source BFS. Each pixel is enqueued at most once, so a queue of size
-	// n is sufficient.
+	// 多源 BFS。每个像素最多入队一次，队列开 n 就够。
 	while (head < tail) {
 		const idx = queue[head++]!;
 		const src = nearest[idx]!;
@@ -216,15 +216,12 @@ export function buildInteriorField(interior: Uint8Array, w: number, h: number): 
 }
 
 /**
- * Snap a position onto the building interior.
+ * 把位置吸附到建筑内部。
  *
- * The clamp is essential. The BFS field covers every in-mask pixel, so a
- * *clamped* lookup always resolves to an interior pixel. Without the clamp, a
- * point outside the mask was returned unchanged — and PSO's initial jitter
- * (`+/- max(w,h) * 0.2`, applied to positions that may already sit near an
- * edge) produces such points readily. Stage 3 only accepts moves that land on
- * an interior pixel and skips out-of-bounds candidates, so an AP placed outside
- * by PSO could never move back in. That is how optimised APs ended up off-plan.
+ * 先夹到掩码范围内，这一步不能省：BFS 场覆盖掩码内每个像素，夹过再查表一定落在内部。
+ * 以前不夹，掩码外的点原样返回，而 PSO 的初始抖动（`+/- max(w,h) * 0.2`，可能加在靠边的
+ * 位置上）很容易造出这种点；第 3 阶段只接受落在内部的移动、也跳过越界候选，
+ * 于是被 PSO 放到外面的 AP 再也回不来。
  */
 export function snapToInterior(
 	x: number,
@@ -238,19 +235,16 @@ export function snapToInterior(
 	const iy = Math.min(field.h - 1, Math.max(0, Math.round(y)));
 	const src = field.nearest[iy * field.w + ix]!;
 	if (src >= 0) return { x: src % field.w, y: (src / field.w) | 0 };
-	// Only reachable when the mask has no interior at all, which the caller
-	// guards against before starting.
+	// 只有掩码里完全没有内部区域才会走到这儿，调用方开始前会拦住这种情况。
 	return { x: ix, y: iy };
 }
 
 /**
- * The single place that decides whether an AP may occupy a position.
+ * 判断一个 AP 能不能占这个位置的唯一入口。
  *
- * The bounds test is deliberately kept even though `interior` is available:
- * for a negative x, `y * w + x` aliases into the previous row and can read a
- * genuine interior pixel, so an out-of-range coordinate would be accepted as
- * legal if the bounds check were dropped. Centralising the policy here replaces
- * the ad-hoc `nx < 0 || nx >= w` tests that were scattered through the search.
+ * 边界判断故意留着，虽然 `interior` 也能挡住大部分：x 为负时 `y * w + x` 会串到上一行，
+ * 可能正好读到一个真正的内部像素，去掉边界检查就会把越界坐标当合法。
+ * 集中到这里，替掉搜索里到处散落的 `nx < 0 || nx >= w`。
  */
 export function isPositionAllowed(
 	x: number,
@@ -262,21 +256,18 @@ export function isPositionAllowed(
 	voidMask: Uint8Array | null = null
 ): boolean {
 	if (x < 0 || x >= w || y < 0 || y >= h) return false;
-	// A void is a hole in the floor — an atrium, a stairwell — with nothing to mount
-	// an AP to. That is a physical fact rather than a preference about rooms, so it
-	// does not become legal because the user allowed APs outside rooms.
+	// void 是楼板上的洞——中庭、楼梯井——没地方装 AP。这是物理事实不是房间偏好，
+	// 所以即使用户允许 AP 放在房间外，这里也不放行。
 	if (voidMask && voidMask[y * w + x] === 1) return false;
 	if (allowOutside || !interior) return true;
 	return interior[y * w + x] === 1;
 }
 
 /**
- * Snap a candidate position for one AP into the domain that AP is allowed in.
+ * 把某个 AP 的候选位置吸附到它被允许的区域里。
  *
- * A wall-mounted AP's domain is the band along the walls rather than the interior: an
- * AP against a wall face is exactly what the interior was trimmed to exclude. The band
- * is a bracket's depth wide, so a position the search puts there is already on a wall;
- * the caller then puts it exactly on the face when it applies the result.
+ * 壁挂 AP 的可用区域是沿墙一圈，而不是内部：靠墙的位置正是内部区域特意剔掉的。
+ * 带子约一个支架深，搜索放进去的位置本来就在墙上，调用方应用结果时再精确贴到墙面。
  */
 export function snapForAp(
 	a: number,
@@ -290,7 +281,7 @@ export function snapForAp(
 	return snapToInterior(x, y, snapTarget.field, snapTarget.free);
 }
 
-/** Whether an AP may occupy a position — the same split as `snapForAp`. */
+/** 这个 AP 能不能占这个位置——拆分规则和 `snapForAp` 一样。 */
 export function allowedForAp(
 	a: number,
 	x: number,
@@ -305,8 +296,7 @@ export function allowedForAp(
 ): boolean {
 	if (wallMounted[a] && wallPlacement) {
 		if (x < 0 || x >= w || y < 0 || y >= h) return false;
-		// A void is a hole in the floor: there is no wall to mount to over a shaft,
-		// whatever the mask says around it.
+		// void 是楼板上的洞：井道上方没有墙可装，掩码说旁边有墙也不行。
 		if (voidMask && voidMask[y * w + x] === 1) return false;
 		return wallPlacement.band[y * w + x] === 1;
 	}
@@ -314,11 +304,10 @@ export function allowedForAp(
 }
 
 /**
- * Where an AP may be snapped to, and whether snapping happens at all.
+ * AP 能吸附到哪儿，以及到底要不要吸附。
  *
- * With `allowOutside` the answer used to be "anywhere", which put APs over atriums.
- * When the floor has voids the target becomes "anywhere that is not a hole"
- * instead: the nearest pixel with a floor, which may well be outside a room.
+ * 以前 `allowOutside` 的答案是「随便放」，结果 AP 落到中庭上。有 void 时改成
+ * 「除了洞以外都行」：找最近的实地像素，可能落在房间外。
  */
 export function buildSnapTarget(
 	interior: Uint8Array,

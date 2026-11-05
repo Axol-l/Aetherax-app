@@ -1,3 +1,8 @@
+/**
+ * 工程元数据：项目名、覆盖与干扰的规划参数、客户端高度，以及自定义墙体材质。
+ *
+ * 这些是整份工程共用的假设，改一处就会影响热力图、优化器和报告里的数字。
+ */
 import {
 	DEFAULT_COVERAGE_SOFTNESS_DB,
 	DEFAULT_PATH_LOSS_SCENARIO,
@@ -9,111 +14,85 @@ export const projectMeta = $state({
 	ispSpeed: 0 as number,
 	targetThroughput: 25 as number,
 	/**
-	 * Placement optimiser policy. When false (default) optimised APs are
-	 * constrained to the detected building interior; when true they may be
-	 * placed anywhere on the plan.
+	 * 放置优化器的策略。false（默认）时优化出来的 AP 只能落在识别出的室内；
+	 * true 时可以放在平面图上的任何位置。
 	 */
 	allowOutsideRooms: false as boolean,
 	/**
-	 * Lowest received level the heatmap colours, in dBm. Everything below is
-	 * transparent, so this is the coverage threshold being displayed: -85 dBm is
-	 * the receiver sensitivity the range model uses, and therefore matches the
-	 * coverage circle drawn around each AP. Raising it narrows the visible area
-	 * and increases contrast.
+	 * 热力图着色的最低接收电平，单位 dBm。低于它的部分透明，所以它就是界面上的覆盖门限：
+	 * 距离模型用的接收灵敏度是 −85 dBm，因此这和每台 AP 周围画的覆盖圈一致。
+	 * 调高它会缩窄可见区域、提高对比度。
 	 */
-	// Matches COVERAGE_THRESHOLD_DBM in rf/propagation.ts, so the coloured area and
-	// the reported coverage percentage describe the same region.
+	// 和 rf/propagation.ts 里的 COVERAGE_THRESHOLD_DBM 保持一致，
+	// 这样着色区域和报出的覆盖百分比说的是同一块地方。
 	heatmapRssiFloor: -70 as number,
 	/**
-	 * Height above the floor at which a client is assumed to sit, in metres.
+	 * 假设客户端离地多高，单位米。
 	 *
-	 * APs are modelled as ceiling-mounted — at `elevation + ceilingHeight` of
-	 * their own floor — so this is the other end of every cross-floor path. It is
-	 * a project-wide assumption rather than per-floor because it describes the
-	 * client devices, not the building.
+	 * AP 按吸顶建模，所以这是每条跨层路径的另一端。它是整份工程共用的假设，不按楼层设，
+	 * 因为它描述的是客户端设备，不是楼。
 	 *
-	 * The vertical gap between an AP and a client only reaches the models as a
-	 * distance term (both the heatmap and the optimiser use the 3D distance), so
-	 * this is a small correction: changing it by a metre moves a cross-floor level
-	 * by roughly 1 dB at the path loss exponent in use. It matters for the
-	 * ceiling-mount case the multi-floor work is about, and for nothing else.
+	 * 这个高度只以距离项的形式进模型，所以是很小的修正：改 1 米，跨层电平大约动 1 dB。
+	 * 真正在乎它的只有吸顶安装的那些情况。
 	 */
 	clientHeight: 1.5 as number,
 	/**
-	 * Weight of the co-channel interference share in the placement objective:
-	 * `score = coverageUtility − interferenceWeight · interferenceShare`.
+	 * 同频干扰占比在放置目标里的权重：
+	 * `score = coverageUtility − interferenceWeight · interferenceShare`。
 	 *
-	 * Both terms are on a 0-1 scale. Zero restores the coverage-only objective the
-	 * optimiser had before the term existed, which makes this the A/B switch for
-	 * measuring what the term is worth, and the reason it is a project setting and
-	 * not a constant: the trade is a Pareto curve, not one operating point.
+	 * 两项都归一到 0-1。设 0 就退回加这一项之前的纯覆盖目标，所以它是衡量这一项值多少的
+	 * A/B 开关——也是它做成工程设置而不是常量的原因：这是一条帕累托曲线，不是一个工作点。
 	 *
-	 * Default matches `DEFAULT_INTERFERENCE_WEIGHT` in rf/interference.ts (IJEAT's
-	 * aggregate penalty coefficient).
+	 * 默认值和 rf/interference.ts 的 `DEFAULT_INTERFERENCE_WEIGHT` 一致（IJEAT 的综合惩罚系数）。
 	 */
 	interferenceWeight: 0.2 as number,
 	/**
-	 * How far below the coverage threshold a sample still earns utility, in dB.
+	 * 采样点低于覆盖门限多少 dB 以内还算有收益。
 	 *
-	 * The optimiser used to treat the threshold as a hard edge: a sample just
-	 * outside every coverage circle and one far outside both scored 0, so it had
-	 * no way to tell "nearly covered" from "not covered at all". On the
-	 * coverage-limited floors the measurement was taken on that turned into real
-	 * coverage — 5.3 points between restarts while the objective differed by 0.9%
-	 * (`docs/ROADMAP.md` F1, second measurement).
+	 * 以前优化器把门限当硬边界：刚出门限和远远不够的点都记 0 分，分不出"差一点"和
+	 * "完全没有"。在覆盖受限的楼层上，这会让两次重启之间差出 5.3 个百分点的真实覆盖，
+	 * 而目标函数只差 0.9%（见 `docs/ROADMAP.md` F1 的第二次测量）。
 	 *
-	 * Zero restores the hard threshold exactly, which is the A/B switch. The
-	 * default matches `DEFAULT_COVERAGE_SOFTNESS_DB` in rf/propagation.ts. It only
-	 * changes the optimiser's landscape: the reported coverage share is still
-	 * "margin above the threshold", not a sum of utilities.
+	 * 设 0 就精确退回硬门限，这就是 A/B 开关。默认值同 rf/propagation.ts 的
+	 * `DEFAULT_COVERAGE_SOFTNESS_DB`。它只改优化器的地形：报出的覆盖率照样按
+	 * "门限以上的比例"算，不是收益之和。
 	 */
 	coverageSoftnessDb: DEFAULT_COVERAGE_SOFTNESS_DB as number,
 	/**
-	 * ε-constraint (F3): the minimum covered share the optimiser must reach, as a
-	 * percentage, or 0 for no constraint.
+	 * ε-约束（F3）：优化器必须达到的最低覆盖率，百分比；0 表示不约束。
 	 *
-	 * `score = coverageUtility − interferenceWeight · interference` is a weighted sum,
-	 * and a weighted sum can only walk the **convex** part of the coverage/interference
-	 * front — F3's sweep measured that the λ 0→0.8 stretch is convex, which is why this
-	 * is not the default tool. A floor states the requirement the other way round
-	 * ("this plan must cover at least X%") and is the only thing that reaches a
-	 * non-convex stretch, which is also what A1's "every floor at least X%" would need.
+	 * `score = coverageUtility − interferenceWeight · interference` 是加权和，
+	 * 而加权和只能走覆盖/干扰前沿的**凸**段——F3 的扫描测出 λ 从 0 到 0.8 这段是凸的，
+	 * 所以它不适合当默认工具。楼层把要求反过来讲（"这份方案至少覆盖 X%"），
+	 * 才能走到非凸的那段，A1 的"每层至少 X%"也需要它。
 	 *
-	 * Enforced as a one-sided penalty that is exactly zero when the floor is met, so
-	 * setting it back to 0 restores the objective every recorded figure was measured on.
+	 * 实现成单边惩罚，达标时正好为 0，所以设回 0 就回到所有已有数字被测量时的目标。
 	 */
 	coverageFloorPct: 0 as number,
 	/**
-	 * Apply the coverage floor to **every** floor rather than to the one being optimised.
+	 * 把覆盖下限应用到**每一层**，而不是只用在正在优化的那层。
 	 *
-	 * Off: `coverageFloorPct` is the requirement on the floor you pressed Optimize for, which
-	 * is what a single-floor run can check at all.
+	 * 关：`coverageFloorPct` 是对你点了"优化"的那层的要求——单层运行只能检查这个。
 	 *
-	 * On: an all-floor run treats it as a guarantee about the building — A1's "no floor below
-	 * X%". It is enforced as one extra block: the alternating loop runs as usual, and if the
-	 * weakest floor is short, that floor gets one more optimisation with the floor as its own
-	 * ε. A1 notes that a weighted sum cannot express this; the reason it can be done here is
-	 * that a block only ever scores one floor, so a per-floor constraint is the form that
-	 * survives the decomposition.
+	 * 开：全楼运行把它当成对整栋的保证，即 A1 的"没有哪层低于 X%"。做法是多加一块：
+	 * 交替循环照常跑，跑完最差那层还差，就单独拿它自己当 ε 再优化一次。
+	 * A1 说加权和表达不了这个；这里能做，是因为一块只评一层，按层约束在分解后才还成立。
 	 */
 	coverageFloorEveryFloor: false as boolean,
 	/**
-	 * Which ITU-R P.1238 environment the distance term is modelled for.
+	 * 距离项按 ITU-R P.1238 的哪种环境建模。
 	 *
-	 * Not a tuning knob: the tabulated coefficient already contains an average allowance
-	 * for walls, and this app *also* charges every wall crossing explicitly, so a high
-	 * value with fully drawn walls double-counts (20 dB at 10 m, 26 dB at 20 m —
-	 * `docs/PHYSICAL_MODELS.md` §A3a). The default is the environment every figure recorded
-	 * before this setting existed was taken with; the panel says which way to go in one line.
+	 * 不是调参旋钮：表里的系数已经含了墙体的平均余量，而这个应用**还**对每次穿墙单独收费，
+	 * 墙画全了再用高值就是重复计算（10 m 处 20 dB、20 m 处 26 dB，见
+	 * `docs/PHYSICAL_MODELS.md` §A3a）。默认值是这一项存在之前所有已记录数字用的环境；
+	 * 面板上会有一行提示该往哪边调。
 	 *
-	 * Changing it moves association ranges, AP radii, coverage and every reported
-	 * figure, so it is saved with the project and printed with every run.
+	 * 改它会动关联距离、AP 半径、覆盖率和所有报出的数字，所以随工程保存、每次运行都打印。
 	 */
 	pathLossScenario: DEFAULT_PATH_LOSS_SCENARIO as PathLossScenario,
 	/**
-	 * Wall materials the user added: a lead-lined door, a warehouse shelf, a glazed screen
-	 * with a datasheet figure. Stored with the project, because a material is part of how
-	 * this plan was planned rather than a preference of whoever drew it.
+	 * 用户自己加的墙体材质：铅门、仓库货架、带数据手册数值的玻璃隔断。
+	 * 随工程保存，因为材质属于这份方案怎么规划的，不是画图人的偏好。
 	 */
 	customMaterials: [] as Array<{
 		id: number;

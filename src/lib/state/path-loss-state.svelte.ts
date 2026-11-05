@@ -1,15 +1,9 @@
 /**
- * The propagation environment, as something the interface can change.
+ * 传播环境（界面里能切换的路径损耗场景）。
  *
- * Selecting one has three effects that must happen together, which is why this is a
- * function rather than a line in the panel: the coefficient changes, every AP's radius is
- * re-derived from it (the stored `interferenceRadius` is a cache of `rangeFromPower`, and a
- * radius left over from the old coefficient is a plan whose shape changes on reload), and
- * the project is marked dirty.
- *
- * Applying a project's own value at load time is the same sequence, minus the setting
- * write — see the `setPathLossScenario` call next to `refreshApRanges` in
- * `persistence.svelte.ts` and `export/json.ts`.
+ * 切换要同时做三件事，所以抽成函数：改系数、按新系数重算每个 AP 的半径（存着的 `interferenceRadius` 只是缓存，
+ * 留着旧值会让方案在重新加载后变形）、把工程标成待保存。打开工程时套用它自己的值也是同一套动作，只是不写设置，
+ * 见 `persistence.svelte.ts` 和 `export/json.ts` 里 `refreshApRanges` 旁边的 `setPathLossScenario`。
  */
 import { refreshApRanges } from './ap-state.svelte.js';
 import { projectMeta } from './project-meta.svelte.js';

@@ -1,10 +1,8 @@
 /**
- * The optimiser's payload conversions use the floor they describe, not the floor on screen.
+ * 优化器载荷里的单位换算，按被测那一层自己的比例走，而不是屏幕上正显示的那层。
  *
- * These are the two places where a metre becomes world units in the payload: the vertical
- * drop of a same-floor path and the vertical gap of an AP to its client. Reading the
- * selected floor's calibration made an all-floor run score every storey with the scale of
- * whichever one the user happened to be looking at.
+ * 载荷里只有两处把米换成世界单位：同层路径的垂直落差，和 AP 到终端的垂直间距。
+ * 以前读的是选中层的标定，整栋优化时每一层都会被套上用户当时碰巧在看的那层比例。
  */
 import { describe, expect, it } from 'vitest';
 import { floorState, type Floor } from './floor-state.svelte.js';
@@ -73,8 +71,7 @@ describe('per-floor conversion in the optimiser payload', () => {
 		const frame = { originX: 0, originY: 0, floorId: 'f1' };
 		expect(toApInput(ap, frame).verticalGap).toBeCloseTo((2.9 - 1.5) * 20, 6);
 
-		// The same AP, on a floor that has since been calibrated twice as finely: the
-		// physical gap is unchanged, the world-unit figure doubles.
+		// 同一个 AP，楼层后来被标定得细了一倍：实际间距没变，世界单位翻倍。
 		floorState.floors = [floor('f1', 0, 40)];
 		expect(toApInput(ap, frame).verticalGap).toBeCloseTo((2.9 - 1.5) * 40, 6);
 	});

@@ -1,29 +1,9 @@
 /**
- * The project as a **document**: one shape, one migration, one reader and one writer.
+ * 工程文档：统一的结构、迁移、读入和写出。
  *
- * There used to be three. `persistence.svelte.ts` wrote a shape into localStorage,
- * `export/json.ts` wrote a second shape into a file, and `history.svelte.ts` snapshotted a
- * third — and the three copies of the schema drifted. The file format never learned about
- * vector walls, columns, raised surfaces, notes or the planning area, so exporting a
- * project and importing it back silently dropped all of them; `SavedFloor` was missing the
- * same fields while the saver wrote them anyway, which is why the loader reads them back
- * through `as any`. A schema that exists four times is a schema that is wrong three times.
- *
- * Everything that crosses the storage boundary — a save, a restore, an export, an import —
- * now goes through:
- *
- *   `toDocument()`    state  → document      (write)
- *   `migrate()`       unknown → document     (read, any version)
- *   `applyDocument()` document → state       (read, after migrate)
- *
- * `migrate` is the only place that knows how an old file was shaped; `applyDocument` is the
- * only place that knows which atom owns a field. Adding a field to a floor means adding it
- * to `DocumentFloor` (which is derived from `Floor`, so it is hard to forget) and to the two
- * functions below — and the round-trip test in `project-document.test.ts` fails until the
- * field survives both directions.
- *
- * The document is also the *only* description of the file format: `export/json.ts` no longer
- * declares its own.
+ * 保存、恢复、导出、导入都只走 `toDocument()` / `migrate()` / `applyDocument()`。
+ * 以前持久化、文件导出、撤销历史各存一份结构，导出一圈就把墙、柱、抬升面、备注全丢了。
+ * 给楼层加字段要同时改 `DocumentFloor` 和迁移、应用两处，往返测试过不了就是漏了。
  */
 import type { Band, ChannelWidth, RegulatoryDomain } from '@aetherax/channels';
 import type { FloorMaterialId } from '$canvas/floor-materials.js';
@@ -47,16 +27,16 @@ import { floorplanState } from './floorplan-state.svelte.js';
 import { clearHistory } from './history.svelte.js';
 import { projectMeta } from './project-meta.svelte.js';
 
-/** The version this module writes. Bumped when a stored field changes meaning. */
+/** 本模块写出的版本号。存储字段的含义一变就要加一。 */
 export const DOCUMENT_VERSION = 3;
 
 export type UnitSystem = 'imperial' | 'metric';
 
 /**
- * A mask as a document may carry it.
+ * 文档里可能带的遮罩。
  *
- * The origin is optional because documents written before a mask recorded its own frame do
- * not have one; everything read is normalised to `{ originX: 0, originY: 0 }` in that case.
+ * 原点是可选的：早期文档里遮罩还没记自己的坐标系。
+ * 读进来时统一补成 `{ originX: 0, originY: 0 }`。
  */
 export interface StoredMask {
 	dataUrl: string;
@@ -66,16 +46,15 @@ export interface StoredMask {
 	originY?: number;
 }
 
-/** A mask in a normalised document: the frame is always known. */
+/** 规范化文档里的遮罩：坐标系一定已知。 */
 export type DocumentMask = NonNullable<Floor['wallMask']>;
 
 /**
- * A floor in a normalised document.
+ * 规范化文档里的一个楼层。
  *
- * Derived from `Floor` minus the two things the document cannot carry cheaply or at all:
- * the underlay's session URL (the file inlines it as `floorplanImage`, storage keeps it
- * under its own key) and the geometry lists, which are made *required* here because that is
- * exactly what the duplicated schemas forgot.
+ * 从 `Floor` 减掉两样文档带不了（或带起来太贵）的东西：底板图的会话 URL
+ *（文件里内联成 `floorplanImage`，存储里单独一个键）和几何列表。
+ * 几何在这里改成必填，因为以前复制出来的几份结构正好漏了它们。
  */
 export type DocumentFloor = Omit<
 	Floor,
@@ -86,15 +65,15 @@ export type DocumentFloor = Omit<
 	walls: NonNullable<Floor['walls']>;
 	columns: NonNullable<Floor['columns']>;
 	surfaces: NonNullable<Floor['surfaces']>;
-	/** The underlay as a data URL. Present in a file, absent in storage. */
+	/** 底板图存成 data URL。文件里有，存储里没有。 */
 	floorplanImage?: string;
 };
 
 /**
- * A floor as a document *may* carry it: every field optional but the identity.
+ * 文档「可能」带的楼层：除了 id，每个字段都可选。
  *
- * This is the reading type. `migrate` turns it into a `DocumentFloor` by filling defaults —
- * the defaults are the reading rules for a format that has gained fields over time.
+ * 这是读入用的类型。`migrate` 补默认值后把它变成 `DocumentFloor`；
+ * 这些默认值就是格式多年来加字段时定下的读取规则。
  */
 export type StoredFloor = Partial<
 	Omit<DocumentFloor, 'wallMask' | 'materialMask' | 'roomTypeMask'>
@@ -106,15 +85,14 @@ export type StoredFloor = Partial<
 };
 
 /**
- * An access point as a document may carry it.
+ * 文档「可能」带的接入点。
  *
- * Mounting, the antenna cuts, the facing and the pin are all optional because documents
- * written before each of them exist do not have it; `normalizeAp` fills in the value that
- * model would have used.
+ * 安装方式、天线方向图、朝向、引脚都是可选的：更早的文档里没有这些字段，
+ * `normalizeAp` 会补上模型当时会用的值。
  */
 export type StoredAp = Partial<AccessPoint> & Pick<AccessPoint, 'id'>;
 
-/** A wall material the user added, in the shape the project stores. */
+/** 用户自己加的墙体材质，按工程里的存储形状。 */
 export interface DocumentCustomMaterial {
 	id: number;
 	name: string;
@@ -123,13 +101,13 @@ export interface DocumentCustomMaterial {
 	color: [number, number, number];
 }
 
-/** One floor's measured coverage, as the optimiser's cache reports it. */
+/** 某层实测覆盖率，按优化器缓存的报法。 */
 export interface FloorCoverageEntry {
 	coverage: number;
 	samples: number;
 }
 
-/** A normalised project document — what this module writes, and what it hands back. */
+/** 规范化后的工程文档：本模块写出的、也是交回来的东西。 */
 export interface ProjectDocumentV3 {
 	version: 3;
 	name: string;
@@ -154,10 +132,10 @@ export interface ProjectDocumentV3 {
 }
 
 /**
- * Anything `JSON.parse` produced.
+ * `JSON.parse` 出来的任何东西。
  *
- * One cast at the boundary, then the normalisers below do the work: the alternative is
- * `(data as any)` at fifteen call sites, which is how the missing fields went unnoticed.
+ * 只在边界上转一次类型，后面交给下面的规范化函数；否则就是十几个地方各写一次 `(data as any)`，
+ * 字段漏了也没人发现。
  */
 type RawDocument = Partial<
 	Omit<ProjectDocumentV3, 'version' | 'floors' | 'aps' | 'customMaterials' | 'floorCoverage'>
@@ -167,7 +145,7 @@ type RawDocument = Partial<
 	aps?: StoredAp[];
 	customMaterials?: DocumentCustomMaterial[];
 	floorCoverage?: Record<string, Partial<FloorCoverageEntry>>;
-	/* Version 2 kept a single floor at the top level. */
+	/* 版本 2 把单层数据放在顶层。 */
 	floorplanImage?: string;
 	floorplanScale?: number;
 	floorplanOffsetX?: number;
@@ -180,41 +158,38 @@ type RawDocument = Partial<
 	wallMaterial?: number;
 };
 
-/** A destination for a document's per-floor coverage. */
+/** 存放文档里各层覆盖率的地方。 */
 export interface CoverageSink {
 	clear(): void;
 	set(floorId: string, entry: FloorCoverageEntry): void;
 }
 
 export interface ToDocumentOptions {
-	/** Measured coverage per floor, from the optimiser's cache. */
+	/** 各层实测覆盖率，来自优化器缓存。 */
 	floorCoverage?: ReadonlyMap<string, FloorCoverageEntry>;
 }
 
 export interface ApplyDocumentOptions {
-	/** Where to put the document's per-floor coverage, when the caller keeps a cache. */
+	/** 调用方自己维护缓存时，文档里的各层覆盖率放哪。 */
 	floorCoverage?: CoverageSink;
 }
 
-/* ── Writing ───────────────────────────────────────────────────────────────────────────── */
+/* ── 写出 ─────────────────────────────────────────────────────────────────────────────── */
 
 /**
- * The whole project, as a document.
+ * 整个工程，写成文档。
  *
- * Synchronous and image-free: a file export inlines each floor's underlay afterwards
- * (`export/json.ts`), and storage keeps the underlay under a per-floor key. That split is
- * why `floorplanImage` is optional on `DocumentFloor`.
+ * 同步且不含图片：导出文件时由 `export/json.ts` 事后把每层底板图内联进去，
+ * 存储则每层单独一个键——所以 `floorplanImage` 在 `DocumentFloor` 上才是可选的。
  */
 export function toDocument(options: ToDocumentOptions = {}): ProjectDocumentV3 {
 	/*
-	 * Coverage is not in the document.
+	 * 覆盖率不写进文档。
 	 *
-	 * It is a measurement of the plan as it stands, not a property of the project, and a file
-	 * that carries it outlives the plan it describes: the report then prints a figure for a
-	 * building that no longer exists, and a reload restores it as if it were data. The field
-	 * stays in the *reader* (`migrate` still accepts files that have it) so old projects open;
-	 * nothing writes it, and nothing applies it. See `coverageBasis` for how a figure is
-	 * invalidated in memory instead.
+	 * 它是「当前这张图」的测量值，不是工程的属性。写进文件会活得比图还久：
+	 * 报告给一栋已经不存在的楼打分，重载时又当成数据恢复回来。
+	 * 读入端还留着这个字段（`migrate` 接受带它的旧文件），但没人写、也没人应用——
+	 * 内存里怎么让数字失效，见 `coverageBasis`。
 	 */
 	const floorCoverage: Record<string, FloorCoverageEntry> = {};
 	void options.floorCoverage;
@@ -276,11 +251,10 @@ function toDocumentFloor(floor: Floor): DocumentFloor {
 }
 
 /**
- * One access point, field by field.
+ * 一个接入点，逐字段写。
  *
- * Written out rather than spread so that adding a field to `AccessPoint` shows up here as a
- * type error — which is the same reason `optimizer-protocol.ts` derives its payload type
- * from `AccessPoint` instead of restating it.
+ * 一个个列出来而不是展开对象：这样 `AccessPoint` 加了字段，这里会直接报类型错。
+ * `optimizer-protocol.ts` 从 `AccessPoint` 推导载荷类型而不是重写一遍，也是这个原因。
  */
 function toDocumentAp(ap: AccessPoint): AccessPoint {
 	return {
@@ -306,22 +280,19 @@ function toDocumentAp(ap: AccessPoint): AccessPoint {
 	};
 }
 
-/* ── Reading ──────────────────────────────────────────────────────────────────────────── */
+/* ── 读取 ─────────────────────────────────────────────────────────────────────────────── */
 
 /**
- * Turn anything a store or a file handed back into a normalised document, or null.
+ * 把存储或文件交回来的任何东西，变成规范化文档；不行就返回 null。
  *
- * Version 2 is the single-floor format: its fields sat at the top level and one is turned
- * into the one floor of a version 3 document. Anything older than 2 (or with no version at
- * all) is refused, which is what both callers already did.
+ * 版本 2 是单层格式：字段都放在顶层，这里把它变成版本 3 文档里的那一层。
+ * 比 2 更老的（或者没有版本号的）一律拒绝，两个调用方本来就是这么做的。
  */
 /**
- * Was this document written by a version of the app that is newer than this one?
+ * 这份文档是不是比当前版本更新的应用写的？
  *
- * `migrate` cannot read such a document, and the caller must not treat it as corrupt: deleting it
- * is the difference between "this build cannot open your project" and "your project is gone". The
- * check is separate from `migrate` because the two answers lead to different actions — one removes
- * the record, the other keeps it and says why.
+ * `migrate` 读不了它，但调用方不能当成损坏删掉：删不删，就是「这版打不开」和「工程没了」的区别。
+ * 单独一个函数而不是塞进 `migrate`，因为两种结果对应两种动作：一个删记录，一个留着并说明原因。
  */
 export function isFromNewerVersion(raw: unknown): boolean {
 	if (!raw || typeof raw !== 'object') return false;
@@ -332,8 +303,8 @@ export function migrate(raw: unknown): ProjectDocumentV3 | null {
 	if (!raw || typeof raw !== 'object') return null;
 	const data = raw as RawDocument;
 	const version = typeof data.version === 'number' ? data.version : 0;
-	// Anything outside 2..CURRENT is not a document this build can honestly rewrite: below 2 there
-	// is no migration, and above it the fields are unknown, so writing back would drop them.
+	// 版本不在 2..CURRENT 之间，就不是这个版本能老实重写的东西：低于 2 没有迁移，
+	// 高于它字段未知，写回去会丢字段。
 	const documentVersion = DOCUMENT_VERSION;
 	if (version < 2 || version > documentVersion) return null;
 
@@ -357,14 +328,13 @@ export function migrate(raw: unknown): ProjectDocumentV3 | null {
 						materialMask: data.materialMask ?? null,
 						roomTypeMask: null,
 						wallAttenuation: data.wallAttenuation,
-						// A stored material id is a wall material id by construction; the raw
-						// document only knows it as a number.
+						// 存下来的材质 id 按构造就是墙体材质 id，原始文档只把它当数字。
 						wallMaterial: data.wallMaterial as WallMaterialId | undefined
 					}
 				]
 			: (data.floors ?? []);
 
-	// A document with no floors is not a project: both callers treat it as "nothing to load".
+	// 没有楼层的文档不算工程：两个调用方都当成「没有可加载的东西」。
 	if (storedFloors.length === 0) return null;
 
 	const floors = storedFloors.map(normalizeFloor);
@@ -445,12 +415,11 @@ function normalizeMask(mask: StoredMask | null | undefined): DocumentMask | null
 }
 
 /**
- * The document's floor as the state's floor: the one field the two shapes disagree about.
+ * 文档里的楼层转成状态里的楼层：两种形状只差一个字段。
  *
- * A document carries the underlay as a data URL (`floorplanImage`) because that is what a
- * file can hold; the state carries it as a URL (`floorplanUrl`) because the canvas draws
- * from one. Nothing else differs, and the two are named apart on purpose — a `floorplanUrl`
- * in a document would be a `blob:` URL that dies with the session that wrote it.
+ * 文档里底板图是 data URL（`floorplanImage`），因为文件只能存这个；
+ * 状态里是 URL（`floorplanUrl`），因为画布要拿它画。别的都一样。
+ * 两个名字故意分开：文档里要是有 `floorplanUrl`，那就是个 `blob:`，写完它的会话一结束就失效。
  */
 function toStateFloor(floor: DocumentFloor): Floor {
 	const { floorplanImage, ...rest } = floor;
@@ -458,14 +427,12 @@ function toStateFloor(floor: DocumentFloor): Floor {
 }
 
 /**
- * One access point with the fields older documents could not have.
+ * 补上老文档不可能有的字段，得到一个接入点。
  *
- * The defaults are the reading rules, and each one is the value that model would have used:
- * a document written before mounting heights existed put every AP on the ceiling, one
- * written before the antenna cuts had the band's own pattern, and so on. They used to be
- * spelled out twice — once for a stored project, once for an imported file — with small
- * differences that were not decisions (the file path defaulted a name to `AP`, the store
- * path did not).
+ * 这些默认值就是读取规则，每个都是「当时的模型会取的值」：
+ * 安装高度出现之前的文档，AP 全算吸顶；天线方向图出现之前的，用频段自带的方向图，等等。
+ * 以前存工程和导文件两条路各写一遍，还写出了不是故意的小差别
+ *（导入那边默认名字是 `AP`，存储那边不是）。
  */
 function normalizeAp(
 	stored: StoredAp,
@@ -481,8 +448,7 @@ function normalizeAp(
 		storedMount === 'floor' || storedMount === 'ceiling' || storedMount === 'wall'
 			? storedMount
 			: 'ceiling';
-	// The band's own antenna, for a document written before the vertical cut existed or
-	// with a band the AP has since changed to.
+	// 用频段自带的天线：文档可能写于垂直方向图出现之前，也可能 AP 后来换了频段。
 	const antenna = defaultAntenna(stored.beamwidthDeg ?? null, band);
 
 	return {
@@ -503,30 +469,26 @@ function normalizeAp(
 		mountHeightM: stored.mountHeightM ?? defaultMountHeight(mount, ceiling),
 		beamwidthDeg: stored.beamwidthDeg ?? antenna.beamwidthDeg,
 		aimDeg: stored.aimDeg ?? antenna.aimDeg,
-		// Facing +x. A document written before wall mounts cannot say which way the unit
-		// looked, and the band's antenna is an omni with no direction at all.
+		// 朝 +x。壁挂出现之前的文档说不出设备朝哪，而频段自带的天线是全向的，根本没有方向。
 		facingDeg: stored.facingDeg ?? 0,
-		// A document written before pinning described APs the optimiser was free to move.
+		// 固定位置出现之前的文档，描述的 AP 都是优化器可以随便挪的。
 		pinned: stored.pinned ?? false
 	};
 }
 
-/* ── Applying ─────────────────────────────────────────────────────────────────────────── */
+/* ── 应用 ─────────────────────────────────────────────────────────────────────────────── */
 
 /**
- * Write a normalised document into the state atoms.
+ * 把规范化文档写进各个状态。
  *
- * The order matters and is the order a load has always needed: floors before access points,
- * because a ceiling-mounted AP's default height and the project's scale both come from the
- * floors; the path-loss scenario before the radii, because a radius is derived from it.
+ * 顺序有讲究，加载一直是这么排的：先楼层后 AP，因为吸顶 AP 的默认高度和工程比例都来自楼层；
+ * 先路径损耗场景后半径，因为半径是它推出来的。
  *
- * **Opening a document ends the undo history.** Undo snapshots hold floors and access points
- * and nothing else, so a snapshot from before a load would restore one project's geometry
- * into another project's name, band, unit system and materials — a combination that never
- * existed, autosaved into place five seconds later. Every caller that replaced the document
- * had to remember this, and `export/json.ts` did not: importing a file and pressing Ctrl+Z
- * put the *previous* project's plan inside the imported project's settings. It is done here
- * now, where the document is applied, so no caller has to know.
+ * **打开文档会清空撤销历史。** 撤销快照只存楼层和 AP，别的都不存。
+ * 所以加载前的快照会把 A 工程的几何塞进 B 工程的名字、频段、单位和材质里——
+ * 这种组合从没存在过，五秒后还会被自动保存写进盘。以前每个替换文档的调用方都得自己记得，
+ * 而 `export/json.ts` 没记：导入一个文件再按 Ctrl+Z，就把上一个工程的图放进了新工程的设置里。
+ * 现在在应用文档这里统一清，调用方不用知道。
  */
 export function applyDocument(
 	doc: ProjectDocumentV3,
@@ -534,8 +496,7 @@ export function applyDocument(
 ): void {
 	clearHistory();
 
-	// The document is already normalised (`migrate` or `toDocument` built it); the only
-	// translation left is the underlay's storage shape.
+	// 文档已经是规范化的（`migrate` 或 `toDocument` 建的），只剩底板图的存储形状要转。
 	const floors: Floor[] = doc.floors.map(toStateFloor);
 	if (floors.length === 0) throw new Error('a project document needs at least one floor');
 
@@ -550,8 +511,7 @@ export function applyDocument(
 	projectMeta.coverageFloorPct = doc.coverageFloorPct;
 	projectMeta.coverageFloorEveryFloor = doc.coverageFloorEveryFloor;
 	projectMeta.pathLossScenario = doc.pathLossScenario;
-	// The user's own wall materials before the floors, so a wall painted with one of these
-	// is read back with the material it was painted with.
+	// 用户自定义材质要排在楼层前面，这样用这些材质刷的墙，读回来还是那个材质。
 	projectMeta.customMaterials = doc.customMaterials.map(cloneMaterial);
 
 	apState.band = doc.band;
@@ -565,23 +525,21 @@ export function applyDocument(
 		normalizeAp(ap, floors, ap.floorId || floors[0]!.id, doc.band, doc.channelWidth)
 	);
 
-	// The stored radii describe whichever propagation model was in force when the document
-	// was written, so select the model first and then derive them again.
+	// 存下来的半径是按写文档时的传播模型算的，所以先选模型，再把半径重新推一遍。
 	setPathLossScenario(projectMeta.pathLossScenario);
 	refreshApRanges();
 
 	/*
-	 * No coverage is applied, even when the file carries it.
+	 * 不应用覆盖率，哪怕文件里带着。
 	 *
-	 * A figure from the file was measured by a previous session against a plan this one has
-	 * not verified, and applying it means the panel and the report show a number for a
-	 * building that may not be the one now open. The pass that runs after this produces a
-	 * real one; until then the interface says it has none.
+	 * 文件里的数字是上一次会话按那张图量的，这次还没验证过；应用它，
+	 * 面板和报告就会给一栋可能不是当前这栋的楼报数。这一步之后会跑一遍真的计算，
+	 * 在那之前界面就说「还没有」。
 	 */
 	void options.floorCoverage;
 }
 
-/* ── Shared helpers ───────────────────────────────────────────────────────────────────── */
+/* ── 共用的小工具 ─────────────────────────────────────────────────────────────────────── */
 
 function cloneMask(mask: DocumentMask | null): DocumentMask | null {
 	return mask
@@ -606,9 +564,9 @@ function cloneMaterial(material: DocumentCustomMaterial): DocumentCustomMaterial
 }
 
 /**
- * Keep only the coverage rows that describe a floor the document still has.
+ * 只留下文档里还有的楼层的覆盖率。
  *
- * A row for a deleted floor would otherwise come back as a phantom in the building mean.
+ * 被删楼层的那一行要是留着，会变成整栋平均值里的幽灵。
  */
 function filterCoverage(
 	raw: Record<string, Partial<FloorCoverageEntry>> | undefined,
