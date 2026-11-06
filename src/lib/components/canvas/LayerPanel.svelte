@@ -14,12 +14,6 @@
 
 	let collapsed = $state(typeof window !== 'undefined' && window.innerWidth <= 768);
 
-	/**
-	 * `singleViewOnly` marks the layers the tiled overview does not draw. Leaving
-	 * them listed while tiled made the whole panel look broken: flipping them
-	 * changed nothing, because the layers they control are switched off in that
-	 * view. Hiding them keeps the panel honest about what it can currently do.
-	 */
 	const layers = [
 		{ key: 'showHeatmap', label: 'Signal heatmap', singleViewOnly: false },
 		{ key: 'showFloorplan', label: 'Floorplan', singleViewOnly: false },
@@ -36,26 +30,7 @@
 		layers.filter((l) => !l.singleViewOnly || appState.floorView === 'single')
 	);
 
-	/**
-	 * The scale, as the map paints it — in dBm.
-	 *
-	 * Five words ("Excellent … Dead") said how the map felt; the numbers say what it means,
-	 * and a planner reads a survey in dBm. The bar runs from the project's own floor to
-	 * 0 dBm, which is the range the heatmap maps onto the ramp, and each cell is the ramp's
-	 * colour at that position — so the legend cannot drift from the map it describes.
-	 *
-	 * The grey cell at the left is the part the map does not paint at all: below the floor
-	 * there is nothing to show, which is exactly the information "no usable signal" carries.
-	 */
 	const floorDb = $derived(projectMeta.heatmapRssiFloor ?? -85);
-	/**
-	 * The scale as bands, because the map is drawn as bands.
-	 *
-	 * A continuous bar next to a stepped map describes something the map is not. The bar is
-	 * divided every `LEGEND_BAND_DB` from the floor to 0 dBm and each block takes the ramp's colour
-	 * at its own middle — the same rule the heatmap uses for its bands, so a colour on the plan can
-	 * be found on the legend.
-	 */
 	const LEGEND_BAND_DB = 5;
 	const legendBands = $derived.by(() => {
 		const span = Math.max(LEGEND_BAND_DB, 0 - floorDb);
@@ -97,10 +72,7 @@
 				</button>
 			{/each}
 
-			<!-- Underlay opacity for the tiled overview.
-			     The single-floor view has its own row in the sidebar and each shows in
-			     exactly one view, so there is never a second slider for the same
-			     property on screen. Both write the same value. -->
+			<!-- Underlay opacity for the tiled overview. -->
 			{#if appState.floorView === 'tiled'}
 				<div class="opacity-row">
 					<span class="layer-label">{t('Plan opacity')}</span>
@@ -122,12 +94,7 @@
 				</div>
 			{/if}
 
-			<!-- Viewpoint of the 3D and stacked views. Like the opacity row above, these
-			     belong to a view rather than to the plan, so they are shown only where
-			     they do something: dragging on the canvas turns the view too, and these
-			     are the same two numbers for when a precise angle is wanted. Pitch is
-			     what separates the storeys on screen (`z·sin(pitch)`), and spacing pulls
-			     them apart without touching the geometry. -->
+			<!-- Viewpoint of the 3D and stacked views. -->
 			{#if appState.floorView === 'stacked' || appState.floorView === 'floor3d'}
 				<div class="opacity-row">
 					<span class="layer-label">{t('Rotate')}</span>
@@ -155,9 +122,7 @@
 					/>
 					<span class="opacity-value">{Math.round(appState.stackPitch)}&deg;</span>
 				</div>
-				<!-- The storey spacing and the isolation are properties of a *stack*: one
-				     floor pulled away from itself is not a view, and the 3D view shows the
-				     current floor at its own height. -->
+				
 				{#if appState.floorView === 'stacked'}
 				<div class="opacity-row">
 					<span class="layer-label">{t('Spacing')}</span>
@@ -173,10 +138,7 @@
 					/>
 					<span class="opacity-value">{appState.stackSpread.toFixed(1)}&times;</span>
 				</div>
-				<!-- Hidden on a single-floor plan, where isolating the only floor is the
-				     same as not isolating it. It used to keep the current floor and its
-				     neighbours, which on the common two-storey plan kept everything and
-				     looked broken. -->
+				
 				{#if floorState.floors.length > 1}
 					<button
 						class="layer-row"
@@ -349,12 +311,6 @@
 		padding: 0 var(--space-1);
 	}
 
-	/*
-	 * The scale bar: a head with the unit, a stepped ramp, and the numbers under it. The
-	 * cells are separated by a hairline rather than blended into a gradient — the same reason
-	 * a printed scale has ticks, it lets the eye read a value off the map instead of only
-	 * ordering two colours.
-	 */
 	.scale-head {
 		display: flex;
 		justify-content: space-between;

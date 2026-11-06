@@ -1,15 +1,6 @@
 ﻿<script lang="ts">
 	/**
 	 * The raised-surface tool's floating bar.
-	 *
-	 * Same shape as the wall tool's bar 閳?a segmented group of what you are drawing, one
-	 * material control, and Done 閳?because the two are the same kind of mode. A surface is
-	 * drawn with two clicks; the kind changes what those clicks mean and the deck material
-	 * sets the loss, so both belong next to the pointer rather than in the sidebar.
-	 *
-	 * The material is one button opening a list, not a row of chips: the list is the four
-	 * presets plus "Custom", and a row of five in a floating bar is the sidebar this bar
-	 * exists to avoid.
 	 */
 	import { fly } from 'svelte/transition';
 	import { motionDuration } from '$lib/motion.js';
@@ -265,7 +256,6 @@
 		color: var(--accent-primary);
 	}
 
-	/* The one action that ends the mode: the accent, like the other toolbars' Done. */
 	.done {
 		display: inline-flex;
 		align-items: center;

@@ -35,35 +35,8 @@
 	import { apState } from '$state/ap-state.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
 
-	/**
-	 * Coverage readout plus the placement optimiser's primary action.
-	 *
-	 * This lives outside ApList and is mounted by Sidebar directly. It used to
-	 * sit inside ApList, which Sidebar swaps out for ApEditor as soon as an AP is
-	 * selected — so the coverage figure vanished exactly when you were editing an
-	 * AP's power and most wanted to watch it.
-	 */
 	let settingsOpen = $state(false);
 
-	/**
-	 * How many **non-overlapping** channels the current band, width and regulatory
-	 * domain allow.
-	 *
-	 * Non-overlapping, not "available": 2.4 GHz permits eleven channels and only
-	 * three of them do not overlap, while the solver will happily colour four APs
-	 * with four of the eleven and treat them as non-conflicting. Three is the
-	 * number the literature is about.
-	 *
-	 * Oustry et al. (Networks 81(1), 2023) measure the gain from alternating
-	 * placement and assignment at a median of **zero**, with the improvements
-	 * concentrated in instances that have only three channels — and Gondran et al.
-	 * reach the same conclusion from a testbed: it pays *"only if all available
-	 * channels are used"*. So a plan with channels to spare is a plan where this
-	 * tool's place-then-colour pipeline is already the right shape, and a plan
-	 * without them is one where it may be materially suboptimal. That is worth
-	 * saying out loud, and it is the whole of the "budget" for joint optimisation
-	 * at 5 GHz and above.
-	 */
 	let channelCount = $derived.by(() => {
 		try {
 			const available = getAvailableChannels(apState.band, apState.regulatoryDomain);
@@ -72,13 +45,7 @@
 			return 0;
 		}
 	});
-/**
-	 * Which reading's explanation is open, if any.
-	 *
-	 * One at a time: the notes are alternatives to each other, and opening both turns a
-	 * compact readout into a wall of text. Only the building card carries a note now
-	 * that the two interference readings have left the panel.
-	 */
+
 	let openNote = $state<'building' | null>(null);
 	function toggleNote(which: 'building'): void {
 		openNote = openNote === which ? null : which;
@@ -86,10 +53,6 @@
 
 	const multiFloor = $derived(floorState.floors.length > 1);
 
-	/*
-	 * The environments are the ones the standard tabulates for how completely the walls are
-	 * drawn; the numbers live in `PATH_LOSS_SCENARIOS` and the docs, not in the interface.
-	 */
 	const scenarioOptions = $derived(
 		(Object.keys(PATH_LOSS_SCENARIOS) as PathLossScenario[]).map((value) => ({
 			value,
@@ -103,32 +66,11 @@
 		}))
 	);
 
-
-	/**
-	 * The unit the client height is shown in, following the toolbar's ft/m switch.
-	 *
-	 * The value itself stays metric in `projectMeta`: it is the other end of every
-	 * cross-floor path, and the models take metres. Only the field and its readout
-	 * convert.
-	 */
 	const lengthDisplayUnit = $derived(lengthUnit(floorplanState.unitSystem));
 	const clientHeightHints = $derived(lengthInputHints(0.5, 3, 0.1, lengthDisplayUnit));
 
-	/**
-	 * The building-wide mean, from the same per-floor figures the panel shows.
-	 *
-	 * Computed here rather than read from `optimizerState.buildingCoverage`, which is only
-	 * written by an all-floor run — and a mean that disagrees with the floors it is a mean
-	 * of is worse than no figure at all.
-	 */
 	const buildingPct = $derived(getBuildingCoverage());
 
-	/**
-	 * The weakest floor with data, named.
-	 *
-	 * A floor nobody has measured yet is not a candidate: its 0% is an absence, and
-	 * calling that the weakest would put an unmeasured storey at the top of a warning.
-	 */
 	const worstFloor = $derived.by(() => {
 		let worst: { id: string; name: string; coverage: number } | null = null;
 		for (const floor of floorState.floors) {
@@ -141,12 +83,6 @@
 		return worst;
 	});
 
-	/**
-	 * How many floors have been measured, and how many sit below half.
-	 *
-	 * The count and the margin are what make an average actionable — "3 floors, one at
-	 * 41%" says where to look, while a bare "88%" does not.
-	 */
 	const buildingStats = $derived.by(() => {
 		let measured = 0;
 		let belowHalf = 0;
@@ -157,32 +93,12 @@
 		return { measured, belowHalf };
 	});
 
-	/*
-	 * Leaving the plan view ends the mode.
-	 *
-	 * With the toggle hidden in the overviews, an armed mode left behind would be an
-	 * invisible state: no toolbar, no button to turn it off, and the next return to the
-	 * plan still adding APs on every click.
-	 */
 	$effect(() => {
 		if (appState.floorView !== 'single' && appState.apPlaceMode) setApPlaceMode(false);
 	});
 </script>
 
 {#if !optimizerState.isRunning && appState.floorView === 'single'}
-	<!--
-		Placement mode sits outside the coverage guard below, because the moment you
-		most need it is when the floor has no access points yet — which is exactly when
-		that whole block is hidden.
-
-		Off by default: with it on, the canvas adds an AP to every stray click, so
-		clicking to deselect or fumbling a pan leaves one behind.
-
-		Only in the single-floor view: the overviews are read-only cards, and a click
-		there picks a floor rather than placing anything. Offering the toggle there was
-		a control that turned on a mode whose toolbar was hidden and whose clicks did
-		nothing.
-	-->
 	<button
 		class="place-toggle"
 		class:active={appState.apPlaceMode}
@@ -199,12 +115,6 @@
 {/if}
 
 <div class="coverage-panel">
-	<!--
-		The readouts describe a plan that has access points to score. The settings
-		below do not: "Allow APs outside rooms" and "Min signal" are what you set
-		*before* placing the first one, so that block cannot carry the panel's
-		visibility with it.
-	-->
 	{#if apState.aps.length >= 1}
 		{#if optimizerState.coverage > 0}
 			<div class="metric">
@@ -222,29 +132,8 @@
 					></div>
 				</div>
 			</div>
-
-			<!--
-				The two interference readings are deliberately **not** on this panel.
-
-				They are per-plan model outputs, not things you steer while placing access
-				points: the weight that trades them against coverage lives in the optimiser
-				settings, and what a plan scored is written into the PDF report's cover and
-				printed to the console by every run. Putting them here made the panel carry
-				three figures whose two smaller ones were zero on most plans, which reads as
-				"nothing to see" rather than "nothing wrong".
-
-				The optimiser still scores them — `projectMeta.interferenceWeight` is
-				unchanged, and the CCA half is what `ROADMAP.md` B4/B5 is about — so this is a
-				display decision, not a modelling one.
-			-->
 		{/if}
 
-		<!--
-			The building block. Only meaningful for a stack, and only once there is
-			something to average: every floor's figure comes from the same per-floor
-			measurement the panel's own Coverage row uses, so the two cannot disagree
-			by a rounding step the way a separately-rounded second pipeline can.
-		-->
 		{#if multiFloor && buildingStats.measured > 0}
 			<div class="building">
 				<div class="building-head">
@@ -280,12 +169,6 @@
 		{/if}
 
 		{#if channelCount > 0 && channelCount <= 4}
-			<!--
-				The scarce-channel warning. Placement and assignment are solved
-				sequentially here, which the literature says is fine when channels are
-				plentiful and materially suboptimal when they are not — see the comment
-				on `channelCount`.
-			-->
 			<div class="channel-warning">
 				{t('Only')} {channelCount}
 				{t('non-overlapping channels on this band. Placement and channel assignment are solved one after the other, so on a plan this tight the result may be well short of optimal — try a different Optimize Placement result, or widen the band.')}
@@ -315,17 +198,6 @@
 			</button>
 		</div>
 
-		<!--
-			One primary action for the shape of the project, and the other as a
-			second-tier button. Which one is primary is not cosmetic: on a single
-			storey "optimize all floors" and "optimize placement" are the same run,
-			so offering both as equals was offering the same button twice; on a
-			stacked project the building-wide run is the one that moves the figure
-			the user is looking at, and the single-floor run is the targeted tool.
-
-			Skipped while the plan has no access points: the optimiser moves the
-			ones already placed, so a run would return without doing anything.
-		-->
 		{#if apState.aps.length >= 1}
 			{#if multiFloor}
 				<Tooltip
@@ -497,10 +369,6 @@
 									lengthDisplayUnit
 								))}
 						/>
-						<!--
-							The unit only: the field already shows the number, and printing it
-							again beside the field read as two conflicting values.
-						-->
 						<span class="setting-value">{lengthDisplayUnit}</span>
 					</label>
 				</Tooltip>
@@ -531,12 +399,6 @@
 					</label>
 				</Tooltip>
 
-				<!--
-					The distance term's environment. The ITU coefficient already contains an
-					average allowance for walls, and this app also charges every crossing, so the
-					value has to match what the plan accounts for — which is why the panel says
-					which one the detected walls justify instead of leaving a bare number.
-				-->
 				<Tooltip
 					wrap
 					position="top"
@@ -569,9 +431,7 @@
 
 <style>
 	/*
-	 * Placement mode. Primary styling when on, because the mode changes what a click
-	 * on the canvas does and has to be visible at a glance — and it is off by default,
-	 * so the button also has to read as an invitation when it is not.
+	 * Placement mode
 	 */
 	.place-toggle {
 		display: flex;
@@ -612,13 +472,6 @@
 		outline-offset: 1px;
 	}
 
-	/*
-	 * Metric rows. The name and the number share a line, the bar sits under them, and the
-	 * explanation is a disclosure rather than a hover bubble: these labels live inside the
-	 * sidebar's scroll container, where a bubble anchored to them is clipped, and a
-	 * paragraph that vanishes when the pointer moves is the wrong affordance for text you
-	 * are meant to read while looking at the number.
-	 */
 	.metric {
 		display: flex;
 		flex-direction: column;
@@ -642,15 +495,6 @@
 		color: inherit;
 	}
 
-	/*
-	 * The clickable name is the disclosure: the whole label, not a stray icon.
-	 *
-	 * It used to carry a circled "?" after the text. That mark is gone — the note
-	 * it opens reads as ordinary panel prose, and a permanent question mark beside
-	 * a figure the panel is confident about implied the number was in doubt. The
-	 * label still opens and closes the note; `aria-expanded` is what says so to a
-	 * screen reader.
-	 */
 	.as-button {
 		padding: 0;
 		background: none;
@@ -710,8 +554,6 @@
 		color: var(--text-tertiary);
 	}
 
-	/* The building card. Headed, so it reads as a section rather than as a stranded
-	   sentence, and the weakest floor is a named status rather than a colour. */
 	.building {
 		display: flex;
 		flex-direction: column;
@@ -864,12 +706,6 @@
 		accent-color: var(--accent-primary);
 	}
 
-	/*
-	 * One line, always. The row used to wrap, which put the slider on a second
-	 * line as soon as the label and value together exceeded the popup width.
-	 * The slider absorbs the remaining space instead, and the label is kept short
-	 * enough that it never needs to steal a line.
-	 */
 	.slider-row {
 		flex-wrap: nowrap;
 		cursor: default;
@@ -881,8 +717,6 @@
 		accent-color: var(--accent-primary);
 	}
 
-	/* The height field is a number, not a slider: it is a modelling assumption to
-	   be typed, and the exact value matters more than the ability to scrub it. */
 	.slider-row input[type='number'] {
 		flex: 0 0 52px;
 		min-width: 0;

@@ -13,9 +13,6 @@
 	let dontShowAgain = $state(true);
 
 	onMount(() => {
-		// This dialog mounts before the app restores the project, so it runs the key
-		// migration itself: otherwise a returning user is asked "seen this before?" again
-		// and the answer is written over their own.
 		migrateLegacyStorageKeys();
 		if (localStorage.getItem(STORAGE_KEY)) return;
 		setTimeout(() => {
@@ -58,10 +55,6 @@
 	>
 		<div class="dialog" transition:fly={{ y: 10, duration: motionDuration(180), opacity: 0 }}>
 			<div class="header">
-				<!-- The app icon itself, so the dialog and the browser tab agree. -->
-				<!-- The app icon itself, so the dialog and the browser tab agree. -->
-				<!-- The app icon itself, so the dialog and the browser tab agree. -->
-				<!-- The app icon itself, so the dialog and the browser tab agree. -->
 				<svg class="favicon" width="56" height="56" viewBox="0 0 32 32" aria-hidden="true">
 					<defs>
 					<linearGradient id="ax-welcome" x1="0" y1="1" x2="0.35" y2="0">
@@ -141,10 +134,6 @@
 		flex-shrink: 0;
 	}
 
-	/*
-	 * The same wordmark treatment the toolbar uses. The brand appears in two places, and two
-	 * different logos for one name is one too many.
-	 */
 	.title {
 		margin: 0;
 		font-family: 'Palatino Linotype', 'Book Antiqua', Palatino, 'URW Palladio L', Georgia,

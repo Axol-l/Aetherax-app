@@ -85,25 +85,12 @@
 
 	let batchPower = $state(20);
 
-	/**
-	 * The unit the estimated range is shown in, following the toolbar.
-	 *
-	 * The range is a *derived readout*, never typed, so it converts in one place
-	 * through `displayLength` and cannot drift from the rest of the column.
-	 */
 	const lengthDisplayUnit = $derived(lengthUnit(floorplanState.unitSystem));
 
 	const mountOptions = $derived(
 		MOUNT_PRESETS.map((preset) => ({ value: preset.mount, label: t(preset.label) }))
 	);
 
-	/**
-	 * The storey the selected AP is on, whose ceiling bounds its height.
-	 *
-	 * An AP is never modelled above its own ceiling or below its floor, so the field
-	 * and the model share this bound rather than the field accepting a number the
-	 * model then quietly reduces.
-	 */
 	const apCeilingHeight = $derived(
 		singleAp ? (floorState.floors.find((f) => f.id === singleAp.floorId)?.ceilingHeight ?? 3) : 3
 	);
@@ -117,21 +104,6 @@
 		lengthInputHints(0, apCeilingHeight, 0.1, lengthDisplayUnit)
 	);
 
-	/**
-	 * Changing the mount moves the height to that preset's own value — and, for a
-	 * wall mount, the unit onto the nearest wall.
-	 *
-	 * The height is stored, not derived, so picking "Floor" on an AP left at 2.9 m
-	 * would otherwise leave a floor-mounted access point at ceiling height — a
-	 * combination no user asked for and one the panel would show as two fields
-	 * disagreeing. The height stays editable afterwards, which is the point of
-	 * storing it.
-	 *
-	 * A wall-mounted unit has to *be* on a wall, so the switch moves it there: the
-	 * same measurement that gives it a direction (`state/wall-snap.ts`) also gives it
-	 * a place. An AP with no wall anywhere near it keeps its position and is left
-	 * facing +x, which the facing field below then says out loud.
-	 */
 	async function handleMountChange(value: string): Promise<void> {
 		if (!singleAp) return;
 		pushState();
@@ -525,11 +497,7 @@
 				</div>
 			</div>
 			<!--
-				The pin is a constraint on the optimiser, not on the user: a pinned AP can
-				still be dragged, and the optimiser then treats wherever it was left as the
-				place to keep. That is why the control sits with the position rather than in
-				the optimiser settings — and it is a switch, the same one the raised-surface
-				card uses, rather than a checkbox: it is a state, not a tick-box on a form.
+				The pin is a constraint on the optimiser, not on the user.
 			-->
 			<button
 				class="pin-row"
@@ -966,11 +934,6 @@
 		outline-offset: 1px;
 	}
 
-	/*
-	 * A tooltip bubble is centred on its wrapper, and these wrappers hold a short
-	 * field label — so a bubble wider than the label was pushed out of the 320 px
-	 * sidebar and clipped by it. Full-width wrappers keep the bubble over the panel.
-	 */
 	.field :global(.tooltip-wrapper) {
 		display: flex;
 		width: 100%;

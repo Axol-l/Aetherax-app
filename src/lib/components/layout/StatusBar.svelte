@@ -7,17 +7,6 @@
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
 
-	/**
-	 * Nothing here reports autosaves.
-	 *
-	 * The bar used to flash "Saved" two seconds after every edit, on the theory that the user
-	 * likes to know. What it actually reported was the *autosave timer*: move an access point,
-	 * "Saved"; scroll, "Saved" — noise that reads as the app doing expensive work (and every
-	 * one of those writes serialises the masks). Autosave is silent by design; a save the user
-	 * asked for (Ctrl+S, an export) answers in the corner notice, which is where an answer to
-	 * a key press belongs.
-	 */
-
 	function handleFit() {
 		const engine = canvasEngineRef.engine;
 		if (!engine) return;
@@ -36,9 +25,6 @@
 
 	/**
 	 * Switch between the single-floor view and the two overviews.
-	 *
-	 * Re-frames on the way through: the views have nothing in common spatially, so
-	 * keeping the camera would land on empty canvas either way.
 	 */
 	function setView(v: FloorView) {
 		if (appState.floorView === v || viewTransition.active) return;
@@ -46,24 +32,11 @@
 			appState.floorView = v;
 			/*
 			 * The 3D view opens at an angle, not head-on.
-			 *
-			 * A box seen at zero yaw is a rectangle: two of its four walls are exactly edge-on
-			 * and vanish, which is correct geometry and a useless first impression — it reads as
-			 * a flat plan with a thick border. The first look is therefore oblique, and only
-			 * when the viewpoint is still the default, so an angle the user chose is never
-			 * overwritten.
 			 */
 			if (v === 'floor3d' && appState.stackYaw === 0) {
 				appState.stackYaw = 30;
 			}
 			// Frame on the next frame, not now.
-			//
-			// The overview layers are handed their floors by an effect, and `setFloors`
-			// only runs while an overview is active — so at this moment `contentBounds()`
-			// is still empty and the synchronous fit fell through to the floorplan/AP
-			// bounds, framing one floor instead of the layout. That is what made the
-			// first switch into the tiled view land at the wrong zoom, with the cards
-			// half off-screen.
 			requestAnimationFrame(() => handleFit());
 		});
 	}

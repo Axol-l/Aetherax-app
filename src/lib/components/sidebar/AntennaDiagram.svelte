@@ -1,27 +1,4 @@
 <script lang="ts">
-	/**
-	 * What the antenna's beam and aim do to the floor, drawn.
-	 *
-	 * The picture is a row of bars standing on the floor, and the height of each is the
-	 * antenna's own strength at that patch of it — the same elevation cut the heatmap
-	 * uses, and the same colour ramp, so the bars cannot disagree with the map they sit
-	 * next to. Height and colour are the one encoding that needs no vocabulary: nobody
-	 * has to be taught that the tall green ones are the good ones, or that the gap under
-	 * the AP is where the signal is weakest. A pattern shape was tried first and had to
-	 * be explained, which is the same as not working.
-	 *
-	 * The two settings are visible as the profile they produce, which is why there are no
-	 * arrows on the AP any more: a level omni leaves the floor under itself weak and the
-	 * far floor strong, tilting brings the tall bars in towards the AP, and narrowing the
-	 * beam flattens all of them, since the strongest direction has moved off the angles
-	 * this floor is seen at. The device stands on the tallest bar: the spot a change of
-	 * aim moves.
-	 *
-	 * A **wall mount** is drawn as the section through the direction it faces: the wall
-	 * is the line the AP sits on, the half behind it is at the front-to-back figure, and
-	 * the picture stops being symmetric — which is the whole difference between the two
-	 * mountings.
-	 */
 	import {
 		antennaProfileForMount,
 		azimuthLossDb,
@@ -72,44 +49,12 @@
 	/** The AP's own mounting height above the floor, in drawing units. */
 	const apY = $derived(FLOOR_Y - clamp(mountHeightM, 0, ceilingM) * SCALE);
 
-	/**
-	 * The plane this picture measures the pattern on, and which way the bars grow.
-	 *
-	 * A ceiling-mounted unit radiates down at the floor beneath it, so the floor is the
-	 * surface to draw: reddest where the beam lands, weakest at the edges. A low-mounted
-	 * one is the other way round — it sits *under* the clients and radiates up at them —
-	 * and drawing the floor two metres below it showed the back of the antenna instead,
-	 * which is why the two mounts' pictures looked the same.
-	 *
-	 * So a floor mount is measured against the client plane above it, and the drawing is
-	 * mirrored about that plane, so the bars hang from it towards the unit and the beam
-	 * visibly points up.
-	 */
 	const serveAbove = $derived(mount === 'floor');
 	const clientPlaneM = $derived(clamp(projectMeta.clientHeight, mountHeightM + 0.2, ceilingM));
 	const serveY = $derived(serveAbove ? FLOOR_Y - clientPlaneM * SCALE : FLOOR_Y);
-
-	/**
-	 * The band's pattern, with the edited numbers in it — the same profile the models use.
-	 *
-	 * Including the mount: a wall-mounted unit has a horizontal cut, and this picture
-	 * would otherwise show a front and a back as equal.
-	 */
 	const profile = $derived(
 		antennaProfileForMount({ band, beamwidthDeg, aimDeg, mount, facingDeg })
 	);
-
-	/**
-	 * The bars: the antenna's loss under each patch of floor, as height.
-	 *
-	 * A metre more or less of floor is a couple of degrees of depression angle at this
-	 * range, so sampling every 0.4 m is far finer than the curve can move.
-	 *
-	 * The section is drawn *along the facing direction* of a wall mount, so the half to
-	 * the right of the AP is the part it was pointed at and the half to the left is
-	 * behind it, at the front-to-back figure. For an upright omni the two are the same
-	 * ray and the term is zero, which is why the picture has always looked symmetric.
-	 */
 	const bars = $derived.by(() => {
 		// The vertical drop from the unit to the plane it is measured on: for a ceiling
 		// mount that is its height above the floor, for a low mount the clients' height
@@ -142,11 +87,6 @@
 	<rect x="0" y={FLOOR_Y} width={W} height={GROUND} class="ground" />
 	<line x1="0" y1={FLOOR_Y} x2={W} y2={FLOOR_Y} class="floor" />
 
-	<!--
-		The bars and the client are drawn against the served plane; for a low mount the
-		whole group is mirrored about it, so the antenna's beam points up at the clients
-		without either shape being written twice.
-	-->
 	<g transform={serveAbove ? `translate(0 ${2 * serveY}) scale(1 -1)` : undefined}>
 		{#each bars as bar, i (i)}
 			<rect

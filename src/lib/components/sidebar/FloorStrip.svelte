@@ -1,16 +1,4 @@
 <script lang="ts">
-	/**
-	 * The floor strip: switch, rename, reorder, add and delete storeys.
-	 *
-	 * It used to be the first block of `FloorplanControls`, whose script is otherwise about
-	 * the *current* floor's plan — import, detection, calibration, walls, surfaces, notes.
-	 * The list of floors is the one thing in the panel that is about the building instead,
-	 * and it is self-contained: five handlers, two pieces of local state and its own CSS.
-	 *
-	 * The delete confirmation lives here rather than in the parent: the parent's dialog is
-	 * shared by every destructive action in the panel, and a floor deletion is the one that
-	 * does not need to be routed through it.
-	 */
 	import { floorState, addFloor, removeFloor, switchFloor } from '$state/floor-state.svelte.js';
 	import { apState } from '$state/ap-state.svelte.js';
 	import { pushState } from '$state/history.svelte.js';
@@ -77,8 +65,6 @@
 			pushState();
 			apState.aps = apState.aps.filter((ap) => ap.floorId !== id);
 			removeFloor(id);
-			// `removeFloor` tells the storage layer, which is what drops the floor's stored
-			// underlay; this used to be the caller's job. See `floor-state.ts`.
 			scheduleSave();
 		});
 	}

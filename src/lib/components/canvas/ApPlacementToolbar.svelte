@@ -1,17 +1,6 @@
 ﻿<script lang="ts">
 	/**
 	 * The placement tool's floating bar.
-	 *
-	 * Placing access points inherits the last one's mounting — a plan is normally described
-	 * with one kind of hardware — but until this bar existed the mounting could not be
-	 * changed *before* the click: a wall mount could only be placed by first placing a wall
-	 * mount somewhere else, then editing it. The bar is the missing switch, floating over the
-	 * canvas where the next click lands, like the wall tool's own bar.
-	 *
-	 * The mounting is the parameter that changes what a click does (a wall mount has to land
-	 * on a wall, the others do not), so it is the one the bar carries. Height, beamwidth and
-	 * aim stay in the AP editor: they refine an AP that exists, and a click is not the moment
-	 * to type them.
 	 */
 	import { fly } from 'svelte/transition';
 	import { motionDuration } from '$lib/motion.js';

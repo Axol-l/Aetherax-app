@@ -1,11 +1,6 @@
 ﻿<script lang="ts">
 	/**
 	 * The planning-area tool's floating bar.
-	 *
-	 * Same strip as the wall and surface tools: what is being drawn, the actions that only
-	 * make sense while it is being drawn, and a green action that ends the mode. The sidebar
-	 * card can still close the loop, but drawing happens over the canvas 閳?reaching for the
-	 * panel between two corners is the step this bar removes.
 	 */
 	import { fly } from 'svelte/transition';
 	import { motionDuration } from '$lib/motion.js';
@@ -38,11 +33,6 @@
 	<button class="tool" onclick={onundo} disabled={corners === 0}>{t('Undo corner')}</button>
 	<button class="tool" onclick={oncancel}>{t('Cancel')}</button>
 	{#if corners >= 3}
-		<!--
-			The confirm only exists once there is a polygon to confirm. Before the third
-			corner the bar is "what you are drawing" and the way out; after it, the green
-			action that closes the loop appears.
-		-->
 		<span class="divider"></span>
 		<button class="done" onclick={onclose}>
 			<Icon name="check" size={13} />
@@ -118,7 +108,6 @@
 		cursor: default;
 	}
 
-	/* The action that ends the mode, in the accent like the other tools' Done. */
 	.done {
 		display: inline-flex;
 		align-items: center;

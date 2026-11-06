@@ -1,15 +1,4 @@
 <script lang="ts">
-	/**
-	 * Notes pinned to the current floor.
-	 *
-	 * Half of what decides where an access point goes never made it into the CAD file — the
-	 * lift lobby's steel door, the rack that will be installed next month. A pin holds that
-	 * next to the place it is about, and the layer switch can take them off the plan for a
-	 * screenshot or a print.
-	 *
-	 * The list is collapsed by default once there are notes: annotations are something you
-	 * consult, not something that has to take six rows of the sidebar while placing APs.
-	 */
 	import { appState } from '$state/app.svelte.js';
 	import { currentFloor } from '$state/floor-state.svelte.js';
 	import { pushState } from '$state/history.svelte.js';
@@ -183,11 +172,6 @@
 		outline-offset: 1px;
 	}
 
-	/*
-	 * The body helpers are repeated from the panel's stylesheet while the remaining cards
-	 * are still in `FloorplanControls`: scoped CSS does not cross the component boundary,
-	 * and the shared card wrapper (`PanelCard`) only owns the shell, not the body's chips.
-	 */
 	.planning-hint {
 		margin: 0;
 		font-size: var(--text-xs);

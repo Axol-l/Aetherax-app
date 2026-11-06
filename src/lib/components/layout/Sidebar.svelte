@@ -49,23 +49,6 @@
 				{/if}
 			{/if}
 		</div>
-		<!--
-			The reading order below is the order the work is done in: import the plan, say
-			what its area is, line the floors up — then place access points and, last, run
-			the optimiser over them.
-
-			Coverage and the optimiser used to be pinned *above* the panel content, which put
-			"Optimize all floors" on screen before the floorplan had been imported at all:
-			the primary action for step five was the first thing in the panel, and the step
-			one control was somewhere below the fold. They sit under the content now, which
-			also means they stay visible while the steps above them scroll — they are the
-			last thing reached and the thing a run is watched from.
-
-			Both are outside the panel content rather than inside a tab, for the reason they
-			always were: the APs tab swaps ApList for ApEditor when an AP is selected, and
-			that must not take the coverage readout, the placement mode or the optimiser with
-			it.
-		-->
 		<CoveragePanel />
 		<ApAdvicePanel />
 	</aside>
@@ -93,11 +76,6 @@
 		flex-shrink: 0;
 	}
 
-	/*
-	 * Two tabs, so the indicator is half the content width and shifts by exactly its own
-	 * width. The tab's own border-bottom stays transparent: one moving underline, not two
-	 * that cross-fade.
-	 */
 	.tab-indicator {
 		position: absolute;
 		left: var(--space-2);

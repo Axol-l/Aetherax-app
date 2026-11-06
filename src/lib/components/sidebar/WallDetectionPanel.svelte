@@ -1,19 +1,6 @@
 <script lang="ts">
 	/**
 	 * Review what the vector reader made of this plan, and disagree with it.
-	 *
-	 * The classifier is confidently wrong sometimes — a thin curved line is a door swing
-	 * in most plans and a curved stair rail in some, and a word of lettering is big
-	 * enough to look like a block of wall poché — and a mask built from the wrong rule
-	 * looks exactly like one built from the right one. Before this panel the only
-	 * recourse was the escape hatch back to the pixel detector, which throws away
-	 * everything the reader got right along with the one thing it got wrong.
-	 *
-	 * So: the elements the reader was unsure about (*openings and unknowns*, since a wall
-	 * and a fixture are the two answers it is confident in), each with the rule that
-	 * decided it and a way to say otherwise. An override re-reads the drawing rather than
-	 * patching the mask, because an element the reader called a fixture was never drawn
-	 * into the mask in the first place and no amount of patching would add it.
 	 */
 	import { wallState, type WallMaskData } from '$state/wall-state.svelte';
 	import { canvasState } from '$state/canvas.svelte';
@@ -33,14 +20,6 @@
 
 	const review = $derived(wallState.vectorReview);
 
-	/**
-	 * The rows worth a decision: the openings, and everything the reader could not place.
-	 *
-	 * Walls and fixtures are excluded on purpose. They are the two verdicts the
-	 * classifier is sure of — a stroke above the width cut, and a filled shape that is
-	 * neither dark nor thin — and listing 22 walls to say "these are walls" would bury
-	 * the three rows that need an answer.
-	 */
 	const rows = $derived(
 		(review?.elements ?? []).filter(
 			(e) => e.role === 'door' || e.role === 'window' || e.role === 'unknown'
@@ -68,8 +47,6 @@
 		failed = false;
 		try {
 			const overrides = new Map(review.overrides);
-			// Choosing what the classifier already said clears the override rather than
-			// recording a no-op, so "reset" and "agree with it" end in the same state.
 			if (review.elements[id]?.role === role && !overrides.has(id)) {
 				return;
 			}
@@ -134,10 +111,6 @@
 
 	/**
 	 * Point at one element's place on the plan.
-	 *
-	 * The box is measured in the mask's own pixels and the mask is drawn 1:1 in world
-	 * units, so the only conversion is the mask's origin — which is the floor's alignment
-	 * offset, added when the mask was anchored to the underlay.
 	 */
 	function highlight(element: ReviewableElement | null): void {
 		if (!element) {
@@ -165,11 +138,6 @@
 
 	/**
 	 * What to say about a pixel read, per reason.
-	 *
-	 * The distinction matters to the user, not to the code: a photograph of a plan has no
-	 * objects to classify and never will, while a *vector* plan this reader could not see
-	 * is a drawing it got wrong — and that one is worth re-detecting, hand-editing or
-	 * reporting.
 	 */
 	const RASTER_REASONS = {
 		'not-vector': 'This file is an image, so there are no drawing objects to classify.',
@@ -178,33 +146,11 @@
 		forced: 'You chose the pixel detector for this plan.'
 	} as const;
 
-	/**
-	 * How much of the vector report is unfolded.
-	 *
-	 * Both levels start closed. The block appears by itself after a vector import and most
-	 * plans never need to change anything in it, so opening at full height put a table of
-	 * every opening in the sidebar uninvited. The counts stay visible either way, which is
-	 * the part a reader actually wants at a glance.
-	 *
-	 * Plain component state on purpose: the read it describes is session-only
-	 * (`wallState.vectorReview` is not persisted), so there is nothing to remember across
-	 * a restart, and remembering *within* one is not worth a store.
-	 */
 	let expanded = $state(false);
 </script>
 
 {#if review}
 	<div class="review">
-		<!--
-			The heading is the toggle: this block appears on its own after a vector import,
-			and it used to open at full height with a table of every opening in it — which
-			is a lot of sidebar for something most plans never need to change. Collapsed it
-			still says what was read (the counts line below stays visible), so the summary
-			is one glance and the detail is one click.
-
-			Session state only, like the read itself: `vectorReview` is not persisted, so the
-			block is gone on the next start and there is nothing to remember between runs.
-		-->
 		<button
 			class="review-head"
 			aria-expanded={expanded}
@@ -229,13 +175,6 @@
 
 		{#if expanded}
 			{#if rows.length > 0}
-				<!--
-					The list itself, no second fold.
- 
-					It used to sit behind "Check the openings and anything unclassified", which
-					made the user open the block and then open it again to reach the only thing
-					in it. The block's own heading is the fold; inside it, the list is the block.
-				-->
 				<ul class="rows">
 					{#each shown as element (element.id)}
 						<li
@@ -270,12 +209,6 @@
 				<span class="error">{t('That change left no walls at all — undo it or re-detect.')}</span>
 			{/if}
 
-			<!--
-				The actions, at the foot of the open block. Collapsed, the row is the title and the
-				counts and nothing else: the two actions give up on the vector read or undo the
-				user's own reclassifications, and neither is something to press by accident from a
-				folded block.
-			-->
 			<div class="review-actions">
 				{#if review.overrides.size > 0}
 					<button class="link" onclick={reset} disabled={busy}>{t('Reset')}</button>
@@ -288,13 +221,6 @@
 	</div>
 {/if}
 
-<!--
-	The other half of the same report: what ran instead. One line, and nothing else.
-
-	It used to carry a reason sentence ("This file is an image, so there are no drawing objects
-	to classify") and a warning about text masking. Both were notes about the reader, not
-	controls, and on a plan that read as pixels they were the longest text in the sidebar.
--->
 {#if !review && wallState.rasterReason && wallState.wallMask}
 	<div class="raster-note">
 		<span class="review-title">
@@ -316,8 +242,6 @@
 		border-radius: var(--radius-sm);
 	}
 
-	/* Same shell as `.review`, muted: it explains a mask rather than offering to change
-	   one, and it must not read as an error — a raster plan is a legitimate plan. */
 	.raster-note {
 		display: flex;
 		flex-direction: column;
@@ -335,11 +259,6 @@
 		gap: var(--space-2);
 	}
 
-	/*
-	 * The heading is a button now, so it needs the button taken back off it: a sidebar
-	 * heading that arrives with a border, a background and the browser's own font is the
-	 * tell that a div was turned into a control without anyone looking at it.
-	 */
 	button.review-head {
 		width: 100%;
 		padding: 0;
@@ -351,7 +270,6 @@
 		cursor: pointer;
 	}
 
-	/* Points down when closed, up when open — the same shape both levels use. */
 	.chev {
 		flex: none;
 		color: var(--text-tertiary);
@@ -362,11 +280,6 @@
 		transform: rotate(180deg);
 	}
 
-	/*
-	 * The two actions, side by side and separated, instead of stacked full-width links.
-	 * Stacked they read as headings — the eye takes an underlined line starting at the
-	 * margin for a section title, and there were two of them directly under the counts.
-	 */
 	.review-actions {
 		display: flex;
 		flex-wrap: wrap;
@@ -413,7 +326,6 @@
 		border-left: 2px solid var(--border-default);
 	}
 
-	/* An override is a deliberate act; it should be visible at a glance. */
 	.row.overridden {
 		border-left-color: var(--accent-primary);
 	}
@@ -434,8 +346,6 @@
 		color: var(--accent-primary);
 	}
 
-	/* The reason is long and the panel is 300 px wide; one line, clipped, with the full
-	   text in the tooltip. */
 	.label {
 		flex: 1 1 100%;
 		order: 3;

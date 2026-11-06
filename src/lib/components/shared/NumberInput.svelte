@@ -15,14 +15,6 @@
 		step?: number;
 		label?: string;
 		disabled?: boolean;
-		/**
-		 * Called after the field settles on a new number.
-		 *
-		 * For a caller that does not bind `value` but owns the thing the number means —
-		 * a selected object's own field, say — this is where that edit is committed.
-		 * Skipped when the number did not change, so a blur after typing is not a second
-		 * edit.
-		 */
 		onchange?: (value: number) => void;
 	} = $props();
 
@@ -30,14 +22,6 @@
 		return Math.min(max, Math.max(min, n));
 	}
 
-	/**
-	 * The value rounded to the precision its step implies.
-	 *
-	 * `0.6 + 0.1` is `0.7000000000000001` in binary floating point, and the stepper showed
-	 * that to the user: a height that reads "0.7000000000000001 m" looks broken even though
-	 * the model is fine. A step of 0.1 means tenths, so the answer is kept to tenths — one
-	 * place for 0.1, two for 0.05, none for 1.
-	 */
 	function roundToStep(n: number): number {
 		if (!Number.isFinite(n)) return n;
 		const stepText = String(step);

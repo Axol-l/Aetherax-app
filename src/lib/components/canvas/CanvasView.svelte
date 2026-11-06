@@ -132,12 +132,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		markDirty: () => engine?.markDirty()
 	});
 
-	/**
-	 * The gesture state machine: pointer, touch, orbit and alignment drags.
-	 *
-	 * It owns when a click becomes a drag and which mode receives the click; the view
-	 * keeps what each of those actions *does* and hands them over as a GestureHost.
-	 */
 	const gestures = new CanvasGestures({
 		engine: () => engine,
 		select: () => selectHandler,
@@ -170,46 +164,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	const wallDistanceCache = createWallDistanceCache();
-	/**
-	 * The mask the cache above was last built for.
-	 *
-	 * Held beside it so a drag can ask "where is the nearest wall?" without decoding
-	 * anything: the annotation effect rebuilds the transform when the mask changes,
-	 * and both are written there together.
-	 */
+
 	let wallProbeMask: { originX: number; originY: number } | null = null;
 
-	/**
-	 * The nearest wall to a world point, from the transform the caption already built.
-	 *
-	 * Null when there is no mask to measure against, which leaves a drag unsnapped
-	 * rather than stuck.
-	 */
 	const wallProbe: WallProbe = (x, y) =>
 		wallProbeMask
 			? wallSnapFrom(wallDistanceCache.transform, wallProbeMask.originX, wallProbeMask.originY, x, y, getEffectiveWupm())
 			: null;
 
 	/**
-	 * Make the drawn segments the floor's mask.
-	 *
-	 * Everything downstream — the heatmap's attenuation field, the optimiser's domain, the
-	 * coverage samples, the interior test, the worker's payload — reads a wall mask and a
-	 * material mask. Deriving those from the segments therefore makes the whole app
-	 * vector-driven with no change to any of its own maths.
-	 *
-	 * Nothing calls this by hand any more: a wall that is drawn, moved or deleted moves the
-	 * mask with it (see the effect below). The frame is always the mask's own, never the
-	 * segments' bounding box — samples, texels and the interior are addressed in the plan's
-	 * frame, and a mask sized to the walls puts every one of them outside it.
-	 */
-	/**
 	 * Remove every drawn wall on the floor.
-	 *
-	 * The wall toolbar's trash button. The wall card used to own this, which put a
-	 * destructive action in the sidebar while the tool that draws walls floated over the
-	 * canvas; it is a normal edit — undo puts the segments back, and the mask follows them —
-	 * so it needs no confirmation.
 	 */
 	function clearFloorWalls(): void {
 		const floor = currentFloor();
@@ -217,15 +181,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		pushState();
 		floor.walls = [];
 		appState.wallVectorSelected = null;
-		/*
-		 * Re-derive now, not on the effect's debounce.
-		 *
-		 * The wall-sync effect deliberately skips while the wall tool is armed (a run of
-		 * segments should be one rasterise), and this button lives in that tool's bar — so
-		 * waiting for the effect would leave the old mask in place until the user pressed
-		 * Done. Clearing is explicit and final: empty the mask, drop the interior caches
-		 * and save.
-		 */
 		syncVectorWallsToMask(true);
 		forgetInterior(floor.id);
 		scheduleSave();
@@ -238,18 +193,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const columns = floor.columns ?? [];
 		const frame = wallState.wallMask;
 		const noSegments = walls.length === 0 && columns.length === 0;
-		/*
-		 * No segments is not the same thing as no walls.
-		 *
-		 * The mask may be a *detected* raster — an imported plan, or Re-detect walls — which is
-		 * the only geometry that floor has. Emptying it here because the segment list is empty
-		 * threw the detection away, which is why an import stopped drawing walls and the
-		 * Re-detect button appeared to do nothing. The segment list is empty until the user draws
-		 * or traces; the detection owns the mask until then.
-		 *
-		 * `forceEmpty` is the caller saying the last segment was just deleted: then the mask must
-		 * be emptied, because otherwise every consumer keeps measuring a wall that is gone.
-		 */
 		if (noSegments && !forceEmpty) return;
 		const extent = frame
 			? {
@@ -381,9 +324,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/** Right-click / long-press contextual handler: wall, column, raster or room popup. */
 	function handleContextAction(screenX: number, screenY: number): boolean {
-		// A drawn segment first: it is the model, and the raster blob under it is only
-		// its shadow. A column is the same kind of thing — a pier is a wall with no length —
-		// so it comes before the raster too. Then the raster, then a room.
 		if (handleVectorColumnContext(screenX, screenY)) return true;
 		if (handleVectorWallContext(screenX, screenY)) return true;
 		if (handleWallClick(screenX, screenY)) return true;
@@ -392,17 +332,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	}
 
 	/**
-	 * Right-click on a drawn wall: the popup edits *that segment's* material.
-	 *
-	 * This is how a wall's material is set now that the paint brush is gone, so it has to
-	 * outrank the blob behind it — the segment is the wall, the blob is its rasterisation.
-	 */
-	/**
-	 * Right-click on a column: the popup edits *that column's* material.
-	 *
-	 * A column is drawn in the toolbar's current material and, until now, had no way back: a
-	 * pier drawn as drywall could not be made concrete without deleting and redrawing it. It is
-	 * the same popup as a wall's, keyed on the column instead.
+	 * Right-click on a column
 	 */
 	function handleVectorColumnContext(screenX: number, screenY: number): boolean {
 		if (!engine) return false;
@@ -509,21 +439,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	async function handleMaterialSelect(newMaterial: WallMaterialId) {
 		if (!wallPopup) return;
-		/*
-		 * The choice came from the wall toolbar: it is the material the *next* wall or column
-		 * is drawn in, not a change to anything that exists. The sidebar's wall card shows the
-		 * same value, because `wallState.wallMaterial` is what both read.
-		 */
 		if (wallPopup.tool) {
 			wallState.wallMaterial = newMaterial;
 			scheduleSave();
 			return;
 		}
-		/*
-		 * A drawn segment: the material is a property of *the wall*, not of the pixels
-		 * under it. Writing it here and re-deriving the mask is what keeps the two
-		 * models from drifting — the segment stays the truth and the mask follows.
-		 */
 		if (wallPopup.wallId) {
 			const floor = currentFloor();
 			const wall = floor?.walls?.find((candidate) => candidate.id === wallPopup!.wallId);
@@ -536,11 +456,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			scheduleSave();
 			return;
 		}
-		/*
-		 * A column: the same rule as a wall — the material is the column's own, and the mask is
-		 * re-derived from it. The drawing shows it as the column's fill colour, so "assign a
-		 * material to a pier" is one action rather than delete-and-redraw.
-		 */
 		if (wallPopup.columnId) {
 			const floor = currentFloor();
 			const column = floor?.columns?.find((candidate) => candidate.id === wallPopup!.columnId);
@@ -591,26 +506,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let selectHandler: SelectHandler;
 	let dragHandler: DragHandler;
 	let placeHandler: PlaceHandler;
-	/**
-	 * Decoded images and per-floor coverage, held once for both overview views.
-	 *
-	 * One cache rather than one per view, because a floor's coverage image is the
-	 * expensive artefact: sharing it means switching between the contact sheet and
-	 * the stack never regenerates anything, and the two views cannot disagree about
-	 * a floor's resolution or its cache key.
-	 */
-	const floorCards = new FloorCardCache();
 
-	/*
-	 * The layers are built with the component, not in `onMount`.
-	 *
-	 * They used to be `let …: Layer` assigned on mount, and every effect that syncs one opened
-	 * with `if (!layer) return;` — a guard whose truth depended on `onMount` running before the
-	 * first `$effect` flush. That ordering is Svelte's, not this file's, and a guard that fails
-	 * is silent: the effect is dead for the rest of the session with nothing to show for it. A
-	 * layer is a plain object and needs nothing from the DOM, so it exists from the start and
-	 * the guards are gone.
-	 */
+	const floorCards = new FloorCardCache();
 	const floorplanLayer = new FloorplanLayer();
 	const gridLayer = new GridLayer();
 	const heatmapLayer = new HeatmapLayer();
@@ -633,27 +530,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 	const vectorWallsLayer = new VectorWallsLayer();
 
 	let autoSolveTimeout: ReturnType<typeof setTimeout> | null = null;
-
-	/**
-	 * Whether the layers that belong to *one* floor are on screen.
-	 *
-	 * The overviews (tiled, stacked, 3D) draw the building themselves; every editing layer
-	 * hides in them, and each effect used to spell the test out for itself. One name for it,
-	 * read in the effects, so "which views show this layer" is one decision rather than
-	 * fourteen copies of a comparison.
-	 */
 	let singleFloorView = $derived(appState.floorView === 'single');
 
 	let showEmptyHint = $derived(
-		// Only in the view where the hint's advice can be acted on: the overviews are
-		// read-only, and a "drop a floorplan here" over a 3D model is noise.
 		singleFloorView && apState.aps.length === 0 && !floorplanState.floorplanUrl
 	);
 
-	/**
-	 * The keyboard map itself is in `canvas/shortcuts.ts`: the four gestures only this
-	 * view can perform are handed over, and everything else is a state a shortcut may touch.
-	 */
 	function handleKeyDown(e: KeyboardEvent) {
 		handleShortcut(e, { stopWallMode, commitPlanningDraft, cancelAlignDrag: gestures.cancelAlignDrag.bind(gestures), syncVectorWallsToMask });
 	}
@@ -669,11 +551,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Move one storey up or down, from the 3D view's arrows.
-	 *
-	 * By level rather than by array position: the array is kept in level order, but the
-	 * arrows say "the floor above" and a reordered array must not turn them into "the next
-	 * one". A step past the end is a no-op rather than a clamp, so the arrows do not
-	 * silently stop responding at the top of a building.
 	 */
 	function stepFloor(direction: 1 | -1): void {
 		const sorted = [...floorState.floors].sort((a, b) => a.level - b.level);
@@ -794,27 +671,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * How far each access point on this floor sits from the nearest wall.
-	 *
-	 * The measurement is the exact distance to the nearest wall *pixel*, and the
-	 * caption is converted here rather than in the renderer, because this is where
-	 * the calibration (world units per metre) and the project's unit system are
-	 * both in scope — the one place that can turn a distance in mask pixels into
-	 * the figure the rest of the interface would show for it.
-	 *
-	 * The distance transform behind it costs tens of milliseconds on a full-size
-	 * plan, so it is built only when the mask changes, never per frame: an AP
-	 * being dragged re-reads a cached transform, which is one array lookup per
-	 * access point. Wall editing is excluded outright — every brush dab republishes
-	 * the mask, and the annotation is not what anyone is reading mid-stroke.
-	 *
-	 * Two dependencies, for two different arrivals. `maskPipeline.apWallMask` is the decoded
-	 * raster and lands from the decode's promise; `wallState.wallMask` is the
-	 * floor's declared mask and changes the moment a floor is switched or cleared,
-	 * before any decode has run. A mask is only measured against when the two
-	 * agree on the geometry, which is what keeps a floor switch from briefly
-	 * measuring the incoming floor's access points against the outgoing floor's
-	 * walls — and what clears the annotation when a floor has no walls at all,
-	 * since the decode effect must not write this state itself.
 	 */
 	$effect(() => {
 		const floorId = floorState.currentFloorId;
@@ -827,10 +683,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const declared = wallState.wallMask;
 		const decoded = maskPipeline.apWallMask;
 		const revision = maskPipeline.revision;
-		// The origin is compared rounded because that is what the decode does to
-		// it: the stored value is an alignment offset and can be fractional, while
-		// the raster it addresses is made of whole pixels. Comparing the raw value
-		// would silently drop the annotation on every aligned floor.
 		const mask =
 			declared &&
 			decoded &&
@@ -853,14 +705,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			wallProbeMask = transform ? { originX: mask.originX, originY: mask.originY } : null;
 			if (transform) {
 				for (const ap of aps) {
-					/*
-					 * A wall-mounted unit is measured sideways instead: it is *on* a
-					 * wall, so its nearest wall is the bracket it hangs on — the same
-					 * 0.1 m for every one of them, which is a reading that says nothing.
-					 * What it has instead is wall beside it, which is where that
-					 * mounting wall ends: a corner, a partition, the end of the room. A
-					 * reading near zero means the unit is in a corner.
-					 */
 					const measured =
 						ap.mount === 'wall'
 							? nearestSideWall(
@@ -913,25 +757,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	/**
-	 * The vector review panel's pointer, drawn over the plan.
-	 *
-	 * Only in the single-floor view: the element boxes are the current floor's, and the
-	 * overviews draw every floor as a read-only card, so a highlight there would point at
-	 * one storey's coordinates on another storey's picture.
-	 */
 	$effect(() => {
 		reviewHighlightLayer.box =
 			singleFloorView ? canvasState.reviewHighlight : null;
 		engine.markDirty();
 	});
 
-	/**
-	 * The calibration points, as the line they describe.
-	 *
-	 * Only in the single-floor view: the points are world coordinates on the floor being
-	 * calibrated, and the overviews draw every storey at once.
-	 */
 	$effect(() => {
 		const points = appState.calibrationPoints;
 		const visible = singleFloorView;
@@ -940,14 +771,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	/*
-	 * A tool that owns the bare-canvas click must not leave the marquee behind.
-	 *
-	 * `SelectHandler` starts a box selection on any empty-canvas pointerdown; the planning
-	 * branch intercepts the click before it, but a box begun earlier (or by a touch/gesture
-	 * transition) stayed drawn while the area was being edited. The blue rectangle is
-	 * canvas state, not planning state, so it is cleared here when the tool arms.
-	 */
 	$effect(() => {
 		if (!appState.planningDrawMode) return;
 		selectionRectLayer.active = false;
@@ -955,19 +778,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	/**
-	 * The planning area: the committed polygon and the loop being drawn.
-	 *
-	 * Single-floor view only, like the other plan annotations: the polygon is one floor's
-	 * coordinates and the overviews draw every storey at once.
-	 */
 	$effect(() => {
 		const visible = singleFloorView;
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-		// The committed outline is a proposal aid, not permanent chrome: after the confirm it
-		// would sit on the plan as a blue dashed box with no way to dismiss it. It is shown
-		// while the planning tool is open (so the old area is visible under the new one) and
-		// hidden otherwise; the sidebar still says whether an area exists.
 		planningAreaLayer.area =
 			visible && appState.planningDrawMode ? (floor?.planningArea ?? null) : null;
 		planningAreaLayer.draft = visible ? appState.planningDraft : [];
@@ -976,15 +789,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	/*
-	 * The heatmap's clip follows the planning area.
-	 *
-	 * `maskPipeline.apply` sets it when the wall mask materialises, but redrawing the area
-	 * changes no wall pixel — so the pipeline does not run, the old polygon stayed on the
-	 * heatmap layer, and the new area appeared to have no effect on the picture. The
-	 * polygon is part of the heatmap's cache key, so assigning it here regenerates the
-	 * field as well as moving the outline.
-	 */
 	$effect(() => {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		const planned = floor?.planningArea ?? null;
@@ -1004,12 +808,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	$effect(() => {
-		/*
-		 * Hidden while an access point is being dragged. The layer rebuilds itself whenever
-		 * an AP moves, and that rebuild is the expensive part of a drag frame; a heatmap that
-		 * is sliding under the pointer is not being read anyway. It returns on pointer-up,
-		 * rebuilt once from the final positions.
-		 */
 		heatmapLayer.visible =
 			singleFloorView && appState.showHeatmap && !canvasState.isDragging;
 		engine.markDirty();
@@ -1027,9 +825,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			try {
 				resolved = await heatmapApsForFloor(floorId);
 			} catch (err) {
-				// A floor whose mask cannot be read must not take the heatmap down with
-				// it: fall back to this floor's own APs, which is what the layer drew
-				// before any of this existed.
 				console.warn(
 					'[heatmap] could not read a floor\'s wall mask; those cross-floor paths ' +
 						"fall back to this floor's walls, which is the old single-run model.",
@@ -1039,10 +834,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			}
 			if (version !== heatmapApsVersion) return;
 			heatmapLayer.aps = resolved;
-			// Same string the tiled overview uses for this floor, so the two views share
-			// cached attenuation fields instead of invalidating each other's — and it
-			// carries the mask's origin, so aligning the floor does not leave the fields
-			// measured against where it used to be.
 			heatmapLayer.maskTag = heatmapMaskTag(floorState.floors.find((f) => f.id === floorId) ?? {
 				id: floorId,
 				wallMask: null
@@ -1058,33 +849,17 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	/**
-	 * Raised surfaces of the floor on screen, for the heatmap's height field.
-	 *
-	 * Its own effect rather than part of the decode: a surface can be drawn or edited
-	 * without the walls changing at all, and the layer's cache key carries them, so the
-	 * image is rebuilt on the next frame rather than on the next decode.
-	 */
 	$effect(() => {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		heatmapLayer.surfaces = floor?.surfaces ?? [];
 		engine.markDirty();
 	});
 
-	// Coarser wall grid while dragging, for responsiveness
 	$effect(() => {
 		heatmapLayer.isDragging = canvasState.isDragging;
 		engine.markDirty();
 	});
 
-	// What a floor switch does to the view, apart from the masks.
-	//
-	// There is nothing to copy here any more: `wallState` and `floorplanState` read through
-	// the current floor (see `state/wall-state.ts`), so switching floors switches their
-	// values. The decode caches are dropped by `MaskPipeline.syncWallMask` itself, which knows
-	// which floor they belong to — that reset used to be the first line of this effect, and
-	// "this effect runs before the decode effect" was an invariant held up by declaration
-	// order alone.
 	let lastSyncedFloorId = '';
 	$effect(() => {
 		const id = floorState.currentFloorId;
@@ -1125,15 +900,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	});
 
 	$effect(() => {
-		/*
-		 * The raster wall layer is the *derived* band, so it is only drawn when the segments
-		 * are not — a floor whose walls are still only a detected raster.
-		 *
-		 * With segments it was a second copy of the same walls under the vector layer: a
-		 * full-resolution coloured raster blitted on every frame, and the thing the user saw
-		 * as "a hand-drawn layer under the wall lines". It was also most of the cost of a
-		 * drag — the raster is a whole-plan image, the segments are a handful of strokes.
-		 */
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		const hasSegments = (floor?.walls ?? []).length > 0 || (floor?.columns ?? []).length > 0;
 		wallLayer.visible =
@@ -1170,23 +936,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let lastFittedUrl: string | null = null;
 	$effect(() => {
 		const url = floorplanState.floorplanUrl;
-		// Where this floor's underlay sits in the shared world frame. Read here
-		// rather than inside loadImage because the offset can change without the
-		// image changing (that is the whole point of aligning floors).
 		const floor = currentFloor();
 		floorplanLayer.offsetX = floor?.floorplanOffsetX ?? 0;
 		floorplanLayer.offsetY = floor?.floorplanOffsetY ?? 0;
 		if (url) {
 			floorplanLayer.loadImage(url, () => {
-				/*
-				 * Auto-fit once per *image*, never per offset.
-				 *
-				 * This effect also re-runs when a floor is aligned (the offset is one of its
-				 * inputs), and `loadImage` calls back on a cache hit too — so every alignment
-				 * and every undo re-fitted the camera, which is precisely "the zoom went back
-				 * to fit" on both. A new image is the only event that should re-frame the view;
-				 * a moved one is a move the user just made.
-				 */
 				if (
 					url !== lastFittedUrl &&
 					singleFloorView &&
@@ -1214,46 +968,19 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	/*
-	 * Redraw on a language change: the canvas draws room pills and the empty-state hint
-	 * itself, so nothing else would tell the engine that its pixels are stale.
-	 */
 	$effect(() => {
 		void i18nState.locale;
 		engine.markDirty();
 	});
 
-	/*
-	 * Same for the propagation environment: the heatmap's levels, every coverage circle and
-	 * every AP radius are drawn from the distance term, so switching it makes every cached
-	 * pixel stale and nothing else would say so.
-	 */
 	$effect(() => {
 		void projectMeta.pathLossScenario;
 		engine.markDirty();
 	});
 
-	/*
-	 * The project can arrive with an access point outside the walls, and the check needs the
-	 * mask — which is not decoded yet when the project is restored. This runs it once the
-	 * mask is there, and again whenever the walls or any access point's position changes:
-	 * the notice is about where an access point sits, so dragging one back inside has to
-	 * clear it, and reading the coordinates is what makes that a dependency.
-	 */
 	$effect(() => {
 		void wallState.wallMask;
-		/*
-		 * Turning "Allow APs outside rooms" on is an answer to the warning, not a reason
-		 * to keep showing it: the notice exists to say the plan is wrong, and with the
-		 * switch on an outside AP is what the user asked for. Without this dependency the
-		 * warning stood after the switch and re-appeared on every later edit.
-		 */
 		void projectMeta.allowOutsideRooms;
-		// The verdict is about every floor's mask, not the one on screen: an access point on
-		// Floor 4 is judged against Floor 4's, which a re-detect replaces without the live
-		// mask changing at all. Without these dependencies the notice could stand from a
-		// geometry that no longer exists — which is how a point that the app itself now
-		// calls inside was still being reported as outside the building.
 		void floorState.currentFloorId;
 		for (const floor of floorState.floors) void floor.wallMask;
 		for (const ap of apState.aps) {
@@ -1261,9 +988,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			void ap.y;
 			void ap.floorId;
 		}
-		// While a wall is being drawn the mask is a draft. Judging against a half-drawn
-		// wall accuses points that are inside the moment the segment is committed, and the
-		// notice is not worth showing for a geometry the user has not finished describing.
 		if (appState.wallVectorDraft) {
 			appState.outsideNotice = null;
 			return;
@@ -1272,24 +996,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 			appState.outsideNotice = null;
 			return;
 		}
-		/*
-		 * Not on every frame of a drag either.
-		 *
-		 * This is an async pass over every access point (mask lookup, interior cache, the
-		 * planning area) and it re-runs on each position write — thirty to a hundred times a
-		 * second. Its answer cannot change meaningfully between two frames of one drag, and
-		 * `canvasState.isDragging` is reactive, so the check runs once when the pointer comes
-		 * up and the notice is right by the time the user looks at it.
-		 */
 		if (canvasState.isDragging) return;
 		let cancelled = false;
 		void (async () => {
 			const outside = await apsOutsideInterior();
 			if (cancelled) return;
-			// The state module must not import app state — that path is a cycle through
-			// persistence — so the notice is set here, where it can also be rendered.
-			// Its own slot: this runs whenever walls or access points move, and the
-			// transient refusal a click produces must survive that.
 			appState.outsideNotice =
 				outside.length === 0
 					? null
@@ -1303,16 +1014,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		};
 	});
 
-	// Ghost of the floor below.
-	//
-	// Two floors live in the same world frame, so if their plans disagree there
-	// is no way to notice while looking at one floor on its own. This overlays
-	// the reference floor's underlay and wall silhouette so the disagreement is
-	// visible while the alignment is nudged.
-	//
-	// The reference floor's *current* offsets are read here rather than the
-	// stored ones: translating a floor mutates the stored mask origin and the
-	// underlay offset in place, and those are `$state`, so this re-runs.
 	$effect(() => {
 		if (!referenceFloorLayer || !engine) return;
 		const show = appState.showFloorBelow;
@@ -1329,8 +1030,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			below.floorplanOffsetX,
 			below.floorplanOffsetY
 		);
-		// The ghost is drawn in the current floor's frame: convert the reference floor's
-		// plan and mask from its units into these.
 		referenceFloorLayer.scale =
 			wupmForFloor(floorState.currentFloorId) / (wupmForFloor(below.id) || 1);
 		const mask = below.wallMask;
@@ -1338,11 +1037,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	// Tiled overview: one read-only card per floor.
-	//
-	// Rebuilt from state every time anything about a floor changes, so a card
-	// cannot show stale geometry. The layout is recomputed inside the layer on
-	// each render for the same reason.
 	$effect(() => {
 		if (!floorTilesLayer || !stackedFloorsLayer || !engine || !floor3DLayer) return;
 		// Both overviews are read-only layouts of the same cards, so they share the
@@ -1354,10 +1048,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		stackedFloorsLayer.visible = stacked;
 		floor3DLayer.visible = appState.floorView === 'floor3d';
 		if (!overview) return;
-		// One opacity value for the whole app. It lives on `floorplanScale`, which
-		// the single-floor view already used for it, and the cards borrow the
-		// current floor's setting so the views stay in step. Two sliders used
-		// to write two different variables and fight over the layer's alpha.
 		const sources = floorState.floors.map((f) => ({
 			id: f.id,
 			name: f.name,
@@ -1365,42 +1055,28 @@ import { wallState } from '$state/wall-state.svelte.js';
 			planOffsetX: f.floorplanOffsetX,
 			planOffsetY: f.floorplanOffsetY,
 			maskUrl: f.wallMask?.dataUrl ?? null,
-			// The overviews colour walls from the same two rasters the plan does: without
-			// the material map they could only draw the mask, which is white walls on
-			// transparent, and every material looked alike up there.
 			materialUrl: f.materialMask?.dataUrl ?? null,
 			defaultMaterial: f.wallMaterial ?? 0,
 			maskOriginX: f.wallMask?.originX ?? 0,
 			maskOriginY: f.wallMask?.originY ?? 0,
 			maskWidth: f.wallMask?.width ?? 0,
 			maskHeight: f.wallMask?.height ?? 0,
-			// The floor's own calibration. The overview scales each card's drawing into
-			// the sheet's frame with it, so two plans at different resolutions are the
-			// physical size they are.
 			wupm: wupmForFloor(f.id),
 			aps: apState.aps
 				.filter((ap) => ap.floorId === f.id)
 				.map((ap) => ({
 					x: ap.x,
 					y: ap.y,
-					// Carried so an overview can colour the marker the way the plan does,
-					// shape it the way the plan does, and lift it off the floor by where
-					// the AP actually hangs.
 					assignedChannel: ap.assignedChannel,
 					band: ap.band,
 					mountHeightM: apHeightAboveFloor(ap),
 					mount: ap.mount,
 					facingDeg: ap.facingDeg
 				})),
-			// Only the stacked view uses this, and it is derived rather than stored:
-			// see `floorElevation`.
 			elevation: floorElevation(f.id)
 		}));
 		for (const layer of [floorTilesLayer, stackedFloorsLayer]) {
 			layer.planOpacity = floorplanState.floorplanScale;
-			// The LAYERS panel has to mean the same thing in every view. The
-			// single-floor layers are hidden here, so without this the toggles changed
-			// nothing on screen and the panel looked broken.
 			layer.showPlan = appState.showFloorplan;
 			layer.showWalls = appState.showWalls;
 			layer.showAPs = appState.showAPs;
@@ -1408,12 +1084,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		}
 		floorTilesLayer.setFloors(sources, floorState.currentFloorId, projectWupm());
 		stackedFloorsLayer.setFloors(sources, floorState.currentFloorId, projectWupm());
-		/*
-		 * The 3D view is one floor, so it takes its card source and the geometry that floor
-		 * stands up: its wall segments and its raised surfaces. The camera is the same
-		 * object the stacked view uses, so a viewpoint chosen in one is the viewpoint in
-		 * the other — switching between them does not throw the user's orientation away.
-		 */
+
 		const view3dFloor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		floor3DLayer.source = sources.find((s) => s.id === floorState.currentFloorId) ?? null;
 		floor3DLayer.walls = (view3dFloor?.walls ?? []) as VectorWall[];
@@ -1433,22 +1104,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 			pitch: Math.min((appState.stackPitch * Math.PI) / 180, MAX_PITCH),
 			spacing: appState.stackSpread
 		};
-		/*
-		 * Two scales, one viewpoint.
-		 *
-		 * The stacked sheet draws every floor in one frame, so it uses the sheet's
-		 * reference scale. The 3D view is a *single* floor: its walls, surfaces and AP
-		 * heights are all in that floor's own units, and lifting them by another floor's
-		 * calibration made a storey measured at a different resolution the wrong height.
-		 */
+
 		stackedFloorsLayer.camera = { ...viewAngles, wupm: projectWupm() };
 		floor3DLayer.camera = {
 			...viewAngles,
 			wupm: wupmForFloor(view3dFloor?.id ?? floorState.currentFloorId)
 		};
-		// Focusing hides floors, and a hidden slab must not stay clickable — the
-		// filter runs in the layout the hit test reads, so the hover has to be
-		// dropped with it rather than left pointing at a floor that is gone.
+		
 		if (stackedFloorsLayer.focus !== appState.stackFocus) {
 			stackedFloorsLayer.focus = appState.stackFocus;
 			stackedFloorsLayer.hoverFloorId = null;
@@ -1462,29 +1124,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	/**
-	 * Per-floor coverage for the overview views.
-	 *
-	 * `generateWorld` is synchronous and covers a whole floor, so generating every
-	 * floor in one pass would freeze the frame for as long as there are floors.
-	 * One floor per animation frame fills the overview in progressively instead, and
-	 * each result is kept until its inputs change. Both the contact sheet and the
-	 * stack read the same map, so switching between them regenerates nothing.
-	 *
-	 * The masks are decoded per floor on demand rather than kept around: a floor's
-	 * heatmap is one canvas, but its decoded mask is a byte per pixel, so holding
-	 * every floor's would cost far more than the thing being cached.
-	 */
 	const tileHeatKeys = new Map<string, string>();
 	let tileHeatWarming = false;
 
-	/**
-	 * Identity for a stored mask, so a cache key can notice it was replaced.
-	 *
-	 * The key used to concatenate the masks' data URLs, which are megabytes: every
-	 * key build copied all of them. Nothing about the *contents* is needed, only
-	 * "is this the same mask as last time", and an edited mask is a new object.
-	 */
 	const tileMaskIds = new WeakMap<object, number>();
 	let nextTileMaskId = 0;
 	function maskTag(mask: object | null | undefined): number {
@@ -1497,36 +1139,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 		return id;
 	}
 
-	/**
-	 * The attenuation-field cache key for a floor's walls.
-	 *
-	 * The field is built in world coordinates with the mask's origin baked in, and the field
-	 * cache is keyed on position, radius and this tag — so the tag has to carry the origin.
-	 * It carried the floor's id alone, which meant that aligning a floor (which moves the
-	 * origin and not a pixel) handed every later request the field measured against the
-	 * position the floor had before it moved.
-	 *
-	 * The tiled overview and the single-floor view use the same string for the same floor, so
-	 * the two still share fields rather than invalidating each other's.
-	 */
 	function heatmapMaskTag(floor: { id: string; wallMask: { originX?: number; originY?: number } | null }): string {
 		return `floor:${floor.id}@${floor.wallMask?.originX ?? 0},${floor.wallMask?.originY ?? 0}`;
 	}
 
 	/**
 	 * World units per metre for the coverage images: one scale for the sheet.
-	 *
-	 * Calibration is per floor, but the tiled and stacked sheets have to draw every card in
-	 * one frame — so they use the bottom floor's scale, not the selected floor's. Reading
-	 * the *selected* floor's scale here made every card's field depend on which card was
-	 * selected: clicking one card rescaled the others' coverage (levels move by
-	 * `40·log10(wupm ratio)` dB — 12 dB for a 2x difference), and because the image's bounds
-	 * derive from the same scale the texel budget could be exceeded too, rendering that tile
-	 * as flat colour blocks.
-	 *
-	 * A card drawn at another floor's scale is a uniformly scaled picture — the walls, the
-	 * APs and their circles scale together, so the coverage *share* it reports is unchanged;
-	 * only a physical readout in metres on that card would need its own floor's scale.
 	 */
 	function projectWupm(): number {
 		return wupmForFloor(floorState.floors[0]?.id);
@@ -1534,21 +1152,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * What one floor's thumbnail depends on.
-	 *
-	 * Every AP, not just this floor's: a neighbouring floor's AP shows up on this
-	 * tile, so moving it has to invalidate this tile too. And every floor's masks,
-	 * for the same reason — they are the cross-floor path's other half, and any of
-	 * them can be the one whose slab the ray crosses.
 	 */
 	function tileHeatKey(floor: Floor): string {
 		const aps = apState.aps
 			.map(
 				(a) =>
 					`${a.id}:${Math.round(a.x)}:${Math.round(a.y)}:${a.interferenceRadius}:${a.band}:${a.channelWidth}:${a.power}:${a.floorId}:` +
-					// Where the AP is mounted is part of the geometry, so a tile built
-					// under one mounting must not stand in for another — and the antenna's
-					// own cuts belong in the key for the same reason, including the
-					// mounting that decides whether there is a horizontal cut at all.
 					`${a.mountHeightM}:${antennaSignature(a)}`
 			)
 			.join('|');
@@ -1572,9 +1181,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * One floor's thumbnail.
-	 *
-	 * The sources are assembled by the same function the single-floor view uses, so a
-	 * floor with no APs of its own still shows the floors around it.
 	 */
 	async function buildTileHeatmap(
 		floor: Floor
@@ -1582,8 +1188,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		if (!heatmapLayer) return null;
 		const stored = floor.wallMask;
 		if (!stored) return null;
-		// `decodeMask` only turns a data URL back into pixels, so it always
-		// reports origin (0, 0); the stored origin is what places it in the world.
 		const mask = await decodeMask(stored.dataUrl, stored.width, stored.height);
 		mask.originX = stored.originX ?? 0;
 		mask.originY = stored.originY ?? 0;
@@ -1599,19 +1203,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 			wallMask: mask,
 			materialMap: material,
 			defaultMaterial: floor.wallMaterial,
-			// This floor's own calibration: the image is in its world units, and the card
-			// scales it into the sheet's frame.
 			worldUnitsPerMeter: wupmForFloor(floor.id),
 			rssiFloor: projectMeta.heatmapRssiFloor,
-			// Which floor's walls these are, and where they sit: the attenuation-field cache
-			// is keyed on position and radius, so without this a tile inherits whichever
-			// floor's field was built first for that cell, and without the origin it keeps
-			// the frame the floor had before it was aligned.
 			maskTag: heatmapMaskTag(floor),
-			// A mezzanine on that floor changes the picture even though nothing moved.
 			surfaces: floor.surfaces ?? [],
-			// The clip is this floor's, not the selected floor's: a tile is generated for
-			// a floor the layer is not showing.
 			clipPolygon: floor.planningArea ?? floorplanState.floorplanBoundary ?? null,
 			clipStrict: !!floor.planningArea && floor.planningArea.length >= 3
 		});
@@ -1672,35 +1267,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 		apState.aps
 			.map(
 				(ap) =>
-					/*
-					 * The AP's position, quantised to two metres.
-					 *
-					 * The solver assigns channels to avoid co-channel interference, so a
-					 * position does belong in the key — but a drag writes a new position on
-					 * every frame, and each solve builds its graph on the main thread
-					 * (`[solve] graph built in 320–516 ms`, measured). Quantising means a
-					 * one-pixel nudge does not re-solve, while moving a unit to the other end
-					 * of the floor does.
-					 */
 					`${ap.id}:${Math.round(ap.x / (2 * wupm))}:${Math.round(ap.y / (2 * wupm))}:${ap.floorId}:${ap.interferenceRadius}:${ap.band}:${ap.channelWidth}:` +
-					// Where the AP is mounted is part of the geometry, so it belongs in
-					// the key: a change here moves the coverage figure and, with
-					// auto-solve on, the placement the solver would choose. The antenna's
-					// cuts move it too — a wall mount's facing decides which half of the
-					// floor it reaches. See `antennaSignature`.
 					`${ap.mountHeightM}:${antennaSignature(ap)}`
 			)
 			.join('|') +
-		/*
-		 * The walls, by mask identity rather than by a counter.
-		 *
-		 * `maskPipeline.maskVersion` was here and is not reactive on purpose (it is bumped
-		 * inside the decode, so making it `$state` re-armed the solver on its own writes), which
-		 * meant a drawn or erased wall changed the geometry and left the solver's channels where
-		 * they were. The mask object is a `$state` read and changes exactly when the geometry
-		 * does — a new object per edit, none per decode — so it re-arms on what it is supposed to
-		 * and on nothing else. See `canvas/mask-registry.ts`.
-		 */
 		`|wm:${maskTag(wallState.wallMask)}:${wallState.wallMaterial}` +
 		// The client's height is the other end of every vertical term.
 		`|mh:${projectMeta.clientHeight}`
@@ -1709,16 +1279,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let solverPending = false;
 	$effect(() => {
 		const auto = solverState.autoSolve;
-		// The **only** reactive input is the key. Everything else is read untracked, and
-		// that is the whole point: a solve ends by replacing `apState.aps` (to force the
-		// canvas to redraw) and by flipping `isRunning`, so an effect that *depended* on
-		// either re-armed another solve as soon as the previous one finished — the app
-		// re-solved about twice a second, forever, with or without a change. It surfaced
-		// as "nothing is ever persisted": once the solver started scheduling a save of
-		// its own (the assignment is project state and has to be saved), that save was
-		// cancelled by the next loop iteration every time. The key already covers the AP
-		// list and the walls, so a real change still schedules exactly one solve, and a
-		// change that lands during a solve is what `solverPending` records.
 		const _key = autoSolveKey;
 		const running = untrack(() => solverState.isRunning);
 		const hasAps = untrack(() => apState.aps.length > 0);
@@ -1731,11 +1291,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			return;
 		}
 		autoSolveTimeout = setTimeout(() => {
-			/*
-			 * On an idle frame: the solve builds its conflict graph on the main thread
-			 * (measured at 344–512 ms before the graph was cached), and the debounce alone
-			 * still landed it on a frame the user was about to need.
-			 */
 			if (typeof requestIdleCallback === 'function') {
 				requestIdleCallback(() => runSolver(), { timeout: 2000 });
 			} else {
@@ -1762,26 +1317,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const _key = autoSolveKey;
 		const _mask = wallState.wallMask;
 		const _rtMask = wallState.roomTypeMask;
-		/*
-		 * The channels are an input to the interference half of the figure, and they are
-		 * deliberately not in `autoSolveKey` (the solver writes them, and a key that noticed
-		 * would re-arm itself). Tracked here instead, so a channel set by hand in the AP editor
-		 * re-measures the figure rather than leaving the number the last assignment produced.
-		 */
+		
 		for (const ap of apState.aps) void ap.assignedChannel;
 		if (apState.aps.length === 0 || !_mask) return;
 		if (coverageTimeout) clearTimeout(coverageTimeout);
 		coverageTimeout = setTimeout(() => updateCoverage(), 300);
 	});
 
-	/**
-	 * Register the project's custom wall materials with the material table.
-	 *
-	 * One place hands the user's materials to the lookups the renderer, the march and the
-	 * solver use — and the same list travels in the optimiser's payload so the worker
-	 * registers its own copy. Without this a wall painted with a custom material would be
-	 * charged the built-in fallback figure.
-	 */
 	$effect(() => {
 		registerCustomMaterials(
 			projectMeta.customMaterials.map((material) => ({
@@ -1799,13 +1341,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	/**
-	 * The vector walls of the floor on screen, the one being drawn and the selected one.
-	 *
-	 * They are drawn *over* the mask they produce, so the model and the raster it derives
-	 * can be seen together: a wall whose band looks wrong against the drawing is a
-	 * rasterisation problem, and one that looks wrong against its own position is not.
-	 */
 	$effect(() => {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		vectorWallsLayer.visible = singleFloorView;
@@ -1821,15 +1356,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		engine.markDirty();
 	});
 
-	/**
-	 * The segments are the model, so a change to them re-derives the floor's mask.
-	 *
-	 * This is the whole of the merge: the drawn walls are what the app measures against,
-	 * and the raster is their shadow. Debounced because tracing a plan commits dozens of
-	 * segments at once and each pass is a full rasterise plus a PNG encode; the signature
-	 * is what the rasterisation reads, so it is also exactly what decides whether another
-	 * pass is needed.
-	 */
 	let wallsSyncTimer: ReturnType<typeof setTimeout> | null = null;
 	let lastWallsKey = { floorId: '', signature: '' };
 	$effect(() => {
@@ -1838,28 +1364,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const wallsSig = (floor?.walls ?? [])
 			.map((wall) => `${wall.ax},${wall.ay},${wall.bx},${wall.by},${wall.material}`)
 			.join(';');
-		// Columns are obstructions in the same mask, so they re-derive it too.
 		const colsSig = (floor?.columns ?? [])
 			.map((column) => `${column.shape},${column.ax},${column.ay},${column.bx},${column.by},${column.material}`)
 			.join(';');
 		const signature = `${wallsSig}|${colsSig}`;
 		const sameFloor = lastWallsKey.floorId === floor.id;
-		// `|` is what two empty lists make: a floor with nothing drawn is not a change.
 		const hadWalls = sameFloor && lastWallsKey.signature !== '|';
 		lastWallsKey = { floorId: floor.id, signature };
-		// Nothing drawn and nothing was: the floor's mask is whatever detection produced,
-		// and it must be left alone.
 		if (signature === '|' && !hadWalls) return;
-		// While a shape is being drawn, nothing is re-derived: a plan is drawn in runs of a
-		// dozen walls, and each pass is a full rasterise, a PNG encode, the interior, the
-		// room labels and a save. Skipping the pass until the tool is left turns a drag that
-		// stalled every segment into one pass at the end.
 		if (appState.wallVectorMode) return;
 		if (wallsSyncTimer) clearTimeout(wallsSyncTimer);
-		// A floor that had segments and now has none: the last obstruction was deleted, and the
-		// mask has to be emptied with it — in the frame it already has, so the plan's coordinate
-		// system does not move. (A floor that never had segments keeps its detected mask; the
-		// early return above is what tells the two apart.)
 		const emptied = hadWalls && signature === '|';
 		wallsSyncTimer = setTimeout(() => {
 			wallsSyncTimer = null;
@@ -1873,13 +1387,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		return (floor?.walls ?? []) as VectorWall[];
 	}
 
-	/**
-	 * The raised surfaces of the floor on screen.
-	 *
-	 * Drawn from the floor, not from a copy: the height field the model reads and the
-	 * rectangle on the canvas have to be the same object, or a surface can be moved in the
-	 * picture and stay where it was in the maths.
-	 */
 	$effect(() => {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		surfacesLayer.visible = singleFloorView;
@@ -1896,10 +1403,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * One click of the raised-surface tool: the first corner, then the opposite one.
-	 *
-	 * The kind and the heights come from the panel, not from the gesture: a stair and a
-	 * platform are the same rectangle, and what makes one a stair is the pair of heights on
-	 * it. A platform therefore ignores the second height rather than keeping a stale one.
 	 */
 	function commitSurfaceClick(world: { x: number; y: number }): void {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
@@ -1918,15 +1421,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 			bx: world.x,
 			by: world.y,
 			heightM: Math.max(0, appState.surfaceHeightM),
-			// A level surface has one height, and saying so twice is how the two fields
-			// drift on a platform the user later changes to a ramp.
 			topHeightM:
 				appState.surfaceKind === 'platform'
 					? Math.max(0, appState.surfaceHeightM)
 					: Math.max(0, appState.surfaceTopHeightM),
 			attenuationDb: Math.max(0, appState.surfaceAttenuationDb),
-			// The material is the preset the figure above came from, recorded so the plan
-			// says what the deck is; absent when the loss was typed by hand.
 			material: appState.surfaceMaterial ?? undefined,
 			thicknessM: Math.max(0, appState.surfaceThicknessM),
 			solidBase: appState.surfaceSolidBase
@@ -1936,8 +1435,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		floor.surfaces = [...(floor.surfaces ?? []), surface];
 		appState.surfaceSelected = surface.id;
 		scheduleSave();
-		// The client's height changes what is covered, so the figure is re-measured rather
-		// than left standing from the flat floor.
 		void updateCoverage();
 	}
 
@@ -1970,11 +1467,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * The eraser: one stroke removes whatever it passes over.
-	 *
-	 * It deletes **segments and columns**, not mask pixels: the segments are the model, and the
-	 * mask is derived from them, so erasing the model is the only erase that every consumer sees.
-	 * A floor whose walls are still a detected raster has no segments to delete — pressing Draw
-	 * wall traces that raster into segments first, which is where the eraser becomes available.
 	 */
 	function eraseAt(world: { x: number; y: number }): boolean {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
@@ -2029,11 +1521,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * One click of the wall tool.
-	 *
-	 * A line is two clicks — start, end — snapping to walls first so a plan grows watertight.
-	 * A pier or a column is also two clicks, its opposite corners, because that is the same
-	 * gesture for a shape you size rather than trace; a circle uses the first click as its
-	 * centre and the second as a point on its rim.
 	 */
 	function handleVectorWallClick(world: { x: number; y: number }, shiftKey: boolean): void {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
@@ -2049,9 +1536,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		}
 		const walls = currentWalls();
 		const tolerance = snapToleranceWorld();
-		// Ends *and* sides: a partition running into the middle of a wall is the commonest
-		// gesture on a plan, and without it the drawing has two walls that look joined while
-		// the model has a gap between them.
 		const snapped = snapToWalls(world, walls, tolerance).point;
 
 		if (!appState.wallVectorDraft) {
@@ -2106,14 +1590,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		scheduleSave();
 	}
 
-	/**
-	 * The notes on this floor, and which is hovered or selected.
-	 *
-	 * Drawn above everything: a note is an annotation about the plan, and an annotation under
-	 * the thing it annotates is unreadable. Visibility follows the layer switch, and the
-	 * hover/selection state lives in app state rather than here so the sidebar editor can
-	 * see it.
-	 */
 	$effect(() => {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		notesLayer.visible = appState.showNotes && singleFloorView;
@@ -2147,10 +1623,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Close the planning area from the canvas: Enter, a double-click, or the sidebar button.
-	 *
-	 * A double-click arrives after its two clicks have already added their corners, so the
-	 * duplicate is dropped before closing — otherwise every double-clicked loop ends with a
-	 * zero-length edge, which the geometry tolerates and the user does not expect.
 	 */
 	function commitPlanningDraft(): void {
 		const draft = appState.planningDraft;
@@ -2158,22 +1630,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		if (!floor) return;
 		pushState();
-		/*
-		 * Re-fetched after the history snapshot, because `pushState` restores the previous
-		 * state before recording the new one: the `floor` captured above can be a detached
-		 * object by the time this writes, and the area then lands on a floor nobody is
-		 * looking at — which is why the card kept saying "Auto-detected" after drawing one.
-		 */
+		
 		const target = floorState.floors.find((f) => f.id === floor.id);
 		if (!target) return;
 		target.planningArea = draft.map((point) => ({ x: point.x, y: point.y }));
-		/*
-		 * The heatmap follows the new area now, not on the next tick.
-		 *
-		 * The effect above also keeps the clip in step, but the picture is what the user is
-		 * watching when they close the loop; assigning here makes the regeneration start on
-		 * this frame instead of after the reactive round-trip.
-		 */
+		
 		if (heatmapLayer) {
 			heatmapLayer.clipPolygon = target.planningArea;
 			heatmapLayer.clipStrict = true;
@@ -2187,12 +1648,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * A double-click on the same spot closes the loop — and nothing else does.
-	 *
-	 * It used to commit on *every* double-click, which made the gesture unusable: two quick
-	 * corners are a double-click, and so is a click near the first corner, so the area
-	 * closed itself while it was still being drawn. Now the last two corners have to be the
-	 * same place (a real double-click on the spot) before it closes; otherwise the click
-	 * that arrived is just another corner, and Enter or the sidebar closes the loop.
 	 */
 	function handleCanvasDoubleClick(event: MouseEvent): void {
 		if (!appState.planningDrawMode) return;
@@ -2235,12 +1690,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		ontouchend={(e) => gestures.handleTouchEnd(e)}
 		ontouchcancel={(e) => gestures.handleTouchEnd(e)}
 	></canvas>
-	<!--
-		A DOM cover for the two-stage view change: the old view fades under it, the new view
-		is swapped in while it is fully opaque, then it fades away. It sits above the canvas
-		but below the floating toolbars, so turning the view off does not hide the controls
-		that frame it.
-	-->
+	
 	<div
 		class="view-fade"
 		class:covering={viewTransition.covering}
@@ -2291,11 +1741,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			}}
 		/>
 	{/if}
-	<!--
-		Floor stepping in the 3D view. The sidebar's floor pills are still there, but in this
-		view the storeys are a place you are looking *at*, not a list you are picking from,
-		and two arrows next to the plan are the gesture that matches.
-	-->
+	
 	{#if appState.floorView === 'floor3d'}
 		<div class="floor-nav" role="group" aria-label={t('Floor')}>
 			<button
@@ -2380,10 +1826,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		cursor: crosshair;
 	}
 
-	/*
-	 * The view change cover. 160ms is `VIEW_FADE_MS` in the state module: the JS waits for
-	 * the CSS transition before it swaps the view, so these two values must stay in step.
-	 */
 	.view-fade {
 		position: absolute;
 		inset: 0;

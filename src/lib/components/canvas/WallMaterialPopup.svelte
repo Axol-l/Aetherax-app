@@ -38,10 +38,6 @@
 
 	/**
 	 * Add the material and paint with it straight away.
-	 *
-	 * Selecting it is the whole reason the user typed it in: making them add it, then find
-	 * it in the list and click it is a step nobody wants, and the new row is at the bottom
-	 * where they would have to look for it.
 	 */
 	function addCustom() {
 		const name = customName.trim();
@@ -79,10 +75,6 @@
 
 	/**
 	 * Delete one of the user's materials.
-	 *
-	 * Walls already painted with it stay painted and keep a real figure: the table answers an
-	 * id it no longer knows with the plain-drywall cost, rather than with nothing, so a
-	 * deletion cannot quietly make part of a plan transparent.
 	 */
 	function removeCustom(id: number) {
 		projectMeta.customMaterials = projectMeta.customMaterials.filter(
@@ -110,11 +102,6 @@
 				<span class="mat-db">{db} dB</span>
 			</button>
 			{#if custom}
-				<!--
-					Deleting one of the user's own. Walls painted with it are left painted: the
-					material table answers an id it no longer knows with the plain-drywall figure,
-					so those walls keep a real attenuation instead of becoming transparent.
-				-->
 				<button
 					class="custom-delete"
 					title={t('Delete material')}
@@ -128,11 +115,6 @@
 	{/each}
 
 	{#if customOpen}
-		<!--
-			A material the table does not have. Two labelled fields rather than two bare boxes:
-			"4" and "0.045" mean nothing without knowing that one is decibels and the other is
-			metres, and the placeholder disappears the moment the field is filled.
-		-->
 		<div class="custom-form">
 			<label class="custom-field">
 				<span class="custom-label">{t('Name')}</span>
@@ -213,8 +195,6 @@
 		flex: 1;
 	}
 
-	/* A row and its delete affordance on one line: the × used to sit under the row in a
-	   browser-default button box, which looked like a bug rather than a control. */
 	.material-line {
 		display: flex;
 		align-items: center;

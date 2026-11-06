@@ -2,14 +2,6 @@
 	/**
 	 * One card of the floorplan panel: a fold control, a title, an optional state line and a
 	 * body.
-	 *
-	 * The cards used to repeat this head — outer border, chevron, icon, title, hidden state
-	 * slot — in the parent, and their fold state was a `$state` per card in a 2 000-line
-	 * script. The wrapper owns the shell so a card is its body: the markup, the fold state
-	 * and the styles of what it shows.
-	 *
-	 * The state snippet is for the one state worth showing while it matters (the planning
-	 * area being drawn); every other card's state line is hidden by the shared CSS.
 	 */
 	import type { Snippet } from 'svelte';
 	import { slide } from 'svelte/transition';
@@ -89,15 +81,6 @@
 		color: var(--text-secondary);
 	}
 
-	/*
-	 * The state line is the card's own markup, passed as a snippet: its styles therefore
-	 * belong to the card that defines it, not here. The wrapper only lays the head out.
-	 */
-
-	/*
-	 * A card's fold control: a chevron on the left of its title, pointing down when the card
-	 * is open and right when it is folded.
-	 */
 	.card-collapse {
 		display: inline-flex;
 		align-items: center;

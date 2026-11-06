@@ -56,18 +56,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	/**
 	 * Shift the current floor so its plan lines up with the floors above and
 	 * below it.
-	 *
-	 * The argument is in the project's *display* unit, rounded the way the field
-	 * shows it, and is converted to metres before it reaches the model — the model
-	 * is metric whatever the toolbar says. A display value of 0 ft is a real
-	 * request to move the floor onto its neighbour, so it is honoured rather than
-	 * treated as "no input"; only a non-finite one is ignored.
-	 *
-	 * The whole floor moves — underlay, masks and APs — so the floor stays rigid.
-	 *
-	 * `translateFloor` shifts the mask *origin* without touching a pixel, so the
-	 * canvas's decode effect has to notice the origin too; see the origin
-	 * tracking in CanvasView.
 	 */
 	function applyAlign(axis: 'x' | 'y', displayValue: number): void {
 		const floor = currentFloor();
@@ -134,17 +122,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let hasFloorplan = $derived(floorplanState.floorplanUrl !== null || wallState.wallMask !== null);
 
 	/**
-	 * Whether there is anything for this floor to be aligned *to*.
-	 *
-	 * Alignment shifts the current floor onto the one below it, so the bottom
-	 * floor has no counterpart: its offsets exist only because every floor carries
-	 * them. Offering the control there invites a shift that lines the floor up with
-	 * nothing.
-	 *
-	 * Tiled view cannot honour it either — a pointer down there picks a card and
-	 * returns, so the drag the button asks for never reaches the alignment handler.
-	 * That makes the button a mode the user can enter and not use, which is worse
-	 * than not showing it.
+	 * Whether there is anything for this floor to be aligned to.
 	 */
 	let canAlign = $derived(
 		floorState.floors.length > 1 &&
@@ -152,21 +130,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 			appState.floorView === 'single'
 	);
 
-	// Leaving align mode on the way out matters: the button that leaves it is the
-	// one being hidden, and a mode with no visible escape reads as a stuck app.
-	// (Escape and a right-click also leave it; this is the path that keeps the two
-	// from disagreeing.)
 	$effect(() => {
 		if (!canAlign && appState.floorAlignMode) setFloorAlignMode(false);
 	});
 
-	/**
-	 * The bundled sample plans, by name and true area.
-	 *
-	 * The area is stored in square metres — it is what the plan physically is, and
-	 * what `loadSample` calibrates against — while the label is built for display,
-	 * so a sample does not read "48sqm" in a column that is otherwise in feet.
-	 */
 	const sampleFloorplans = [
 		{ name: 'Apartment', file: '/samples/apartment-48sqm.svg', areaSqm: 48 },
 		{ name: 'House', file: '/samples/house-120sqm.svg', areaSqm: 120 },
@@ -183,11 +150,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * The calibration scale, in the unit the toolbar selects.
-	 *
-	 * Two decimals whatever the unit: this is a ratio, not a length, and
-	 * "1px = 0.07 ft" is the informative form of a figure whose whole point is the
-	 * second decimal. `roundForDisplay`'s whole-number rule would flatten it to
-	 * "0 ft".
 	 */
 	let scaleDisplay = $derived.by(() => {
 		if (!floorplanState.calibration) return null;
@@ -201,9 +163,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	/**
 	 * The unit every length in this panel is shown in — ceiling height, slab
 	 * thickness and the two alignment offsets.
-	 *
-	 * One binding for all four, so they cannot disagree with each other or with
-	 * the toolbar button that changes them.
 	 */
 	const lengthDisplayUnit = $derived(lengthUnit(unitSystem));
 
@@ -214,11 +173,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Where the current floor's underlay sits in world space.
-	 *
-	 * Wall detection and boundary detection both measure in image pixels, so
-	 * everything they return is anchored at the image's top-left. That used to be
-	 * the world origin because the underlay was pinned there; now that a floor can
-	 * be moved with `translateFloor`, their output has to move with it.
 	 */
 	function underlayOffset(): { x: number; y: number } {
 		const floor = currentFloor();
@@ -227,13 +181,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Shift a freshly detected mask so it lands under the underlay.
-	 *
-	 * `detectWalls` always reports an origin of (0, 0) — the image's top-left.
-	 * Without this the detected walls come back offset from the plan by exactly
-	 * the floor's alignment.
-	 *
-	 * Added rather than assigned, so it stays correct if detection ever reports a
-	 * non-zero image-space origin.
 	 */
 	function anchorToUnderlay<T extends { originX: number; originY: number }>(mask: T): T {
 		const off = underlayOffset();
@@ -244,13 +191,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Load a plan, detect its boundary and its walls.
-	 *
-	 * Detection itself is `detectFloorplanMasks`, which picks the vector reader or the
-	 * pixel one on the file's *content*. The only thing decided here is how the result
-	 * maps onto this floor — origin, calibration prompt, undo-free replace.
-	 *
-	 * `isSvg` is passed through for the fallback: a vector plan whose classifier finds
-	 * no walls still falls back to pixels. See `detectFloorplanMasks`.
 	 */
 	async function runBoundaryDetection(url: string, isSvg = false) {
 		detecting = true;
@@ -317,15 +257,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Re-run detection against the current floorplan image.
-	 *
-	 * Deliberately NOT runBoundaryDetection: that also clears the calibration and
-	 * replays the area prompt, which is wrong when the user just wants the walls
-	 * redrawn on a plan they have already calibrated.
-	 *
-	 * This used to be the one path that could not tell an SVG from a raster — the
-	 * underlay is a session blob URL by now — and it read those plans through the pixel
-	 * detector, which measurably erases their walls. `detectFloorplanMasks` decides on
-	 * the file's content instead, so Re-detect and the import path now agree.
 	 */
 	async function redetectWalls(forceRaster = false) {
 		const url = floorplanState.floorplanUrl;
@@ -358,11 +289,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 				wallState.rasterReason = detection.rasterReason;
 				/*
 				 * Trace the detected mask into segments.
-				 *
-				 * Detection produces a mask, and walls are segments now: without this the drawing
-				 * showed the raster band (or nothing), and the user was left with a picture they
-				 * could not edit. The mask is then re-derived from the segments by the canvas's
-				 * sync effect, which is what every consumer reads.
 				 */
 				const floor = currentFloor();
 				if (floor) {
@@ -385,11 +311,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Redo the walls from pixels, on a plan the vector reader handled.
-	 *
-	 * The escape hatch for a misclassification, and the only way to get the old
-	 * behaviour back on a vector plan without re-importing it: a plan whose doors were
-	 * read wrongly is often better served by the dumb threshold, which at least draws
-	 * every drawn line.
 	 */
 	function redetectFromPixels() {
 		wallState.vectorReview = null;
@@ -398,12 +319,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Entry point for the Detect / Re-detect Walls button.
-	 *
-	 * Detection replaces the entire wall mask and nulls the material mask, so on a
-	 * plan that already has walls it silently discards everything hand-drawn or
-	 * paint-edited. Ask first when there is something to lose. The very first
-	 * detection (no wall mask yet) runs straight through, since prompting there
-	 * would just add friction to the normal import path.
 	 */
 	function requestWallDetection() {
 		if (!wallState.wallMask) {
@@ -423,12 +338,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Apply a scale to the current floor, keeping its AP radii real.
-	 *
-	 * Shared by the two ways of calibrating — the stated area and the measured line — so a
-	 * recalibration rescales the interference radii the same way whichever route produced
-	 * the number. Per floor, not per project: a plan imported at a different resolution can
-	 * be calibrated on its own, and calibrating this storey must not rewrite another one's
-	 * scale or the physical reach of the units on it.
 	 */
 	function applyScale(worldUnitsPerMeter: number): void {
 		setFloorScale(floorState.currentFloorId, worldUnitsPerMeter);
@@ -436,11 +345,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Calibrate from the line the user measured on the plan.
-	 *
-	 * Both ends are world coordinates, which are mask pixels, so the length of the segment
-	 * is already a pixel count; dividing by the stated metres gives the scale directly.
-	 * The area route has to trust the detected outline, and this one does not — which is
-	 * the reason it exists.
 	 */
 	function applyMeasuredCalibration() {
 		const [a, b] = appState.calibrationPoints;
@@ -467,9 +371,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Close the loop being drawn and make it this floor's planning area.
-	 *
-	 * Three corners is the minimum a polygon can have; the button is disabled below that, and
-	 * this refuses again so a keyboard Enter cannot commit a line.
 	 */
 	function commitPlanningArea() {
 		const draft = appState.planningDraft;
@@ -502,10 +403,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Whether the two once-per-floor cards are folded away.
-	 *
-	 * Scale and Planning area are set once and then read, so they take the most room while
-	 * being the least used: folding them to a title row leaves the cards that are actually
-	 * worked in — walls, raised surfaces, notes — above the fold.
 	 */
 	let scaleCollapsed = $state(false);
 	let areaCollapsed = $state(false);
@@ -517,14 +414,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Trace the painted mask into segments.
-	 *
-	 * The vector model is only usable if nobody has to redraw a building by hand, so this
-	 * reads the mask detection already produced and takes its centre lines. The traced set
-	 * covers the same walls the mask does — which is the point: switching models then does not
-	 * change the plan's coverage, and the hand-drawn segments become corrections on top.
-	 *
-	 * The mask is not written here. The canvas re-derives it from the segments whenever they
-	 * change, so committing a whole traced plan is one edit, not two.
 	 */
 	async function traceWallsFromMaskOnFloor(): Promise<void> {
 		const floor = currentFloor();
@@ -545,11 +434,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	/**
 	 * Start drawing walls.
-	 *
-	 * A floor whose walls exist only as a detected raster is traced first. Otherwise the
-	 * first segment drawn would *replace* the plan instead of correcting it — the mask is
-	 * derived from the segments, so it would come back holding one wall — and the user
-	 * would watch the detection vanish under their own click.
 	 */
 	async function startDrawingWalls(): Promise<void> {
 		const floor = currentFloor();
@@ -709,12 +593,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		<div class="draw-scratch">
 			<Button variant="secondary" size="sm" onclick={() => {
 				pushState();
-				/*
-				 * A blank frame to draw into. A floor with no plan still needs a coordinate
-				 * system: every consumer — the samples, the heatmap's texels, the interior,
-				 * the room labels — addresses a mask, so this creates the frame and the wall
-				 * tool then fills it. It used to create the frame and hand over a brush.
-				 */
 				const w = 2000;
 				const h = 1500;
 				const emptyData = new Uint8Array(w * h);
@@ -729,13 +607,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			</Button>
 		</div>
 	{:else}
-		<!--
-			The plan, as a card like everything below it.
-
-			It used to be a loose header with a trash icon and an opacity slider, which read
-			as chrome rather than as a step: the sidebar's real controls are cards, and the
-			first thing in the panel was the one exception.
-		-->
 		<div class="planning-area">
 			<div class="planning-head">
 				<button
@@ -755,11 +626,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				</span>
 			</div>
 			<Collapse open={!floorplanCollapsed}>
-			<!-- Underlay opacity for the single-floor view. The tiled overview has its
-			     own slider in the LAYERS panel, and each shows in exactly one view, so
-			     there is never a second slider for the same property on screen.
-			     Showing it here while tiled would also be a lie: this row writes the
-			     current floor's value, which the tiles only borrow. -->
+		
 			{#if appState.floorView === 'single'}
 				<div class="opacity-row">
 					<label class="opacity-label" for="floorplan-opacity">{t('Opacity')}</label>
@@ -777,12 +644,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 				</div>
 			{/if}
 
-			<!--
-				What the vector reader made of this plan, with a way to disagree with it.
-				The panel owns its own re-read; this passes it the one thing it cannot
-				reach — the pixel fallback, which belongs to the panel that also owns
-				`runBoundaryDetection`.
-			-->
 			<WallDetectionPanel {redetectFromPixels} />
 
 			<div class="planning-actions">
@@ -798,18 +659,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			</Collapse>
 		</div>
 
-		<!--
-			Calibration: what a world unit is worth.
-
-			Also a card now, and for the same reason as the plan above — it is a step in the
-			work (import, calibrate, draw walls, place APs), not a footnote under the header.
-			The area route and the measured route are the two answers to the same question,
-			so they live together with the current scale as the card's state.
-
-			Single-floor view only: the scale is a property of one plan, and in the tiled or
-			stacked views there is no single plan to calibrate against — the card there was a
-			button that could only be wrong.
-		-->
 		{#if appState.floorView === 'single'}
 		<div class="planning-area">
 			<div class="planning-head">
@@ -832,11 +681,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 			{#if detecting}
 				<span class="calibration-status">{t('Detecting boundary...')}</span>
 			{:else if appState.calibrateMode}
-				<!--
-					Measuring: two clicks on the plan, then the real length. The instructions
-					only exist while the canvas is armed for them — showing them before the mode
-					is on told the user to click a plan that would not answer.
-				-->
 				<span class="calibration-label">{t('Click the two ends of a distance you know')}</span>
 				<span class="measure-hint">
 					{appState.calibrationPoints.length === 0
@@ -905,16 +749,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		{/if}
 	{/if}
 
-	<!--
-		Floor properties, after the steps they belong to: the ceiling and the slab are what
-		the propagation model charges, and the alignment rows are meaningless until there is a
-		plan to line them up. So they follow the import and the calibration, in the order the
-		work is done — import, calibrate, align, then place access points and optimise.
-
-		A card like every other step, and collapsible like them: on a multi-storey plan these
-		rows are read once per floor and then left alone, and they used to sit loose between two
-		cards with no heading at all.
-	-->
 	{#if floorState.floors.length > 1}
 		<div class="planning-area">
 			<div class="planning-head">
@@ -963,13 +797,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					onchange={(v) => { pushState(); currentFloor().floorMaterial = Number(v) as any; scheduleSave(); }}
 				/>
 			</div>
-			<!--
-				Alignment. Two floors only line up if their plans happen to share a
-				margin; these shift the whole floor, so a floor that was drawn or
-				auto-detected off-position can be brought onto the one below. Hidden on
-				the bottom floor and in the tiled overview, where there is no floor
-				below to align to and no canvas drag to give the mode — see `canAlign`.
-			-->
+
 			{#if canAlign}
 				<div class="prop-row">
 					<span class="prop-label">{t('Align X')}</span>
@@ -1015,20 +843,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 	{/if}
 
 	{#if wallState.wallMask || floorplanState.floorplanUrl}
-		<!-- Hidden while the tiled overview is up. Both actions edit or replace the
-		     current floor's wall mask, and that view draws every floor as a
-		     read-only card, so pressing them there would change something the user
-		     cannot see or aim at. -->
+		<!-- Hidden while the tiled overview is up. -->
 		{#if appState.floorView === 'single'}
-			<!--
-				The planning area: where this floor actually is.
-
-				Everything about "inside" is otherwise inferred from the walls, which is right
-				for a clean plan and wrong for one whose outline has a wide opening — a room
-				then reads as outside the building, and an access point standing in the middle
-				of it gets reported as outside. Drawing the area says it outright, and once it
-				exists it is what the warnings, the placement guard and the optimiser use.
-			-->
 			<div class="planning-area">
 				<div class="planning-head">
 					<button
@@ -1092,15 +908,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 				</Collapse>
 			</div>
 
-			<!--
-				Walls as line segments — the only way walls are drawn now.
-
-				The raster brush painted a band of pixels and everything downstream had to
-				infer what that band meant, which is where a hollow wall, a cavity read as a
-				room and an outline with an opening read as "outside" all came from. A segment
-				says what it is, and the mask the propagation reads is derived from it: draw,
-				move or delete a wall and the mask follows without a second action.
-			-->
 			<div class="planning-area">
 				<div class="planning-head">
 					<button
@@ -1143,11 +950,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 							<Icon name="pencil" size={14} />
 							{t('Draw wall')}
 						</Button>
-						<!--
-							Re-detecting belongs to the walls, not to the plan: it replaces the
-							wall mask (and the material painted on it), which is what this card
-							is about. It used to sit above every card as a loose row.
-						-->
 						<Button variant="secondary" size="sm" onclick={requestWallDetection} disabled={detecting}>
 							<Icon name="sparkles" size={14} />
 							{detecting
@@ -1233,9 +1035,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		color: var(--text-tertiary);
 	}
 
-	/* The shared Button is sized for toolbars and is inline-flex; in a property
-	   row it should fill the same slot as the controls above it, with the toggle
-	   state carried by the variant rather than by bespoke CSS. */
 	.align-row :global(.btn) {
 		flex: 1 1 auto;
 		min-width: 0;
@@ -1382,15 +1181,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		white-space: nowrap;
 	}
 
-	/*
-	 * The planning area block.
-	 *
-	 * It had no styling at all at first — a title-less run of hint text and buttons, which is
-	 * why it read as raw markup next to the panels around it. A bordered card, a title row
-	 * that names the thing and states its status, then the guidance and the actions: the same
-	 * shape as the vector-read panel above it, so the sidebar has one way of saying "here is
-	 * a thing, here is what state it is in, here is what you can do".
-	 */
 	.planning-area {
 		display: flex;
 		flex-direction: column;
@@ -1408,12 +1198,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		gap: var(--space-2);
 	}
 
-	/*
-	 * Heads are a title and a fold control, nothing else. The right-aligned state text ("12
-	 * drawn", "1 px = 0.10m") made every head a two-column table and pushed the title off the
-	 * left edge; the one state worth showing while it matters — that the area is being drawn —
-	 * keeps its badge.
-	 */
 	.planning-head .planning-state {
 		display: none;
 	}
@@ -1473,14 +1257,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		color: var(--color-warning, #ffb800);
 	}
 
-	/*
-	 * The quiet actions: secondary, but still buttons.
-	 *
-	 * They used to be underlined text, which read as a link and — with four of them in a row
-	 * — as a paragraph of links rather than as the controls of the card they sit in. A
-	 * bordered chip is the smallest thing that still says "press me", and it lines up with
-	 * the `Button`s beside it because it shares their height and radius.
-	 */
 	.skip-link {
 		display: inline-flex;
 		align-items: center;
@@ -1517,11 +1293,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		color: var(--text-disabled);
 	}
 
-	/*
-	 * A card's fold control: a chevron on the left of its title, pointing down when the card
-	 * is open and right when it is folded. Scale and Planning area are set once and then read,
-	 * so they can be put away — the cards that get worked in stay.
-	 */
 	.card-collapse {
 		display: inline-flex;
 		align-items: center;
@@ -1545,11 +1316,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 		background: var(--bg-hover);
 		color: var(--text-primary);
 	}
-
-	/*
-	 * Every card folds from its own head: the chevron's `aria-expanded` is the state, and the
-	 * body is a `Collapse` so the height animates instead of disappearing.
-	 */
 
 	.draw-scratch {
 		margin-top: var(--space-2);

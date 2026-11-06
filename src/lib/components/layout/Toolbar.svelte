@@ -48,11 +48,6 @@
 
 	/**
 	 * Say that a file left the app.
-	 *
-	 * Every export here hands the user a file and nothing else: in the desktop window it
-	 * lands in the download folder, which is somewhere they cannot see, so "Export as PNG"
-	 * looked like a button that did nothing. One helper for all of them, so PNG, PDF and
-	 * the project file cannot drift apart again — PNG and PDF were exactly that drift.
 	 */
 	let savedNoticeTimer: ReturnType<typeof setTimeout> | null = null;
 	function announce(message: string): void {
@@ -119,25 +114,6 @@
 <header class="toolbar">
 	<div class="toolbar-left">
 		<span class="logo">
-			<!--
-				A solid "A", lit from below like a coverage map: the letter is the name, the glow
-				is what the tool measures. One path, so it stays legible at 16 px.
-			-->
-			<!--
-				The signal is cut *out* of the letter: the Wi-Fi glyph is the mask, upside down,
-				and its source dot is the A's enclosed part, so the counter and the dot are one
-				shape. Flat colour — the wordmark next to it carries the gradient.
-			-->
-			<!--
-				The signal is cut *out* of the letter: the Wi-Fi glyph is the mask, upside
-				down, and its source dot is the A's enclosed part. Flat colour — the wordmark
-				beside it carries the gradient.
-			-->
-			<!--
-				The signal is cut *out* of the letter: the Wi-Fi glyph is the mask, upside
-				down, and its source dot is the A's enclosed part, so the counter and the dot
-				are one shape. Flat colour — the wordmark beside it carries the gradient.
-			-->
 			<svg class="logo-mark" viewBox="0 0 32 32" aria-hidden="true">
 				<defs>
 				<linearGradient id="ax-logo" x1="0" y1="1" x2="0.35" y2="0">
@@ -309,20 +285,7 @@
 		transition: filter 160ms ease;
 	}
 
-	/*
-	 * The wordmark reads as a light travelling along a fibre: a cyan-to-violet gradient that
-	 * pans slowly, clipped to the text. Two effects, both cheap: a background-position shift
-	 * across a 200 %-wide gradient, plus a soft glow. Neither animates if the user asked for
-	 * less motion.
-	 */
 	.logo-text {
-		/*
-		 * A calligraphic serif, not the interface's mono face: the wordmark is the one
-		 * place in the interface that is allowed to be a brand rather than a label. The
-		 * stack is Windows-first (Palatino Linotype ships with it) and falls back through
-		 * the clone-friendly names to Georgia, so the *shape* survives on a machine with
-		 * none of them.
-		 */
 		font-family: 'Palatino Linotype', 'Book Antiqua', Palatino, 'URW Palladio L', Georgia,
 			serif;
 		font-style: italic;
@@ -340,13 +303,6 @@
 		animation: brand-sweep 7s ease-in-out infinite;
 	}
 
-	/*
-	 * Hover brightens the mark and the text, and touches **nothing** the animation
-	 * reads. Changing `animation-duration` here — which is what this used to do — was
-	 * read as a restart: the phase is elapsed-time over duration, so halving the
-	 * duration threw the gradient back to a different point of the sweep every time
-	 * the pointer crossed the logo.
-	 */
 	.logo:hover .logo-mark {
 		filter: drop-shadow(0 0 8px rgba(75, 227, 160, 0.75));
 	}

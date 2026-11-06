@@ -1,16 +1,4 @@
 ﻿<script lang="ts">
-	/**
-	 * The wall tool's floating bar.
-	 *
-	 * Three shapes and a material, because that is what a plan is made of: partition walls,
-	 * the piers that break them, and round columns. They share the same two-click gesture and
-	 * the same material, so they are one tool with a shape switch — switching must not drop
-	 * the mode, since a plan is drawn by alternating them.
-	 *
-	 * It floats over the canvas rather than living in the sidebar: the canvas is what the
-	 * next click lands on, and a sidebar section you have to find while drawing is a step
-	 * between the two clicks.
-	 */
 	import { fly } from 'svelte/transition';
 	import { motionDuration } from '$lib/motion.js';
 	import { t } from '$state/i18n.svelte';
@@ -119,11 +107,6 @@
 		{/if}
 	</div>
 
-	<!--
-		The material for whatever is drawn next. One button rather than a row of chips: the
-		list includes the user's own materials and grows, and a row of eight in a floating bar
-		is the sidebar this bar exists to avoid.
-	-->
 	<button class="material" onclick={onmaterial} title={t('Material for the next wall or column')}>
 		<span class="swatch" style="background: rgb({current.color[0]},{current.color[1]},{current.color[2]})"
 		></span>
@@ -154,13 +137,6 @@
 		translate: -50% 0;
 		display: flex;
 		align-items: center;
-		/*
-		 * No gap at all, and a hairline divider between the two groups.
-		 *
-		 * Every spacing above 0 read as "a control is missing" beside Done, whatever the
-		 * number was. The bar is one continuous strip now: the tool group is a segmented
-		 * control, and a 1 px divider is the only separation before the material and Done.
-		 */
 		gap: 0;
 		padding: 4px 6px;
 		background: var(--bg-elevated);
@@ -289,8 +265,6 @@
 	}
 
 	.material-name {
-		/* No fixed cap: a name shorter than 96 px used to leave a blank stretch inside the
-		   material button, which is the "empty space" beside Done. */
 		white-space: nowrap;
 	}
 
@@ -307,8 +281,6 @@
 		padding: 0 10px;
 		font-size: var(--text-xs);
 		font-weight: 500;
-		/* The one action that ends the mode: the accent, so it cannot be mistaken for the
-		   material chip beside it. */
 		color: #0b0d12;
 		background: var(--accent-primary);
 		border: 1px solid var(--accent-primary);

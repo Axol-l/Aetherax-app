@@ -1,15 +1,6 @@
 <script lang="ts">
 	/**
-	 * Placement advice.
-	 *
-	 * The readout the optimiser cannot give: it arranges the access points you
-	 * have, and holds that count fixed, so "you are one AP short" is a sentence no
-	 * run produces. This panel produces it from the run's own figures.
-	 *
-	 * It appears when a run completes rather than being always present, because
-	 * every rule reads a *measurement*: before a run, coverage is the default 0 and
-	 * the advice would be about a plan nobody has scored. See `docs/AP_ADVICE.md`
-	 * for the conditions, their thresholds and what each estimate assumes.
+	 * Placement advice
 	 */
 	
 	import { projectMeta } from '$state/project-meta.svelte';
@@ -24,17 +15,6 @@
 	import { apState } from '$state/ap-state.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
 
-	/**
-	 * Dismissal, and which run it applied to.
-	 *
-	 * A dismissed panel has to stay dismissed while the user reads the plan, and
-	 * has to come back when the next run produces new numbers — so what is
-	 * remembered is the run it was dismissed for, not a bare boolean that would
-	 * either nag on every interaction or never return.
-	 *
-	 * `$state`, not a plain `let`: it is read by a `$derived`, and a plain binding
-	 * would leave the dismiss button changing a value nothing re-renders on.
-	 */
 	let dismissedRun = $state<number | null>(null);
 
 	/** The APs the run arranged: every AP on a single-storey project, else the floor's. */
@@ -48,15 +28,6 @@
 		projectMeta.coverageFloorPct > 0 ? projectMeta.coverageFloorPct : DEFAULT_COVERAGE_TARGET
 	);
 
-	/**
-	 * Usable floor area, in square metres, from the detected boundary.
-	 *
-	 * The polygon is in world units, so it divides by the scale squared. Null when
-	 * the boundary was never detected (a hand-drawn plan, or one whose calibration
-	 * was skipped), in which case the area-per-AP detail is left out rather than
-	 * guessed from the mask's bounding box — a rectangle around an L-shaped plan
-	 * overstates it, and an overstated area argues for an AP that is not needed.
-	 */
 	const floorAreaSqm = $derived.by(() => {
 		const polygon = currentFloor()?.floorplanBoundary;
 		const calibration = currentFloor()?.calibration;
@@ -95,14 +66,6 @@
 		})
 	);
 
-	/**
-	 * Whether there is a measurement worth advising on.
-	 *
-	 * Both halves matter: without a completed run the coverage figure is a default,
-	 * and with coverage at zero there is nothing to count APs against — the run
-	 * either found no enclosing walls or has not measured this floor yet, and
-	 * "add four APs" would be advice about the wrong problem.
-	 */
 	const hasAdvice = $derived(
 		optimizerState.lastRunAt !== null &&
 			optimizerState.coverage > 0 &&
@@ -118,14 +81,6 @@
 		return `${Math.round(sqmToUnit(sqmPerAp, unit))} ${unit}`;
 	}
 
-	/**
-	 * A finding's parameter, as a value `t()` can substitute.
-	 *
-	 * The index is typed `| undefined` (the project typechecks with
-	 * `noUncheckedIndexedAccess`), and the rules always set what their own renderer
-	 * reads — so the fallback is for the type, not for a case that can happen. It
-	 * is 0 rather than an empty string because every parameter is a number.
-	 */
 	function param(finding: AdviceFinding, key: string): string | number {
 		return finding.params[key] ?? 0;
 	}
