@@ -1,23 +1,6 @@
 /**
- * One specular reflection, as a power term.
- *
- * The propagation model is a power sum (each wall costs a figure, terms add in dB), not a
- * coherent field, so a reflection enters the same way a transmission does: the reflected path is
- * a second way to reach the texel, and its level is added as a power ratio. That choice is
- * deliberate — coherent summation needs phase, produces interference nulls and would move every
- * number in the app — and it is what indoor planning tools report.
- *
- * The geometry is the image-source method: mirror the access point in the wall's own line, and
- * the straight line from the image to the texel crosses that line exactly at the specular
- * reflection point. The point has to lie **on the segment** for the reflection to exist. The
- * coefficient comes from the same P.2040 slab model the transmission figure does
- * (`rf/material-itu.ts`), evaluated at the angle of incidence this path actually has and at the
- * material's own thickness.
- *
- * What this module does not do, on purpose: multiple bounces (a second-order image is a
- * reflection of a reflection — that belongs with a workload that can afford it) and diffraction
- * (a different coefficient; see the UTD in Sionna's `utils/electromagnetics.py`). One bounce is
- * where most of the energy in a room is after the direct ray.
+ * 单次镜面反射，按功率项计入传播模型：镜像法求反射点，系数取自 `rf/material-itu.ts` 的 P.2040 平板模型。
+ * 只处理单次反射，不做多次反射与衍射。
  */
 import type { Band } from '@aetherax/channels';
 import { getMaterial, type WallMaterialId } from '$lib/domain/materials.js';
@@ -36,19 +19,19 @@ export interface ReflectingWall {
 }
 
 export interface Reflection {
-	/** Where the ray meets the wall, in world units. */
+	/** 射线与墙面的交点，单位是世界坐标单位。 */
 	x: number;
 	y: number;
-	/** Total path length, access point → wall → point. */
+	/** 路径总长：接入点 → 墙面 → 目标点。 */
 	length: number;
-	/** Cosine of the incidence angle at the wall (1 = head-on). */
+	/** 墙面处入射角的余弦（1 表示正对墙面）。 */
 	cosTheta: number;
-	/** Reflected power as a fraction of the incident power (≤ 1). */
+	/** 反射功率占入射功率的比例，不超过 1。 */
 	powerRatio: number;
 }
 
 /**
- * The specular reflection of `from` in `wall` that reaches `to`, or null.
+ * `from` 经 `wall` 镜面反射后到达 `to` 的路径；不存在时返回 null。
  */
 export function specularReflection(
 	from: { x: number; y: number },
@@ -65,28 +48,21 @@ export function specularReflection(
 	const ny = dx / len;
 	const sideFrom = (from.x - wall.ax) * nx + (from.y - wall.ay) * ny;
 	const sideTo = (to.x - wall.ax) * nx + (to.y - wall.ay) * ny;
-	/*
-	 * The two ends must be on the **same** side of the wall's line.
-	 */
+	/* 两端必须位于墙面直线的同一侧。 */
 	if (sideFrom * sideTo <= 0) return null;
 
 	// f' = f − 2·(f·n̂)n̂
 	const imageX = from.x - 2 * sideFrom * nx;
 	const imageY = from.y - 2 * sideFrom * ny;
 
-	// Intersection of image→to with the wall's line.
+	// 求镜像点→目标点连线与墙面直线的交点。
 	const ix = to.x - imageX;
 	const iy = to.y - imageY;
 	const denom = ix * dy - iy * dx;
 	let hitX: number;
 	let hitY: number;
 	if (Math.abs(denom) < 1e-9) {
-		/*
-		 * Head-on: the receiver lies on the reflected ray, so the image, the receiver and the
-		 * wall are collinear and "where the line meets the wall" has no unique answer. The
-		 * specular point is then the foot of the perpendicular from the source, which is where
-		 * an exactly mirrored ray bounces.
-		 */
+		/* 正对情形：镜像点、目标点与墙面共线，交点不唯一，取源点到墙面的垂足。 */
 		if (Math.abs(ix) > 1e-9 || Math.abs(iy) > 1e-9) return null;
 		hitX = from.x - sideFrom * nx;
 		hitY = from.y - sideFrom * ny;
@@ -97,7 +73,7 @@ export function specularReflection(
 		hitY = imageY + iy * t;
 	}
 
-	// On the segment, not on its extension.
+	// 交点须落在墙段上，不能落在线段延长线上。
 	const along = ((hitX - wall.ax) * dx + (hitY - wall.ay) * dy) / lenSq;
 	if (along < 0 || along > 1) return null;
 
@@ -114,7 +90,7 @@ export function specularReflection(
 }
 
 /**
- * Reflected power as a fraction of the incident power, from the material's own coefficients.
+ * 由材质系数算出的反射功率占入射功率的比例。
  */
 const coefficientCache = new Map<string, number>();
 export function reflectionPowerRatio(
@@ -145,7 +121,7 @@ export function reflectionPowerRatio(
 }
 
 /**
- * Every reflection reaching `to`, strongest first, above `minRatio`.
+ * 到达 `to` 的全部反射，按强度降序排列，只保留 `minRatio` 以上的项。
  */
 export function reflections(
 	from: { x: number; y: number },
@@ -160,8 +136,7 @@ export function reflections(
 	const midY = (from.y + to.y) / 2;
 
 	for (const wall of walls) {
-		// Soft cull: a wall that only just misses the radius contributes almost nothing, and
-		// the fade keeps the radius from drawing a circle on the plan.
+		// 按墙中心到路径中点的距离剔除过远的墙。
 		const reach = Math.hypot((wall.ax + wall.bx) / 2 - midX, (wall.ay + wall.by) / 2 - midY);
 		if (reach > maxDistance) continue;
 
@@ -176,7 +151,7 @@ export function reflections(
 }
 
 /**
- * The strongest single reflection reaching `to` from an access point, or null.
+ * 从接入点到达 `to` 的最强单次反射；没有时返回 null。
  */
 export function bestReflection(
 	from: { x: number; y: number },

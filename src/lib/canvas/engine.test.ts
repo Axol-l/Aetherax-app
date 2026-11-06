@@ -4,21 +4,16 @@ import { CanvasEngine } from './engine.js';
 import type { Layer } from './types.js';
 
 /*
- * A canvas engine with no canvas.
- *
- * There is no jsdom in this project, so the two platform objects the engine touches —
- * `window.devicePixelRatio` and `requestAnimationFrame` — are stubbed here, and the
- * canvas is a plain object that answers `getContext('2d')` with a recorder. That is
- * enough because these tests are about the *frame chain*, not about pixels: what the
- * loop does when a layer throws, and whether it ever draws again.
+ * 没有画布的 canvas 引擎：替换 `window.devicePixelRatio` 与 `requestAnimationFrame`，画布用普通对象模拟并记录调用。
+ * 这些测试只关心帧链行为，不关心像素。
  */
 
 interface Frame {
-	/** Called by the fake `requestAnimationFrame`; returns the callback's id. */
+	/** 由伪造的 `requestAnimationFrame` 调用；返回回调的 id。 */
 	schedule: (cb: () => void) => number;
-	/** Run every queued callback once, in order. */
+	/** 按顺序执行队列中的每个回调一次。 */
 	flush: () => void;
-	/** How many frames were requested in total. */
+	/** 累计请求的帧数。 */
 	requested: () => number;
 }
 
@@ -55,8 +50,8 @@ function fakeContext() {
 
 function fakeCanvas() {
 	const ctx = fakeContext();
-	// `as unknown as HTMLCanvasElement`: the engine assigns `width`/`height` and reads
-	// `style`, and nothing else, so a plain object stands in for the element.
+	// 用 `as unknown as HTMLCanvasElement` 转换：引擎只写入 `width`/`height`
+	// 并读取 `style`，因此普通对象足以代替该元素。
 	return { width: 0, height: 0, style: {}, getContext: () => ctx } as unknown as HTMLCanvasElement;
 }
 
@@ -92,12 +87,12 @@ describe('CanvasEngine frame chain', () => {
 		);
 
 		engine.start();
-		frames.flush(); // frame 1: throws
+		frames.flush(); // 第 1 帧：抛错
 		expect(calls).toBe(1);
 		expect(engine.renderErrors).toBe(1);
 
 		engine.markDirty();
-		frames.flush(); // frame 2: must actually render
+		frames.flush(); // 第 2 帧：必须真正渲染
 		expect(calls).toBe(2);
 		expect(engine.renderErrors).toBe(0);
 		expect(engine.lastRenderError).toBeNull();
@@ -111,10 +106,9 @@ describe('CanvasEngine frame chain', () => {
 
 		engine.start();
 		const before = frames.requested();
-		frames.flush(); // one frame, throws
+		frames.flush(); // 只跑一帧，抛错
 
-		// The bug this pins: the exception used to escape before the next frame was
-		// requested, leaving the canvas frozen.
+		// 该测试固定住的缺陷：异常曾在请求下一帧之前逃逸，使画布冻结。
 		expect(frames.requested()).toBeGreaterThan(before);
 		expect(engine.renderErrors).toBe(1);
 	});
@@ -130,11 +124,11 @@ describe('CanvasEngine frame chain', () => {
 		engine.start();
 		for (let i = 0; i < 10; i++) frames.flush();
 
-		// Three attempts, then the loop stands down instead of spinning.
+		// 达到上限后循环停止，而不是空转。
 		expect(attempts).toBe(3);
 		expect(frames.requested()).toBe(3);
 
-		// One more explicit request gets exactly one more attempt.
+		// 再显式请求一次，只会多尝试一次。
 		engine.markDirty();
 		frames.flush();
 		expect(attempts).toBe(4);
@@ -164,7 +158,7 @@ describe('CanvasEngine frame chain', () => {
 		engine.start();
 		frames.flush();
 		expect(renders).toBe(1);
-		// The request made during the frame survived it, so a second frame is queued.
+		// 帧内发出的请求得以保留，因此排入了第二帧。
 		frames.flush();
 		expect(renders).toBe(2);
 	});

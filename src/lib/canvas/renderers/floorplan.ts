@@ -1,6 +1,6 @@
 import type { Layer, RenderContext } from '../types.js';
 
-// Target floorplan width in world units (pixels at 1x zoom)
+// 平面图目标宽度，世界单位（1 倍缩放下的像素）
 const TARGET_WIDTH = 800;
 
 export class FloorplanLayer implements Layer {
@@ -14,12 +14,8 @@ export class FloorplanLayer implements Layer {
 	opacity = 0.8;
 
 	/**
-	 * World-space position of the image origin.
-	 *
-	 * The underlay used to be pinned to (0, 0), so two floors could only line up
-	 * if their plans happened to share a margin. `Floor.floorplanOffsetX/Y`
-	 * carries the alignment, and `translateFloor` moves the masks and the APs by
-	 * the same delta so the floor stays rigid.
+	 * 图像原点在世界坐标中的位置。
+	 * 对齐值由 `Floor.floorplanOffsetX/Y` 承担，`translateFloor` 以相同位移移动掩码和 AP，使楼层保持刚性。
 	 */
 	offsetX = 0;
 	offsetY = 0;
@@ -30,14 +26,14 @@ export class FloorplanLayer implements Layer {
 	get imageHeight(): number {
 		return this.drawHeight;
 	}
-	/** The scale factor from original image pixels to world units */
+	/** 原始图像像素到世界单位的缩放系数 */
 	get scaleFactor(): number {
 		const natW = this.image?.naturalWidth || this.image?.width || 1;
 		return this.drawWidth > 0 ? this.drawWidth / natW : 1;
 	}
 
 	loadImage(url: string, onReady?: () => void): void {
-		// Skip reload if already showing this URL (avoids revoking blob URLs)
+		// 已在显示该 URL 时跳过重载，避免重复创建 blob URL
 		if (this.image && this.imageReady && this.image.src === url) {
 			if (onReady) onReady();
 			return;
@@ -47,7 +43,7 @@ export class FloorplanLayer implements Layer {
 		this.image = new Image();
 		this.image.onload = () => {
 			this.imageReady = true;
-			// Scale to a reasonable world size
+			// 缩放到合适的世界尺寸
 			const natW = this.image!.naturalWidth || this.image!.width;
 			const natH = this.image!.naturalHeight || this.image!.height;
 			if (natW > 0 && natH > 0) {
@@ -64,10 +60,8 @@ export class FloorplanLayer implements Layer {
 	}
 
 	clearImage(): void {
-		// Do NOT revoke blob URLs here — they belong to floor state and
-		// may be needed again when switching back to that floor.
-		// Revocation is handled by the call sites that replace/delete
-		// a floorplan (loadSample, handleFile, removeFloorplan).
+		// 此处不要释放 blob URL：它属于楼层状态，切回该楼层时仍会用到。释放由替换或删除
+		// 平面图的调用方负责。
 		this.image = null;
 		this.imageReady = false;
 		this.onReady = null;

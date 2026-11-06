@@ -1,34 +1,17 @@
 /**
- * Material loss from physics instead of a hand-tuned table.
+ * 材质损耗的物理模型，采用 ITU-R P.2040-3 §2.1.4 的单层平板方程（f 单位 GHz，σ 单位 S/m）：
  *
- * The app's wall materials used to carry one `dB per metre` figure per band, with 5 GHz as
- * the anchor and the other two bands scaled by hand (2.4 GHz × 1/1.9, 6 GHz × 1.2). That is a
- * table, not a model: it says a 1 cm glass pane loses more at 6 GHz than at 2.4 GHz (it does
- * not — thin glass is nearly transparent at 6 GHz), and it puts a 20 cm concrete wall at
- * 6.4 dB when P.2040 puts it above 14.
- *
- * This module implements the model the numbers come from — ITU-R P.2040-3 §2.1.4 (the same
- * table and the same single-layer-slab equations Sionna RT solves for transmission, see its
- * `radio_materials/itu.py` and `utils/electromagnetics.py`):
- *
- *   εr = a · f^b        σ = c · f^d        (f in GHz, σ in S/m)
+ *   εr = a · f^b        σ = c · f^d
  *   η  = εr − j σ / (2π f ε₀)
  *   q  = (2π d / λ) √(η − sin²θ)
- *   r⊥ = (cosθ − √(η−sin²θ)) / (cosθ + √(η−sin²θ))        (and the parallel form)
+ *   r⊥ = (cosθ − √(η−sin²θ)) / (cosθ + √(η−sin²θ))        （平行极化同理）
  *   R  = r(1 − e^{−2jq}) / (1 − r² e^{−2jq})
  *   T  = (1 − r²) e^{−jq} / (1 − r² e^{−2jq})
  *
- * and takes the loss of a crossing as `−10·log10(|T⊥|² + |T∥|²)/2` — i.e. the mean of the two
- * polarisations in dB. The app's model is a power sum, not a coherent field, so a single
- * figure per crossing is exactly the shape it needs.
- *
- * **What this does not do:** the incidence angle is not known per crossing yet (that arrives
- * with reflection, which needs the same four coefficients), so every call here is normal
- * incidence. `slabTransmission` already takes `cosTheta`, so the day the march knows the angle
- * it is a parameter change rather than a rewrite.
+ * 一次穿越的损耗取两种极化 dB 的均值；入射角固定为正入射。
  */
 
-/** ITU-R P.2040-3, Table 3: `(minGHz, maxGHz) → (a, b, c, d)`. */
+/** ITU-R P.2040-3 表 3：`(minGHz, maxGHz) → (a, b, c, d)`。 */
 const ITU_TABLE = {
 	plasterboard: [
 		[1, 100, 2.73, 0, 0.0085, 0.9395],
@@ -59,16 +42,14 @@ const SPEED_OF_LIGHT = 299_792_458;
 const EPSILON_0 = 8.854_187_812_8e-12;
 
 /**
- * The loss is clamped here.
+ * 单次穿越损耗的上限，dB。
  *
- * A perfect conductor makes `|T|` zero, which is −∞ dB. The model charges a crossing as a
- * number, so metal has to be *opaque* rather than infinite: 60 dB is more than any receiver's
- * dynamic range indoors, and it keeps the heatmap and the optimiser away from infinities.
+ * 金属的 `|T|` 为零即 −∞ dB，这里按不透明处理，避免热力图与优化器遇到无穷值。
  */
 export const MAX_MATERIAL_LOSS_DB = 60;
 
-// ─── Complex arithmetic ────────────────────────────────────────────
-// Minimal on purpose: four coefficients per crossing, not a field solver.
+// ─── 复数运算 ──────────────────────────────────────────────────────
+// 只做必要运算：每次穿越计算四个系数，不做场求解。
 
 interface Complex {
 	re: number;
@@ -97,14 +78,13 @@ const expc = (a: Complex): Complex => {
 };
 const absSq = (a: Complex): number => a.re * a.re + a.im * a.im;
 
-/** εr and σ of a P.2040 material at a frequency in GHz. */
+/** P.2040 材质在某频率下的 εr 与 σ，频率单位 GHz。 */
 export function ituEpsilon(
 	key: ItuMaterialKey,
 	frequencyGhz: number
 ): { epsR: number; sigma: number } {
 	const rows = ITU_TABLE[key] as ReadonlyArray<readonly [number, number, number, number, number, number]>;
-	// The first row that covers the frequency; a frequency outside every range uses the
-	// nearest row, because a band whose edges sit between two ranges still needs an answer.
+	// 取覆盖该频率的首行；频率落在所有区间之外时退回首行。
 	const covering = rows.find((row) => frequencyGhz >= row[0] && frequencyGhz <= row[1]) ?? rows[0]!;
 	const [, , a, b, c, d] = covering;
 	return {
@@ -114,19 +94,18 @@ export function ituEpsilon(
 }
 
 export interface SlabCoefficients {
-	/** Reflection, perpendicular (TE) and parallel (TM) polarisation. */
+	/** 反射系数，垂直（TE）与平行（TM）极化。 */
 	rTe: Complex;
 	rTm: Complex;
-	/** Transmission, perpendicular (TE) and parallel (TM) polarisation. */
+	/** 透射系数，垂直（TE）与平行（TM）极化。 */
 	tTe: Complex;
 	tTm: Complex;
 }
 
 /**
- * Single-layer slab coefficients (P.2040 eqs. 43–44), incidence from vacuum.
+ * 单层平板的反射与透射系数（P.2040 式 43–44），从真空侧入射。
  *
- * `cosTheta` is the cosine of the incidence angle (1 = normal); `thicknessM` the slab's
- * thickness in metres and `frequencyGhz` the frequency.
+ * `cosTheta` 为入射角余弦（1 表示正入射），`thicknessM` 为板厚，单位米。
  */
 export function slabTransmission(
 	epsR: number,
@@ -165,10 +144,9 @@ export function slabTransmission(
 }
 
 /**
- * Loss of one normal-incidence crossing, in dB: the mean of the two polarisations.
+ * 一次正入射穿越的损耗，dB，取两种极化的均值。
  *
- * Clamped to `[0, MAX_MATERIAL_LOSS_DB]` — a slab cannot amplify, and metal is opaque rather
- * than infinite.
+ * 结果钳制在 `[0, MAX_MATERIAL_LOSS_DB]`；板厚不为正时返回 0。
  */
 export function slabLossDb(
 	epsR: number,
@@ -185,14 +163,14 @@ export function slabLossDb(
 	return Math.min(MAX_MATERIAL_LOSS_DB, Math.max(0, db));
 }
 
-/** The band centre a material figure is evaluated at, in GHz. */
+/** 各频段材质损耗取值所用的中心频率，单位 GHz。 */
 export const BAND_FREQUENCY_GHZ = {
 	'2.4ghz': 2.447,
 	'5ghz': 5.5,
 	'6ghz': 6.53
 } as const;
 
-/** Loss of one crossing of an ITU material at a band, for a given thickness. */
+/** 给定厚度下，ITU 材质在某频段一次穿越的损耗。 */
 export function ituWallLossDb(
 	key: ItuMaterialKey,
 	frequencyGhz: number,

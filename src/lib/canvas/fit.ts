@@ -6,21 +6,8 @@ import type { CanvasEngine } from '$canvas/engine.js';
 import { apState } from '$state/ap-state.svelte.js';
 
 /**
- * Frame the canvas on what the active view is actually showing.
- *
- * One implementation, because three callers ask the same question: the Fit button, the
- * floor-view switch, and the PDF export. The export is why this is a module rather than a
- * function inside `StatusBar` — a report that captures the canvas at whatever zoom and pan
- * the user happened to leave it at is a report of the user's screen, not of the plan.
- *
- * The overviews hide the floorplan layer and lay the storeys out in their own frame, so
- * the layout is asked for its bounds rather than the layers that are not being drawn.
- *
- * @param includeAps Union every access point into the framed bounds. The report wants
- *   this: an AP the optimiser put somewhere unexpected is exactly what a reader needs to
- *   see, and cropping it out of the page would hide it. The Fit button leaves it off so
- *   one stray AP cannot zoom the plan down to a postage stamp.
- * @returns False when there was nothing to frame, so the caller can decide what to do.
+ * 让画布适配当前视图实际显示的内容；总览视图下向布局请求内容边界。
+ * `includeAps` 为 true 时把所有接入点并入取景范围，默认 false；没有可适配内容时返回 false。
  */
 export function fitCanvasToContent(engine: CanvasEngine, includeAps = false): boolean {
 	const rect = engine.canvas.getBoundingClientRect();
@@ -45,9 +32,8 @@ export function fitCanvasToContent(engine: CanvasEngine, includeAps = false): bo
 
 	const points: Array<{ x: number; y: number }> = [];
 
-	// Priority 1: floorplan image bounds, at the offset this floor's underlay is drawn
-	// with. Reading only the image size framed an aligned floor as if it sat at the
-	// origin, which is where the plan is drawn only when its offset is zero.
+	// 优先级 1：平面图图像边界，按本层底图绘制时的偏移计算。
+	// 只读图像尺寸会把已对齐的楼层当作位于原点。
 	const fp = engine.layers.find((l) => l.id === 'floorplan') as
 		| { imageWidth?: number; imageHeight?: number; offsetX?: number; offsetY?: number }
 		| undefined;
@@ -57,14 +43,14 @@ export function fitCanvasToContent(engine: CanvasEngine, includeAps = false): bo
 		points.push({ x: ox, y: oy });
 		points.push({ x: ox + fp.imageWidth, y: oy + (fp.imageHeight ?? 0) });
 	} else if (wallState.wallMask) {
-		// Priority 2: wall mask bounds (draw-from-scratch)
+		// 优先级 2：墙体掩码边界（从零绘制时）
 		const ox = wallState.wallMask.originX ?? 0;
 		const oy = wallState.wallMask.originY ?? 0;
 		points.push({ x: ox, y: oy });
 		points.push({ x: ox + wallState.wallMask.width, y: oy + wallState.wallMask.height });
 	}
 
-	// If no floorplan/walls, fit to AP centers (no radius inflation)
+	// 没有平面图或墙体时，按 AP 中心适配，不放大半径。
 	if (points.length === 0 || includeAps) {
 		for (const ap of apState.aps) {
 			if (appState.floorView === 'single' && ap.floorId !== floorState.currentFloorId) continue;

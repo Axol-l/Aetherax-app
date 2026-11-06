@@ -9,10 +9,10 @@ const FEET_PER_METER = 3.28084;
 export class GridLayer implements Layer {
 	id = 'grid';
 	visible = true;
-	/** A drawing aid, not part of the plan: never in an exported picture. */
+	/** 绘图辅助线，不属于平面图，不会出现在导出的图片中。 */
 	readonly exportable = false;
 
-	// When set, grid snaps to real-world units
+	// 设置后，网格对齐到真实世界单位
 	worldUnitsPerMeter: number | null = null;
 	unitSystem: 'imperial' | 'metric' = 'imperial';
 
@@ -21,37 +21,37 @@ export class GridLayer implements Layer {
 		const transform = camera.getTransform();
 		const zoom = camera.state.zoom;
 
-		// Calculate grid spacing
+		// 计算网格间距
 		let minor: number;
 		let major: number;
 		let unitLabel = '';
-		let unitScale = 1; // world units per display unit
+		let unitScale = 1; // 每个显示单位对应的世界单位
 
 		if (this.worldUnitsPerMeter && this.worldUnitsPerMeter > 0) {
 			const wupm = this.worldUnitsPerMeter;
 
 			if (this.unitSystem === 'imperial') {
-				// Imperial: grid in feet
-				const wupf = wupm / FEET_PER_METER; // world units per foot
+				// 英制：网格以英尺为单位
+				const wupf = wupm / FEET_PER_METER; // 每英尺对应的世界单位
 				unitScale = wupf;
 				unitLabel = 'ft';
-				minor = wupf * 5; // 5 feet
-				major = wupf * 25; // 25 feet
+				minor = wupf * 5; // 5 英尺
+				major = wupf * 25; // 25 英尺
 
 				const screenMinor = minor * zoom;
 				if (screenMinor < 8) {
 					minor = wupf * 25;
 					major = wupf * 100;
 				} else if (screenMinor > 60) {
-					minor = wupf; // 1 foot
+					minor = wupf; // 1 英尺
 					major = wupf * 5;
 				}
 			} else {
-				// Metric: grid in meters
+				// 公制：网格以米为单位
 				unitScale = wupm;
 				unitLabel = 'm';
-				minor = wupm; // 1 meter
-				major = wupm * 5; // 5 meters
+				minor = wupm; // 1 米
+				major = wupm * 5; // 5 米
 
 				const screenMinor = minor * zoom;
 				if (screenMinor < 8) {
@@ -60,7 +60,7 @@ export class GridLayer implements Layer {
 				}
 			}
 		} else {
-			// Uncalibrated: use pixel grid
+			// 未标定：使用像素网格
 			minor = 20;
 			major = 100;
 		}
@@ -80,7 +80,7 @@ export class GridLayer implements Layer {
 
 		ctx.lineWidth = 1 / zoom;
 
-		// Minor grid lines
+		// 次级网格线
 		if (showMinor) {
 			ctx.strokeStyle = MINOR_COLOR;
 			ctx.beginPath();
@@ -97,7 +97,7 @@ export class GridLayer implements Layer {
 			ctx.stroke();
 		}
 
-		// Major grid lines
+		// 主网格线
 		ctx.strokeStyle = MAJOR_COLOR;
 		ctx.beginPath();
 		const majorStartX = Math.floor(topLeft.x / major) * major;
@@ -115,7 +115,7 @@ export class GridLayer implements Layer {
 		}
 		ctx.stroke();
 
-		// Scale labels on major grid lines (when calibrated)
+		// 主网格线上的比例标签（已标定时）
 		if (unitLabel && unitScale > 0) {
 			ctx.fillStyle = LABEL_COLOR;
 			const fontSize = 10 / zoom;
@@ -129,7 +129,7 @@ export class GridLayer implements Layer {
 				ctx.fillText(`${units}${unitLabel}`, x + 2 / zoom, topLeft.y + 2 / zoom);
 			}
 
-			// Y-axis labels
+			// Y 轴标签
 			ctx.textAlign = 'left';
 			ctx.textBaseline = 'top';
 			for (let y = majorStartY; y <= majorEndY; y += major) {

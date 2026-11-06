@@ -23,24 +23,14 @@ export class PlaceHandler {
 		const worldPoint = this.engine.camera.screenToWorld(screenPoint);
 
 		/*
-		 * The mounting the new access point inherits decides whether it has to land on a
-		 * wall: a wall-mounted unit radiates away from the wall it is screwed to, so one
-		 * in the middle of a room is not that. Within a metre of a wall the click is
-		 * snapped onto that wall and the unit is turned to face into the room — both from
-		 * the same measurement (`state/wall-snap.ts`), so they cannot disagree.
+		 * 新增 AP 继承的安装方式决定它是否必须落在墙上。一米内有墙时，点击吸附到该墙
+		 * 并转向室内，两者取自同一测量（`state/wall-snap.ts`），不会互相矛盾。
 		 */
 		const mount = appState.apPlaceMount ?? apState.aps.at(-1)?.mount ?? 'ceiling';
 
 		/*
-		 * `Allow APs outside rooms` is off by default and it means what it says, not just
-		 * "the optimiser keeps them inside": a click in the margin outside the walls used to
-		 * drop an access point there with nothing said about it.
-		 *
-		 * A wall mount is exempt, exactly as it is from the outside-the-building warning
-		 * and the optimiser's verifier: it is on a wall by construction, and the detected
-		 * interior deliberately trims the ring of pixels against every wall, so the face a
-		 * bracket is screwed to is never "inside". The wall-snap check below is its own
-		 * guard: a click with no wall within a metre is refused rather than placed.
+		 * `Allow APs outside rooms` 默认关闭，关闭时墙外空白处的点击会被拒绝。
+		 * 壁挂设备不受此限制：它本就装在墙上，下方贴墙检查会拒绝一米内无墙的点击。
 		 */
 		const floorId = floorState.currentFloorId;
 		if (mount !== 'wall' && !projectMeta.allowOutsideRooms) {

@@ -1,6 +1,6 @@
 import { pathLossDb, reachAtLevel } from '$lib/rf/propagation.js';
 
-/** The AP fields the image bounds depend on. */
+/** 图像边界所依赖的 AP 字段。 */
 export interface RegionAp {
 	x: number;
 	y: number;
@@ -24,39 +24,14 @@ export interface HeatmapRegion {
 }
 
 /**
- * Slack on each AP's reach, so the texel that straddles the edge of the coloured
- * area is inside the image rather than half outside it.
+ * 各 AP 覆盖半径的余量，使跨越着色区域边缘的纹素完整落在图像内。
  */
 const REACH_MARGIN = 1.05;
 
 /**
- * World rectangle the coverage image has to cover, and the texel size that keeps
- * it inside the cell budget.
- *
- * Two things set the rectangle: the plan's own mask (so the image always covers
- * the floor plan, whatever the APs are doing) and each AP's **drawable reach** —
- * the distance at which its level falls to the ramp floor, `rssiFloor`. Past
- * that distance a texel cannot be anything but transparent, so covering it only
- * spends the cell budget.
- *
- * That last part is the fix for a rendering bug. The rectangle used to be the
- * plan plus `1.5 × interferenceRadius`, i.e. 1.5 × the ASSOCIATION radius. At
- * 5 GHz / 20 dBm that is 1.5 × 29.9 m ≈ 45 m of margin per side, while the ramp
- * floor (−70 dBm) puts the last visible metre at about 12.6 m — so the image was
- * asked for roughly 3× the span it could ever colour, ~9× the area. Past
- * `maxTexels` the texel was widened to fit, and the widened texel is what the
- * user sees: at the tiled overview's ~1 px per world unit an 8–12 unit texel is
- * an 8–12 px cell, and because the ramp quantises to 256 levels over ~46 dB,
- * runs of neighbouring cells share a level and render as flat colour patches
- * joined by short ramps — "no gradient, very chopped up".
- *
- * With the rectangle sized by the reach instead, a plan of 1000 × 784 world
- * units with 5 GHz APs at the default −70 dBm floor fits the fine texel
- * (1832 × 1616 units ≈ 185 000 cells at 4 units, under the 250 000 budget), so
- * the widening no longer triggers at all.
- *
- * The rectangle is a superset of the coloured area, never a subset: the reach is
- * free space, and walls, slabs and the 1 m distance clamp only reduce the level.
+ * 覆盖图必须覆盖的世界矩形，以及使单元数不超出预算的纹素尺寸。
+ * 矩形由掩码、裁剪轮廓与各 AP 可绘制覆盖半径（降到 `rssiFloor` 的距离）决定，
+ * 始终是着色区域的超集；过大时放大纹素；无法得到有效边界时返回 null。
  */
 export function heatmapRegion(
 	aps: readonly RegionAp[],
@@ -66,11 +41,9 @@ export function heatmapRegion(
 	texelFine: number,
 	maxTexels: number,
 	/**
-	 * The outline the field is clipped to, when there is one.
+	 * 场被裁剪到的轮廓（若存在）。
 	 *
-	 * A drawn planning area can sit outside the plan's mask — the mask is the drawing's
-	 * frame, not the floor — and the image must cover it, or the clip trims the picture to
-	 * a rectangle the area does not share and the new area looks like it did nothing.
+	 * 规划区域可能位于平面图掩码之外，图像必须覆盖它，否则裁剪会裁到不含该区域的矩形。
 	 */
 	clip: ReadonlyArray<{ x: number; y: number }> | null = null
 ): HeatmapRegion | null {
@@ -96,12 +69,11 @@ export function heatmapRegion(
 	}
 
 	for (const ap of aps) {
-		// pathLossDb(band, 1) is the 1 m reference loss PL0 for the band.
+		// pathLossDb(band, 1) 即该频段 1 m 处的参考损耗 PL0。
 		const referenceDbm = ap.power - pathLossDb(ap.band, 1);
 		const reachInMeters = reachAtLevel(referenceDbm, rssiFloor);
 		const reach = reachInMeters * worldUnitsPerMeter * REACH_MARGIN;
-		// An AP at or below the floor colours nothing, so it must not stretch the
-		// image either.
+		// 电平不高于下限的 AP 不会着色，也不应撑大图像。
 		if (!(reach > 0)) continue;
 		if (ap.x - reach < minX) minX = ap.x - reach;
 		if (ap.y - reach < minY) minY = ap.y - reach;
@@ -111,9 +83,8 @@ export function heatmapRegion(
 
 	if (!Number.isFinite(minX) || maxX <= minX || maxY <= minY) return null;
 
-	// Widen the texel rather than the allocation when a region is genuinely too
-	// large for the budget (a big plan, many APs, or a floor set at −95 dBm).
-	// Widening counts on the ramp being smooth: it costs detail, never coverage.
+	// 区域确实超出预算时放大纹素而不是增加分配；
+	// 放大只损失细节，不会损失覆盖范围。
 	let texel = texelFine;
 	const spanX = maxX - minX;
 	const spanY = maxY - minY;
@@ -121,8 +92,7 @@ export function heatmapRegion(
 		texel = Math.ceil(Math.sqrt((spanX * spanY) / maxTexels));
 	}
 
-	// Snap the origin down to the texel lattice so the image does not shift by a
-	// sub-texel amount every time an AP moves slightly.
+	// 把原点向下对齐到纹素格点，避免 AP 轻微移动时图像产生亚纹素位移。
 	const x0 = Math.floor(minX / texel) * texel;
 	const y0 = Math.floor(minY / texel) * texel;
 

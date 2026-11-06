@@ -2,14 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { makeOverlapLookup, SAME_CHANNEL_OVERLAP } from './channel-overlap.js';
 
 /**
- * The frequency side of the interference model: how much two sources' channels
- * share, given their bands and widths.
+ * 干扰模型的频率侧：给定两源的频段与带宽，计算其信道的共享频谱比例。
  *
- * B3's first stage made the *palette* non-overlapping so that "same number" and
- * "overlaps" were the same question. This is the second stage: the question is
- * answered directly, so a plan pinned or hand-edited onto overlapping channels is
- * measured rather than assumed clean, and a partially overlapping pair is a cost
- * rather than an identity.
+ * 同信道为 1，部分重叠按共享频谱折算，跨频段或频段内不存在的信道号为 0。
  */
 describe('channel overlap lookup', () => {
 	const five = makeOverlapLookup(['5ghz', '5ghz', '2.4ghz'], [80, 80, 20]);
@@ -26,26 +21,24 @@ describe('channel overlap lookup', () => {
 	});
 
 	it('is 0 across bands, even when the numbers are the same', () => {
-		// Source 2 is 2.4 GHz channel 1; 5 GHz has no channel 1 at all, and even a
-		// shared number would be 3.5 GHz of spectrum apart.
+		// 源 2 位于 2.4 GHz 频段：跨频段的重叠恒为 0，与信道编号无关。
 		expect(five(0, 36, 2, 1)).toBe(0);
 		expect(five(2, 1, 0, 36)).toBe(0);
 	});
 
 	it('is 0 for a channel number its band does not have', () => {
-		// A pin the domain does not permit, or a source with no band: an unknown
-		// assignment cannot be shown to be clean, so it contributes nothing.
+		// 频段不允许的信道号或缺失频段的源无法证明无重叠，因此贡献为 0。
 		expect(five(0, 999, 1, 36)).toBe(0);
 		expect(five(0, 36, 1, 999)).toBe(0);
 	});
 
 	it('uses the narrower width as the denominator', () => {
 		const mixed = makeOverlapLookup(['5ghz', '5ghz'], [20, 80]);
-		// The 20 MHz channel sits inside the 80 MHz one: all of its own spectrum.
+		// 20 MHz 信道完全落在 80 MHz 信道内，共享其全部频谱。
 		expect(mixed(0, 40, 1, 36)).toBe(1);
-		// 20 MHz at 48 shares 10 of its 20 MHz with 80 MHz at 40.
+		// 较窄信道只有一半频谱与较宽信道重叠。
 		expect(mixed(0, 48, 1, 40)).toBeCloseTo(0.5, 6);
-		// And nothing at all with 80 MHz at 36, whose band ends at 5220.
+		// 两者频谱完全不相交时为 0。
 		expect(mixed(0, 48, 1, 36)).toBe(0);
 	});
 

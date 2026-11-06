@@ -1,10 +1,5 @@
 /**
- * The ITU-R P.2040 model against numbers computed independently.
- *
- * The expected figures below come from Sionna RT's own equations (P.2040 §2.1.4 eqs. 43–44)
- * evaluated at normal incidence for the table's typical thickness — the same computation, done
- * outside this module, so a transcription slip in the complex algebra shows up as a wrong
- * number rather than as a plausible one.
+ * 用独立算出的数值校验 ITU-R P.2040 模型；期望值在本模块之外按 §2.1.4 式 43–44 计算。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -20,9 +15,9 @@ describe('P.2040 material loss', () => {
 		const loss = (key: Parameters<typeof ituWallLossDb>[0], band: keyof typeof BAND_FREQUENCY_GHZ, t: number) =>
 			ituWallLossDb(key, BAND_FREQUENCY_GHZ[band], t);
 
-		// concrete 0.20 m, plasterboard 0.12 m, glass 0.01 m, brick 0.23 m
+		// 典型厚度：混凝土 0.20 m、石膏板 0.12 m、玻璃 0.01 m、砖 0.23 m。
 		expect(loss('concrete', '2.4ghz', 0.2)).toBeCloseTo(14.6, 0);
-		// Evaluated at the band centre (5.5 GHz), not at 5.0 — a 20 cm slab gains ~2 dB there.
+		// 按频段中心 5.5 GHz 而非 5.0 GHz 计算，20 cm 厚板在该处约多 2 dB。
 		expect(loss('concrete', '5ghz', 0.2)).toBeCloseTo(26.5, 0);
 		expect(loss('concrete', '6ghz', 0.2)).toBeCloseTo(30.1, 0);
 		expect(loss('plasterboard', '2.4ghz', 0.12)).toBeCloseTo(2.7, 0);
@@ -33,8 +28,7 @@ describe('P.2040 material loss', () => {
 	});
 
 	it('makes thin glass less lossy at 6 GHz than at 2.4, as physics does', () => {
-		// The hand-tuned table had it the other way round, because it scaled every material
-		// by the same 6 GHz factor.
+		// 薄玻璃在 6 GHz 的损耗低于 2.4 GHz。
 		const low = ituWallLossDb('glass', BAND_FREQUENCY_GHZ['2.4ghz'], 0.01);
 		const high = ituWallLossDb('glass', BAND_FREQUENCY_GHZ['6ghz'], 0.01);
 		expect(high).toBeLessThan(low);

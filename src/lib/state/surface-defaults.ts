@@ -1,8 +1,5 @@
 /**
- * 画一个抬升面时用的那几项选择。
- *
- * 侧栏卡片和浮动工具栏共用：两边编辑的是同样三个字段。如果各写一套「高台要把低端高度复制到高端」，
- * 迟早会不一致。规则放这里，那两处只负责显示。
+ * 抬升面卡片
  */
 import { appState } from './app.svelte.js';
 import { surfaceMaterial, type SurfaceKind, type SurfaceMaterialId } from '$lib/rf/surface-height.js';

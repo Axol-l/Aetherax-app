@@ -1,8 +1,5 @@
 /**
- * 把墙表示成线段——应用正在过渡到的模型。
- *
- * 以前墙是像素带，空心墙、缝被当房间、开口被当室外这些问题都从那儿来；线段没有「内部」，
- * 射线要么穿过要么不穿。这里只有模型和让画墙手感正常的几何（吸附、锁轴），不碰栅格那套。
+ * 把墙表示成线段
  */
 import type { WallMaterialId } from '$lib/domain/materials.js';
 
@@ -47,9 +44,6 @@ export function wallLength(wall: VectorWall): number {
 
 /**
  * 把点吸附到 `tolerance` 范围内最近的端点，单位是世界坐标。
- *
- * 吸附是图纸能严丝合缝的关键：两面墙只是*差不多*接上，中间就有一条射线能钻的缝，模型里的
- * 表现和图纸上看到的不一样。容差传世界坐标单位，调用方可以按缩放换算，保证屏幕上看着一样。
  */
 export function snapToEndpoint(
 	point: Point,

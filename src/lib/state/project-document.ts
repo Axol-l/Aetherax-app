@@ -1,9 +1,5 @@
 /**
  * 工程文档：统一的结构、迁移、读入和写出。
- *
- * 保存、恢复、导出、导入都只走 `toDocument()` / `migrate()` / `applyDocument()`。
- * 以前持久化、文件导出、撤销历史各存一份结构，导出一圈就把墙、柱、抬升面、备注全丢了。
- * 给楼层加字段要同时改 `DocumentFloor` 和迁移、应用两处，往返测试过不了就是漏了。
  */
 import type { Band, ChannelWidth, RegulatoryDomain } from '@aetherax/channels';
 import type { FloorMaterialId } from '$canvas/floor-materials.js';
@@ -69,12 +65,6 @@ export type DocumentFloor = Omit<
 	floorplanImage?: string;
 };
 
-/**
- * 文档「可能」带的楼层：除了 id，每个字段都可选。
- *
- * 这是读入用的类型。`migrate` 补默认值后把它变成 `DocumentFloor`；
- * 这些默认值就是格式多年来加字段时定下的读取规则。
- */
 export type StoredFloor = Partial<
 	Omit<DocumentFloor, 'wallMask' | 'materialMask' | 'roomTypeMask'>
 > & {
@@ -86,9 +76,6 @@ export type StoredFloor = Partial<
 
 /**
  * 文档「可能」带的接入点。
- *
- * 安装方式、天线方向图、朝向、引脚都是可选的：更早的文档里没有这些字段，
- * `normalizeAp` 会补上模型当时会用的值。
  */
 export type StoredAp = Partial<AccessPoint> & Pick<AccessPoint, 'id'>;
 
@@ -480,15 +467,6 @@ function normalizeAp(
 
 /**
  * 把规范化文档写进各个状态。
- *
- * 顺序有讲究，加载一直是这么排的：先楼层后 AP，因为吸顶 AP 的默认高度和工程比例都来自楼层；
- * 先路径损耗场景后半径，因为半径是它推出来的。
- *
- * **打开文档会清空撤销历史。** 撤销快照只存楼层和 AP，别的都不存。
- * 所以加载前的快照会把 A 工程的几何塞进 B 工程的名字、频段、单位和材质里——
- * 这种组合从没存在过，五秒后还会被自动保存写进盘。以前每个替换文档的调用方都得自己记得，
- * 而 `export/json.ts` 没记：导入一个文件再按 Ctrl+Z，就把上一个工程的图放进了新工程的设置里。
- * 现在在应用文档这里统一清，调用方不用知道。
  */
 export function applyDocument(
 	doc: ProjectDocumentV3,
@@ -565,8 +543,6 @@ function cloneMaterial(material: DocumentCustomMaterial): DocumentCustomMaterial
 
 /**
  * 只留下文档里还有的楼层的覆盖率。
- *
- * 被删楼层的那一行要是留着，会变成整栋平均值里的幽灵。
  */
 function filterCoverage(
 	raw: Record<string, Partial<FloorCoverageEntry>> | undefined,

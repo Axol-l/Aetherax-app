@@ -1,30 +1,25 @@
-/** Measuring the two wall models against each other. */
+/** 两种穿墙模型的相互对比测量。 */
 import type { Band } from '@aetherax/channels';
 import { rayWallLossDb, type WallSegment } from './wall-crossings.js';
 
 export interface WallModelComparison {
-	/** How many rays were compared. */
+	/** 参与对比的射线数量。 */
 	samples: number;
-	/** Mean absolute difference, in dB — the headline number. */
+	/** 平均绝对差值，单位 dB，为主要指标。 */
 	meanAbsDb: number;
-	/** Largest absolute difference, and where it happened. */
+	/** 最大绝对差值及其发生位置。 */
 	maxAbsDb: number;
 	maxAt: { x: number; y: number; from: { x: number; y: number } } | null;
-	/** Means of each model, so a systematic bias is visible rather than averaged away. */
+	/** 两个模型各自的均值，用于看出系统性偏差。 */
 	rasterMeanDb: number;
 	vectorMeanDb: number;
-	/** Rays where one model charges a wall and the other charges none: the dangerous ones. */
+	/** 一个模型计了墙、另一个未计墙的射线数量。 */
 	disagreements: number;
 }
 
 /**
- * Compare the two models over a set of rays.
- *
- * `rasterLoss` is handed the same endpoints the vector model gets, so the comparison is
- * apples to apples: one ray, two answers. A ray that one model blocks and the other does not
- * is called out separately because it is not a rounding difference — it is a wall one model
- * sees and the other misses, and on a heatmap it is a stripe of coverage that should not be
- * there.
+ * 在一组射线上对比两种模型。
+ * `rasterLoss` 与矢量模型拿到相同的端点，保证同一条射线得到两种可比的答案。
  */
 export function compareWallModels(input: {
 	walls: readonly WallSegment[];
@@ -52,8 +47,7 @@ export function compareWallModels(input: {
 			maxAbs = difference;
 			maxAt = { x: point.x, y: point.y, from };
 		}
-		// One model crossed a wall, the other did not. A tenth of a dB is arithmetic; a
-		// whole wall's figure is a disagreement about the geometry.
+		// 一个模型穿过墙而另一个没有：微小差异属于算术，整面墙的差距则是几何判断的分歧。
 		if ((raster > 0.5 && vector < 0.5) || (vector > 0.5 && raster < 0.5)) disagreements++;
 	}
 

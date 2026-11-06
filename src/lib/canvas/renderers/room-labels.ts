@@ -4,8 +4,8 @@ import { ROOM_TYPES, type RoomType } from '$lib/domain/room-types.js';
 import { t } from '../../state/i18n.svelte';
 
 interface RoomLabelInfo {
-	cx: number; // centroid X in mask-local coords
-	cy: number; // centroid Y in mask-local coords
+	cx: number; // 质心 X，掩码局部坐标
+	cy: number; // 质心 Y，掩码局部坐标
 	typeId: number;
 	type: RoomType;
 	regionId: number;
@@ -15,21 +15,21 @@ export class RoomLabelsLayer implements Layer {
 	id = 'room-labels';
 	visible = true;
 
-	/** Room type mask: pixel → room type ID (0 = unassigned). */
+	/** 房间类型掩码：像素 → 房间类型 id（0 表示未指定）。 */
 	roomTypeData: Uint8Array | null = null;
-	/** Region labels from labelRooms (interior connected components). */
+	/** 由 labelRooms 生成的区域标签（内部连通分量）。 */
 	roomLabels: RegionLabels | null = null;
-	/** Mask dimensions and world origin. */
+	/** 掩码尺寸与世界坐标原点。 */
 	maskWidth = 0;
 	maskHeight = 0;
 	originX = 0;
 	originY = 0;
-	/** Per-region density overrides: "regionId" → density. */
+	/** 各区域密度覆盖："regionId" → 密度。 */
 	densityOverrides: Record<string, number> = {};
-	/** Per-region custom labels: "regionId" → label string. */
+	/** 各区域自定义标签："regionId" → 标签文本。 */
 	customLabels: Record<string, string> = {};
 
-	// Cache
+	// 缓存
 	private cachedTint: HTMLCanvasElement | null = null;
 	private cachedLabels: RoomLabelInfo[] = [];
 	private cachedTypeRef: Uint8Array | null = null;
@@ -63,7 +63,7 @@ export class RoomLabelsLayer implements Layer {
 		const transform = camera.getTransform();
 		const [a, b, c, d, e, f] = transform;
 
-		// Draw room tint fills
+		// 绘制房间色调填充
 		if (this.cachedTint) {
 			ctx.save();
 			ctx.setTransform(a * dpr, b * dpr, c * dpr, d * dpr, e * dpr, f * dpr);
@@ -72,7 +72,7 @@ export class RoomLabelsLayer implements Layer {
 			ctx.restore();
 		}
 
-		// Draw label pills
+		// 绘制标签胶囊
 		if (this.cachedLabels.length === 0) return;
 
 		ctx.save();
@@ -92,7 +92,7 @@ export class RoomLabelsLayer implements Layer {
 			const wx = this.originX + info.cx;
 			const wy = this.originY + info.cy;
 			const custom = this.customLabels[String(info.regionId)];
-			// The canvas pill follows the interface language; a user-supplied label never does.
+			// 画布标签跟随界面语言；用户提供的标签不跟随。
 		const text = custom || t(info.type.shortName);
 			const metrics = ctx.measureText(text);
 			const tw = metrics.width;
@@ -102,14 +102,14 @@ export class RoomLabelsLayer implements Layer {
 			const bx = wx - bw / 2;
 			const by = wy - bh / 2;
 
-			// Pill background
+			// 胶囊背景
 			const [r, g, b2] = info.type.color;
 			ctx.fillStyle = `rgba(${r}, ${g}, ${b2}, 0.85)`;
 			ctx.beginPath();
 			ctx.roundRect(bx, by, bw, bh, radius);
 			ctx.fill();
 
-			// Text
+			// 文本
 			ctx.fillStyle = '#ffffff';
 			ctx.fillText(text, wx, wy);
 		}
@@ -147,7 +147,7 @@ export class RoomLabelsLayer implements Layer {
 		const typeMap = new Map<number, RoomType>();
 		for (const t of ROOM_TYPES) typeMap.set(t.id, t);
 
-		// Accumulate per-region centroid sums
+		// 累加各区域的质心坐标
 		const regions = new Map<
 			number,
 			{ sumX: number; sumY: number; count: number; typeId: number }

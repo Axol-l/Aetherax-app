@@ -2,32 +2,28 @@ import { Camera } from './camera.js';
 import type { Layer, RenderContext } from './types.js';
 
 /**
- * How many frames in a row a throwing layer gets before the loop stops retrying.
+ * 图层连续抛错的帧数上限，超过后循环停止重试。
  *
- * Three is enough for a transient failure — a cache being rebuilt mid-drag — to heal
- * itself on the next frame, and short enough that a layer broken for good stops
- * costing a frame's worth of exceptions at 60 Hz.
+ * 达到上限后画布转为干净状态，等待下一次显式重绘。
  */
 const MAX_RENDER_ERRORS = 3;
 
 /**
- * What the picture is drawn on, when it is not this engine's own canvas.
+ * 绘制目标；不是本引擎自己的画布时由调用方提供。
  *
- * Export renders into an offscreen canvas at a different scale, and the loop that does it was
- * a copy of this one — twice, in `export/png.ts` and `export/pdf.ts`, each with its own idea of
- * what to leave out. One loop now, with the layer saying whether it belongs in a picture.
+ * 导出时渲染到不同比例的离屏画布，图层自身声明是否属于导出图。
  */
 export interface RenderTarget {
 	ctx: CanvasRenderingContext2D;
 	width: number;
 	height: number;
-	/** Device pixels per CSS pixel. The layers draw in CSS pixels. */
+	/** 每个 CSS 像素对应的设备像素数；图层按 CSS 像素绘制。 */
 	dpr: number;
-	/** Painted under the layers. Omitted, the target is cleared to transparent. */
+	/** 绘制在图层之下的底色；省略时目标被清为透明。 */
 	background?: string;
 }
 
-/** The colour the app paints behind everything; exports use it so they are not transparent. */
+/** 应用绘制在所有内容之后的底色；导出使用它以避免透明背景。 */
 export const RENDER_BACKGROUND = '#0a0c12';
 
 export class CanvasEngine {
@@ -44,16 +40,9 @@ export class CanvasEngine {
 	private dpr = 1;
 
 	/**
-	 * Frames that threw in a row, and the error the last one threw.
+	 * 连续抛错的帧数与最近一次错误。
 	 *
-	 * A layer that throws does not keep its failure to itself: `render()` is the one
-	 * call the frame chain hangs on. Before this was handled, a single exception left
-	 * `dirty` true and `running` true while never re-arming `requestAnimationFrame`, so
-	 * every later `markDirty()` took the `if (!running)` early return and the canvas
-	 * was frozen for the rest of the session — with nothing on screen to say so.
-	 *
-	 * The count is exposed so the view can say something about it; a frame that succeeds
-	 * resets it.
+	 * 图层抛错会让整个帧链停摆，因此计数对外暴露供视图提示；成功的一帧会将其重置。
 	 */
 	renderErrors = 0;
 	lastRenderError: Error | null = null;
@@ -66,11 +55,9 @@ export class CanvasEngine {
 	}
 
 	/**
-	 * Install the layers, in draw order.
+	 * 按绘制顺序安装图层。
 	 *
-	 * The order *is* the array, so it can be read in one place instead of following twenty
-	 * `addLayer` calls down a `onMount` — where a layer added between two others said its
-	 * position by where somebody happened to type it.
+	 * 数组顺序即绘制顺序，只在这一处即可确定各图层的前后关系。
 	 */
 	setLayers(layers: Layer[]): void {
 		this.layers = [...layers];
@@ -101,8 +88,8 @@ export class CanvasEngine {
 		this.width = width;
 		this.height = height;
 		this.dpr = window.devicePixelRatio || 1;
-		// Don't set canvas.width/height here — that clears the canvas immediately,
-		// causing a flash before the next frame renders. Defer to render().
+		// 这里不设置 canvas.width/height：那会立即清空画布，在下一帧绘制前闪一下。
+		// 推迟到 render() 中处理。
 		this.canvas.style.width = `${width}px`;
 		this.canvas.style.height = `${height}px`;
 		this.markDirty();
@@ -124,9 +111,8 @@ export class CanvasEngine {
 			return;
 		}
 		/*
-		 * Cleared before the draw, not after it: a renderer that calls `markDirty()` on
-		 * itself — resizing a cache, scheduling work for the next frame — must not have
-		 * that request swallowed by the frame it made the request in.
+		 * 在绘制前清除，而不是绘制后：渲染器在自身内部（调整缓存大小、
+		 * 安排下一帧的工作）调用 `markDirty()` 时，该请求不应被当前帧吞掉。
 		 */
 		this.dirty = false;
 		try {
@@ -136,17 +122,13 @@ export class CanvasEngine {
 		} catch (error) {
 			this.renderErrors += 1;
 			this.lastRenderError = error instanceof Error ? error : new Error(String(error));
-			// Once per streak: a layer that throws on every frame would otherwise write
-			// sixty copies of the same stack trace a second.
+			// 每轮连续错误只记录一次：否则每帧都抛错的图层会每秒写出大量相同的堆栈。
 			if (this.renderErrors === 1) {
 				console.error('[canvas] a layer failed to render', error);
 			}
 			/*
-			 * A failed frame is still a frame that has to happen again — leave the canvas
-			 * dirty so the retry draws, rather than letting `loop` take its "nothing to do"
-			 * exit on the next tick. Past the limit it goes clean, which stands the loop
-			 * down with `running` false: the next `markDirty()` then buys exactly one more
-			 * attempt, instead of the loop spinning on a layer that cannot render.
+			 * 失败的一帧仍需重来：保持画布为需要重绘状态，下一次 tick 才会继续绘制。
+			 * 超过上限后转为干净状态，循环随之停止；下一次 `markDirty()` 只再试一次。
 			 */
 			this.dirty = this.renderErrors < MAX_RENDER_ERRORS;
 		}
@@ -168,19 +150,14 @@ export class CanvasEngine {
 	}
 
 	/**
-	 * Draw the layers into a context that is not this engine's canvas.
-	 *
-	 * The on-screen loop and both exporters were three copies of this, and the exporters
-	 * decided what to leave out by layer id — so an overlay added later appeared in exported
-	 * pictures until somebody remembered to name it in two places. `include` is the caller's
-	 * only say now, and the layer itself says whether it belongs in a picture at all
-	 * (`Layer.exportable`).
+	 * 把图层绘制到非本引擎画布的上下文；是否包含某个图层由 `include` 决定。
+	 * 图层自身通过 `Layer.exportable` 声明能否导出；省略 `include` 时绘制全部可见图层。
 	 */
 	drawInto(target: RenderTarget, options: { include?: (layer: Layer) => boolean } = {}): void {
 		const { ctx, width, height, dpr } = target;
 
-		// Cleared or filled in *device* pixels: the layer transform below is in CSS pixels,
-		// and a clearRect under it would miss the edges by the DPR.
+		// 清空与填充按设备像素进行：下面的图层变换使用 CSS 像素，
+		// 在其上直接 clearRect 会因 DPR 而漏掉边缘。
 		ctx.save();
 		ctx.setTransform(1, 0, 0, 1, 0, 0);
 		if (target.background) {

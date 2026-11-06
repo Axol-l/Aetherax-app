@@ -1,5 +1,5 @@
 /**
- * The knife-edge model, on cases where the Fresnel parameter can be reasoned about directly.
+ * 刀刃衍射模型，用例选取菲涅尔参数可直接推算的情形。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -31,7 +31,7 @@ describe('knifeEdgeLossDb', () => {
 	});
 
 	it('matches the P.526 closed form at a known point', () => {
-		// h = 1 m, d1 = d2 = 10 m, λ = 0.0545 m → ν = 1·√(40/(0.0545·100)) ≈ 2.71.
+		// h = 1 m、d1 = d2 = 10 m、λ = 0.0545 m，据此算得 ν ≈ 2.71。
 		const v = Math.sqrt((2 * 20) / (lambda5 * 100));
 		const expected = 6.9 + 20 * Math.log10(Math.sqrt((v - 0.1) ** 2 + 1) + v - 0.1);
 		expect(knifeEdgeLossDb(1, 10, 10, lambda5)).toBeCloseTo(expected, 6);
@@ -44,8 +44,8 @@ describe('bestDiffraction', () => {
 	const edges: DiffractionEdge[] = [
 		{ x: 50, y: 1, material: 0 },
 		{ x: 50, y: -20, material: 0 },
-		{ x: -10, y: 0.5, material: 0 }, // behind the source
-		{ x: 200, y: 0.5, material: 0 } // beyond the receiver
+		{ x: -10, y: 0.5, material: 0 }, // 位于源之后
+		{ x: 200, y: 0.5, material: 0 } // 位于接收端之外
 	];
 
 	it('prefers the edge nearest the path and ignores the ones outside it', () => {

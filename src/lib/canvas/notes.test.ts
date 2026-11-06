@@ -1,11 +1,7 @@
 /**
- * Notes: the hit test that decides what the pointer is over, and the wrapping of the text
- * the pin shows.
- *
- * The renderer needs a canvas; these two need numbers, so they are the part worth pinning
- * down. The tolerance argument is in world units on purpose — the caller divides the screen
- * tolerance by the zoom, so a pin stays the same size on screen however far in the plan is
- * magnified.
+ * 标注：判断指针所指内容的命中检测，以及标注点所示文本的换行。
+ * 这两项只需数值、无需画布，因此单独测试；容差参数使用世界单位，
+ * 调用方将屏幕容差除以缩放比例，使标注点在屏幕上大小恒定。
  */
 import { describe, expect, it } from 'vitest';
 import { noteAtPoint, wrapText, type Note } from './renderers/notes.js';

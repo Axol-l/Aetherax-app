@@ -3,20 +3,15 @@ import { reachAtLevel } from '$lib/rf/propagation.js';
 import { heatmapRegion } from './heatmap-region.js';
 
 /**
- * The heatmap image's bounds.
- *
- * The rectangle used to be the plan plus `1.5 x interferenceRadius`, i.e. sized
- * from the ASSOCIATION radius (~30 m at 5 GHz / 20 dBm) while the colour ramp
- * can only reach the COVERAGE distance for the user's ramp floor (~12.6 m at the
- * default -70 dBm). The image was therefore ~9x larger than any area it could
- * colour, which blew the cell budget and widened the texel — and a widened texel
- * is what renders as flat colour patches joined by short ramps.
+ * 热力图图像的边界。
+ * 矩形按各 AP 的可绘制覆盖半径而非关联半径计算，半径取信号降到色阶下限的距离，
+ * 因此不会因范围过大而放大纹素。
  */
 
-/** 5 GHz, 20 dBm: level at 1 m is 20 - 46 = -26 dBm. */
+/** 5 GHz、20 dBm：1 m 处电平为 20 - 46 = -26 dBm。 */
 const REF_5GHZ_20DBM = -26;
-const WUPM = 33.05; // the calibration of the screenshot this was diagnosed from
-/** Mask built at FLOORPLAN_TARGET_WIDTH, i.e. 800 world units wide. */
+const WUPM = 33.05; // 世界单位与米的换算系数
+/** 按 FLOORPLAN_TARGET_WIDTH 生成的掩码，宽 800 世界单位。 */
 const MASK = { originX: 0, originY: 0, width: 800, height: 627 };
 const FINE = 4;
 const BUDGET = 250_000;
@@ -25,9 +20,9 @@ const apAt = (x: number, y: number) => ({ x, y, power: 20, band: '5ghz' });
 
 describe('reachAtLevel', () => {
 	it('inverts the log-distance model for the level at 1 m', () => {
-		// 20 dBm 5 GHz reaches ~12.6 m at the -70 dBm coverage threshold.
+		// 20 dBm、5 GHz 在 -70 dBm 覆盖门限下的可达距离约为 12.6 m。
 		expect(reachAtLevel(REF_5GHZ_20DBM, -70)).toBeCloseTo(12.58, 1);
-		// 2.4 GHz at the same power: PL0 = 39.6, so -19.6 dBm at 1 m, 18.2 m at -70.
+		// 2.4 GHz 同功率下 PL0 = 39.6，1 m 处为 -19.6 dBm，-70 dBm 门限下约 18.2 m。
 		expect(reachAtLevel(20 - 39.6, -70)).toBeCloseTo(18.2, 1);
 	});
 
@@ -46,12 +41,12 @@ describe('heatmapRegion', () => {
 		const region = heatmapRegion(aps, MASK, -70, WUPM, FINE, BUDGET)!;
 		expect(region).not.toBeNull();
 
-		// The fix: the budget is never reached, so no widening.
+		// 预算未被触及，因此不会放大纹素。
 		expect(region.texel).toBe(FINE);
 		expect(region.cols * region.rows).toBeLessThanOrEqual(BUDGET);
 
-		// The old margin (1.5 x the association radius, 1.5 x 988 units) would have
-		// asked for a 3764-unit span and widened the texel to 8.
+		// 旧的余量按关联半径的 1.5 倍计算，会要求 3764 单位的跨度，
+		// 并把纹素放大到 8。
 		const oldRadius = 1.5 * Math.round(29.9 * WUPM);
 		const oldSpan = 800 + 2 * oldRadius;
 		expect(oldSpan).toBeGreaterThan(3000);
@@ -73,8 +68,8 @@ describe('heatmapRegion', () => {
 	it('covers each AP only as far as its own reach', () => {
 		const near = heatmapRegion([apAt(400, 313)], MASK, -70, WUPM, FINE, BUDGET)!;
 		const far = heatmapRegion([apAt(4000, 313)], MASK, -70, WUPM, FINE, BUDGET)!;
-		// An AP dragged off the plan still counts, but only out to its reach. The
-		// edge lands on the texel lattice, so it can overshoot by less than a texel.
+		// 拖到平面图之外的 AP 仍计入，但只到其覆盖半径为止；
+		// 边界落在纹素格点上，因此最多超出不到一个纹素。
 		const reach = reachAtLevel(REF_5GHZ_20DBM, -70) * WUPM * 1.05;
 		const farEdge = far.x0 + far.cols * far.texel;
 		expect(farEdge).toBeGreaterThanOrEqual(4000 + reach);
@@ -83,7 +78,7 @@ describe('heatmapRegion', () => {
 	});
 
 	it('widens the texel instead of overflowing the budget', () => {
-		// A big plan at a -95 dBm floor: reach ~53 m, so the region is huge.
+		// 大平面图配 -95 dBm 下限：覆盖半径约 53 m，区域因此很大。
 		const big = { originX: 0, originY: 0, width: 4000, height: 3000 };
 		const region = heatmapRegion([apAt(2000, 1500)], big, -95, WUPM, FINE, BUDGET)!;
 		expect(region.texel).toBeGreaterThan(FINE);
@@ -91,7 +86,7 @@ describe('heatmapRegion', () => {
 	});
 
 	it('falls back to the mask when no AP contributes any colour', () => {
-		// AP at 0 dBm on 5 GHz: 1 m level is -46 dBm, below a -55 dBm floor.
+		// 5 GHz 上 0 dBm 的 AP：1 m 处电平为 -46 dBm，低于 -55 dBm 下限。
 		const weak = [{ x: 400, y: 313, power: 0, band: '5ghz' }];
 		const region = heatmapRegion(weak, MASK, -55, WUPM, FINE, BUDGET)!;
 		expect(region.x0).toBe(0);
@@ -100,9 +95,8 @@ describe('heatmapRegion', () => {
 	});
 
 	it('covers a drawn area that extends past the mask', () => {
-		// A planning area is the user saying where the floor is; it can sit outside the
-		// plan image's frame. The image used to stop at the mask, so the clip then trimmed
-		// the field to a rectangle the area did not share.
+		// 规划区域可能位于平面图图像范围之外，图像必须覆盖它，
+		// 否则裁剪会裁到不含该区域的矩形。
 		const clip = [
 			{ x: 0, y: 0 },
 			{ x: 1600, y: 0 },

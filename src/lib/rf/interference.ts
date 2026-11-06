@@ -1,81 +1,36 @@
 /**
- * Co-channel interference in the placement objective.
- *
- * Placement and channel assignment are physically coupled: moving an AP changes
- * the conflict graph and therefore the best assignment. The coverage objective on
- * its own is blind to that — each sample takes the `max` over APs, so a second,
- * co-channel AP covering an already-covered area costs exactly nothing, and the
- * search is actively rewarded for clustering. This module is the term that makes
- * a co-channel second server cost something. See `MODEL_NOTES.md` §6.
- *
- * The measurement is taken inside the optimiser's existing sample loop, from the
- * per-source margins that loop already produces, so it adds no propagation runs
- * and makes no AP-to-AP geometry approximation (which is what a circle-overlap
- * graph would do):
- *
- *     s*_i   = max_j s_ij                     (margin in dB: the best server)
- *     viol_i = 1[ ∃ j ≠ argmax: channel_j == channel_best && s_ij > s*_i − DELTA ]
- *     term   = (Σ_i viol_i) / |I|
- *
- * `DELTA` is a **reuse threshold, not a sensitivity**: it says how far below the
- * best server a co-channel second server still degrades it. 802.11g design
- * practice uses a 10 dB SIR target; Juniper Mist's published requirement is 25 dB
- * SNR. It is a modelling assumption, so it is named here rather than inlined, and
- * the number is reported alongside the coverage figure it trades against.
- *
- * The penalty form is a synthesis, not a formula lifted from one source: the
- * papers model interference as a constraint (Oustry eq. 18/19) or as a sum over
- * AP pairs (IJEAT eq. 4), and rewriting a constraint as an additive penalty is
- * what IJEAT itself does. `DEFAULT_INTERFERENCE_WEIGHT` is IJEAT's aggregate
- * coefficient.
- *
- * It is deliberately **not** summed over AP pairs: counting the samples whose
- * best server is spoiled measures the thing that matters (lost airtime where a
- * client actually is), it needs no pair geometry, and the number of APs falls out
- * of it instead of being double-counted.
+ * 目标函数中的同频干扰项：统计最佳服务器被同频次服务器削弱的采样点占比，见 `MODEL_NOTES.md` §6。
+ * 在优化器既有的采样循环内用各源的 margin 直接计算，不新增传播计算，也不做 AP 间几何近似。
  */
 
 /**
- * dB below the best server within which a co-channel secondary server counts as
- * interference. See the module comment for why 10.
+ * 同频次服务器算作干扰的 dB 窗口：比最佳服务器低多少以内仍会削弱它。
  */
 export const COCHANNEL_REUSE_DB = 10;
 
 /**
- * Default weight of the interference share in the objective:
- * `score = coverageUtility − interferenceWeight · interferenceShare`, both terms
- * on a 0-1 scale. IJEAT's aggregate penalty coefficient — a starting point, not a
- * result: the trade is a Pareto curve, so this is a project setting.
+ * 目标函数中干扰占比的默认权重：`score = coverageUtility − interferenceWeight · interferenceShare`，
+ * 两项均归一化到 0-1。
  */
 export const DEFAULT_INTERFERENCE_WEIGHT = 0.2;
 
 /**
- * Channel value standing for "no assignment yet".
- *
- * Every source carrying it is co-channel with every other source, which is the
- * worst case a plan can be in: the optimiser then spreads APs as if they all
- * shared one channel. The main thread re-solves after a placement change, so a
- * real assignment is usually available by the next run; the alternating
- * re-colouring *inside* the optimiser loop is the next step in `MODEL_NOTES` §6.
+ * 表示「尚未分配信道」的信道值。
+ * 携带它的源与所有其他源互为同频，即规划的最坏情况。
  */
 export const COCHANNEL_UNKNOWN = -1;
 
-/** What a run's channel vector was derived from. */
+/** 一次运行的信道向量来源。 */
 export interface ResolvedChannels {
-	/** One entry per source, in the source order the evaluator uses. */
+	/** 每个信号源一项，顺序与评估器使用的源顺序一致。 */
 	channels: number[];
-	/** True when these are real assignments, false for the all-co-channel bound. */
+	/** 为真实分配时为 true，全同频上界时为 false。 */
 	known: boolean;
 }
 
 /**
- * Channels to measure against: the real assignment when **every** source has one,
- * the all-co-channel worst case otherwise.
- *
- * All-or-nothing on purpose. A mixed vector would need a per-*pair* notion of
- * "unknown", and treating an unassigned AP as co-channel with everything while
- * the assigned ones keep their channels would quietly make the answer depend on
- * which APs happened to have been coloured.
+ * 用于统计干扰的信道：所有源都有真实分配时用真实分配，否则一律按全同频最坏情况处理。
+ * 全有或全无，避免结果取决于哪些 AP 恰好已被着色。
  */
 export function resolveChannels(
 	sources: ReadonlyArray<{ assignedChannel?: number | null }>
@@ -94,14 +49,8 @@ export function resolveChannels(
 }
 
 /**
- * Frequency overlap between two sources' assignments, as a fraction of the
- * narrower channel's bandwidth: 0 when they share no spectrum, 1 when they are the
- * same spectrum.
- *
- * `i` and `j` are source indices, so an implementation can close over each
- * source's band and width; nothing in this module knows about either. See
- * `rf/channel-overlap.ts` for the lookup the app builds from the channel tables,
- * and `SAME_CHANNEL_OVERLAP` for the model this generalises.
+ * 两个源分配之间的频率重叠比例，以较窄信道的带宽为分母：不共享频谱为 0，完全同谱为 1。
+ * `i`、`j` 是源下标，频段与带宽由实现自行闭包获取，见 `rf/channel-overlap.ts`。
  */
 export type OverlapLookup = (
 	i: number,
@@ -111,41 +60,15 @@ export type OverlapLookup = (
 ) => number;
 
 /**
- * The model that predates B3's second stage: two sources overlap completely when
- * their channel numbers are equal, and not at all otherwise.
- *
- * Kept as the default so every existing caller keeps exactly the behaviour it had.
- * With a non-overlapping palette — what the planner hands out — the two models
- * agree on every pair, so the default is not a fallback but the same answer; the
- * interval model differs precisely where a plan is pinned or hand-edited into
- * partially overlapping channels, which is where the old one reported 0%.
+ * 默认的重叠模型：信道号相同即完全重叠，不同即完全不重叠。
  */
 export const SAME_CHANNEL_OVERLAP: OverlapLookup = (_i, channelI, _j, channelJ) =>
 	channelI === channelJ ? 1 : 0;
 
 /**
- * Does this sample's best server have a co-channel secondary within
- * `COCHANNEL_REUSE_DB` of it?
- *
- * `margins` and `channels` are indexed over the same sources, in any order, and
- * only the `count` entries starting at `offset` are read — the evaluators keep
- * every sample's margins in one buffer, and `offset` is how a sample's slice is
- * addressed without allocating a view per sample in the search loop.
- *
- * `bands` carries each source's band. Two sources can only be co-channel if they
- * are in the **same band**: channel numbers are only unique within a band, and
- * 6 GHz uses 1/5/9/… while 2.4 GHz uses 1-13, so on channel *numbers* alone a
- * 6 GHz AP on 1 would be read as co-channel with a 2.4 GHz AP on 1. Nothing
- * about that pair interferes — the solver colours each band independently for
- * the same reason. Omit `bands` only when every source is genuinely one band.
- *
- * `margin` is the source's margin in dB above the coverage threshold (the same
- * quantity `coverageUtility` consumes), so the comparison is a difference of
- * levels: every term in the path is a dB term.
- *
- * This is `interferenceAt` reduced to a yes/no, and exists for the conflict graph,
- * where the question really is binary ("must these two be given different
- * channels"). The *reported* figure is graded — see `interferenceAt`.
+ * 本采样点的最佳服务器是否被 `COCHANNEL_REUSE_DB` 以内的同频次服务器削弱，供冲突图使用。
+ * `margins` 与 `channels` 按源同序索引，只读取从 `offset` 起的 `count` 项；
+ * `bands` 把同频判定限制在同一频段内，省略时视为所有源同属一个频段。
  */
 export function violatesAt(
 	margins: ArrayLike<number>,
@@ -158,20 +81,8 @@ export function violatesAt(
 }
 
 /**
- * How much of this sample's best server is spoiled by a co-channel secondary, 0 to
- * 1.
- *
- * The same test as `violatesAt`, with the overlap graded instead of rounded to a
- * yes: the figure is the frequency overlap between the best server and the *worst*
- * secondary inside the reuse window. `overlap` is where the interval model enters
- * (B3's second stage): with the default `SAME_CHANNEL_OVERLAP` this is exactly the
- * old boolean — two APs on one channel overlap completely — and with a real lookup
- * two 80 MHz APs 20 MHz apart come out at 0.75 rather than "not interfering",
- * which is what a pinned or hand-edited plan needs to be told.
- *
- * The worst secondary rather than the sum: interference at a sample is decided by
- * the dominant competing signal, and summing would let three weak ones outrank one
- * strong one.
+ * 本采样点的最佳服务器被同频次服务器削弱多少，取值 0 到 1。
+ * 判据与 `violatesAt` 相同，数值取与复用窗口内最差次服务器的频率重叠，`overlap` 决定折叠方式。
  */
 export function interferenceAt(
 	margins: ArrayLike<number>,
@@ -190,7 +101,7 @@ export function interferenceAt(
 			bestIndex = i;
 		}
 	}
-	// No source reaches the sample at all: nothing to interfere with.
+	// 没有任何信号源到达该采样点，不存在干扰。
 	if (bestIndex < 0 || best === -Infinity) return 0;
 
 	const limit = best - COCHANNEL_REUSE_DB;
@@ -200,8 +111,7 @@ export function interferenceAt(
 	for (let i = 0; i < count; i++) {
 		if (i === bestIndex) continue;
 		if (bands && bands[i] !== band) continue;
-		// Strictly greater: a secondary exactly at the reuse distance is the
-		// boundary case the threshold is defined *at*, so it does not count.
+		// 严格大于才计入：恰好落在复用距离上的次服务器属于阈值边界，不算违规。
 		if (!(margins[offset + i]! > limit)) continue;
 		const shared = overlap(bestIndex, channel, i, channels[i]!);
 		if (shared > worst) worst = shared;
@@ -209,50 +119,26 @@ export function interferenceAt(
 	return worst;
 }
 
-// ─── Assignment: which pairs must not share a channel, and what to give them ──
+// ─── 信道分配：哪些源对不能共用信道，以及各自分到什么 ──
 
 /**
- * An `count x count` conflict matrix, 1 at `[i * count + j]` when sources `i` and
- * `j` must not share a channel.
- *
- * Built from the same margins the interference term uses, not from circle
- * overlap: two sources conflict when one is within `COCHANNEL_REUSE_DB` of the
- * other *at a sample*, which is the "actual interference events" criterion
- * `MODEL_NOTES.md` §6 asks for. A dense but single-server-dominated layout
- * therefore produces no edges, and the AP-count effect falls out instead of being
- * assumed.
+ * 大小为 `count x count` 的冲突矩阵，`[i * count + j]` 为 1 表示源 `i` 与 `j` 不能共用信道。
  */
 export function conflictMatrix(count: number): Uint8Array {
 	return new Uint8Array(count * count);
 }
 
 /**
- * How much each conflicting pair actually costs, alongside `conflictMatrix`.
- *
- * The matrix says *whether* a pair must not share a channel; this says how much of the
- * plan that pair spoils — the density-weighted number of samples at which one is
- * within the reuse threshold of the other. It is the difference between a pair that
- * meets at one corner of a corridor and a pair whose whole served area overlaps, and a
- * colourer that has to leave one of them sharing a channel should leave the cheap one.
- *
- * Unweighted, every marked pair counts 1, which is exactly the behaviour the colourers
- * had before this existed.
+ * 与 `conflictMatrix` 配套的冲突代价：按密度加权的采样点数量，即该源对实际造成的损害。
+ * 全为 1 时等价于不带权重。
  */
 export function conflictWeights(count: number): Float32Array {
 	return new Float32Array(count * count);
 }
 
 /**
- * Mark every pair that is within the reuse distance of each other at this sample.
- *
- * The sample's strongest source is the reference; a weaker one within
- * `COCHANNEL_REUSE_DB` of it must not share its channel *here*, so the pair is
- * marked. Called once per sample with the same margins `violatesAt` reads.
- *
- * `weights`, when given, accumulates the sample's own `weight` (its density) on each
- * marked pair. `bands` restricts edges to same-band pairs, for the reason spelled out
- * on `violatesAt`: without it a 6 GHz AP would be pushed off a channel merely because
- * a 2.4 GHz AP holds the same *number*.
+ * 标记本采样点内互相处于复用距离的源对，以最强源为基准并双向写入。
+ * `weights` 非空时按 `weight`（密度）累加；`bands` 把边限制在同一频段内。
  */
 export function markSampleConflicts(
 	conflicts: Uint8Array,
@@ -290,29 +176,9 @@ export function markSampleConflicts(
 }
 
 /**
- * Spread a proper colouring over the palette wherever the graph leaves the choice
- * free.
- *
- * A proper colouring is not the only thing an assignment has to be. When the
- * conflict graph is silent about a source — no sample puts it within
- * `COCHANNEL_REUSE_DB` of another AP's signal — every allowed channel is equally
- * correct for *interference*, and they are not equally correct for *airtime*:
- * co-channel APs contend for the medium even when they do not degrade each other's
- * SNR, so a greedy colourer that always takes the lowest free channel puts a whole
- * band on channel 1 and trades nothing away. This walks the sources once and moves
- * each to a strictly less-used allowed channel when one is free, which never
- * creates a conflict the colouring did not already have (a candidate is taken only
- * if no neighbour holds it).
- *
- * Balance is the cheapest honest tie-break, not a throughput model: it treats the
- * channels as equally valuable, whereas real contention depends on how much traffic
- * each AP carries. Minimising measured coupling instead is the open question in
- * `ROADMAP.md` B5.
- *
- * `channels[i]` is the current assignment, `adjacency[i]` the indices that must not
- * share it, `allowed[i]` the channels source `i` may take (in preference order),
- * and `pinned[i]` true when the user chose it and it must not move. Returns a new
- * array; the input is left alone.
+ * 在冲突图未作约束处，把信道均衡地铺开到可用信道表上，减少同频争用。
+ * 逐个源移到占用严格更少的可用信道，且只选不与相邻源重叠的信道；`pinned` 为 true 的源不动，
+ * 返回新数组，不修改入参。
  */
 export function balanceAssignment(
 	channels: readonly number[],
@@ -331,13 +197,11 @@ export function balanceAssignment(
 		if (!options || options.length === 0) continue;
 		const current = out[i]!;
 		let best = current;
-		// Strictly less used, so ties keep the earlier candidate and the result stays
-		// reproducible.
+		// 只在占用严格更少时改选，平局保留先出现的候选，结果可复现。
 		let bestUse = usage.get(current) ?? 0;
 		for (const candidate of options) {
 			if (candidate === current) continue;
-			// Never move onto something a conflicting neighbour shares: balancing is
-			// not allowed to create interference, only to spread the palette.
+			// 不迁到冲突邻居已占用的信道：均衡只负责铺开信道，不能制造干扰。
 			let taken = false;
 			for (const j of adjacency[i] ?? []) {
 				if (overlap(i, candidate, j, out[j]!) > 0) {
@@ -361,33 +225,14 @@ export function balanceAssignment(
 }
 
 /**
- * Ranking for candidate channels: lower is better.
- *
- * Tiers, in order:
- *
- * 0. **no overlap** with any conflicting neighbour — always right, and what makes
- *    the widened tail of a candidate list useful;
- * 1. an overlap that **reuses a centre someone already holds**;
- * 2. a **new** centre that partially overlaps a conflicting neighbour.
- *
- * Tier 1 before tier 2 is a modelling call, not an optimisation: partial overlap is
- * not a gentler co-channel, it is a second channel that also collides, so inventing
- * one occupies more spectrum for the same interference. Reuse first, widen only into
- * genuinely clear spectrum — which is why four 2.4 GHz APs on three channels come out
- * 1, 6, 11, 1 and not 1, 6, 11, 2.
- *
- * Within a tier, less overlap wins and ties keep the caller's order — and the caller
- * puts the conventional palette first, so a source with nothing to avoid takes the
- * first palette channel rather than wandering up the band. Spreading the palette for
- * *airtime* is a separate pass over the palette alone (`balanceAssignment`); this one
- * is about interference, and reaching into the widened tail whenever a free channel
- * exists would put neighbouring APs on overlapping channels for no gain.
+ * 候选信道的排序键，越小越好：与冲突邻居无重叠为 0，复用已被占用的中心为 1，
+ * 新中心且与冲突邻居部分重叠为 2；同层内重叠越小越优，平局保留调用方给出的顺序。
  */
 function rankCandidate(shared: number, used: boolean): [number, number] {
 	return [shared === 0 ? 0 : used ? 1 : 2, shared];
 }
 
-/** Strictly better, so ties keep whichever candidate came first. */
+/** 仅在严格更优时为真，平局保留先出现的候选。 */
 function isBetterRank(a: readonly number[], b: readonly number[]): boolean {
 	for (let i = 0; i < a.length; i++) {
 		if (a[i]! !== b[i]!) return a[i]! < b[i]!;
@@ -396,14 +241,8 @@ function isBetterRank(a: readonly number[], b: readonly number[]): boolean {
 }
 
 /**
- * How much damage one candidate channel would do, over the neighbours it conflicts
- * with.
- *
- * Without weights this is the worst single overlap the candidate creates, which is
- * what both colourers have always ranked by. With them it is the *sum* of the overlaps
- * each weighted by what that pair costs, so a candidate that shares spectrum with
- * three cheap neighbours can rank worse than one that shares with a single expensive
- * one — which is the decision the weights exist to inform.
+ * 一个候选信道在与它冲突的邻居上造成的损害。
+ * 不带权重时取最大重叠，带权重时取各源对按权重加权的重叠之和。
  */
 function damageOf(
 	i: number,
@@ -431,39 +270,9 @@ function damageOf(
 }
 
 /**
- * Give every source a channel, respecting `allowed` and the conflict matrix.
- *
- * A dedicated, deterministic DSatur-lite: sources are coloured in order of how
- * constrained they are (most differently-coloured neighbours first, then lowest
- * index), each taking the best allowed channel no conflicting neighbour shares
- * with it. Determinism matters more than optimality here — the optimiser runs this
- * inside its own search, where a colouring that changed between two evaluations of
- * the *same* layout would turn the objective into noise.
- *
- * `allowed[i]` is the list of channels source `i` may take, **in preference order**
- * (see `planningCandidates`: the conventional non-overlapping palette first, then
- * the rest of the band). `overlap` says how much two assignments share — with the
- * default, only the same channel number does, which is the pre-B3 model.
- *
- * Candidates are ranked by, in order:
- *
- * 1. **the worst overlap** with a conflicting neighbour — zero wins, and that is
- *    what makes the widened tail of `allowed` useful rather than dangerous: a
- *    source the palette cannot serve takes a centre that is genuinely clear of the
- *    APs it conflicts with, not one next to them;
- * 2. **how many sources already hold it** — with no interference to trade away the
- *    channels are still not equivalent for airtime, so the least-used one wins
- *    (see `balanceAssignment`, which does the same for an existing assignment);
- * 3. **its position in `allowed`** — so ties keep the conventional channel, which
- *    is why four 2.4 GHz APs come out 1, 6, 11, 1 rather than 1, 6, 11, 2.
- *
- * A pinned source gets a single-element list, so pins are constraints like any
- * other rather than a special case — and an unsatisfiable one (two pinned
- * neighbours on one channel) is left alone, because the point of the colouring is
- * to measure interference, not to forbid a plan the user asked for.
- *
- * A source with an empty list is left as `COCHANNEL_UNKNOWN`, i.e. co-channel
- * with everything, which is the conservative reading.
+ * 给每个信号源分配信道，遵守 `allowed` 与冲突矩阵。
+ * 按受约束程度排序后逐个着色，取与冲突邻居重叠最小、占用最少、在 `allowed` 中靠前的候选；
+ * 单元素列表视为固定信道，空列表的源保持 `COCHANNEL_UNKNOWN`（与所有源同频）。
  */
 export function colourConflicts(
 	conflicts: Uint8Array,
@@ -476,10 +285,7 @@ export function colourConflicts(
 	const done = new Array<boolean>(count).fill(false);
 	const usage = new Map<number, number>();
 
-	// Pinned sources first, and treated as already coloured. A pin is a constraint
-	// on its neighbours; deciding it in index order instead would let a neighbour
-	// take the pinned channel before the pin was ever looked at, and the colourer
-	// would then report a conflict the user did not create.
+	// 固定信道（单元素列表）的源先占位，并按已着色处理，使固定值对邻居构成约束。
 	for (let i = 0; i < count; i++) {
 		const options = allowed[i];
 		if (options && options.length === 1) {
@@ -490,10 +296,7 @@ export function colourConflicts(
 	}
 
 	for (let step = 0; step < count; step++) {
-		// Pick the next source: the one with the most distinctly coloured neighbours,
-		// and among those the one whose edges are heaviest — ties broken by index, so
-		// the result is reproducible. Without weights "heaviest" is simply "most
-		// neighbours", which is the order this colourer has always used.
+		// 选取下一个源：已着色邻居种类最多者优先，其次边权和最大者，仍并列时取下标小者以保证可复现。
 		let pick = -1;
 		let bestSaturation = -1;
 		let bestMass = -1;
@@ -520,8 +323,7 @@ export function colourConflicts(
 
 		const options = allowed[pick];
 		if (!options || options.length === 0) continue;
-		// The neighbours this candidate can actually damage: the ones already coloured,
-		// since an uncoloured source has no channel to overlap with.
+		// 候选真正可能损害的邻居：只算已着色的源，未着色者还没有信道可重叠。
 		const neighbours: number[] = [];
 		for (let j = 0; j < count; j++) {
 			if (j === pick || !conflicts[pick * count + j]) continue;
@@ -547,27 +349,8 @@ export function colourConflicts(
 }
 
 /**
- * Move sources off overlaps the palette forced on them, using the whole band.
- *
- * The main-thread solver colours a graph with channel *numbers* and so must be
- * given a mutually non-overlapping palette — it has no way to tell 36 from 40 at
- * 80 MHz. That leaves one case stuck: when more APs conflict with each other than
- * the palette has channels, the extra ones share a channel completely, even though
- * the band may hold a narrower centre that is genuinely clear of everything they
- * conflict with. Three mutually conflicting 80 MHz APs take the whole non-DFS
- * 5 GHz palette (36, 149, 165); a 20 MHz AP that conflicts with all three can still
- * have 48 to itself, 50 MHz away from the nearest 80 MHz span, and the palette
- * alone would have made it reuse one of the three.
- *
- * So this walks an existing assignment and, for every source that shares spectrum
- * with something it conflicts with, looks for a candidate with *less* overlap —
- * same ranking as `colourConflicts`, so the two agree about what "better" means.
- * It never increases any pair's overlap, and a source whose assignment is already
- * clear is left exactly where the solver put it, which keeps the algorithm the user
- * selected meaningful.
- *
- * `adjacency[i]` are the indices source `i` conflicts with, `allowed[i]` its
- * candidates in preference order, `pinned[i]` true when the user chose it.
+ * 用整个频段把受信道表所限而重叠的源移开：按与 `colourConflicts` 相同的排序，为每个源找重叠更小的候选。
+ * 不会增加任何一对的重叠，`pinned[i]` 为 true 的源不动；`adjacency[i]` 是冲突邻居，`allowed[i]` 按偏好排序。
  */
 export function widenAssignment(
 	channels: readonly number[],
@@ -593,8 +376,7 @@ export function widenAssignment(
 		const current = out[i]!;
 		let best = current;
 		let bestRank = rankAt(i, current);
-		// Only a strictly better candidate moves it, so a source the solver placed
-		// somewhere acceptable stays exactly where the algorithm the user chose put it.
+		// 只有严格更优的候选才会改动，求解器给出的可接受位置保持原样。
 		if (bestRank[0] === 0) continue;
 		for (const candidate of options) {
 			if (candidate === current) continue;

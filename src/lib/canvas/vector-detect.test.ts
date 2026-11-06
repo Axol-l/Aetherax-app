@@ -1,10 +1,6 @@
 /**
- * The composition of role buffers into the two masks.
- *
- * Small, and load-bearing: the wall mask is the optimiser's placement domain and the
- * coverage denominator, and the material mask is what tells the RF model that a door
- * is not a wall. Both come out of this one function, so the two rules that matter are
- * pinned here — openings stay *in* the mask, and they *win* the material.
+ * 把各角色缓冲合成为墙体掩码与材质掩码。
+ * 两条关键规则在此固定：洞口保留在掩码内，且洞口的材质优先。
  */
 import { describe, expect, it } from 'vitest';
 import { composeRoleMasks, DOOR_MATERIAL, WINDOW_MATERIAL } from './vector-detect.js';
@@ -14,8 +10,8 @@ const bytes = (...values: number[]) => Uint8Array.from(values);
 
 describe('composeRoleMasks', () => {
 	it('puts every role into the wall mask, because an opening is still a barrier', () => {
-		// Punching doors out of the mask would open every room whose only entrance is
-		// one, and `computeBuildingInterior` would stop finding the interior.
+		// 把门从掩码中挖掉会让唯一入口是门的房间对外开放，
+		// `computeBuildingInterior` 将找不到内部区域。
 		const { wall } = composeRoleMasks(
 			[
 				{ material: null, pixels: bytes(1, 0, 0) },
@@ -46,8 +42,7 @@ describe('composeRoleMasks', () => {
 	});
 
 	it('lets the opening win where a door is drawn over the wall it sits in', () => {
-		// The normal case: a door leaf and its swing arc are stroked across the wall
-		// run, so both buffers are set on the same pixels.
+		// 常见情况：门扇与开启弧线都画在墙体上，两个缓冲区在相同像素上都有值。
 		const { wall, material } = composeRoleMasks(
 			[
 				{ material: DOOR_MATERIAL, pixels: bytes(1, 1) },

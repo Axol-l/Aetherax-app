@@ -2,20 +2,13 @@ import type { Point, Matrix2D } from '@aetherax/geometry';
 import { identity, translate, scale, invert, applyToPoint } from '@aetherax/geometry';
 
 export interface CameraState {
-	x: number; // pan offset in world coords
+	x: number; // 平移偏移，世界坐标
 	y: number;
-	zoom: number; // scale factor (1.0 = 100%)
+	zoom: number; // 缩放系数，1.0 表示 100%
 }
 
 /**
- * How far in the plan may be magnified.
- *
- * It used to be ten, which is past the point where the drawing has any more detail to
- * show: mask pixels are world units, so at 10x a single pixel of a wall covers ten screen
- * pixels and everything derived from it — the nearest-wall snap a wall-mounted access
- * point follows, the facing that comes out of it — visibly steps from one pixel to the
- * next. Four keeps a comfortable working zoom and keeps those steps at the scale the
- * plan was drawn at.
+ * 平面图允许的最大缩放倍数：倍数过高时掩码像素被明显放大，由像素推导的吸附与朝向会逐像素跳变。
  */
 export const MAX_ZOOM = 4;
 export const MIN_ZOOM = 0.1;
@@ -31,7 +24,7 @@ export class Camera {
 		this._inverse = null;
 	}
 
-	/** Get the world-to-screen transform matrix (in CSS-pixel space, no DPR). */
+	/** 世界坐标到屏幕坐标的变换矩阵（CSS 像素空间，不含 DPR）。 */
 	getTransform(): Matrix2D {
 		if (this._transform) return this._transform;
 		let m = identity();
@@ -41,19 +34,19 @@ export class Camera {
 		return m;
 	}
 
-	/** Get screen-to-world transform (inverse) */
+	/** 屏幕坐标到世界坐标的变换矩阵（逆矩阵）。 */
 	getInverseTransform(): Matrix2D {
 		if (this._inverse) return this._inverse;
 		this._inverse = invert(this.getTransform());
 		return this._inverse;
 	}
 
-	/** Convert screen coordinates to world coordinates */
+	/** 把屏幕坐标转换为世界坐标。 */
 	screenToWorld(screen: Point): Point {
 		return applyToPoint(this.getInverseTransform(), screen);
 	}
 
-	/** Convert world coordinates to screen coordinates */
+	/** 把世界坐标转换为屏幕坐标。 */
 	worldToScreen(world: Point): Point {
 		return applyToPoint(this.getTransform(), world);
 	}
@@ -64,7 +57,7 @@ export class Camera {
 		this.invalidateCache();
 	}
 
-	/** Zoom centered on a screen-space point */
+	/** 以屏幕空间中的某点为锚点缩放。 */
 	zoomAt(screenPoint: Point, factor: number): void {
 		const worldBefore = this.screenToWorld(screenPoint);
 		this.state.zoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, this.state.zoom * factor));
@@ -81,25 +74,19 @@ export class Camera {
 	}
 
 	/**
-	 * Put the camera back where it was.
-	 *
-	 * Needed by anything that moves the camera on the user's behalf and must hand the
-	 * view back unchanged — the PDF export fits every floor before it screenshots it,
-	 * and leaving the user zoomed to the last page's framing is not acceptable. Assigning
-	 * `state` directly would leave the cached transform pointing at the old framing, so
-	 * the invalidation has to live here.
+	 * 恢复相机到此前的取景；直接赋值 `state` 会让缓存的变换停在旧取景，因此失效逻辑放在这里。
 	 */
 	setState(next: CameraState): void {
 		this.state = { x: next.x, y: next.y, zoom: next.zoom };
 		this.invalidateCache();
 	}
 
-	/** A copy of the current framing, for restoring it later. */
+	/** 当前取景的副本，用于之后还原。 */
 	getState(): CameraState {
 		return { x: this.state.x, y: this.state.y, zoom: this.state.zoom };
 	}
 
-	/** Fit the camera to show all points within the given viewport size */
+	/** 调整相机，使全部点在给定视口尺寸内可见；内边距默认为 60。 */
 	fitToBounds(points: Point[], viewWidth: number, viewHeight: number, padding = 60): void {
 		if (points.length === 0) {
 			this.reset();

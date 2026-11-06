@@ -3,81 +3,60 @@ import { ACCENT_STROKE, ACCENT_TEXT } from '../accents.js';
 import type { FloorCardCache} from './floor-card.js';
 import { type FloorCardSource, type FloorHeatmap } from './floor-card.js';
 
-/** Gap between tiles, in world units. */
+/** 瓦片之间的间距，单位为世界单位。 */
 const GAP = 120;
-/** Slop around a tile that still counts as a hit, so clicking a card is easy. */
+/** 瓦片周围仍算作命中的扩展区，便于点击卡片。 */
 const HIT_PAD = 24;
 
 interface TileLayout {
 	id: string;
-	/** World-space rectangle of the tile's frame. */
+	/** 瓦片边框的世界空间矩形。 */
 	x: number;
 	y: number;
 	w: number;
 	h: number;
 	/**
-	 * This floor's own content box, in world units — the mask, when it has one.
-	 *
-	 * The frame is one cell size for every tile so the grid lines up, but a floor
-	 * smaller than the largest one leaves empty margin inside its frame. Content is
-	 * clipped to this box rather than to the frame: the coverage image is generated
-	 * for the plan plus each AP's reach, so clipping to the frame let a small
-	 * floor's heat spill into that margin as a hard-edged rectangle, floating
-	 * outside the plan it belongs to.
+	 * 该楼层自身的内容框，单位为世界单位；有掩码时取掩码范围，内容裁剪到此框而非边框。
 	 */
 	boxW: number;
 	boxH: number;
-	/** World-space shift that puts this floor's content inside the frame. */
+	/** 将该楼层内容移入边框的世界空间位移。 */
 	dx: number;
 	dy: number;
 }
 
 /**
- * Read-only overview of every floor, laid out side by side.
- *
- * Editing a tiled view would mean running the wall editor, the heatmap and the
- * AP interactions once per floor, each against its own tile origin. That is a
- * lot of machinery for a view whose job is to let you see all the floors at once
- * and jump to one. So this draws a contact sheet — underlay, wall silhouette,
- * AP dots, floor name — and a click switches floors. `StackedFloorsLayer` is the
- * other layout of the same card; `floor-card.ts` holds what they share.
- *
- * The layout is recomputed on every render rather than cached. It is a few
- * floors of arithmetic, and a cached layout would have to be invalidated from
- * four different kinds of change (floor list, mask, plan, image load) with no way
- * to notice a missed one; a stale layout would put a tile's content under the
- * neighbouring tile's click target.
+ * 只读的楼层总览，各楼层并排排列：绘制底层图、墙体轮廓、AP 点与楼层名称，点击切换楼层。
+ * 布局每次渲染时重新计算而不缓存，避免失效布局使内容落到相邻瓦片的点击区。
  */
 export class FloorTilesLayer implements Layer {
 	id = 'floor-tiles';
 	visible = false;
 	currentFloorId: string | null = null;
 	/**
-	 * Layer toggles, applied to every tile.
+	 * 图层开关，作用于每个瓦片。
 	 *
-	 * The LAYERS panel has to mean the same thing in every view. It used to do
-	 * nothing here: the single-floor layers are hidden while tiled, so flipping
-	 * them changed nothing on screen and the panel looked broken.
+	 * LAYERS 面板在各视图中含义必须一致，因此这些开关在此视图中同样生效。
 	 */
 	showPlan = true;
 	showWalls = true;
 	showAPs = true;
 	showHeatmap = false;
-	/** Underlay alpha, shared with the single-floor view. */
+	/** 底层图不透明度，与单楼层视图共用。 */
 	planOpacity = 0.8;
-	/** The sheet's reference scale, which every floor's drawing is converted into. */
+	/** 总览图的参考比例，各楼层绘制都换算到该比例。 */
 	wupm = 1;
 
 	private sources: FloorCardSource[] = [];
 
 	constructor(private readonly cards: FloorCardCache) {}
 
-	/** Per-floor coverage images. Owned by the shared cache, filled in by the caller. */
+	/** 各楼层的覆盖图，由共享缓存持有，调用方填充。 */
 	get heatmaps(): Map<string, FloorHeatmap> {
 		return this.cards.heatmaps;
 	}
 
-	/** Called once a plan image finishes loading, so the engine can repaint. */
+	/** 平面图图片加载完成后调用，使引擎可以重绘。 */
 	set onLoad(fn: (() => void) | null) {
 		this.cards.onLoad = fn;
 	}
@@ -89,13 +68,11 @@ export class FloorTilesLayer implements Layer {
 		this.sources = sources;
 	}
 
-	/** World-space rectangle each tile occupies, in world units. */
+	/** 每个瓦片占用的世界空间矩形，单位为世界单位。 */
 	computeLayout(): TileLayout[] {
 		if (this.sources.length === 0) return [];
 
-		// One cell size for every tile, so the grid lines up. Sizing each row
-		// independently left the columns ragged, which reads as a mistake rather
-		// than as a layout.
+		// 所有瓦片使用同一格尺寸以保证网格对齐；逐行独立定尺寸会使列参差不齐。
 		let cellW = 0;
 		let cellH = 0;
 		const boxes = this.sources.map((s) => {
@@ -105,15 +82,14 @@ export class FloorTilesLayer implements Layer {
 			return { s, box };
 		});
 
-		// Square-ish grid. One or two floors read better in a single row.
+		// 接近方形的网格；一两个楼层排成单行更易读。
 		const n = boxes.length;
 		const cols = n <= 2 ? n : Math.ceil(Math.sqrt(n));
 
 		return boxes.map((m, i) => {
 			const x = (i % cols) * (cellW + GAP);
 			const y = Math.floor(i / cols) * (cellH + GAP);
-			// Each floor's own content is aligned on the tile's top-left, so a small
-			// floor is not stretched to match a large one.
+			// 每个楼层的内容对齐到瓦片左上角，避免小楼层被拉伸以匹配大楼层。
 			return {
 				id: m.s.id,
 				x,
@@ -128,7 +104,7 @@ export class FloorTilesLayer implements Layer {
 		});
 	}
 
-	/** Which floor a world-space point falls on, or null. */
+	/** 世界坐标点落在哪个楼层上；没有命中时为 null。 */
 	tileAt(worldX: number, worldY: number): string | null {
 		for (const t of this.computeLayout()) {
 			if (
@@ -143,7 +119,7 @@ export class FloorTilesLayer implements Layer {
 		return null;
 	}
 
-	/** Bounds of the whole sheet, for fitting the camera. */
+	/** 整张总览图的边界，用于适配相机。 */
 	contentBounds(): Array<{ x: number; y: number }> {
 		const tiles = this.computeLayout();
 		if (tiles.length === 0) return [];
@@ -175,8 +151,7 @@ export class FloorTilesLayer implements Layer {
 			const src = this.sources.find((s) => s.id === tile.id);
 			if (!src) continue;
 
-			// Frame and label are drawn at constant screen size; only the floor's
-			// own content scales with the camera.
+			// 边框和标签按固定屏幕尺寸绘制，只有楼层自身内容随相机缩放。
 			const isCurrent = src.id === this.currentFloorId;
 
 			ctx.fillStyle = 'rgba(255,255,255,0.03)';
@@ -193,7 +168,7 @@ export class FloorTilesLayer implements Layer {
 
 			ctx.save();
 			ctx.beginPath();
-			// This floor's own box, not the frame: see `TileLayout.boxW`.
+			// 裁剪到该楼层自身的内容框而非边框：见 `TileLayout.boxW`。
 			ctx.rect(tile.x, tile.y, tile.boxW, tile.boxH);
 			ctx.clip();
 			ctx.translate(tile.dx, tile.dy);

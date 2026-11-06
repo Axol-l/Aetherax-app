@@ -1,19 +1,7 @@
 /**
- * Wall segments straight out of an SVG, instead of out of a rasterised picture.
- *
- * An SVG drawing knows where its walls are: a line is two points, a rectangle is four edges, a
- * polyline is a run of them. Going through a mask and tracing it back (as the raster path must)
- * loses that twice — once to the raster, once to the tracer's axis-aligned runs, which cannot
- * represent a diagonal wall at all. Reading the geometry is exact, keeps diagonals, and needs no
- * text masking: `<text>` is not a drawable, so room labels never enter.
- *
- * The roles come from `classifyVectorElements` (wall / window / door / fixture / text), so a
- * window stays a window and its material comes with it — the "windows merged into one long wall"
- * problem does not exist on this path.
- *
- * Coordinates come out in the same frame the mask is rendered in: user units minus the content
- * box's origin, times the scale the render used. The caller adds nothing; the result is already
- * in mask pixels, which are world units.
+ * 直接从 SVG 读取墙体线段而不经过栅格化图像：读取几何是精确的，可保留斜墙且无需文字遮罩，
+ * 角色由 `classifyVectorElements` 给出，窗和门保持各自角色并带上材质。
+ * 坐标输出到渲染掩码所用的坐标系：用户单位减去内容框原点，再乘以渲染缩放，结果即掩码像素，也就是世界单位。
  */
 
 export interface SvgSegment {
@@ -21,7 +9,7 @@ export interface SvgSegment {
 	ay: number;
 	bx: number;
 	by: number;
-	/** The drawing element this came from, so a caller can map it back for editing. */
+	/** 来源绘制元素的下标，供调用方回映射以便编辑。 */
 	element: number;
 }
 
@@ -44,10 +32,8 @@ const apply = (m: Matrix, x: number, y: number): { x: number; y: number } => ({
 });
 
 /**
- * A `transform` attribute as a matrix.
- *
- * Only the forms an exporter writes into a floor plan appear here — matrix, translate, scale,
- * rotate and skew — and an unknown keyword is skipped rather than guessed at.
+ * 把 `transform` 属性解析为矩阵。
+ * 仅支持 matrix、translate、scale、rotate、skewX 和 skewY，未知关键字会被跳过而不做猜测。
  */
 export function parseTransform(value: string | null): Matrix {
 	if (!value) return IDENTITY;
@@ -90,17 +76,14 @@ export function parseTransform(value: string | null): Matrix {
 }
 
 /**
- * True for a node that can answer `getAttribute`, which is all this module asks of an element.
- *
- * Deliberately structural rather than `instanceof SVGElement`: the geometry is pure arithmetic over
- * attributes, and typing it to the DOM would make every rule untestable outside a browser. The real
- * caller passes real SVG nodes; the tests pass objects with the same three members.
+ * 节点只要能响应 `getAttribute` 即为真，这也是本模块对元素的全部要求。
+ * 采用结构化判断而非 `instanceof SVGElement`，使几何规则可以脱离浏览器测试。
  */
 function isElementLike(node: unknown): node is SVGElement {
 	return !!node && typeof (node as SVGElement).getAttribute === 'function';
 }
 
-/** The transform from an element's own coordinates to the SVG root's user space. */
+/** 从元素自身坐标到 SVG 根用户坐标的变换。 */
 function matrixOf(element: SVGElement, stop: SVGElement): Matrix {
 	let result = IDENTITY;
 	let node: Element | null = element;
@@ -113,17 +96,13 @@ function matrixOf(element: SVGElement, stop: SVGElement): Matrix {
 	return result;
 }
 
-/** Numbers from a `points`/`d` attribute, in order. */
+/** 按顺序取出 `points`/`d` 属性中的数字。 */
 const numbersIn = (value: string): number[] =>
 	(value.match(/-?\d*\.?\d+(?:e[-+]?\d+)?/gi) ?? []).map(Number);
 
 /**
- * The segments one drawable element is made of, in its own coordinates.
- *
- * Anything that is not a straight line — a circle, an arc, a bezier — contributes nothing:
- * approximating it with a handful of chords would put walls where the drawing has curves, and a
- * curve in a floor plan is a fitting, not a partition. Lines, rectangles, polylines and paths made
- * of move/line/horizontal/vertical/close commands are read exactly.
+ * 某个可绘制元素在其自身坐标下由哪些线段组成。
+ * 圆、弧、贝塞尔曲线等非直线不产生线段；直线、矩形、折线以及由移动/直线/水平/垂直/闭合指令组成的路径精确读取。
  */
 export function elementSegments(element: Element): Array<[number, number, number, number]> {
 	const tag = element.tagName.toLowerCase();
@@ -165,7 +144,7 @@ export function elementSegments(element: Element): Array<[number, number, number
 	}
 	if (tag === 'path') {
 		const d = element.getAttribute('d') ?? '';
-		// Only the straight-line vocabulary: a path with a curve is not a wall.
+		// 仅处理直线指令：含曲线的路径不视为墙体。
 		if (/[csqta]/i.test(d)) return [];
 		return pathSegments(d);
 	}
@@ -173,10 +152,8 @@ export function elementSegments(element: Element): Array<[number, number, number
 }
 
 /**
- * Segments of a path made of M/L/H/V/Z, absolute or relative.
- *
- * The pen's position is tracked through relative commands, because the difference between `l` and
- * `L` is the whole meaning of the point, and closing a subpath is an edge like any other.
+ * 由 M/L/H/V/Z 组成的路径线段，绝对或相对指令均可。
+ * 相对指令按当前笔位累加，闭合子路径也作为一条边输出。
  */
 export function pathSegments(d: string): Array<[number, number, number, number]> {
 	const tokens = d.match(/[a-z][^a-z]*/gi) ?? [];
@@ -195,7 +172,7 @@ export function pathSegments(d: string): Array<[number, number, number, number]>
 			y = (relative ? y : 0) + args[1]!;
 			startX = x;
 			startY = y;
-			// Extra coordinate pairs after a moveto are implicit linetos.
+			// moveto 之后多余的坐标对视为隐式 lineto。
 			for (let i = 2; i + 1 < args.length; i += 2) {
 				const nx = (relative ? x : 0) + args[i]!;
 				const ny = (relative ? y : 0) + args[i + 1]!;
@@ -233,28 +210,21 @@ export function pathSegments(d: string): Array<[number, number, number, number]>
 }
 
 export interface SvgGeometryOptions {
-	/** Role of each drawable, in the order the caller lists them. */
+	/** 每个可绘制元素的角色，顺序与调用方的列表一致。 */
 	roles: ReadonlyArray<string>;
-	/** Which roles become walls. Windows and doors are walls too — they obstruct, at their own material. */
+	/** 哪些角色计为墙体；窗和门同样阻挡，并以各自的材质计入墙体。 */
 	wantedRoles?: ReadonlyArray<string>;
-	/** The content box the raster pass used, and the scale it applied. */
+	/** 栅格化阶段所用的内容框及其施加的缩放。 */
 	contentBox: { x: number; y: number; width: number; height: number };
 	scale: number;
-	/** Segments shorter than this (in output units) are noise. */
+	/** 短于该值（输出单位）的线段视为噪声。 */
 	minLength?: number;
 }
 
 /**
- * A window is two strokes in the drawing and one material change in the model.
- *
- * Exporters draw a window as two parallel lines (the pane's edges) inside the wall's long
- * strokes, so read literally it becomes two glass walls with the wall still running behind them:
- * the wall line is not interrupted, and the picture shows a double glass line. What the model
- * wants is one line that goes wall → glass → wall, which is what these two functions produce.
- *
- * `collapseOpenings` turns each pair of parallel, overlapping strokes into one centre line (the
- * same collapse the tracer does for a wall's two edges); `mergeOpeningsIntoWalls` then cuts the
- * wall where an opening sits and gives that piece the opening's material.
+ * 窗在图中是两条描边，在模型里只是一次材质变化。
+ * `collapseOpenings` 把每对平行且重叠的描边合并为一条中心线；`mergeOpeningsIntoWalls`
+ * 再在开口处切开墙体并赋予该片开口的材质，得到墙体→玻璃→墙体的一条线。
  */
 export interface MaterialSegment {
 	ax: number;
@@ -277,7 +247,7 @@ function perpendicularDistance(
 	return Math.abs((point.x - segment.ax) * dy - (point.y - segment.ay) * dx) / len;
 }
 
-/** Position along a segment's direction, in the segment's own length units. */
+/** 点沿线段方向的位置，单位为该线段自身的长度单位。 */
 function projectionAlong(point: { x: number; y: number }, segment: MaterialSegment): number {
 	const dx = segment.bx - segment.ax;
 	const dy = segment.by - segment.ay;
@@ -287,11 +257,8 @@ function projectionAlong(point: { x: number; y: number }, segment: MaterialSegme
 }
 
 /**
- * Collapse each pair of parallel strokes belonging to one opening into one centre line.
- *
- * Parallel by direction (cross product near zero) and close enough to be the two faces of the same
- * panes — `tolerance` in output units, so a few pixels of wall band. The longer of the pair keeps
- * its place; the shorter is dropped, and the result keeps the first one's material.
+ * 把属于同一开口的每对平行描边合并为一条中心线。
+ * 方向平行且距离在 `tolerance`（输出单位）以内者视为同一块玻璃的两面；保留较长者并沿用其材质。
  */
 export function collapseOpenings(
 	openings: readonly MaterialSegment[],
@@ -308,10 +275,10 @@ export function collapseOpenings(
 			const b = openings[j]!;
 			const lenB = lengthOf(b);
 			if (lenB < 1e-6) continue;
-			// Parallel? Cross of the unit directions, scaled by the lengths.
+			// 是否平行：单位方向的叉积按长度缩放。
 			const cross = Math.abs((a.bx - a.ax) * (b.by - b.ay) - (a.by - a.ay) * (b.bx - b.ax));
 			if (cross / (lenA * lenB) > 0.05) continue;
-			// Same band, and overlapping along their own direction.
+			// 是否处于同一带内，并沿自身方向重叠。
 			const near = Math.max(
 				perpendicularDistance({ x: b.ax, y: b.ay }, a),
 				perpendicularDistance({ x: b.bx, y: b.by }, a)
@@ -321,7 +288,7 @@ export function collapseOpenings(
 			const t1 = projectionAlong({ x: b.bx, y: b.by }, a);
 			const overlap = Math.min(lenA, Math.max(t0, t1)) - Math.max(0, Math.min(t0, t1));
 			if (overlap < Math.min(lenA, lenB) * 0.5) continue;
-			// One opening, not two: drop whichever is shorter.
+			// 属于同一开口而非两个，丢弃较短者。
 			dropped.add(lenB <= lenA ? j : i);
 			if (lenB > lenA) break;
 		}
@@ -330,10 +297,8 @@ export function collapseOpenings(
 }
 
 /**
- * Cut walls where openings sit, and give the cut piece the opening's material.
- *
- * An opening that lies on no wall is returned unchanged (a freestanding pane), because dropping it
- * would delete geometry the drawing contains.
+ * 在开口所在处切开墙体，并把该片赋予开口的材质。
+ * 不落在任何墙体上的开口（独立玻璃）原样返回，以免丢失图中已有的几何。
  */
 export function mergeOpeningsIntoWalls(
 	walls: readonly MaterialSegment[],
@@ -381,7 +346,7 @@ export function mergeOpeningsIntoWalls(
 	return [...result, ...remaining];
 }
 
-/** A sub-segment of `wall` between two positions along it. */
+/** `wall` 上两个位置之间的子线段。 */
 function piece(wall: MaterialSegment, from: number, to: number, material: number): MaterialSegment {
 	const len = lengthOf(wall);
 	const ratioFrom = len < 1e-9 ? 0 : from / len;
@@ -396,11 +361,8 @@ function piece(wall: MaterialSegment, from: number, to: number, material: number
 }
 
 /**
- * Every wall-shaped element of an SVG as world-unit segments.
- *
- * The caller passes the same `drawables` order the roles came from, so `roles[i]` is the role of
- * `elements[i]`; the returned `element` index is that `i`, which lets a UI map a wall back to the
- * drawing object it came from.
+ * 把 SVG 中所有墙体形状的元素输出为世界单位线段。
+ * `roles[i]` 对应 `elements[i]`，返回值中的 `element` 即该下标，UI 可据此回映射到绘制对象。
  */
 export function segmentsFromSvg(
 	root: SVGElement,
@@ -419,7 +381,7 @@ export function segmentsFromSvg(
 		for (const [x1, y1, x2, y2] of elementSegments(element)) {
 			const a = apply(matrix, x1, y1);
 			const b = apply(matrix, x2, y2);
-			// Into the rendered frame: the render put contentBox's origin at (0,0) and scaled.
+			// 转换到渲染坐标系：渲染时内容框原点位于 (0,0) 并已缩放。
 			const ax = (a.x - contentBox.x) * scale;
 			const ay = (a.y - contentBox.y) * scale;
 			const bx = (b.x - contentBox.x) * scale;

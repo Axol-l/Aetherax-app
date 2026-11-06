@@ -1,4 +1,4 @@
-/** The project as a JSON file. */
+/** 把工程导出成 JSON 文件，以及从文件读回来。 */
 import { appState } from '$state/app.svelte.js';
 import { clearSelection } from '$state/canvas.svelte.js';
 import { floorState } from '$state/floor-state.svelte.js';
@@ -12,7 +12,7 @@ import {
 	toDocument
 } from '$state/project-document.js';
 
-/** The underlay as a PNG data URL, so the file is self-contained. */
+/** 把底图转成 PNG data URL，让文件自带图片。 */
 async function floorplanToDataUrl(url: string | null): Promise<string | undefined> {
 	if (!url) return undefined;
 	if (url.startsWith('data:')) return url;
@@ -35,13 +35,11 @@ async function floorplanToDataUrl(url: string | null): Promise<string | undefine
 	}
 }
 
-/** The whole project as the text of a `.aetherax.json` file. */
+/** 把整个工程序列化成 `.aetherax.json` 的文本。 */
 export async function serialize(): Promise<string> {
 	const doc = toDocument({ floorCoverage });
 	/*
-	 * The document lists the floors in `floorState.floors` order, so the index is the
-	 * floor. Asking the floor itself for its underlay also keeps a floor that is missing
-	 * from the state from being given another floor's image.
+	 * 楼层顺序与 `floorState.floors` 一致，按序号取对应底图。
 	 */
 	for (const [index, floor] of doc.floors.entries()) {
 		const image = await floorplanToDataUrl(floorState.floors[index]?.floorplanUrl ?? null);
@@ -51,11 +49,8 @@ export async function serialize(): Promise<string> {
 }
 
 /**
- * Replace the project with the one in a file.
- *
- * Throws rather than half-loading: the caller (`importJson` → the toolbar) shows the
- * message, and a file that cannot be understood must not leave the editor holding a
- * mixture of two projects.
+ * 用文件内容替换当前工程。
+ * 解析失败直接抛错，不做半加载，避免编辑器里残留两个工程的混合状态。
  */
 export function deserialize(json: string): void {
 	let parsed: unknown;
@@ -69,8 +64,7 @@ export function deserialize(json: string): void {
 	if (typeof version !== 'number' || version < 2) {
 		throw new Error('Unsupported file version');
 	}
-	// Newer than this build: say which, rather than "invalid". The file on disk is the user's
-	// and is not touched — only storage deletion has that power, and it is guarded too.
+	// 版本比本程序新时说明具体版本号
 	if (isFromNewerVersion(parsed)) {
 		throw new Error(
 			`This project was saved by a newer version of the app (file version ${String(version)}, this build reads ${DOCUMENT_VERSION}).`
@@ -80,8 +74,7 @@ export function deserialize(json: string): void {
 	const doc = migrate(parsed);
 	if (!doc) throw new Error('Invalid project file: no floors');
 
-	// A file had no name of its own; the app called it something rather than leaving the
-	// previous project's name on it. (Storage restores keep `Untitled Project` instead.)
+	// 文件里没有名字就用默认名
 	const name = (parsed as { name?: unknown }).name;
 	if (typeof name === 'string' && name.length > 0) doc.name = name;
 	else doc.name = 'Imported Project';

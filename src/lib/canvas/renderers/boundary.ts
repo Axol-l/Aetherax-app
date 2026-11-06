@@ -19,11 +19,11 @@ export class BoundaryLayer implements Layer {
 		}
 		ctx.closePath();
 
-		// Fill with semi-transparent cyan
+		// 以半透明青色填充
 		ctx.fillStyle = 'rgba(75, 227, 160, 0.08)';
 		ctx.fill();
 
-		// Stroke boundary
+		// 描边边界
 		const zoom = camera.state.zoom;
 		ctx.strokeStyle = 'rgba(75, 227, 160, 0.5)';
 		ctx.lineWidth = 2 / zoom;

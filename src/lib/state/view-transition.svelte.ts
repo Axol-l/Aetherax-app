@@ -1,12 +1,7 @@
 import { motionDuration } from '$lib/motion.js';
 
 /**
- * 视图切换是两次淡出淡入，不是交叉淡化。
- *
- * 旧视图淡到画布背景色，画布被完全盖住时换上新视图，然后再淡回来。这样两套布局不会同时露脸，
- * 也顺带让用另一层绘制的三维视图和其它视图表现一致。
- *
- * `active` 期间视图按钮和画布都锁住。`CanvasView` 里 CSS 过渡的时长必须和 `VIEW_FADE_MS` 保持一致。
+ * 视图切换动画
  */
 export const VIEW_FADE_MS = 160;
 

@@ -1,12 +1,8 @@
 import type { Layer, RenderContext } from '../types.js';
 
 /**
- * Outline of the line, rectangle or arc currently being dragged.
- *
- * Shape tools rasterise on release, so while the pointer is down there is
- * nothing in the wall mask to show. Drawing the pending geometry here keeps the
- * mask untouched until commit, which avoids snapshotting and restoring mask
- * tiles on every pointer move.
+ * 正在拖拽的直线、矩形或圆弧的轮廓。
+ * 形状工具在抬起时才栅格化，这里先绘制待提交的几何，使掩码在提交前保持不变。
  */
 export class ShapePreviewLayer implements Layer {
 	id = 'shape-preview';
@@ -15,21 +11,20 @@ export class ShapePreviewLayer implements Layer {
 	active = false;
 	kind: 'line' | 'rect' | 'arc' = 'line';
 
-	// Line / rect endpoints.
+	// 直线/矩形的端点。
 	startX = 0;
 	startY = 0;
 	endX = 0;
 	endY = 0;
 
-	// Arc: centre, radius and a signed sweep in radians. A sweep of a full turn
-	// means a closed circle.
+	// 圆弧：圆心、半径与有符号扫掠角（弧度）。整圈扫掠表示闭合圆。
 	centerX = 0;
 	centerY = 0;
 	radius = 0;
 	startAngle = 0;
 	sweep = 0;
 
-	/** Full stroke width in world units, so the preview matches what gets painted. */
+	/** 完整描边宽度，世界单位，使预览与实际绘制一致。 */
 	strokeWidth = 30;
 
 	render(rc: RenderContext): void {
@@ -56,22 +51,21 @@ export class ShapePreviewLayer implements Layer {
 			path.arc(this.centerX, this.centerY, this.radius, this.startAngle, this.startAngle + this.sweep);
 		}
 
-		// Filled band showing the actual brush footprint...
+		// 实心色带，显示实际笔刷覆盖范围……
 		ctx.lineCap = 'round';
 		ctx.lineJoin = 'round';
 		ctx.lineWidth = Math.max(1, this.strokeWidth);
 		ctx.strokeStyle = 'rgba(75, 227, 160, 0.28)';
 		ctx.stroke(path);
 
-		// ...with a thin dashed centreline so the exact position stays readable no
-		// matter how wide the brush is.
+		// ……再加一条细虚线中心线，使精确位置在任意笔宽下都清晰可辨。
 		ctx.lineWidth = 1 / zoom;
 		ctx.setLineDash([5 / zoom, 5 / zoom]);
 		ctx.strokeStyle = 'rgba(214, 255, 235, 0.85)';
 		ctx.stroke(path);
 		ctx.setLineDash([]);
 
-		// Arc guides: show the centre and radius so the geometry is unambiguous.
+		// 圆弧辅助线：画出圆心和半径，使几何关系明确。
 		if (this.kind === 'arc' && this.radius > this.strokeWidth / 2) {
 			ctx.beginPath();
 			ctx.moveTo(this.centerX, this.centerY);

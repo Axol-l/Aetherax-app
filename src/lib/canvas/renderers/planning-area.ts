@@ -1,39 +1,28 @@
 import type { Layer, RenderContext } from '../types.js';
 
 /**
- * The planning area, drawn on the plan it describes.
- *
- * Two things share this layer: the polygon the user has committed (a dashed loop with a
- * translucent fill, so the walls under it stay readable) and the loop being drawn (a solid
- * line through the clicks so far, with a dot at each). They are one layer because they are
- * one statement — "this is the floor" — in two states, and a second layer would have to
- * repeat the coordinate transform and the dash/width arithmetic for no gain.
- *
- * Points are world coordinates, so the drawing stays inside the camera transform and grows
- * with the plan.
+ * 规划区域绘制在它所描述的平面图上，共用一层表现两种状态：
+ * 已确认的多边形（虚线环加半透明填充，保持墙体可读）和正在绘制的环（穿过已点击点的实线，每点带圆点）。
+ * 点为世界坐标，绘制随相机变换缩放并跟随平面图。
  */
 export class PlanningAreaLayer implements Layer {
 	id = 'planning-area';
 	visible = true;
 
-	/** The committed area, if the floor has one. */
+	/** 已确认的区域；楼层没有时为 null。 */
 	area: Array<{ x: number; y: number }> | null = null;
-	/** The loop being drawn, before it is committed. */
+	/** 正在绘制、尚未确认的环。 */
 	draft: Array<{ x: number; y: number }> = [];
 	/**
-	 * The draft has been closed on its first corner and is waiting for the bar's confirm.
+	 * 草稿已在首个角点闭合，等待确认栏确认。
 	 *
-	 * It is still a draft: the old area is on the floor until the confirm replaces it, and
-	 * the label says so.
+	 * 它仍是草稿：确认替换之前旧区域继续显示。
 	 */
 	draftClosed = false;
 	/**
-	 * Where the pointer is while drawing, in world coordinates.
+	 * 绘制时指针的世界坐标。
 	 *
-	 * The rubber band from the last corner to the cursor is what makes this a drawing tool
-	 * rather than a click-counter: with it the next edge is visible before it is committed,
-	 * and the closing edge is previewed too, so the shape can be judged as a room and not as
-	 * a list of points.
+	 * 用于预览最后一点到光标的边以及闭合边。
 	 */
 	cursor: { x: number; y: number } | null = null;
 
@@ -52,8 +41,7 @@ export class PlanningAreaLayer implements Layer {
 			ctx.moveTo(area[0]!.x, area[0]!.y);
 			for (let i = 1; i < area.length; i++) ctx.lineTo(area[i]!.x, area[i]!.y);
 			ctx.closePath();
-			// A wash rather than a fill: this covers the part of the plan the user is saying
-			// is the floor, and it must not hide the walls inside it.
+			// 使用淡色填充而非实色，避免遮住区域内部的墙体。
 			ctx.fillStyle = 'rgba(0, 200, 200, 0.06)';
 			ctx.fill();
 			ctx.strokeStyle = 'rgba(0, 200, 200, 0.55)';
@@ -64,8 +52,7 @@ export class PlanningAreaLayer implements Layer {
 		}
 
 		if (this.draft.length > 0 && this.draftClosed && this.draft.length >= 3) {
-			// Closed shape, waiting for confirmation: a dashed cyan loop over the committed
-			// one, so it reads as a proposal rather than as the new floor already.
+			// 已闭合、等待确认的形状：在当前区域上绘制虚线环，表示这是提案而非已生效的新楼层。
 			ctx.beginPath();
 			ctx.moveTo(this.draft[0]!.x, this.draft[0]!.y);
 			for (let i = 1; i < this.draft.length; i++) {
@@ -95,7 +82,7 @@ export class PlanningAreaLayer implements Layer {
 			const last = this.draft[this.draft.length - 1]!;
 			const target = this.cursor ?? last;
 
-			// The committed edges.
+			// 已提交的边。
 			ctx.beginPath();
 			ctx.moveTo(this.draft[0]!.x, this.draft[0]!.y);
 			for (let i = 1; i < this.draft.length; i++) ctx.lineTo(this.draft[i]!.x, this.draft[i]!.y);
@@ -103,7 +90,7 @@ export class PlanningAreaLayer implements Layer {
 			ctx.lineWidth = 2 / zoom;
 			ctx.stroke();
 
-			// The edge being drawn, and the one that would close the loop.
+			// 正在绘制的边，以及将闭合环路的边。
 			if (this.cursor && this.draft.length >= 2) {
 				ctx.beginPath();
 				ctx.moveTo(last.x, last.y);

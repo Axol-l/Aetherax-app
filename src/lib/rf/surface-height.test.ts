@@ -1,10 +1,6 @@
 /**
- * The raised-surface height field: what a platform, a stair and a ramp are worth.
- *
- * The numbers here are the vertical gap a client two metres up a mezzanine actually has, so
- * the tests are about the geometry rather than about arithmetic: a level surface is level,
- * the run climbs the way it was drawn, two overlapping surfaces do not add up to a third,
- * and a source below a deck is shielded by it.
+ * 校验抬高表面的高度场：平台、楼梯和坡道的几何以及重叠时的取值规则。
+ * 同时校验楼板对下方源的遮挡。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -45,8 +41,7 @@ describe('a raised surface', () => {
 		const platform = surface();
 		expect(heightOf(platform, 10, 10)).toBeCloseTo(2);
 		expect(heightOf(platform, 90, 40)).toBeCloseTo(2);
-		// Outside the rectangle there is no surface at all, which is the floor's own
-		// height — zero above it, so the vertical gap is the plain one.
+		// 矩形外没有表面，返回高度 0（即楼层自身高度），垂直间距就是普通间距。
 		expect(heightOf(platform, 101, 10)).toBe(0);
 		expect(heightOf(platform, -1, 10)).toBe(0);
 	});
@@ -71,7 +66,7 @@ describe('a raised surface', () => {
 		expect(heightOf(stair, 20, 0)).toBeCloseTo(0);
 		expect(heightOf(stair, 20, 100)).toBeCloseTo(1.6);
 		expect(heightOf(stair, 20, 200)).toBeCloseTo(3.2);
-		// Across the run it does not change: the treads span the full width.
+		// 横向高度不变：踏板横跨整个宽度。
 		expect(heightOf(stair, 0, 100)).toBeCloseTo(1.6);
 	});
 
@@ -80,7 +75,7 @@ describe('a raised surface', () => {
 		const high = surface({ id: 'high', ax: 20, ay: 10, bx: 60, by: 30, heightM: 2.5, topHeightM: 2.5 });
 		expect(surfaceHeightAt([low, high], 40, 20)).toBeCloseTo(2.5);
 		expect(surfaceHeightAt([high, low], 40, 20)).toBeCloseTo(2.5);
-		// And where only the low one reaches, the low one.
+		// 只有低面覆盖的位置，取低面。
 		expect(surfaceHeightAt([low, high], 5, 5)).toBeCloseTo(1);
 	});
 
@@ -111,17 +106,16 @@ describe('the deck of a raised surface', () => {
 
 	it('shields a client standing on it from a source below its underside', () => {
 		const deck = surface({ heightM: 2, topHeightM: 2, thicknessM: 0.2, attenuationDb: 15 });
-		// An AP 0.5 m below the client's feet is under the deck's underside (2 − 0.2 = 1.8).
+		// 客户端脚下 0.5 m 处的 AP 位于楼板底面（2 − 0.2 = 1.8）之下。
 		const crossing = deckCrossing([deck], 50, 25, -0.5);
 		expect(crossing?.lossDb).toBe(15);
-		// An AP just under the client's feet, but inside the deck's own thickness: the path
-		// never leaves the deck, so nothing is charged.
+		// AP 就在客户端脚下、但位于楼板厚度之内：路径从未离开楼板，因此不计损耗。
 		expect(deckCrossing([deck], 50, 25, -0.1)).toBeNull();
-		// And a source above the deck is not shielded at all.
+		// 楼板上方的源完全不受遮挡。
 		expect(deckCrossing([deck], 50, 25, 1)).toBeNull();
-		// Off the deck there is nothing to cross.
+		// 楼板范围外没有需要穿过的面。
 		expect(deckCrossing([deck], 150, 25, -3)).toBeNull();
-		// A deck with no loss is not a crossing worth reporting.
+		// 损耗为零的楼板不构成值得报告的穿墙。
 		expect(deckCrossing([surface({ attenuationDb: 0 })], 50, 25, -3)).toBeNull();
 	});
 
@@ -144,10 +138,10 @@ describe('the deck of a raised surface', () => {
 describe('surface material', () => {
 	it('is a preset for the loss, not a second source of truth', () => {
 		expect(surfaceMaterial('steel')?.attenuationDb).toBe(30);
-		// A typed figure wins over the preset, so an edited deck keeps what was entered.
+		// 手输数值优先于预设，编辑过的楼板保留用户输入。
 		expect(surfaceAttenuationDb(surface({ material: 'steel' }))).toBe(30);
 		expect(surfaceAttenuationDb(surface({ material: 'steel', attenuationDb: 4 }))).toBe(4);
-		// A deck from a project saved before materials existed still reads 15, not NaN.
+		// 材料功能出现前保存的项目中的楼板仍读到 15，而不是 NaN。
 		expect(surfaceAttenuationDb(surface())).toBe(15);
 		expect(surfaceMaterial(undefined)).toBeNull();
 	});
@@ -157,11 +151,11 @@ describe('surface material', () => {
 		for (const material of SURFACE_MATERIALS) {
 			expect(material.attenuationDb).toBeGreaterThan(0);
 			expect(material.label.length).toBeGreaterThan(0);
-			// Every material has a colour of its own, so the plan can show the choice.
+			// 每种材料都有自己的颜色，平面图可据此显示选择。
 			expect(material.color).toHaveLength(3);
 			expect(surfaceColor(material.id)).toEqual(material.color);
 		}
-		// A deck with no material keeps the amber it was drawn in before materials existed.
+		// 没有材料的楼板保留材料功能出现前的琥珀色。
 		expect(surfaceColor(undefined)).toEqual(DEFAULT_SURFACE_COLOR);
 	});
 });

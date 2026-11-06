@@ -1,29 +1,12 @@
 /**
- * The mask codec, against the smallest canvas that can answer it.
- *
- * There is no jsdom in this suite and no PNG decoder in Node, so these tests supply the two DOM
- * members the codec touches — `Image` and `HTMLCanvasElement` — and nothing else. That is enough
- * to pin what the codec itself decides, which is all it decides:
- *
- * - a wall is **red > 128**, and everything else — a dim grey, an antialiased edge, an opaque
- *   black — is not a wall. A mask round-tripped through PNG loses every value in between, so
- *   this threshold is the only rule that survives the trip, and it is the one worth a test;
- * - the alpha channel is written, so a mask is an opaque image rather than a shape floating on
- *   transparency (an export of one went into a PDF as a black rectangle);
- * - a data URL that will not decode is an **empty plan**, not a rejection: the caller is drawing
- *   whatever it has, and one unreadable floor must not stop the others from opening.
- *
- * The fake canvas keeps its pixels in a `Uint8ClampedArray` and its data URL is the pixel bytes in
- * base64, so the round trip is genuinely a round trip rather than a stub that returns what it was
- * given. It is not a PNG: nothing here checks the encoding, only the numbers that go into it.
+ * 掩码编解码的测试：套件没有 jsdom 与 PNG 解码器，因此只提供编解码用到的
+ * `Image` 与 `HTMLCanvasElement` 两个替身。
+ * 覆盖红色通道阈值、不透明像素的写入，以及无法解码时返回空结果这三条规则。
  */
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import { decodeMask, encodeMask } from './mask-codec.js';
 
-/*
- * Base64 through the two globals every browser has. `Buffer` would be shorter and is not typed
- * here: the app is a browser application and its type environment stops at `lib.dom`.
- */
+/* 用浏览器自带的两个全局函数做 Base64 编解码；本应用是浏览器应用，类型环境止于 `lib.dom`。 */
 function base64(bytes: ArrayLike<number>): string {
 	return btoa(String.fromCharCode(...Array.from(bytes)));
 }
@@ -32,7 +15,7 @@ function fromBase64(text: string): Uint8ClampedArray {
 	return Uint8ClampedArray.from(atob(text), (char) => char.charCodeAt(0));
 }
 
-/** A canvas that stores pixels and serialises them as bytes, plus the `Image` that loads them. */
+/** 存储像素并以字节形式序列化的画布上下文。 */
 class FakeContext {
 	constructor(private readonly pixels: Uint8ClampedArray) {}
 
@@ -48,7 +31,7 @@ class FakeContext {
 		this.pixels.set(image.data);
 	}
 
-	// `drawImage` copies the source's pixels, which is what a real canvas does for a 1:1 draw.
+	// `drawImage` 复制源像素，与真实画布在 1:1 绘制时的行为一致。
 	drawImage(source: { pixels?: Uint8ClampedArray }) {
 		if (source.pixels) this.pixels.set(source.pixels);
 	}
@@ -74,7 +57,7 @@ class FakeCanvas {
 	}
 }
 
-/** `Image` whose `src` decodes to the pixel bytes the fake canvas wrote. */
+/** `src` 会解码为假画布所写像素字节的 `Image`。 */
 class FakeImage {
 	onload: (() => void) | null = null;
 	onerror: (() => void) | null = null;
@@ -83,7 +66,7 @@ class FakeImage {
 	set src(value: string) {
 		const comma = value.indexOf(',');
 		if (!value.startsWith('data:image/png;base64,') || comma < 0) {
-			// The codec's contract for a mask that cannot be read.
+			// 编解码器对无法读取的掩码的约定行为。
 			queueMicrotask(() => this.onerror?.());
 			return;
 		}
@@ -108,7 +91,7 @@ describe('mask codec', () => {
 	});
 
 	afterEach(() => {
-		// Restore what a headless suite should look like: no DOM at all.
+		// 恢复无头测试套件应有的状态：完全没有 DOM。
 		const globals = globalThis as unknown as { document?: unknown; Image: unknown };
 		delete globals.document;
 		delete globals.Image;
@@ -128,7 +111,7 @@ describe('mask codec', () => {
 	});
 
 	it('reads a wall at red > 128 and nothing else', async () => {
-		// 255 is a wall; 128 is not (the comparison is strict); 127 is not; 200 is.
+		// 红色大于 128 为墙体；比较是严格的，等于 128 不算墙体。
 		const pixels = new Uint8ClampedArray([255, 0, 0, 255, 128, 0, 0, 255, 127, 0, 0, 255, 200, 0, 0, 255]);
 		const url = `data:image/png;base64,${base64(pixels)}`;
 
@@ -147,13 +130,11 @@ describe('mask codec', () => {
 	});
 
 	it('treats a mask that will not decode as an empty plan', async () => {
-		// Not a data URL at all: a real browser fires `error` for it, which is the branch this
-		// checks. (A well-formed data URL carrying nonsense bytes decodes to nonsense pixels —
-		// which is what a PNG decoder does with a broken PNG, and not what this decides.)
+		// 根本不是 data URL：真实浏览器会触发 `error`，这里验证的正是该分支。
+		// 格式合法但内容无意义的数据不在此列。
 		const decoded = await decodeMask('blob:https://example.invalid/missing.png', 2, 2);
 
-		// Zeroes, at the size that was asked for: the caller draws an empty plan and the rest of
-		// the project still opens.
+		// 全零，尺寸与请求一致：调用方会画一个空方案，项目其余部分仍可打开。
 		expect(Array.from(decoded.data)).toEqual([0, 0, 0, 0]);
 		expect(decoded.width).toBe(2);
 		expect(decoded.height).toBe(2);

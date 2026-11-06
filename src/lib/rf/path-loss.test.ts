@@ -34,7 +34,7 @@ describe('path loss scenarios', () => {
 	});
 
 	it('rejects an environment it does not know', () => {
-		// @ts-expect-error deliberately outside the union
+		// @ts-expect-error 故意传入联合类型之外的值
 		expect(() => setPathLossScenario('basement')).toThrow();
 	});
 
@@ -49,16 +49,15 @@ describe('path loss scenarios', () => {
 		expect(los).toBeGreaterThan(office);
 		expect(office).toBeGreaterThan(closed);
 
-		// The published association range: 43.2 m at 2.4 GHz / 20 dBm / N = 40
-		// (`docs/PHYSICAL_MODELS.md` §A3a). The 17.7 m figure in the same table is the
-		// coverage radius at −70 dBm, which is `coverageReach`, not this.
+		// 已发布的关联距离：2.4 GHz / 20 dBm / N = 40 时为 43.2 m（见 docs/PHYSICAL_MODELS.md §A3a）；
+		// 同一表格中的 17.7 m 是 −70 dBm 处的覆盖半径，对应 `coverageReach`，不是本函数。
 		setPathLossScenario('closedPlan');
 		expect(rangeFromPower(20, '2.4ghz')).toBeCloseTo(43.2, 1);
 	});
 
 	it('is exactly the single-coefficient form for the far-field environment', () => {
-		// The default is the environment every recorded figure was taken with, so it must not
-		// move by a digit: the breakpoint ramps *towards* n = 4 and this one already is.
+		// 默认环境与所有已记录数值一致，因此一位数字都不能变：断点把斜率过渡到 n = 4，
+		// 而该环境本身已是 4。
 		setPathLossScenario('closedPlan');
 		for (const d of [2, 5, 10, 20, 60]) {
 			expect(relativePathLossDb(d)).toBeCloseTo(10 * 4 * Math.log10(d), 12);
@@ -67,9 +66,9 @@ describe('path loss scenarios', () => {
 
 	it('spreads at the near-field rate, then the far-field one', () => {
 		setPathLossScenario('lineOfSight');
-		// Well inside the breakpoint the coefficient is the environment's own.
+		// 断点以内，衰减系数就是该环境自身的取值。
 		expect(relativePathLossDb(4)).toBeCloseTo(10 * 2 * Math.log10(4), 1);
-		// Well past it the slope is the far-field one: dB per decade.
+		// 断点以外，斜率转为远场取值：每十倍距离的 dB 数。
 		const perDecade = (relativePathLossDb(60) - relativePathLossDb(20)) / Math.log10(3);
 		expect(perDecade).toBeCloseTo(10 * 4, 0);
 	});
@@ -77,7 +76,7 @@ describe('path loss scenarios', () => {
 	it('bounds a line-of-sight AP instead of extrapolating the near field', () => {
 		setPathLossScenario('lineOfSight');
 		const reach = coverageReach(rangeFromPower(20, "5ghz"));
-		// 158 m before the breakpoint existed: the near-field slope carried to 100 m.
+		// 覆盖范围被限制在断点附近，而不是沿近场斜率外推到 100 m。
 		expect(reach).toBeLessThan(60);
 		expect(reach).toBeGreaterThan(20);
 	});
@@ -87,8 +86,7 @@ describe('path loss scenarios', () => {
 			setPathLossScenario(scenario);
 			const radius = rangeFromPower(20, '5ghz');
 			const reach = coverageReach(radius);
-			// Inside the circle exactly when the margin is positive, which is what the
-			// heatmap, the optimiser and the editor’s circle all rely on.
+			// 余量为正时恰好落在圆内，热力图、优化器与编辑器中的覆盖圆都依赖这一关系。
 			expect(coverageMarginDb(reach, radius), scenario).toBeCloseTo(COVERAGE_MARGIN_DB, 6);
 			expect(coverageMarginDb(reach * 0.9, radius), scenario).toBeGreaterThan(COVERAGE_MARGIN_DB);
 		}

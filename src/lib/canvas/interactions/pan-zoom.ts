@@ -16,7 +16,7 @@ export class PanZoomHandler {
 		canvas.addEventListener('pointerdown', this.onPointerDown);
 		canvas.addEventListener('pointermove', this.onPointerMove);
 		canvas.addEventListener('pointerup', this.onPointerUp);
-		// Touch events handled by CanvasView exclusively
+		// 触摸事件由 CanvasView 独占处理
 	}
 
 	detach(): void {
@@ -37,7 +37,7 @@ export class PanZoomHandler {
 	};
 
 	private onPointerDown = (e: PointerEvent): void => {
-		if (e.pointerType === 'touch') return; // touch handled by CanvasView
+		if (e.pointerType === 'touch') return; // 触摸事件由 CanvasView 处理
 		if (e.button === 1) {
 			this.isPanning = true;
 			this.lastX = e.clientX;

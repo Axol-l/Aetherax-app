@@ -1,24 +1,11 @@
 import type { Layer, RenderContext } from '../types.js';
 
-/** Underlay width in world units. Matches `FloorplanLayer` so both scale alike. */
+/** 底层图宽度，单位为世界单位。与 `FloorplanLayer` 一致，使两者缩放相同。 */
 const TARGET_WIDTH = 800;
 
 /**
- * Translucent ghost of another floor, drawn over the current one.
- *
- * Each floor is drawn in the same world frame, so if two plans disagree about
- * where the building sits there is no way to see it while looking at one floor
- * alone. This overlays the reference floor's underlay and wall mask so the
- * disagreement is visible while the alignment is adjusted.
- *
- * The wall mask needs no decoding. `encodeMask` writes walls as opaque white on
- * a fully transparent background, so the stored PNG draws directly. A silhouette
- * is also the right representation: material colours would compete with the
- * current floor's walls rather than sit behind them.
- *
- * Drawn above the current floor's plan and walls on purpose. The current
- * underlay is 80% opaque, so a ghost underneath it would be invisible exactly
- * when it is needed.
+ * 另一楼层的半透明残影，叠加参考层的底层图和墙体掩码，用于在调整对齐时看出两个平面图的错位。
+ * 墙体掩码无需解码，存储的 PNG 可直接绘制；残影绘制在当前楼层之上，以免被不透明的底层图遮住。
  */
 export class ReferenceFloorLayer implements Layer {
 	id = 'reference-floor';
@@ -26,27 +13,21 @@ export class ReferenceFloorLayer implements Layer {
 	opacity = 0.3;
 
 	/**
-	 * Called once an image has loaded, so the engine can repaint. Without it the
-	 * ghost would stay blank until something else marked the canvas dirty.
+	 * 图片加载完成后调用，使引擎可以重绘；否则残影会一直空白，直到画布被其他操作标记为脏。
 	 */
 	onLoad: (() => void) | null = null;
 
 	/**
-	 * Extra world-space shift added to the ghost only.
+	 * 仅作用于残影的额外世界空间位移。
 	 *
-	 * Used while dragging an alignment: the camera carries the current floor, and
-	 * the ghost has to be pushed back by the same amount so it stays visually
-	 * anchored to the floor it belongs to.
+	 * 拖动对齐时相机跟随当前楼层，残影需反向平移同样的量，才能保持锚定在其所属楼层上。
 	 */
 	compensateX = 0;
 	compensateY = 0;
 
 	/**
-	 * Reference floor's units → the current floor's.
-	 *
-	 * The ghost is drawn in the current floor's world frame, so a reference plan
-	 * calibrated at a different resolution is scaled into it (and its offsets with it).
-	 * Without this the overlay only lined up when both floors shared a calibration.
+	 * 参考层单位 → 当前楼层单位。
+	 * 残影绘制在当前楼层的世界坐标系中，以不同分辨率标定的参考平面图按此比例缩放，偏移量一并缩放。
 	 */
 	scale = 1;
 
@@ -62,7 +43,7 @@ export class ReferenceFloorLayer implements Layer {
 	private maskX = 0;
 	private maskY = 0;
 
-	/** Show the reference floor's underlay. Pass null to clear it. */
+	/** 显示参考层的底层图。传入 null 可清除。 */
 	setPlan(url: string | null, offsetX: number, offsetY: number): void {
 		const key = url ? `${url}|${offsetX}|${offsetY}` : null;
 		if (key === this.planKey) return;
@@ -89,7 +70,7 @@ export class ReferenceFloorLayer implements Layer {
 		}
 	}
 
-	/** Show the reference floor's wall silhouette. Pass null to clear it. */
+	/** 显示参考层的墙体轮廓。传入 null 可清除。 */
 	setMask(url: string | null, originX: number, originY: number): void {
 		const key = url ? `${url}|${originX}|${originY}` : null;
 		if (key === this.maskKey) return;

@@ -1,24 +1,6 @@
 ﻿/**
- * The wall/material/room raster the canvas draws and its click handling reads.
- *
- * Three things happen to a floor's masks, and all three used to live in `CanvasView`
- * between forty effects:
- *
- * - **decode**: a stored PNG data URL becomes pixels, blob labels, an interior and room
- *   labels 鈥?asynchronously, with a version guard so a superseded floor cannot publish;
- * - **publish**: the wall editor rasterises its segments and hands the result over 鈥?the
- *   pixels, not a data URL, because the decode effect would skip a URL it has already seen;
- * - **reset**: a floor switch drops everything so the previous floor's raster cannot be
- *   drawn or clicked for a frame.
- *
- * The component keeps the *effects* (it is the thing that knows when state changed) and
- * this class keeps the cache and the asynchronous work. `apWallMask` is `$state` because
- * the annotation effect reacts to it; the rest are plain fields, read by the click
- * handlers, and a change to them is always accompanied by a `markDirty()`.
- *
- * Not here: the distance transform for the AP annotations (`wall-distance.ts` is its own
- * cache, keyed on `revision`), and the wall-segment rasteriser (that is model work, in
- * `state/wall-raster.ts`).
+ * 画布绘制与点击处理所读取的墙体、材质和房间栅格。
+ * 每层楼的掩码依次经历解码、发布和重置，本类持有缓存并承担其中的异步工作。
  */
 import { debug } from '$lib/log.js';
 import type { HeatmapLayer } from './renderers/heatmap.js';
@@ -40,7 +22,7 @@ import { updateCoverage } from '$state/optimizer.svelte.js';
 import { scheduleSave } from '$state/persistence.svelte.js';
 import { minRoomRadiusWu } from '$state/room-domain.js';
 
-/** A raster produced by the wall editor or the segment rasteriser. */
+/** 墙体编辑器或线段栅格化器生成的栅格。 */
 export interface MaterialisedMask {
 	data: Uint8Array;
 	materialData: Uint8Array | null;
@@ -57,24 +39,21 @@ export interface MaskLayers {
 }
 
 export interface MaskPipelineHost {
-	/** The live layers; null until the canvas has mounted its engine. */
+	/** 当前图层；画布引擎挂载完成前为 null。 */
 	layers(): MaskLayers;
 	markDirty(): void;
 }
 
 export class MaskPipeline {
 	/**
-	 * The decoded raster the AP annotations measure against.
-	 *
-	 * `$state` because it lands from a promise: the annotation effect has to re-run when it
-	 * arrives. It is written only from callbacks, never from inside the effect that reads
-	 * it, or that effect would re-run itself.
+	 * AP 标注据以测量的解码后栅格。
+	 * 声明为 `$state` 以便从 promise 落地时让标注 effect 重跑；它只由回调写入，避免读取它的 effect 自触发。
 	 */
 	apWallMask = $state<DecodedWallMask | null>(null);
-	/** Bumped on every publication: the distance transform's cache key. */
+	/** 每次发布时递增，用作距离变换缓存的键。 */
 	revision = 0;
 
-	/** The decoded rasters and labels, read by the wall/room click handlers. */
+	/** 解码后的栅格与标签，供墙体/房间点击处理读取。 */
 	wallData: Uint8Array | null = null;
 	materialData: Uint8Array | null = null;
 	wallLabels: RegionLabels | null = null;
@@ -85,11 +64,8 @@ export class MaskPipeline {
 	originY = 0;
 
 	/**
-	 * Bumped whenever the wall mask is replaced.
-	 *
-	 * Read by the auto-solve key. Plain rather than `$state` on purpose: it is a cache
-	 * invalidator read inside a derivation that already tracks the mask's own state, and
-	 * making it reactive re-armed the solver on its own writes.
+	 * 墙体掩码每次被替换时递增。
+	 * 由自动求解的键读取；刻意使用普通字段而非 `$state`，避免其自身写入再次触发求解。
 	 */
 	maskVersion = 0;
 
@@ -98,31 +74,24 @@ export class MaskPipeline {
 	private keyOriginX = Number.NaN;
 	private keyOriginY = Number.NaN;
 	private roomTypeUrl: string | null = null;
-	/** Guards the asynchronous decodes against a superseded floor or mask. */
+	/** 防止异步解码结果写入已被替换的楼层或掩码。 */
 	private version = 0;
-	/** The floor whose masks these caches describe. See the reset in `syncWallMask`. */
+	/** 这些缓存所属的楼层，参见 `syncWallMask` 中的重置逻辑。 */
 	private syncedFloorId = '';
 
 	constructor(private readonly host: MaskPipelineHost) {}
 
 	/**
-	 * Decode the current floor's wall and material masks, if the state changed.
-	 *
-	 * Call from an `$effect` with no arguments: this method reads `wallState` synchronously
-	 * before its first `await`, which is what makes the effect depend on it.
+	 * 状态变化时解码当前楼层的墙体掩码与材质掩码。
+	 * 需在无参数的 `$effect` 中调用：方法在首个 `await` 前同步读取 `wallState`，以建立依赖。
 	 */
 	syncWallMask(): void {
 		const { wallLayer, heatmapLayer } = this.host.layers();
 		if (!wallLayer || !heatmapLayer) return;
 
 		/*
-		 * A different floor's caches are not this floor's, so they are dropped here.
-		 *
-		 * The reset used to be a separate effect in the view, declared above this one: it worked
-		 * because Svelte flushes effects in creation order, which meant "the reset runs before
-		 * the decode" was an invariant nobody could see 鈥?moving one block of the view above the
-		 * other silently decoded into a stale key and handed back the previous floor's raster.
-		 * The pipeline knows which floor its caches belong to, so it can answer that itself.
+		 * 其他楼层的缓存不属于当前楼层，在此丢弃。
+		 * 流水线自行记录缓存所属楼层，因此无需依赖 effect 的创建顺序。
 		 */
 		const floorId = floorState.currentFloorId;
 		if (floorId !== this.syncedFloorId) {
@@ -133,8 +102,7 @@ export class MaskPipeline {
 		const mask = wallState.wallMask;
 		const materialMask = wallState.materialMask;
 
-		// Skip re-decode if the data URLs and the origin are all unchanged. The origin
-		// matters because aligning a floor moves the mask without changing a single pixel.
+		// 数据 URL 与原点均未变化时跳过重复解码；对齐楼层只移动掩码而不会改动任何像素。
 		const wallUrl = mask?.dataUrl ?? null;
 		const materialUrl = materialMask?.dataUrl ?? null;
 		const originX = mask?.originX ?? 0;
@@ -164,8 +132,7 @@ export class MaskPipeline {
 		if (!mask) {
 			wallLayer.mask = null;
 			heatmapLayer.wallMask = null;
-			// There is no mask coming: this floor has no plan, so a wall-less heatmap is
-			// the real answer and must not be suppressed.
+			// 不会再有掩码到来：该楼层没有平面图，无墙热力图即为正确结果，不应被抑制。
 			heatmapLayer.maskPending = false;
 			this.clearCaches();
 			const { roomLabelsLayer } = this.host.layers();
@@ -189,11 +156,8 @@ export class MaskPipeline {
 				const materialData = materialPromise ? await materialPromise : null;
 				if (this.version !== thisVersion) return;
 
-				// Propagate the stored origin to the decoded mask, snapped to whole pixels.
-				// The origin comes from the alignment offset, which is
-				// `dragDistance / zoom` and therefore fractional, but it is used as a pixel
-				// address: the renderer places the raster at it and every kernel reads it at
-				// it, so the two have to agree on one integer.
+				// 把存储的原点传播到解码后的掩码，并对齐到整像素。
+				// 原点来自对齐偏移（`dragDistance / zoom`，可能为小数），但被当作像素地址使用。
 				decoded.originX = Math.round(mask.originX ?? 0);
 				decoded.originY = Math.round(mask.originY ?? 0);
 
@@ -206,7 +170,7 @@ export class MaskPipeline {
 				heatmapLayer.materialMap = materialData ?? null;
 				heatmapLayer.defaultMaterial = defaultMaterial;
 				heatmapLayer.wallAttenuation = wallState.wallAttenuation;
-				// The mask it was waiting for is here, so generation may proceed.
+				// 等待的掩码已就绪，可以继续生成。
 				heatmapLayer.maskPending = false;
 				this.setApWallMask(decoded);
 
@@ -216,10 +180,8 @@ export class MaskPipeline {
 				this.wallLabels = labelWallBlobs(decoded.data, decoded.width, decoded.height);
 				this.materialData = materialData ?? null;
 
-				// The rooms of this plan, from the one derivation everyone shares. The ids this
-				// produces are the ids a click on the canvas writes into `roomDensityOverrides`,
-				// and the optimiser reads them back against its own copy of the same partition
-				// 鈥?so these parameters are not a local choice. See `canvas/rooms.ts`.
+				// 本平面图的房间取自共用的同一份推导；产出的 id 即点击写入 `roomDensityOverrides` 的 id，
+				// 优化器按同一分区读回，因此这些参数不是局部选择，参见 `canvas/rooms.ts`。
 				const domain = buildRoomDomain(
 					decoded.data,
 					decoded.width,
@@ -229,7 +191,7 @@ export class MaskPipeline {
 				this.interior = domain.interior;
 				this.roomLabels = { labels: domain.labels, regionCount: domain.regionCount };
 
-				// Decode room type mask if persisted
+				// 若已持久化，则解码房间类型掩码
 				const roomTypeMask = wallState.roomTypeMask;
 				if (
 					roomTypeMask &&
@@ -247,7 +209,7 @@ export class MaskPipeline {
 					this.roomTypeData = null;
 				}
 
-				// Feed room data to renderer
+				// 把房间数据提供给渲染器
 				if (layers.roomLabelsLayer) {
 					layers.roomLabelsLayer.roomTypeData = this.roomTypeData;
 					layers.roomLabelsLayer.roomLabels = this.roomLabels;
@@ -263,8 +225,7 @@ export class MaskPipeline {
 				this.host.markDirty();
 			})
 			.catch((err) => {
-				// Without this the chain failed silently, so a plan whose walls never
-				// appeared arrived with no explanation of why the decode never finished.
+				// 缺少此处处理时链路会静默失败，墙体不显示的平面图也无从得知解码为何未完成。
 				console.error(
 					'[walls] floorplan decode failed. The plan then has no walls to measure ' +
 						'against, so coverage and the heatmap read as empty rather than as wrong.',
@@ -274,11 +235,8 @@ export class MaskPipeline {
 	}
 
 	/**
-	 * Decode the room type mask on its own.
-	 *
-	 * Its own effect because it changes independently of the wall mask 鈥?assigning a room
-	 * type, undo/redo, a floor switch that restores it 鈥?and re-decoding the whole wall
-	 * raster for a label change would cost far more than it is worth.
+	 * 单独解码房间类型掩码。
+	 * 它独立于墙体掩码变化；单独成 effect 可避免为改标签而重解码整个墙体栅格。
 	 */
 	syncRoomTypes(): void {
 		const { roomLabelsLayer } = this.host.layers();
@@ -305,7 +263,7 @@ export class MaskPipeline {
 
 		decodeMaterialMask(roomTypeMask.dataUrl, roomTypeMask.width, roomTypeMask.height).then(
 			(roomTypeData) => {
-				// Stale: a newer mask arrived while this one was decoding.
+				// 已过期：解码期间有更新的掩码到达。
 				if (wallState.roomTypeMask?.dataUrl !== roomTypeMask.dataUrl) return;
 				this.roomTypeData = roomTypeData;
 				roomLabelsLayer.roomTypeData = roomTypeData;
@@ -319,19 +277,14 @@ export class MaskPipeline {
 	}
 
 	/**
-	 * Publish a materialised raster as the floor's wall mask.
-	 *
-	 * One routine because the mask is not just a data URL: the layers draw the pixels that
-	 * were just written (the decode effect would skip a URL it has already seen), the
-	 * material popup needs the blob labels, the room types need the interior, and the
-	 * solver's decoded copy is now stale.
+	 * 把已生成的栅格发布为该楼层的墙体掩码。
+	 * 掩码不只是数据 URL：图层要绘制刚写入的像素，材质弹窗需要团块标签，求解器的解码副本也随之过期。
 	 */
 	publish(mat: MaterialisedMask): boolean {
 		const { data, materialData, width, height, originX, originY } = mat;
 
-		// The mask is encoded whole on every edit, so its extent is worth watching. A mask
-		// far larger than any building is a bounds bug, not a large plan, and the symptom is
-		// the whole layer disappearing once the canvas size limit is passed.
+		// 每次编辑都会整体编码掩码，故需关注其范围；远超建筑尺寸的掩码通常是边界计算错误，
+		// 表现为超过画布尺寸上限后整个图层消失。
 		if (width > 8000 || height > 8000) {
 			console.warn(
 				`[walls] mask is ${width}x${height} at origin ${originX},${originY}. ` +
@@ -345,25 +298,22 @@ export class MaskPipeline {
 		const wallUrl = encodeMask(data, width, height);
 		const materialUrl = materialData ? encodeMaterialMask(materialData, width, height) : null;
 
-		// Update URLs and pre-set the decode keys so the async decode effect skips a
-		// re-decode of work that is already on screen.
+		// 更新 URL 并预设解码键，使异步解码 effect 跳过已在屏幕上的重复解码。
 		wallState.wallMask = { dataUrl: wallUrl, width, height, originX, originY };
 		this.wallUrl = wallUrl;
 		if (materialUrl) {
 			wallState.materialMask = { dataUrl: materialUrl, width, height, originX, originY };
 			this.materialUrl = materialUrl;
 		} else if (wallState.materialMask) {
-			// No material pixels left. Keeping the old material mask around means the next
-			// decode reads it back and the assignments reappear.
+			// 已无材质像素；保留旧的材质掩码会让下次解码读回它，使材质指派重新出现。
 			wallState.materialMask = null;
 			this.materialUrl = null;
 		}
 
-		// Recompute blob labels so click-to-override works on the edited walls
+		// 重新计算团块标签，使点击覆盖在编辑后的墙体上仍然可用
 		this.wallLabels = labelWallBlobs(data, width, height);
 
-		// Rooms, from the same derivation as the decode path above 鈥?the ids a click writes
-		// into `roomDensityOverrides` have to be the ids the optimiser reads them back with.
+		// 房间使用与上述解码路径相同的推导，确保点击写入与优化器读回的 id 一致。
 		const domain = buildRoomDomain(data, width, height, {
 			minRegionRadius: minRoomRadiusWu(this.syncedFloorId),
 			trimWallAdjacent: false
@@ -371,7 +321,7 @@ export class MaskPipeline {
 		this.interior = domain.interior;
 		this.roomLabels = { labels: domain.labels, regionCount: domain.regionCount };
 
-		// Room type data may need resizing if the mask dimensions changed
+		// 掩码尺寸变化时，房间类型数据可能需要重新调整
 		if (this.roomTypeData && this.roomTypeData.length !== width * height) {
 			this.roomTypeData = null;
 			wallState.roomTypeMask = null;
@@ -388,32 +338,27 @@ export class MaskPipeline {
 			roomLabelsLayer.invalidateCache();
 		}
 
-		// Trigger a re-solve: `maskVersion` is part of the auto-solve key.
+		// 触发重新求解：`maskVersion` 是自动求解键的一部分。
 		this.maskVersion++;
 		invalidateSolverMaskCache();
 
 		this.host.layers().heatmapLayer?.markWallsDirty();
 		this.host.markDirty();
-		// The walls are what decides what the floor covers, so the figure is re-measured
-		// rather than left standing from the geometry that was just replaced.
+		// 墙体决定楼层的覆盖范围，故重新测量该数值，而非沿用刚被替换的几何。
 		void updateCoverage();
 		scheduleSave();
 		return true;
 	}
 
 	/**
-	 * Drop everything derived from the current floor's masks.
-	 *
-	 * Called on a floor switch: the incoming floor's mask is about to be decoded, and the
-	 * outgoing floor's raster must not be drawn 鈥?or clicked 鈥?in the meantime. The
-	 * renderer references are cleared eagerly for that reason.
+	 * 丢弃由当前楼层掩码派生的一切。
+	 * 在切换楼层时调用，避免期间绘制或点击到即将过期的栅格，因此渲染器引用也一并清空。
 	 */
 	reset(): void {
 		this.wallUrl = null;
 		this.materialUrl = null;
 		this.roomTypeUrl = null;
-		// The origin markers are part of the same cache key and have to be cleared with the
-		// URLs, or the decode compares a fresh mask's origin against the previous floor's.
+		// 原点标记属于同一缓存键，须与 URL 一并清除，否则解码会把新掩码的原点与上一层楼比较。
 		this.keyOriginX = Number.NaN;
 		this.keyOriginY = Number.NaN;
 		this.version++;
@@ -428,8 +373,7 @@ export class MaskPipeline {
 		if (heatmapLayer) {
 			heatmapLayer.wallMask = null;
 			heatmapLayer.materialMap = null;
-			// Generating a heatmap against no walls while the decode is in flight is a full,
-			// expensive image that the decode immediately replaces 鈥?see `maskPending`.
+			// 解码进行中若无墙生成热力图，会得到一张开销很大且立即被替换的完整图像，参见 `maskPending`。
 			heatmapLayer.maskPending = floorState.floors.some(
 				(f) => f.id === floorState.currentFloorId && !!f.wallMask
 			);
@@ -442,13 +386,13 @@ export class MaskPipeline {
 		}
 	}
 
-	/** The decoded raster for the AP annotations, and its revision for the transform cache. */
+	/** 供 AP 标注使用的解码栅格，同时递增供变换缓存使用的版本号。 */
 	private setApWallMask(mask: DecodedWallMask | null): void {
 		this.apWallMask = mask;
 		this.revision++;
 	}
 
-	/** Write a decoded raster into the layers that draw it. */
+	/** 把解码后的栅格写入负责绘制的图层。 */
 	private apply(mat: MaterialisedMask): void {
 		const { wallLayer, heatmapLayer } = this.host.layers();
 		const maskRef = {
@@ -462,12 +406,9 @@ export class MaskPipeline {
 		if (heatmapLayer) {
 			heatmapLayer.wallMask = maskRef;
 			/*
-			 * The segments, for the one specular reflection the heatmap carries.
-			 *
-			 * The mask blocks, the segments reflect: a reflection needs the segment's own
-			 * line, and a mask pixel has no normal. A floor whose walls are still a detected
-			 * raster has no segments, so it gets the direct field only 鈥?which is also what
-			 * its edit path used to do for walls in general.
+			 * 线段，用于热力图携带的一次镜面反射。
+			 * 掩码负责阻挡，线段负责反射：反射需要线段自身的直线，而掩码像素没有法线；
+			 * 墙体仍为检测栅格的楼层没有线段，只得到直达场。
 			 */
 			heatmapLayer.reflectingWalls = (currentFloor()?.walls ?? []).map((wall) => ({
 				ax: wall.ax,
@@ -477,15 +418,12 @@ export class MaskPipeline {
 				material: wall.material
 			}));
 			/*
-			 * The outline the heatmap is clipped to: the drawn planning area when there is
-			 * one, the detected boundary otherwise. Without it the field covers the whole
-			 * sheet and every interior wall throws its shadow into the margin outside the
-			 * building, which is the row of dark wedges that was reported as spikes.
+			 * 热力图裁剪所用的轮廓：存在绘制的规划区域时用该区域，否则用检测到的边界。
+			 * 没有它时场会覆盖整张图纸，内墙还会向建筑之外投影。
 			 */
 			const planned = currentFloor()?.planningArea ?? null;
 			heatmapLayer.clipPolygon = planned ?? floorplanState.floorplanBoundary ?? null;
-			// A drawn area is the user's statement of the floor, so it clips strictly; the
-			// detected boundary only trims, and is unioned with the walls' interior.
+			// 绘制的区域代表用户对楼层的声明，故严格裁剪；检测到的边界只做修剪，并与墙体内域求并。
 			heatmapLayer.clipStrict = !!planned && planned.length >= 3;
 			heatmapLayer.materialMap = mat.materialData;
 			heatmapLayer.materialVersion++;

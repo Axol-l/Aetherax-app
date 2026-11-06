@@ -1,33 +1,7 @@
 /**
- * Turn a classified vector floorplan into the two masks the rest of the app runs
- * on: the wall mask, and the per-pixel material mask.
- *
- * `vector-elements.ts` decides *what each element is*. This turns that decision
- * into geometry, and the shape of the output is dictated by everything downstream:
- *
- * - **Walls, windows and doors all go into the wall mask.** Not just walls. The mask
- *   is not only an RF barrier map — `computeBuildingInterior` treats every set pixel
- *   as a barrier, morphologically closes the gaps, floods from the border and calls
- *   what is left "inside". That interior is the optimiser's placement domain and the
- *   coverage denominator. Punch holes where the doors are and every room whose only
- *   opening is a door stops being enclosed: no room labels, no density regions, no
- *   coverage samples there. So an opening keeps the wall's topology and changes only
- *   its *material*.
- * - **Everything else is left out**, which is the whole point of classifying
- *   fixtures and lettering: a sink is not a barrier, and neither is the word
- *   "KITCHEN".
- * - **The material mask carries the difference.** Windows take `Glass` (already in
- *   the table), doors take `Door` (added with this feature, ~5 dB a crossing), and
- *   the rest of the wall keeps the floor's default material — which is what the
- *   existing paint brush writes, so a detected plan and a hand-painted one are the
- *   same kind of object.
- *
- * The rasterisation is three passes over the same drawing with the other roles
- * hidden, rather than one pass with the roles colour-coded. Colour-coding would be
- * faster but it puts the classification at the mercy of anti-aliasing: every edge
- * pixel is a blend of the stroke colour and the paper, and deciding "is this the
- * door red or the wall black" at 40 % opacity is a threshold nobody can tune. Three
- * alpha passes have no such question — a pixel is in a role or it is not.
+ * 将已分类的矢量户型图转换为墙体掩膜和逐像素材质掩膜。
+ * 墙体、窗和门都进入墙体掩膜以保持封闭拓扑，门窗洞口只改变材质，其他图元和文字被排除；
+ * 栅格化按角色分三次进行，避免抗锯齿混色干扰判定。
  */
 
 import { WALL_MATERIALS, type WallMaterialId } from '$lib/domain/materials.js';
@@ -42,49 +16,43 @@ import {
 	type ClassifiedElement,
 	type ElementRole
 } from './vector-elements.js';
-/** The material a window is painted with. */
-export const WINDOW_MATERIAL: WallMaterialId = 2; // Glass
+/** 窗使用的材质。 */
+export const WINDOW_MATERIAL: WallMaterialId = 2; // 玻璃
 
 /**
- * How wide a gap between a window's two strokes the fill bridges, in mask pixels.
- *
- * The gap is the wall's thickness at the working resolution — a 200 mm wall on a plan
- * rasterised at ~50 px/m is about 10 px — so 6 covers it with room for a thick facade and
- * stays well under a narrow room. Too small and the sandwich remains; too large and two
- * windows across a thin room would merge.
+ * 窗的两条描边之间需要填充的间隙宽度，单位为掩膜像素。
+ * 该间隙等于工作分辨率下的墙厚，取值过小会留下夹层，过大会把相邻窗合并。
  */
 const WINDOW_FILL_RADIUS = 6;
 
-/** The material a door is painted with. */
-export const DOOR_MATERIAL: WallMaterialId = 7; // Door
+/** 门使用的材质。 */
+export const DOOR_MATERIAL: WallMaterialId = 7; // 门
 
-/** What a detection found, for the review line in the sidebar. */
+/** 一次识别得到的结果，供侧栏的复核信息使用。 */
 export interface VectorDetectionSummary {
-	/** Elements in the wall mask, by the role that put them there. */
+	/** 进入墙体掩膜的图元数量，按角色统计。 */
 	walls: number;
 	windows: number;
 	doors: number;
-	/** Elements deliberately left out: fixtures, lettering, room fills. */
+	/** 有意排除的图元：固定设施、文字和房间填充。 */
 	ignored: number;
-	/** Elements no rule could place. Left out, but counted so the user can see them. */
+	/** 没有规则能归类的图元；不进入掩膜，但计数供用户查看。 */
 	unknown: number;
-	/** Total drawable elements, so the counts above have a denominator. */
+	/** 可绘制图元总数，用作以上计数的分母。 */
 	total: number;
 }
 
 export interface VectorDetection {
 	wallMask: WallMaskData;
-	/** Null when nothing but walls was found — no window or door to record. */
+	/** 只发现墙体、没有窗或门可记录时为 null。 */
 	materialMask: WallMaskData | null;
 	summary: VectorDetectionSummary;
-	/** Every element the reader looked at, for the review panel. */
+	/** 读取器检查过的所有图元，供复核面板使用。 */
 	elements: ReviewableElement[];
 	/**
-	 * The walls as **geometry**, read from the drawing's own elements.
-	 *
-	 * In the mask's frame (mask pixels = world units), each with the material its role gives it.
-	 * Empty when the drawing's elements are all curves, which is the case the raster trace exists
-	 * for.
+	 * 以**几何**形式表示的墙体，来自图纸自身的图元。
+	 * 坐标为掩膜坐标系（掩膜像素等于世界单位），每段带角色对应的材质；
+	 * 图元全为曲线时为空，此时改用栅格描边。
 	 */
 	segments: Array<{
 		ax: number;
@@ -96,27 +64,24 @@ export interface VectorDetection {
 }
 
 /**
- * One element as the review panel sees it.
- *
- * Carries the classification *and* the evidence behind it, because the panel's job is
- * to let a user disagree with the classifier, and disagreeing needs the reason. The
- * box is in render pixels so a highlight can be drawn over the plan without going back
- * to the drawing.
+ * 复核面板看到的单个图元。
+ * 同时携带分类结果和依据，因为面板需要让用户理解并质疑分类；包围盒使用渲染像素，
+ * 以便直接在图纸上高亮。
  */
 export interface ReviewableElement {
-	/** Index in the drawing's element order. Stable for one source. */
+	/** 图元在图纸中的顺序索引，同一来源内保持稳定。 */
 	id: number;
 	role: ElementRole;
-	/** The rule that decided this element's role. */
+	/** 决定该图元角色的规则。 */
 	reason: string;
-	/** `path`, `line`, `rect`, … */
+	/** 图元的标签名。 */
 	tag: string;
-	/** The names the file gave it, or empty. The strongest evidence there is. */
+	/** 文件赋予该图元的名称，可能为空；这是最强的证据。 */
 	name: string;
 	box: { x: number; y: number; w: number; h: number };
 }
 
-/** Roles that belong in the wall mask, and the material each one paints. */
+/** 属于墙体掩膜的角色及其填充材质。 */
 const MASK_ROLES: ReadonlyArray<{ role: ElementRole; material: WallMaterialId | null }> = [
 	{ role: 'wall', material: null },
 	{ role: 'window', material: WINDOW_MATERIAL },
@@ -124,15 +89,9 @@ const MASK_ROLES: ReadonlyArray<{ role: ElementRole; material: WallMaterialId | 
 ];
 
 /**
- * Compose the masks from one pixel buffer per role.
- *
- * Pure, so the composition can be tested without a canvas. `defaultMaterial` is
- * what a wall pixel gets when no opening claims it.
- *
- * **Openings win ties.** A door drawn overlapping the wall it sits in is the norm,
- * not an exception — the arc and the leaf are stroked over the wall run — so where
- * both are set, the material is the opening's. The mask itself is a union, because
- * a hole is not wanted (see the module comment).
+ * 从每个角色各一张像素缓冲区合成两张掩膜；合成过程为纯函数，可在无画布环境下测试。
+ * `defaultMaterial` 是未被洞口覆盖的墙体像素所用材质；门窗洞口与墙体重叠时洞口优先，
+ * 但掩膜始终取并集，不挖出孔洞。
  */
 export function composeRoleMasks(
 	roleBuffers: ReadonlyArray<{ material: WallMaterialId | null; pixels: Uint8Array }>,
@@ -143,8 +102,8 @@ export function composeRoleMasks(
 	const material = new Uint8Array(length);
 	material.fill(defaultMaterial);
 
-	// Specific first: a role that names a material beats one that does not, which is
-	// what "openings win ties" means once the buffers are separate.
+	// 先处理带具体材质的角色：材质明确的角色覆盖材质为 null 的角色，
+	// 这就是缓冲区分离后“洞口优先”的含义。
 	const ordered = [...roleBuffers].sort(
 		(a, b) => (a.material === null ? 1 : 0) - (b.material === null ? 1 : 0)
 	);
@@ -161,17 +120,8 @@ export function composeRoleMasks(
 }
 
 /**
- * Detect a vector floorplan from its markup.
- *
- * `overrides` replaces the classifier's verdict for individual elements, keyed by the
- * same index the returned `elements` carry. Re-reading the whole drawing is the cheapest
- * *correct* response to an override: patching the mask instead cannot express "this
- * element is now a door" for an element that was never drawn into it.
- *
- * Returns null when there is nothing to detect — no drawable elements, or nothing
- * that looks like a wall. The caller falls back to the raster pipeline in that
- * case, which is the honest behaviour: a plan whose walls this classifier cannot
- * see is exactly the plan the pixel path was written for.
+ * 从标记文本识别矢量户型图，`overrides` 按图元索引覆盖分类结果。
+ * 没有可绘制图元或没有墙体时返回 null，由调用方回退到栅格流程。
  */
 export async function detectVectorFloorplan(
 	svgText: string,
@@ -182,16 +132,13 @@ export async function detectVectorFloorplan(
 	const source = doc.querySelector('svg');
 	if (!source) return null;
 
-	// `<use>` renders geometry the classifier would never see: the referenced nodes live
-	// in `<defs>`, which `selectDrawableElements` skips, and the `<use>` element itself is
-	// not a shape. On the shipped sample with its walls moved behind a `<use>`, the reader
-	// reported 2 walls instead of 15 — and the mask was still 31,912 pixels, so nothing
-	// tripped the "no walls found, use the pixels" guard. A confidently wrong mask is the
-	// worst outcome this reader has, so the references are resolved first.
+	// `<use>` 渲染出的几何不会被分类器看到：被引用的节点位于 `<defs>` 中，
+	// `selectDrawableElements` 会跳过它们，而 `<use>` 本身又不是形状。
+	// 因此先展开引用，使这些几何参与分类。
 	expandUse(source);
 
-	// A live copy in the document, because `getComputedStyle` — which is what makes
-	// this work on a file that paints through a `<style>` block — needs layout.
+	// 在文档中保留一个活动副本，因为 `getComputedStyle` 需要布局；
+	// 这也是能处理通过 `<style>` 着色文件的原因。
 	const host = document.createElement('div');
 	host.style.cssText = 'position:absolute;left:-10000px;top:0;width:1px;height:1px;overflow:hidden';
 	document.body.appendChild(host);
@@ -199,36 +146,26 @@ export async function detectVectorFloorplan(
 	try {
 		host.appendChild(document.importNode(source, true));
 		const svg = host.querySelector('svg')!;
-		// The drawing's own extent, in user units, and the one place it is worked out.
-		//
-		// `viewBox` when the file has one. When it does not — an export that carries only
-		// `width`/`height`, which is common — the root's own bounding box stands in for it.
-		// Two things need this and both were wrong without it: the scale the element boxes
-		// are reported at, and the render (`renderRolePass`), which sets `width`/`height`
-		// on the copy but can only make the content *fill* them if a `viewBox` is present.
-		// Without one the drawing rasterised at its own user units into the corner of the
-		// mask — 9,415 wall pixels on the shipped sample against 31,580 with the viewBox
-		// restored, a mask at 30 % scale while the sidebar happily reported its 15 walls.
+		// 图纸自身的范围，单位为用户单位，并且只在这里计算一次。
+		// 有 `viewBox` 时用它，否则退回到 `width`/`height`，再不行才用根节点包围盒；
+		// 元素包围盒的缩放与 `renderRolePass` 的渲染都依赖它。
 		const contentBox = contentBoxOf(svg);
 		const scale = targetWidth / (contentBox.width || targetWidth);
 		const width = targetWidth;
 		const height = Math.max(1, Math.round((contentBox.height || targetWidth) * scale));
 
-		// One shared query, so `roles[i]` really is the role of `drawables[i]`.
+		// 共用同一次查询，确保 `roles[i]` 确实对应 `drawables[i]`。
 		const drawables = selectDrawableElements(svg);
-		// The drawing's own area, so "big enough to be a wall" is scale-free. In user
-		// units, because that is what the facts' bounding boxes are in — see `planAreaOf`.
+		// 图纸自身的面积，使“面积足够大才可能是墙”与比例无关；
+		// 单位为用户单位，与事实中的包围盒一致，详见 `planAreaOf`。
 		const classified = classifyVectorElements(describeSvgElements(svg), {
 			planArea: planAreaOf(svg)
 		});
 		if (drawables.length === 0) return null;
 
 		const roles = drawables.map((_, i) => overrides.get(i) ?? classified[i]?.role ?? 'unknown');
-		// The drawing as markup, so each role pass can rasterise its own *copy* with the
-		// other roles removed. Styling the live tree instead is what wrote the room
-		// labels into the door material: `<text>` is not in `drawables`, so no pass ever
-		// hid it and every pass picked it up as ink. Removal has no such gap — a pass is
-		// the elements it kept, and nothing else.
+		// 用图纸的标记文本，让每个角色过程只保留自己的副本并删除其他角色；
+		// 这样每次渲染只包含该角色的图元。
 		const markup = new XMLSerializer().serializeToString(svg);
 
 		const buffers: Array<{ material: WallMaterialId | null; pixels: Uint8Array }> = [];
@@ -236,38 +173,26 @@ export async function detectVectorFloorplan(
 			const rendered = await renderRolePass(markup, role, roles, width, height, contentBox);
 			const pixels = await alphaToBuffer(rendered, width, height);
 			/*
-			 * A window is a **band**, and a drawing strokes its two edges rather than
-			 * filling it. Rasterising the strokes alone gives a glass *outline* with the
-			 * wall's own drywall still showing between the lines — so the panel says
-			 * "window" and the RF model charges a wall, on the one boundary that matters
-			 * most for coverage.
-			 *
-			 * `fillParallelGaps` bridges the two strokes one axis at a time, which is the
-			 * only version of this that does not also thicken the band (see its comment for
-			 * the two that did). Doors are left alone — a leaf and its swing arc are not
-			 * solid, and filling those would paint the quarter circle as glass.
+			 * 窗是一条**带状区域**，图纸只描出它的两条边而不填充。
+			 * `fillParallelGaps` 逐轴连接两条描边；门不做此处理，因为门扇和开启弧并非实体。
 			 */
 			const solid =
 				role === 'window' ? fillParallelGaps(pixels, width, height, WINDOW_FILL_RADIUS) : pixels;
 			buffers.push({ material, pixels: solid });
 		}
 
-		// No render for the boundary pass: `detectFloorplanMasks` gives that step the
-		// drawing at its intrinsic size instead, because `detectBoundary` derives its
-		// working scale from `naturalWidth` and a render at working width halved every
-		// polygon coordinate.
+		// 边界过程不在此渲染：`detectFloorplanMasks` 会以图纸的固有尺寸处理，
+		// 因为 `detectBoundary` 从 `naturalWidth` 推导工作比例。
 
 		const defaultMaterial = WALL_MATERIALS[0]!.id;
 		const { wall, material } = composeRoleMasks(buffers, defaultMaterial);
 
 		let wallPixels = 0;
 		for (let i = 0; i < wall.length; i++) wallPixels += wall[i]!;
-		// Nothing wall-shaped: let the raster path have it.
+		// 没有墙体形状：交给栅格流程处理。
 		if (wallPixels < 50) return null;
 
-		// The summary and the review list describe the roles *in force*, overrides
-		// included: a panel that reported the classifier's opinion while the mask carried
-		// the user's would be lying about the thing it exists to explain.
+		// 摘要和复核列表描述实际生效的角色，包含用户覆盖。
 		const effective: ClassifiedElement[] = classified.map((c, i) => ({
 			...c,
 			role: roles[i] ?? c.role
@@ -282,7 +207,7 @@ export async function detectVectorFloorplan(
 			total: effective.length
 		};
 
-		// Element boxes in render pixels, so a highlight lands on the plan.
+		// 图元包围盒使用渲染像素，确保高亮落在图纸上。
 		const elements: ReviewableElement[] = effective.map((c, i) => ({
 			id: i,
 			role: c.role,
@@ -308,12 +233,9 @@ export async function detectVectorFloorplan(
 			: null;
 
 		/*
-		 * The walls as geometry, not only as a mask.
-		 *
-		 * `segmentsFromSvg` reads the drawing's own lines, so a diagonal survives and an opening
-		 * keeps its material — things the raster trace cannot do. Built here, where the roles,
-		 * the content box and the render scale are all in scope, and returned with the masks so a
-		 * caller can prefer the exact geometry and fall back to the mask only if there is none.
+		 * 以几何形式表示墙体，而不仅是掩膜。
+		 * `segmentsFromSvg` 读取图纸自身的线条，能保留斜线以及门窗洞口的材质；
+		 * 这里能同时访问角色、内容框和渲染比例，因此在此构建并随掩膜一起返回。
 		 */
 		const segments = segmentsFromSvg(svg as unknown as SVGElement, drawables, {
 			roles,
@@ -329,13 +251,9 @@ export async function detectVectorFloorplan(
 			};
 		});
 		/*
-		 * One line that goes wall → glass → wall, not a wall with two glass lines over it.
-		 *
-		 * The drawing strokes a window as two parallel lines inside the wall's own long strokes, so
-		 * read literally it yields two glass walls and an uninterrupted wall behind them — the
-		 * double glass line and the wall that never breaks, as reported. The opening's strokes are
-		 * collapsed to one centre line and then *cut into* the wall, giving its piece the opening's
-		 * material.
+		 * 目标是让一段线按墙体 → 玻璃 → 墙体的顺序衔接，而不是在完整墙体上覆盖两条玻璃线。
+		 * 图纸把窗画成墙体长描边内部的两条平行线，直接读取会得到两段玻璃墙和背后不断的墙体；
+		 * 这里先把洞口描边合并为一条中心线，再切入墙体，使该段获得洞口的材质。
 		 */
 		const wallRuns = segments.filter((segment) => segment.material === defaultMaterial);
 		const openingRuns = collapseOpenings(
@@ -372,21 +290,9 @@ function countRole(classified: ClassifiedElement[], role: ElementRole): number {
 }
 
 /**
- * Replace every `<use>` with a copy of what it references, in place.
- *
- * The referenced nodes normally live in `<defs>`, which the classifier skips because
- * defs content is not drawn where it sits — so without this the geometry a drawing
- * reuses through `<use>` is invisible, and the plan can come back with a mask that is
- * wrong in a way nothing catches (see the caller).
- *
- * The clone goes inside a `<g>` carrying the `use` element's own `x`/`y`/`transform` and
- * presentation attributes, which is what those attributes mean on a `use`. A reference to
- * a `<symbol>` is left alone on purpose: a symbol carries its own `viewBox`, so copying
- * its children without honouring that would place them wrongly, and placing them wrongly
- * is worse than leaving them out.
- *
- * Repeated passes resolve a `<use>` that points at a group containing another `<use>`,
- * up to a small cap that also stops a reference cycle from hanging the import.
+ * 将每个 `<use>` 就地替换为它引用内容的副本。
+ * 被引用节点通常位于 `<defs>` 中，分类器会跳过它们，不展开就会漏掉通过 `<use>` 复用的几何；
+ * `<symbol>` 因自带 `viewBox` 而保留原样，最多执行 4 轮以避免引用环。
  */
 function expandUse(svg: SVGSVGElement): void {
 	const SVG_NS = 'http://www.w3.org/2000/svg';
@@ -399,7 +305,7 @@ function expandUse(svg: SVGSVGElement): void {
 			try {
 				target = svg.querySelector(href);
 			} catch {
-				// An id querySelector cannot express; nothing to resolve.
+				// id 无法由 querySelector 表达，因而没有可解析的目标。
 				continue;
 			}
 			if (!target || target.tagName.toLowerCase() === 'symbol') continue;
@@ -422,20 +328,9 @@ function expandUse(svg: SVGSVGElement): void {
 }
 
 /**
- * The drawing's extent in user units, which is the coordinate space its geometry is in.
- *
- * In order: its `viewBox`; failing that its `width`/`height`, which *are* the viewport
- * when there is no viewBox; and only failing that the root's own bounding box.
- *
- * The order matters and a pinned plan proved it. `state-floor.svg` has no viewBox, so the
- * first version of this fell through to `getBBox()` — which reports the **unclipped**
- * extent of every child, and that file carries elements far outside its 550x360 viewport.
- * The content box came out the wrong shape, the mask came back at a different scale, and
- * the plan's wall share jumped from 6.4 % to 14.4 % with every count in the sidebar
- * unchanged. The viewport is what the drawing is clipped to; the bbox is not it.
- *
- * A percentage width is ignored because it resolves against the 1x1 measuring host rather
- * than against whatever the file will be displayed at.
+ * 图纸在用户单位下的范围，也是其几何所在的坐标空间。
+ * 依次取 `viewBox`、`width`/`height`，最后才用根节点包围盒；
+ * 视口是图纸被裁剪到的范围，包围盒不是，百分比宽度则忽略。
  */
 function contentBoxOf(svg: SVGSVGElement): { x: number; y: number; width: number; height: number } {
 	const box = svg.viewBox?.baseVal;
@@ -446,7 +341,7 @@ function contentBoxOf(svg: SVGSVGElement): { x: number; y: number; width: number
 	const widthAttr = svg.getAttribute('width') ?? '';
 	const heightAttr = svg.getAttribute('height') ?? '';
 	if (widthAttr && heightAttr && !widthAttr.includes('%') && !heightAttr.includes('%')) {
-		// `baseVal.value` rather than the attribute text, so `297mm` resolves to px.
+		// 使用 `baseVal.value` 而非属性文本，以便把带单位的长度解析为像素。
 		const w = svg.width?.baseVal?.value ?? 0;
 		const h = svg.height?.baseVal?.value ?? 0;
 		if (w > 0 && h > 0) return { x: 0, y: 0, width: w, height: h };
@@ -458,18 +353,14 @@ function contentBoxOf(svg: SVGSVGElement): { x: number; y: number; width: number
 			return { x: own.x, y: own.y, width: own.width, height: own.height };
 		}
 	} catch {
-		// Detached or unrenderable: the caller falls back to the target width.
+		// 节点游离或无法渲染：调用方退回目标宽度。
 	}
 	return { x: 0, y: 0, width: 0, height: 0 };
 }
 
 /**
- * Rasterise one role from the drawing's markup.
- *
- * Everything that is not the role is **removed** from a copy, including the elements
- * the classifier never sees: lettering, images, anything that is not a shape. Those
- * are the leak this fixes (see the caller), and a rule expressed as "remove what is
- * not this role" cannot leak by omission the way "hide what is not this role" did.
+ * 从图纸标记文本中栅格化单个角色。
+ * 从副本中**删除**不属于该角色的所有内容，包括分类器从未见到的文字和图像。
  */
 async function renderRolePass(
 	markup: string,
@@ -492,10 +383,8 @@ async function renderRolePass(
 		if ((roles[i] ?? 'unknown') !== role) el.remove();
 	});
 
-	// A copy is detached, so it cannot measure itself — the caller measured the live one.
-	// Without this, `width`/`height` resize the canvas but not the drawing: an SVG with no
-	// `viewBox` draws at its own user units, so everything lands in the corner at the wrong
-	// scale and the mask no longer lines up with the plan.
+	// 副本是游离的，无法自行测量；尺寸由调用方从活动节点取得。
+	// 否则 `width`/`height` 只会调整画布，不会缩放图纸，内容会落在角落且比例错误。
 	if (!svg.getAttribute('viewBox') && contentBox.width > 0 && contentBox.height > 0) {
 		svg.setAttribute(
 			'viewBox',
@@ -518,7 +407,7 @@ async function renderRolePass(
 	}
 }
 
-/** 1 where the image has ink, 0 elsewhere, at exactly `width x height`. */
+/** 图像有墨迹处为 1，其余为 0，尺寸严格为 `width x height`。 */
 async function alphaToBuffer(
 	image: HTMLImageElement,
 	width: number,
@@ -535,7 +424,7 @@ async function alphaToBuffer(
 	return out;
 }
 
-/** Binary mask as a PNG data URL, white on transparent — the format `decodeMask` reads. */
+/** 将二值掩膜编码为白透明底的 PNG 数据 URL，供 `decodeMask` 读取。 */
 function encodeBinary(mask: Uint8Array, w: number, h: number): string {
 	const canvas = document.createElement('canvas');
 	canvas.width = w;
@@ -553,12 +442,8 @@ function encodeBinary(mask: Uint8Array, w: number, h: number): string {
 }
 
 /**
- * Material ids as a PNG, the id in the red channel.
- *
- * Deliberately the same encoding as `region-labels.encodeMaterialMask`, which is
- * what the paint brush writes. Importing it here would drag a module that also
- * labels rooms into this path; the duplication is four lines and is checked by the
- * test that round-trips both.
+ * 将材质编号编码为 PNG，编号写入红色通道。
+ * 编码方式与 `region-labels.encodeMaterialMask` 相同，后者也是画笔写入的格式。
  */
 function encodeMaterial(mask: Uint8Array, w: number, h: number): string {
 	const canvas = document.createElement('canvas');

@@ -9,17 +9,8 @@ export interface WallMask {
 }
 
 /**
- * Detect walls from a floorplan image.
- * Pipeline: threshold -> remove small blobs -> remove exterior blobs -> binary mask.
- * Returns a wall mask at displayWidth resolution in world coordinates.
- *
- * There used to be an OCR step in front of this that masked room labels, and it is gone
- * rather than dormant: it loaded its model from a CDN, so the plan a laptop in a basement
- * could read was read differently from the one next to a router, and when the model failed
- * the step was skipped in silence. The job it was doing — keeping lettering out of the
- * mask — is `wall-trace.ts`'s now: a run of a letter is twenty-odd pixels long, and the
- * tracer drops runs that short. Doing it from the geometry instead of from a model is
- * also what made it work on labels the model could not read at all.
+ * 从户型图图像中识别墙体。
+ * 流程：阈值 -> 去除小块 -> 去除外部块 -> 二值掩码；返回显示宽度分辨率下、世界坐标中的墙体掩码。
  */
 export async function detectWalls(
 	image: HTMLImageElement,
@@ -35,11 +26,10 @@ export async function detectWalls(
 	const ctx = canvas.getContext('2d')!;
 	ctx.drawImage(image, 0, 0, w, h);
 
-	// Decide which way round the plan is, and repair unpainted pixels, before
-	// anything else reads them. See `resolveBackground`.
+	// 先确定图纸的正负极性并修补未着色像素，之后再读取它们。参见 `resolveBackground`。
 	const { darkBg } = resolveBackground(ctx, w, h);
 
-	// Step 1: Grayscale + threshold to binary (1 = wall pixel)
+	// 步骤 1：灰度化并用阈值转为二值（1 = 墙体像素）
 	const imageData = ctx.getImageData(0, 0, w, h);
 	const { data: pixels } = imageData;
 
@@ -48,17 +38,11 @@ export async function detectWalls(
 		gray[i] = Math.round((pixels[i * 4]! + pixels[i * 4 + 1]! + pixels[i * 4 + 2]!) / 3);
 	}
 
-	// Adaptive local thresholding: compare each pixel to its neighborhood average.
-	// Catches thin/faint wall lines that global threshold misses.
+	// 自适应局部阈值：将每个像素与其邻域均值比较。
+	// 能捕捉全局阈值漏掉的细弱墙线。
 	let binary = adaptiveThreshold(gray, w, h, darkBg);
 
-	// A floorplan is mostly floor, so more than half the sheet reading as wall means the
-	// reading is the wrong way round — in the wrong orientation the "wall" is the paper,
-	// and the paper is a majority by construction. One retry, and only when the first
-	// attempt is absurd, so the ordinary case never pays for it. This is the safety net
-	// under the polarity decision above: that one can still be fooled by a drawing whose
-	// *ink* covers most of its area, which is what heavy poché looks like once flattened
-	// to an image.
+	// 户型图大部分是地面，若墙体像素超过一半则极性反了，这时用相反极性重试一次。
 	let wallPixels = 0;
 	for (let i = 0; i < w * h; i++) wallPixels += binary[i]!;
 	if (wallPixels * 2 > w * h) {
@@ -68,34 +52,25 @@ export async function detectWalls(
 		if (flippedPixels < wallPixels) binary = flipped;
 	}
 
-	// Step 3: Fill the cavity inside a drawn wall.
-	//
-	// A wall on a printed plan is usually two strokes with a hatch or a lighter fill
-	// between them, and the threshold keeps the strokes: what comes out is a **hollow**
-	// outline — two thin lines with floor-coloured paper between them. The mask then looks
-	// like a thin frame, and the interior test sees the inner stroke as an outer wall.
-	//
-	// A morphological close bridges a gap up to twice the radius, so it fills the cavity
-	// between a wall's two strokes and leaves a room (hundreds of pixels across) untouched.
-	// The radius scales with the sheet, and is capped both ways: too small leaves wide
-	// poché hollow, too large starts eating narrow corridors.
+	// 步骤 3：填充绘制墙体内部的空腔。
+	// 墙通常画成两条笔画夹填充，阈值只保留笔画而得到空心轮廓；形态学闭运算按半径桥接间隙并填补空腔。
+	// 半径随图纸尺寸缩放，并限制在上下限之间。
 	const closeRadius = Math.max(2, Math.min(6, Math.round(Math.min(w, h) * 0.004)));
-	// `oob: 'solid'`: a wall that runs off the sheet edge is still a wall, so the erosion
-	// must not shave the border ring off it.
+	// `oob: 'solid'`：延伸到图纸边缘的墙仍是墙，因此腐蚀不能削掉它的边缘。
 	binary = erodeMask(dilateMask(binary, w, h, closeRadius), w, h, closeRadius, 'solid');
 
-	// Step 4: Remove small disconnected blobs (noise, dots, thin text remnants)
+	// 步骤 4：去除小的离散块（噪点、圆点、残留细文字）
 	const minBlobPx = Math.max(30, Math.round(w * h * 0.0003));
 	filterSmallBlobs(binary, w, h, minBlobPx);
 
-	// Step 5: Remove blobs outside the building exterior
+	// 步骤 5：去除建筑外部之外的块
 	removeExteriorBlobs(binary, w, h);
 
 	let wallCount = 0;
 	for (let i = 0; i < w * h; i++) wallCount += binary[i]!;
 	if (wallCount < 50) return null;
 
-	// Step 5: Encode binary mask as PNG data URL
+	// 步骤 5：将二值掩码编码为 PNG data URL
 	const maskCanvas = document.createElement('canvas');
 	maskCanvas.width = w;
 	maskCanvas.height = h;
@@ -168,9 +143,8 @@ function filterSmallBlobs(binary: Uint8Array, w: number, h: number, minSize: num
 	}
 }
 
-/** Remove wall blobs that are outside the building.
- *  Morphological close seals door gaps, flood fill identifies exterior,
- *  then wall blobs with no interior-adjacent pixels are removed. */
+/** 去除建筑外部的墙体块。
+ *  形态学闭运算封住门洞，洪水填充识别外部，再删除不与内部相邻的墙体块。 */
 function removeExteriorBlobs(binary: Uint8Array, w: number, h: number): void {
 	const { interior: fullInterior } = computeBuildingInterior(binary, w, h, {
 		maxDim: 400,
@@ -178,7 +152,7 @@ function removeExteriorBlobs(binary: Uint8Array, w: number, h: number): void {
 		minDilateR: 5
 	});
 
-	// Label wall blobs at full resolution and check if they touch interior
+	// 在原始分辨率下标记墙体块，并检查它们是否接触内部
 	const labels = new Int32Array(w * h).fill(-1);
 	const blobPixels: number[][] = [];
 	const blobTouchesInterior: boolean[] = [];
@@ -199,7 +173,7 @@ function removeExteriorBlobs(binary: Uint8Array, w: number, h: number): void {
 			const x = idx % w,
 				y = Math.floor(idx / w);
 
-			// Check 4-connected neighbors for interior
+			// 检查四连通邻居是否属于内部
 			if (y > 0 && fullInterior[idx - w]) touches = true;
 			if (y < h - 1 && fullInterior[idx + w]) touches = true;
 			if (x > 0 && fullInterior[idx - 1]) touches = true;
@@ -227,7 +201,7 @@ function removeExteriorBlobs(binary: Uint8Array, w: number, h: number): void {
 		blobTouchesInterior.push(touches);
 	}
 
-	// Remove blobs that don't touch interior (exterior decorations, legends)
+	// 删除不接触内部的块（外部装饰、图例）
 	for (let b = 0; b < blobPixels.length; b++) {
 		if (!blobTouchesInterior[b]) {
 			for (const idx of blobPixels[b]!) binary[idx] = 0;
@@ -236,45 +210,8 @@ function removeExteriorBlobs(binary: Uint8Array, w: number, h: number): void {
 }
 
 /**
- * Decide which way round the plan is drawn, and repair its unpainted pixels.
- * Returns the polarity `adaptiveThreshold` needs: true when walls are the
- * *brighter* pixels.
- *
- * Why this is not simply "is the border dark". `drawImage` writes only where the
- * source has coverage, so any part of an SVG without a full-canvas background
- * rect — or of a PNG with an alpha channel — stays transparent, and
- * `getImageData` reports those pixels as (0, 0, 0, 0). Every read in this file
- * takes RGB and ignores alpha, so transparency presents itself as **black**: a
- * light plan with a transparent border reads as a dark-background plan, walls are
- * then taken to be the bright pixels, and the detector returns the paper, the
- * room fills and the lettering as walls while the drawn walls become holes. On
- * `static/samples/state-floor.svg` that was 0 % of border pixels opaque, border
- * luminance 0, and 24 % of the image returned as wall — none of it on a drawn
- * line. It also gave `sampleBorderRgb` a black "background" to judge the paper
- * against, so both symptoms have this one cause.
- *
- * The repair is to fill the unpainted area with a paper colour, so no later read
- * ever sees a phantom black. `destination-over` draws *behind* the existing
- * pixels, so every opaque pixel stays exactly as the source rendered it.
- *
- * **What colour**, though, is the part that is easy to get wrong. Taking the
- * modal opaque colour — the obvious choice — fails on `state-floor.svg`, whose
- * walls are a thick filled poché in one flat brown and whose rooms are a dozen
- * different fills: the single most common colour in that file is the *wall*, so
- * the paper became brown, the border read at luminance 119, and the plan was
- * still judged dark-on-light. What actually distinguishes the two cases is
- * whether the plan painted a paper at all:
- *
- * - **It did** (an opaque border, which is what every sample that draws its own
- *   background gives): keep the existing border-luminance rule, now over opaque
- *   pixels only.
- * - **It did not** (a transparent border): the unpainted area *is* the paper. Its
- *   colour is not in the file, so the only question is which way round the
- *   drawing is, and the drawing answers that itself — a predominantly light
- *   drawing wanted light paper, a predominantly dark one wanted dark paper. The
- *   median luminance of its own pixels decides, and white is used for the light
- *   case because a local-mean threshold only needs the paper to be *lighter*,
- *   not to be an exact tone.
+ * 判断图纸的明暗极性，并修补未着色的透明像素。
+ * 返回 `adaptiveThreshold` 所需的极性：墙体为较亮像素时为 true。
  */
 function resolveBackground(
 	ctx: CanvasRenderingContext2D,
@@ -318,24 +255,12 @@ function resolveBackground(
 		colourCounts.set(key, (colourCounts.get(key) ?? 0) + 1);
 	}
 
-	// Not one opaque pixel: a blank canvas rather than a floorplan. Light paper is
-	// the harmless answer — the threshold then finds nothing and `detectWalls`
-	// returns null on the wall-count check below.
+	// 没有一个不透明像素：这是空白画布而非户型图。浅色纸面是无害的选择，阈值找不到东西，
+	// `detectWalls` 会在下方的墙体数量检查中返回 null。
 	if (opaque === 0) return { darkBg: false, paper: [255, 255, 255] };
 
-	// The plan painted its own paper, and the border is it: the border names the
-	// background directly, and that is the answer for every plan that draws a
-	// background rectangle.
-	//
-	// The border is only *evidence* of the paper when it is the same tone as it. On a
-	// scan it is routinely the darkest thing in the image — the scanner's shadow, the
-	// lid, a frame, the table the page sat on — and reading that as the paper decides
-	// the polarity backwards: with a dark "background" the threshold hunts for pixels
-	// *brighter* than their neighbourhood, so the sheet itself becomes wall. Measured
-	// on the shipped sample with a black edge added: 26.7 % of the image as wall
-	// against 4.9 % read the right way round, with every wall doubled and its own
-	// outline drawn a second time. So an edge that disagrees with the paper loses to
-	// the paper, which the drawing states plainly by being mostly one tone.
+	// 图纸自带纸面且边框与纸面同色时，直接以边框作为背景色。
+	// 扫描件的边框常是最暗处（阴影、盖子、相框、桌面），与纸面不一致时以纸面为准。
 	const modeLum = modalLuminance(lumHistogram);
 	if (borderOpaque >= borderTotal * 0.1) {
 		const borderLum = borderLumSum / borderOpaque;
@@ -349,34 +274,27 @@ function resolveBackground(
 				]
 			};
 		}
-		// The edge is something else — a shadow, a frame, a table. The paper is the
-		// tone the drawing is mostly made of.
+		// 该边缘是别的东西——阴影、相框或桌面。纸面是图纸的主要色调。
 		return { darkBg: modeLum < 128, paper: modalColour(colourCounts) };
 	}
 
-	// No paper was painted. The unpainted area *is* the paper. Its colour is not in
-	// the file, so the only question is which way round the drawing is, and the
-	// drawing answers that itself — a predominantly light drawing wanted light
-	// paper, a predominantly dark one wanted dark paper. The median luminance of its
-	// own pixels decides, and white is used for the light case because a local-mean
-	// threshold only needs the paper to be *lighter*, not to be an exact tone.
+	// 没有绘制纸面时，未着色区域就是纸面，其颜色不在文件中。
+	// 图纸整体的明暗决定极性：偏亮用白纸，偏暗用黑纸；由像素亮度的中位数判定。
 	const medianLum = medianFromHistogram(lumHistogram, opaque);
 	if (medianLum >= 128) {
 		compositeOntoPaper(ctx, w, h, [255, 255, 255]);
 		return { darkBg: false, paper: [255, 255, 255] };
 	}
 
-	// A predominantly dark drawing was made to sit on a dark canvas; follow it, and
-	// use its own darkest common colour so the polarity reads consistently.
+	// 整体偏暗的图纸是配深色画布的，沿用它，并取自身最暗的常见颜色以保证极性一致。
 	const paper = darkestModalColour(colourCounts);
 	compositeOntoPaper(ctx, w, h, paper);
 	return { darkBg: true, paper };
 }
 
 /**
- * Fill the transparent parts of the canvas with `paper`, leaving opaque pixels
- * untouched (`destination-over` draws behind them). A no-op when nothing is
- * transparent, which is every plan that paints its own background.
+ * 用 `paper` 填充画布的透明部分，不透明的像素保持不变（`destination-over` 绘制在其后方）。
+ * 没有透明像素时为空操作。
  */
 function compositeOntoPaper(
 	ctx: CanvasRenderingContext2D,
@@ -399,21 +317,14 @@ function compositeOntoPaper(
 }
 
 /**
- * How far a border's luminance may sit from the image's most common tone and still be
- * taken for the paper.
- *
- * Wide enough to survive a gradient, JPEG ringing or a slightly off-white background
- * rectangle; narrow enough that a scanner shadow (near black against white paper) is
- * not mistaken for it.
+ * 边框亮度与图像最常见色调之间允许的最大差值，单位是亮度级（0-255）。
+ * 在此范围内边框仍被当作纸面。
  */
 const BORDER_AGREEMENT = 48;
 
 /**
- * The most common colour among the opaque pixels, quantised to 5 bits per channel.
- *
- * Quantised because a plan with gradients or anti-aliasing has no two pixels in exactly
- * the same colour, and an exact histogram would then have no useful mode. Falls back to
- * white, the tone a raster plan is overwhelmingly drawn on.
+ * 不透明像素中最常见的颜色，每个通道量化到 5 位。
+ * 量化是为了让带渐变或抗锯齿的图纸仍有可用的众数；无结果时回退为白色。
  */
 function modalColour(colourCounts: Map<number, number>): [number, number, number] {
 	let best: [number, number, number] = [255, 255, 255];
@@ -427,10 +338,8 @@ function modalColour(colourCounts: Map<number, number>): [number, number, number
 }
 
 /**
- * The most common luminance, in 8-wide buckets.
- *
- * Buckets because a scan has no two pixels at exactly the same level: its paper is a
- * narrow *range*, and an exact histogram would have no useful peak.
+ * 最常见的亮度，按 8 级一桶统计。
+ * 分桶是为了让扫描件仍有可用的峰值。
  */
 function modalLuminance(histogram: Uint32Array): number {
 	const buckets = new Uint32Array(32);
@@ -445,12 +354,11 @@ function modalLuminance(histogram: Uint32Array): number {
 			bestBucket = b;
 		}
 	}
-	// The centre of the winning bucket, so a peak sitting on a bucket edge is not
-	// reported as its darkest level.
+	// 取获胜桶的中心，避免落在桶边缘的峰值被报成最暗一级。
 	return bestBucket * 8 + 4;
 }
 
-/** The luminance below which half the opaque pixels sit. */
+/** 亮度中位数：一半不透明像素位于该亮度以下。 */
 function medianFromHistogram(histogram: Uint32Array, total: number): number {
 	let seen = 0;
 	for (let lum = 0; lum < histogram.length; lum++) {
@@ -461,12 +369,8 @@ function medianFromHistogram(histogram: Uint32Array, total: number): number {
 }
 
 /**
- * The most common colour among the opaque pixels that are dark, quantised to 5
- * bits per channel.
- *
- * Quantised because a plan with gradients or anti-aliasing has no two pixels in
- * exactly the same colour, and an exact histogram would then have no useful mode.
- * Falls back to black, which is the colour a "dark canvas" plan is drawn against.
+ * 不透明像素中较暗部分里最常见的颜色，每个通道量化到 5 位。
+ * 量化是为了让带渐变或抗锯齿的图纸仍有可用的众数；无结果时回退为黑色。
  */
 function darkestModalColour(colourCounts: Map<number, number>): [number, number, number] {
 	let bestKey = -1;
@@ -489,12 +393,10 @@ function darkestModalColour(colourCounts: Map<number, number>): [number, number,
 	];
 }
 
-/** Adaptive local threshold using integral image for O(1) per-pixel mean.
- *  Each pixel is compared to the mean of a KxK neighborhood.
- *  For dark backgrounds: pixel brighter than localMean + C → wall.
- *  For light backgrounds: pixel darker than localMean - C → wall. */
+/** 使用积分图做自适应局部阈值，将每个像素与 KxK 邻域均值比较，单次查询为 O(1)。
+ *  深色背景：比局部均值 + C 更亮的像素为墙；浅色背景：比局部均值 - C 更暗的像素为墙。 */
 function adaptiveThreshold(gray: Uint8Array, w: number, h: number, darkBg: boolean): Uint8Array {
-	// Build integral image for fast local mean computation
+	// 构建积分图以快速计算局部均值
 	const integral = new Float64Array((w + 1) * (h + 1));
 	for (let y = 0; y < h; y++) {
 		let rowSum = 0;
@@ -520,7 +422,7 @@ function adaptiveThreshold(gray: Uint8Array, w: number, h: number, darkBg: boole
 
 	const binary = new Uint8Array(w * h);
 	const radius = Math.max(8, Math.round(Math.max(w, h) * 0.03));
-	// C: how much a pixel must differ from local mean to be "wall"
+	// C：像素与局部均值的最小差值，超过即判为墙
 	const C = darkBg ? 15 : -15;
 
 	for (let y = 0; y < h; y++) {

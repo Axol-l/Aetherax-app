@@ -1,11 +1,6 @@
 /**
- * The shared wall-run boundary between the three propagation consumers.
- *
- * The march itself (`rayMarchWallAtten`) is already unit-tested where it lives; what this
- * file pins is the plumbing around it, which is what used to be copied: the mask origin,
- * the material table and its fallback, and the split of a cross-floor ray into two runs on
- * two masks. If these drift, the heatmap and the optimiser disagree about the same plan —
- * which is the failure the module exists to prevent.
+ * 校验穿墙步进外层的共享逻辑：掩码原点、材料表及其回退值，以及跨层射线在两套掩码上的切分。
+ * 步进本身已在别处单测，这里只锁定调用方容易各自复制的部分。
  */
 import { describe, expect, it } from 'vitest';
 import { rayMarchWallAtten } from './propagation.js';
@@ -14,10 +9,10 @@ import { splitWallRunLoss, wallRunLoss, type WallRun } from './link-budget.js';
 const WIDTH = 40;
 const HEIGHT = 20;
 
-/** [empty, drywall, concrete, glass] — the ids the fixtures paint. */
+/** [空、石膏板、混凝土、玻璃]：测试掩码使用的材质 id。 */
 const MATERIAL_DB = [0, 7, 20, 40];
 
-/** A mask with a vertical wall at each x in `walls`, painted with `material`. */
+/** 在 `walls` 中每个 x 处生成一道竖直墙，并涂上对应的材质。 */
 function maskWithWalls(walls: Array<{ x: number; material: number }>): {
 	mask: Uint8Array;
 	materialMask: Uint8Array;
@@ -61,7 +56,7 @@ describe('wall run loss', () => {
 			{ x: 30, material: 1 }
 		]);
 
-		// The same path twice: once in mask pixels, once in world units with an origin.
+		// 同一路径算两次：一次用掩码像素坐标，一次带原点用世界坐标。
 		const expected = rayMarchWallAtten(mask, WIDTH, HEIGHT, materialMask, MATERIAL_DB, 99, 0, 0, 40, 0, 1, 1);
 		const shifted = wallRunLoss(run(mask, materialMask, 100, 200), { x: 100, y: 200 }, { x: 140, y: 200 });
 
@@ -74,7 +69,7 @@ describe('wall run loss', () => {
 			{ x: 10, material: 2 },
 			{ x: 30, material: 2 }
 		]);
-		// No map: every crossing is the run's default material, here drywall (id 1).
+		// 没有材质图时，每次穿墙都按默认材质计费，此处为石膏板（id 1）。
 		expect(wallRunLoss(run(mask, null), { x: 0, y: 0 }, { x: 40, y: 0 })).toBe(7 + 7);
 	});
 });
@@ -82,7 +77,7 @@ describe('wall run loss', () => {
 describe('split wall run loss', () => {
 	it('charges each half against its own floor', () => {
 		const source = maskWithWalls([{ x: 10, material: 2 }]);
-		// The target mask is the same grid, so a wall across y = 16 is a row.
+		// 目标掩码使用同一网格，因此 y = 16 处的横墙就是一行。
 		const targetMask = new Uint8Array(WIDTH * HEIGHT);
 		const targetMaterials = new Uint8Array(WIDTH * HEIGHT);
 		for (let x = 0; x < WIDTH; x++) {
@@ -91,8 +86,8 @@ describe('split wall run loss', () => {
 		}
 		const target = { mask: targetMask, materialMask: targetMaterials };
 
-		// t = 0.3 leaves the source at (12, 6); the target entry is (28, 14), and the
-		// target run reaches y = 16 on its way to (40, 20).
+		// t = 0.3 时在 (12, 6) 离开源层，目标层从 (28, 14) 起步，
+		// 并在飞向 (40, 20) 的途中经过 y = 16。
 		const loss = splitWallRunLoss(
 			run(source.mask, source.materialMask),
 			run(target.mask, target.materialMask),

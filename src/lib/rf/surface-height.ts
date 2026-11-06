@@ -1,31 +1,27 @@
 /**
- * Raised walking surfaces — a mezzanine, a stair, a ramp — as a height field.
- * 
- * The shape is deliberately one rectangle with a height at each end:
+ * 抬升面（平台、坡道、楼梯）的高度场。
  *
- * - a **platform** is level, so both heights are the same;
- * - a **ramp** rises linearly along its run;
- * - a **stair** rises along its run in the same field.
+ * 用一个矩形及两端各自的高度表示：平台两端等高，坡道与楼梯沿走向升高。
  */
 
 export type SurfaceKind = 'platform' | 'ramp' | 'stair';
 
-/** What a raised deck is made of. */
+/** 抬升面甲板所用的材质。 */
 export type SurfaceMaterialId = 'concrete' | 'timber' | 'steel' | 'glass';
 
 export interface SurfaceMaterial {
 	id: SurfaceMaterialId;
 	label: string;
-	/** Per-crossing loss at the band the model charges, dB. */
+	/** 每次穿越该面计一次的损耗，dB。 */
 	attenuationDb: number;
-	/** The colour the plan and the 3D view draw the deck in, so it reads as its material. */
+	/** 平面图与 3D 视图绘制该甲板所用的颜色。 */
 	color: readonly [number, number, number];
 }
 
-/** The colour of a deck whose material nobody has picked: the amber it always was. */
+/** 未选择材质时甲板的默认颜色。 */
 export const DEFAULT_SURFACE_COLOR: readonly [number, number, number] = [196, 132, 74];
 
-/** The presets the toolbar offers, in the order it lists them. */
+/** 工具栏提供的预设材质，按列表顺序排列。 */
 export const SURFACE_MATERIALS: readonly SurfaceMaterial[] = [
 	{ id: 'concrete', label: 'Concrete', attenuationDb: 20, color: [166, 170, 176] },
 	{ id: 'timber', label: 'Timber', attenuationDb: 10, color: [176, 123, 79] },
@@ -33,54 +29,52 @@ export const SURFACE_MATERIALS: readonly SurfaceMaterial[] = [
 	{ id: 'glass', label: 'Glass', attenuationDb: 6, color: [111, 199, 216] }
 ];
 
-/** A material preset by id, or null for an id a document no longer knows. */
+/** 按 id 查找材质预设；id 未知时返回 null。 */
 export function surfaceMaterial(id: SurfaceMaterialId | undefined): SurfaceMaterial | null {
 	return SURFACE_MATERIALS.find((material) => material.id === id) ?? null;
 }
 
-/** The colour to draw a deck in: its material's, or the custom amber. */
+/** 绘制甲板所用的颜色：材质自带颜色，无材质时为默认颜色。 */
 export function surfaceColor(id: SurfaceMaterialId | undefined): readonly [number, number, number] {
 	return surfaceMaterial(id)?.color ?? DEFAULT_SURFACE_COLOR;
 }
 
-/** The geometry a height field needs — a rectangle and the height at each end. */
+/** 高度场所需的几何：一个矩形和两端各自的高度。 */
 export interface SurfaceRect {
-	/** Opposite corners of the rectangle the surface occupies. */
+	/** 面所占矩形的两个对角点。 */
 	ax: number;
 	ay: number;
 	bx: number;
 	by: number;
-	/** Height of the walking surface above the floor's own, in metres. */
+	/** 可行走面高出本层地面的高度，单位米。 */
 	heightM: number;
 	/**
-	 * Height at the far end, metres. Equal to `heightM` for a platform; above it for a
-	 * ramp or a stair, which is the whole point of drawing one.
+	 * 远端高度，单位米。平台时与 `heightM` 相等，坡道与楼梯时高于它。
 	 */
 	topHeightM: number;
 	/**
-	 * How deep the deck is under its walking surface, metres.
+	 * 甲板在可行走面以下的厚度，单位米。
 	 */
 	thicknessM?: number;
 	/**
-	 * Loss through the deck, dB. Charged once to a path that crosses it.
+	 * 穿越甲板的损耗，dB；路径每次穿越计一次。
 	 */
 	attenuationDb?: number;
 	/**
-	 * What the deck is made of. A preset for `attenuationDb`; absent in projects saved
-	 * before surfaces had a material, and in surfaces whose loss was typed by hand.
+	 * 甲板材质，作为 `attenuationDb` 的预设；手填损耗的面没有该字段。
 	 */
 	material?: SurfaceMaterialId;
-	/** Whether the volume under the deck is filled to the floor, for the 3D drawing. */
+	/** 甲板下方的空间是否填至地面，供 3D 绘制使用。 */
 	solidBase?: boolean;
 }
 
-/** One raised area, in world units for the rectangle and metres for the heights. */
+/** 一个抬升区域；矩形用世界坐标单位，高度用米。 */
 export interface ElevatedSurface extends SurfaceRect {
 	id: string;
 	kind: SurfaceKind;
 }
 
-/** The rectangle normalised to left/right and top/bottom, in world units. */
+/** 归一化为左右、上下边界的矩形，单位是世界坐标单位。 */
 export function surfaceBox(surface: SurfaceRect): {
 	x0: number;
 	y0: number;
@@ -97,16 +91,15 @@ export function surfaceBox(surface: SurfaceRect): {
 }
 
 /**
- * How far along the run a point is, from 0 at the low end to 1 at the high end.
+ * 点沿走向的位置：低端为 0，高端为 1。
  */
 export function runFraction(surface: SurfaceRect, x: number, y: number): number {
 	const { x0, y0, width, height } = surfaceBox(surface);
 	if (width === 0 && height === 0) return 0;
-	// A horizontal run is one that is wider than it is tall.
+	// 横向走向指宽度大于高度的走向。
 	if (width >= height) {
 		const t = width === 0 ? 0 : (x - x0) / width;
-		// The run runs from the corner nearest `a`, so a rectangle drawn right-to-left
-		// must climb right-to-left rather than always left-to-right.
+		// 走向从靠近 a 的角开始，因此从右向左画的矩形沿该方向升高。
 		const forward = surface.bx >= surface.ax;
 		return clamp01(forward ? t : 1 - t);
 	}
@@ -119,13 +112,13 @@ function clamp01(value: number): number {
 	return value < 0 ? 0 : value > 1 ? 1 : value;
 }
 
-/** True when a world point lies inside the surface's rectangle. */
+/** 世界坐标点位于面矩形内时返回 true。 */
 export function surfaceContains(surface: SurfaceRect, x: number, y: number): boolean {
 	const { x0, y0, x1, y1 } = surfaceBox(surface);
 	return x >= x0 && x <= x1 && y >= y0 && y <= y1;
 }
 
-/** Height of one surface at a point, in metres; 0 outside it. */
+/** 单个面在某点的高度，单位米；点在面外时为 0。 */
 export function heightOf(surface: SurfaceRect, x: number, y: number): number {
 	if (!surfaceContains(surface, x, y)) return 0;
 	const low = Number.isFinite(surface.heightM) ? surface.heightM : 0;
@@ -135,7 +128,7 @@ export function heightOf(surface: SurfaceRect, x: number, y: number): number {
 }
 
 /**
- * Height of the walking surface at a point, metres above the floor's own.
+ * 某点处可行走面的高度，相对本层地面，单位米。
  */
 export function surfaceHeightAt(
 	surfaces: readonly SurfaceRect[] | null | undefined,
@@ -151,7 +144,7 @@ export function surfaceHeightAt(
 	return best;
 }
 
-/** The rectangle's four corners, in drawing order. */
+/** 矩形的四个角点，按绘制顺序排列。 */
 export function surfaceCorners(surface: SurfaceRect): Array<{ x: number; y: number }> {
 	const { x0, y0, x1, y1 } = surfaceBox(surface);
 	return [
@@ -162,34 +155,34 @@ export function surfaceCorners(surface: SurfaceRect): Array<{ x: number; y: numb
 	];
 }
 
-/** Drop a rectangle too small to mean anything: a click without a drag makes one. */
+/** 矩形过小、无实际意义时返回 true；阈值默认 3。 */
 export function isDegenerateSurface(surface: SurfaceRect, minSize = 3): boolean {
 	const { width, height } = surfaceBox(surface);
 	return width < minSize && height < minSize;
 }
 
-/** The deck's own default thickness, metres. */
+/** 甲板的默认厚度，单位米。 */
 export const DEFAULT_SURFACE_THICKNESS_M = 0.2;
 
-/** The loss a path pays for crossing a deck, dB, when the user has not said otherwise. */
+/** 用户未指定时，路径穿越甲板所付的默认损耗，dB。 */
 export const DEFAULT_SURFACE_ATTENUATION_DB = 15;
 
-/** A stair's step depth, metres: the run of one tread. */
+/** 楼梯的踏步深度，即单级踏板的走向长度，单位米。 */
 export const STEP_DEPTH_M = 0.3;
 
-/** How thick this surface's deck is, metres. */
+/** 该面甲板的厚度，单位米。 */
 export function surfaceThickness(surface: SurfaceRect): number {
 	return Math.max(0, surface.thicknessM ?? DEFAULT_SURFACE_THICKNESS_M);
 }
 
-/** The loss crossing this surface's deck, dB. */
+/** 穿越该面甲板的损耗，dB。 */
 export function surfaceAttenuationDb(surface: SurfaceRect): number {
 	if (surface.attenuationDb !== undefined) return Math.max(0, surface.attenuationDb);
 	return surfaceMaterial(surface.material)?.attenuationDb ?? DEFAULT_SURFACE_ATTENUATION_DB;
 }
 
 /**
- * How many steps a stair has, from its rise and the tread depth.
+ * 由升高量与踏步深度算出的楼梯级数，最少为 1。
  */
 export function stepCount(surface: SurfaceRect, stepDepthM = STEP_DEPTH_M): number {
 	const rise = Math.abs((surface.topHeightM ?? 0) - (surface.heightM ?? 0));
@@ -198,7 +191,7 @@ export function stepCount(surface: SurfaceRect, stepDepthM = STEP_DEPTH_M): numb
 }
 
 /**
- * The surface whose deck a path at this point crosses, if any.
+ * 路径在该点穿越的甲板所在面；没有穿越时返回 null。
  */
 export function deckCrossing(
 	surfaces: readonly SurfaceRect[] | null | undefined,
@@ -213,7 +206,7 @@ export function deckCrossing(
 		if (!surfaceContains(surface, x, y)) continue;
 		const top = heightOf(surface, x, y);
 		if (top <= 0) continue;
-		// The highest deck at this point is the one the client stands on.
+		// 该点最高的甲板即客户端所站的面。
 		if (top > bestTop) {
 			bestTop = top;
 			best = surface;

@@ -1,13 +1,6 @@
 /**
- * The vertical antenna cut: its anchors, its monotonicity, and the fit to the
- * vendor measurements it was calibrated from.
- *
- * The anchors are the three things a reader can check against a datasheet or one
- * of the `.ant` files: 0 dB on the peak, −3 dB at the half-power angle, and the
- * broadside floor. The last two tests pin the *numbers* rather than the shape,
- * because the shape was fitted to the local Ubiquiti cuts
- * (`docs/PHYSICAL_MODELS.md` D2) and a change that quietly doubles the near-field
- * loss would otherwise pass everything here.
+ * 校验垂直天线切片的锚点、单调性及其与厂商实测数据的拟合。
+ * 锚点为峰值 0 dB、半功率角 −3 dB 和侧射最低增益；部分测试直接锁定数值而非形状。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -32,7 +25,7 @@ describe('elevationGainDb', () => {
 	it('is 0 dB on the peak and −3 dB at the half-power angle', () => {
 		expect(elevationGainDb(0, omni5)).toBeCloseTo(0, 10);
 		expect(elevationGainDb(30, omni5)).toBeCloseTo(-3, 10);
-		// The 2.4 GHz default is twice as wide, so −3 dB arrives twice as far out.
+		// 2.4 GHz 默认波束宽度是 5 GHz 的两倍，因此 −3 dB 出现在两倍远的角度。
 		expect(elevationGainDb(0, omni24)).toBeCloseTo(0, 10);
 		expect(elevationGainDb(60, omni24)).toBeCloseTo(-3, 10);
 	});
@@ -47,8 +40,7 @@ describe('elevationGainDb', () => {
 		for (const beamwidth of [30, 60, 90, 120, 179]) {
 			const profile: AntennaProfile = { beamwidthDeg: beamwidth, aimDeg: 0, floorDb: 12 };
 			let previous = Infinity;
-			// Swept as an offset, not as an angle: the pattern is symmetric, so a
-			// sweep from −180° to 180° walks back up towards the peak again.
+			// 按偏移量扫描而非按角度：方向图关于峰值对称，从 −180° 扫到 180° 会再次走回峰值。
 			for (let offset = 0; offset <= 180; offset += 1) {
 				const gain = elevationGainDb(offset, profile);
 				expect(gain).toBeLessThanOrEqual(previous + 1e-9);
@@ -62,16 +54,15 @@ describe('elevationGainDb', () => {
 		for (const angle of [0, 45, 90, 135, 180]) {
 			expect(elevationGainDb(angle, flat)).toBeCloseTo(0, 10);
 		}
-		// Which is what reproduces the model before this module: a level ray and one
-		// straight down are given the same treatment.
+		// 这也复现了本模块之前的模型：水平射线与垂直向下射线得到相同处理。
 		expect(elevationGainDb(90, flat)).toBe(elevationGainDb(0, flat));
 	});
 
 	it('is symmetric about the horizon without aim, and not with it', () => {
 		expect(elevationGainDb(40, omni5)).toBeCloseTo(elevationGainDb(-40, omni5), 10);
 		const tilted: AntennaProfile = { ...omni5, aimDeg: 20 };
-		// Tilted down, the peak is 20° below the horizon: a ray going down 20° is on
-		// it, one going *up* 20° is 40° off it — as far off as a 60° ray downwards.
+		// 下倾 20° 后峰值位于水平线下方 20°：向下 20° 的射线在峰值上，向上 20° 的射线偏离
+		// 40°，与向下 60° 的射线偏离相同。
 		expect(elevationGainDb(20, tilted)).toBeCloseTo(0, 10);
 		expect(elevationGainDb(-20, tilted)).toBeLessThan(elevationGainDb(20, tilted));
 		expect(elevationGainDb(-20, tilted)).toBeCloseTo(elevationGainDb(60, tilted), 10);
@@ -79,10 +70,8 @@ describe('elevationGainDb', () => {
 
 	it('matches the measured vendor cuts within a decibel where a client sits', () => {
 		/*
-		 * A same-floor client at 2 m / 1 m / 0.5 m, at the default ceiling preset on a
-		 * 3 m storey, is 35° / 54° / 70° below the horizon. The measured 5 GHz cuts of
-		 * the three local models read 2–7, 4–8 and 5–10 dB down at those angles; the
-		 * default profile has to land inside those bands, near their middle.
+		 * 3 m 层高、默认吊顶预设下，同层客户端在 2 m / 1 m / 0.5 m 处分别低于水平线
+		 * 35° / 54° / 70°；默认方向图应落在三款本地模型实测的 5 GHz 衰减区间内。
 		 */
 		const at = (deg: number) => -elevationGainDb(deg, omni5);
 		expect(at(35)).toBeGreaterThan(2);
@@ -91,8 +80,7 @@ describe('elevationGainDb', () => {
 		expect(at(54)).toBeLessThan(8);
 		expect(at(70)).toBeGreaterThan(5);
 		expect(at(70)).toBeLessThan(10);
-		// And the near field must stay worse than the far field, or the profile is
-		// doing nothing: 20 m is 4° below the horizon.
+		// 近场必须比远场更差，否则方向图没有起作用：20 m 处仅低于水平线 4°。
 		expect(at(4)).toBeLessThan(1);
 		expect(at(70)).toBeGreaterThan(at(4) + 4);
 	});
@@ -120,21 +108,17 @@ describe('angleBelowHorizonDeg', () => {
 	});
 
 	it('matches the geometry of a ceiling access point', () => {
-		// 1.4 m below the AP and 2 m out: 35°.
+		// 低于 AP 1.4 m、水平距离 2 m：35°。
 		expect(angleBelowHorizonDeg(1.4, 2)).toBeCloseTo(35, 0);
-		// The same 1.4 m with the client 20 m away is nearly level.
+		// 同样 1.4 m 高度差、客户端距离 20 m 时，射线接近水平。
 		expect(angleBelowHorizonDeg(1.4, 20)).toBeCloseTo(4, 0);
 	});
 });
 
 describe('antennaLossDb', () => {
 	/**
-	 * The sign, pinned at the level the callers use it at.
-	 *
-	 * `elevationGainDb` is negative for every direction but the peak, so a caller
-	 * that subtracts it *adds* signal, and the heatmap did exactly that: a narrower
-	 * beam painted a larger covered area. A test of the gain curve alone cannot see
-	 * that, which is why this one exists and is stated as a loss.
+	 * 符号检查，使用调用方实际使用的量级：`elevationGainDb` 除峰值外为负，若被相减就会增加信号。
+	 * 因此这里只断言损耗恒为非负。
 	 */
 	it('is a positive loss, never a gain', () => {
 		for (const angle of [0, 10, 35, 54, 70, 90, 120]) {
@@ -145,22 +129,22 @@ describe('antennaLossDb', () => {
 	});
 
 	it('grows as the ray gets steeper, and as the beam gets narrower', () => {
-		// 1.4 m of height against 20 m / 2 m / 0.5 m of floor: 4° / 35° / 70°.
+		// 1.4 m 高度差对应 20 m / 2 m / 0.5 m 水平距离：4° / 35° / 70°。
 		const shallow = antennaLossDb(omni5, 1.4, 20);
 		const middle = antennaLossDb(omni5, 1.4, 2);
 		const steep = antennaLossDb(omni5, 1.4, 0.5);
 		expect(shallow).toBeLessThan(middle);
 		expect(middle).toBeLessThan(steep);
-		// Narrower beam, same ray: strictly more loss in the near field.
+		// 波束更窄、射线相同：近场损耗严格更大。
 		const narrow = antennaLossDb({ ...omni5, beamwidthDeg: 30 }, 1.4, 0.5);
 		expect(narrow).toBeGreaterThan(steep);
-		// A flat profile costs nothing anywhere — the model before this module.
+		// 平坦方向图在任何方向都不产生损耗——即本模块之前的模型。
 		expect(antennaLossDb({ ...omni5, beamwidthDeg: 180 }, 1.4, 0.25)).toBeCloseTo(0, 10);
 	});
 });
 
 describe('the wall mount’s horizontal cut', () => {
-	/** A wall-mounted unit: the band's vertical cut plus the assumed horizontal one. */
+	/** 壁挂设备：频段垂直切片加上假定的水平切片。 */
 	const wall = (facingDeg: number): AntennaProfile => ({
 		...defaultAntenna(null, '5ghz'),
 		facingDeg,
@@ -168,11 +152,11 @@ describe('the wall mount’s horizontal cut', () => {
 	});
 
 	it('is absent unless the profile says the hardware has one', () => {
-		// Every ceiling mount, and every profile written before wall mounts existed.
+		// 所有吊顶安装，以及壁挂安装出现之前写入的所有 profile。
 		for (const bearing of [0, 45, 90, 180, -135]) {
 			expect(azimuthGainDb(bearing, omni5)).toBe(0);
 			expect(azimuthLossDb(bearing, omni5)).toBe(0);
-			// A 180° horizontal cut is the documented way to say "none at all".
+			// 180° 水平切片是文档中表示“完全没有水平方向性”的方式。
 			expect(azimuthGainDb(bearing, { ...omni5, azBeamwidthDeg: 180 })).toBe(0);
 		}
 	});
@@ -198,22 +182,21 @@ describe('the wall mount’s horizontal cut', () => {
 
 	it('turns with the facing direction', () => {
 		const profile = wall(90);
-		// Facing +y (atan2's 90°), so straight ahead is 90° and straight behind is −90°.
+		// 朝向 +y（atan2 的 90°），因此正前方是 90°、正后方是 −90°。
 		expect(azimuthGainDb(90, profile)).toBeCloseTo(0, 10);
 		expect(azimuthGainDb(-90, profile)).toBeCloseTo(-WALL_MOUNT_AZIMUTH.frontToBackDb, 10);
-		// And the same direction read as a different angle: 450° is 90°.
+		// 同一方向用不同角度表示：450° 即 90°。
 		expect(azimuthGainDb(450, profile)).toBeCloseTo(0, 10);
 	});
 
 	it('leaves the vertical cut alone, and only the azimuth term changes the ray', () => {
-		// Same 3D geometry, opposite plan directions: identical distance and elevation,
-		// and the difference is entirely the wall mount's back lobe.
+		// 相同的三维几何、相反的水平方向：距离和仰角一致，差异完全来自壁挂设备的后瓣。
 		const profile = wall(0);
 		const front = antennaRayLossDb(profile, 1.4, 2, 0);
 		const back = antennaRayLossDb(profile, 1.4, -2, 0);
 		expect(front).toBeCloseTo(antennaLossDb(profile, 1.4, 2), 10);
 		expect(back - front).toBeCloseTo(WALL_MOUNT_AZIMUTH.frontToBackDb, 6);
-		// A ceiling omni has no preferred direction: the two are the same ray.
+		// 吊顶全向天线没有优选方向：两条射线相同。
 		expect(antennaRayLossDb(omni5, 1.4, -2, 0)).toBeCloseTo(antennaRayLossDb(omni5, 1.4, 2, 0), 10);
 	});
 });

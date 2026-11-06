@@ -1,16 +1,6 @@
 /**
- * The vector classifier decides what becomes a wall, an opening or nothing at all,
- * and it does so from evidence that weakens as you go down its rule order — a name,
- * then how the element is painted, then how wide it is relative to its neighbours.
- *
- * So each rule is pinned here against the pattern it was measured on, including the
- * two guards that were added because a real file broke the naive version:
- * `little-white-house.svg`, whose widest stroke is 2 px so a plain width ratio
- * promoted every 1 px line in the drawing, and `state-floor.svg`, whose two stair
- * flights satisfied the window test element-by-element and reported 19 windows.
- *
- * The facts below are hand-written from what `describeSvgElements` reports for those
- * files, because the adapter needs a live DOM and this project's vitest runs in node.
+ * 矢量识别的规则：按名称、绘制方式、相对邻近元素的宽度依次判定墙体、洞口或未知。
+ * 断言覆盖各条规则，以及针对真实图纸暴露的问题所加的两处守卫。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -21,7 +11,7 @@ import {
 	type VectorElementFacts
 } from './vector-elements.js';
 
-/** One element, with the defaults a plain thin line would have. */
+/** 单个元素，默认值取普通细线的属性。 */
 function fact(overrides: Partial<VectorElementFacts> = {}): VectorElementFacts {
 	return {
 		tag: 'line',
@@ -43,20 +33,17 @@ function fact(overrides: Partial<VectorElementFacts> = {}): VectorElementFacts {
 	};
 }
 
-/**
- * A door swing as the shipped plans draw it: an open arc, one bulge, 60° of a circle
- * whose radius matches its chord.
- */
+/** 门开启弧线的测量值：开放弧、单侧凸起，且半径与弦长匹配。 */
 function swing(overrides: Partial<ArcMeasurement> = {}): ArcMeasurement {
 	return { chord: 40, radius: 40, sweep: 60, sShaped: false, ...overrides };
 }
 
-/** A thin stroked curve carrying the given measurement. */
+/** 携带指定测量值的细描边曲线。 */
 function curve(arc: ArcMeasurement | null, overrides: Partial<VectorElementFacts> = {}) {
 	return fact({ curved: true, arc, width: 40, height: 40, length: 42, tag: 'path', ...overrides });
 }
 
-/** A filled area, which is what poché and room fills both are. */
+/** 填充区域，poché 与房间填充都属此类。 */
 function filled(overrides: Partial<VectorElementFacts> = {}): VectorElementFacts {
 	return fact({
 		hasStroke: false,
@@ -68,11 +55,8 @@ function filled(overrides: Partial<VectorElementFacts> = {}): VectorElementFacts
 }
 
 /**
- * Roles for a list of facts, with the plan area the shipped sample reports.
- *
- * The area matters to the rules that are relative to the drawing rather than to pixels —
- * the poché size test and the door-swing radius bound — so it is passed by default
- * instead of being left at zero, which would silently disable both.
+ * 一批事实对应的角色，并带上默认的平面面积。
+ * 面积供相对图形而非像素的规则使用；默认取 0 会静默关闭这些规则。
  */
 const SAMPLE_PLAN_AREA = 440 * 360;
 const roles = (facts: VectorElementFacts[], planArea = SAMPLE_PLAN_AREA): ElementRole[] =>
@@ -91,7 +75,7 @@ describe('naming', () => {
 	});
 
 	it('does not match a fragment inside a longer word', () => {
-		// `windowsill` is not a window, and `wallpaper` is not a wall.
+		// `windowsill` 不是窗，`wallpaper` 不是墙。
 		expect(roleFromName('windowsill')).toBeNull();
 		expect(roleFromName('wallpaper')).toBeNull();
 	});
@@ -102,7 +86,7 @@ describe('naming', () => {
 	});
 
 	it('beats geometry, because a name is the draughtsman speaking', () => {
-		// A 1 px stroke would never be a wall by width; the name says otherwise.
+		// 1 px 描边按宽度永远不算墙，但名称优先。
 		const classified = classifyVectorElements([
 			fact({ name: 'wall', strokeWidth: 1 }),
 			fact({ name: '', strokeWidth: 5 })
@@ -120,7 +104,7 @@ describe('areas', () => {
 	});
 
 	it('drops a filled shape that is not wall-shaped', () => {
-		// A room: 4 m by 3 m at this drawing's scale.
+		// 房间：按本图比例尺约 4 m × 3 m。
 		expect(roles([fact({ hasStroke: false, hasFill: true, width: 400, height: 300 })])).toEqual([
 			'fixture'
 		]);
@@ -128,13 +112,7 @@ describe('areas', () => {
 });
 
 /**
- * The door-swing rule.
- *
- * It used to be "thin, unfilled, curved", which called every arc in a drawing a door.
- * The measurements are the ones taken from the shipped plans: the eighteen elements the
- * three named samples draw as `class="door"` all measure chord 40–50, radius 40–50 and a
- * 60° sweep, and `state-floor.svg`'s one false door was a closed 424-unit outline whose
- * ends met.
+ * 门开启弧线规则：要求开放曲线、合理的扫描角，以及与该图形相称的半径。
  */
 describe('door swings', () => {
 	it('takes an open arc of a plausible sweep', () => {
@@ -146,7 +124,7 @@ describe('door swings', () => {
 	});
 
 	it('rejects a closed curve, which is what state-floor reported as a door', () => {
-		// 424 units of outline whose ends meet: an arched portico, not a swing.
+		// 首尾相接的闭合轮廓属于门廊，而不是开启弧线。
 		expect(roles([curve(swing({ chord: 0, radius: null, sweep: null }))])).toEqual(['unknown']);
 	});
 
@@ -160,12 +138,12 @@ describe('door swings', () => {
 	});
 
 	it('rejects a curve too large to be a door leaf', () => {
-		// A bowed wall: same shape, but the radius is most of the building.
+		// 弧形墙：形状相似，但半径接近整个建筑。
 		expect(roles([curve(swing({ radius: 4000, chord: 4000, sweep: 90 }))])).toEqual(['unknown']);
 	});
 
 	it('rejects a curve with no measurement at all', () => {
-		// `describeSvgElements` could not walk it; no evidence is not evidence of a door.
+		// `describeSvgElements` 无法遍历该元素；缺少证据不等于门的证据。
 		expect(roles([curve(null)])).toEqual(['unknown']);
 	});
 
@@ -174,20 +152,17 @@ describe('door swings', () => {
 	});
 
 	it('is not stolen by the window test', () => {
-		// `apartment-48sqm.svg` draws a door as an arc plus its straight leaf: the same
-		// length, a few stroke widths apart, overlapping along the run — every condition
-		// the window-pair test asks for, which is why it used to report 8 windows and 3
-		// doors once the names were stripped.
+		// 门可能画成弧线加直门扇：长度相同、相距几个描边宽度、沿走向重叠，
+		// 满足窗配对测试的全部条件，因此需要曲线排除来避免误判。
 		const arc = curve(swing(), { x: 0, y: 0, width: 40, height: 10, length: 42 });
-		// Same stroke width as the arc, so the width cut does not decide the pair before
-		// the curve exclusion gets its turn.
+		// 与弧线同描边宽度，使宽度筛选不会先于曲线排除决定结果。
 		const leaf = fact({ x: 0, y: 5, width: 40, height: 0, length: 40 });
 		const classified = classifyVectorElements([arc, leaf], { planArea: SAMPLE_PLAN_AREA });
 		expect(classified[0]!.role, 'the arc is a swing').toBe('door');
 		expect(classified[1]!.role, 'the leaf is not a window in its own right').not.toBe('window');
 
-		// Control: the same pair with no bulge measured *is* a window pair, which is what
-		// makes the assertion above about the arc rather than about the geometry.
+		// 对照：同样的两条线若没有测到凸起，就会被判为窗配对，
+		// 说明上面的断言针对的是弧线而非几何形状。
 		const flat = curve(null, { x: 0, y: 0, width: 40, height: 10, length: 42 });
 		const control = classifyVectorElements([flat, leaf], { planArea: SAMPLE_PLAN_AREA });
 		expect(control[0]!.role).toBe('window');
@@ -197,29 +172,25 @@ describe('door swings', () => {
 
 describe('poché built from blocks', () => {
 	/**
-	 * A drawing with a wall in it.
-	 *
-	 * The thin line matters: a width cut needs two widths to cut between, so a drawing
-	 * whose only stroke is its wall has no identified wall — and the last test here
-	 * pins that a block is still recovered on such a drawing, because the poché rule
-	 * reads paint and size rather than comparing against a wall that was found.
+	 * 一张含墙的图纸。
+	 * 细线同样重要：宽度筛选需要两个宽度才能比较；仅有一条墙线的图纸里没有墙，
+	 * 下面的测试确认此时仍能识别块状墙体。
 	 */
 	const wall = fact({ strokeWidth: 5, stroke: 'rgb(138, 121, 88)' });
 	const detail = fact({ strokeWidth: 1, width: 40, height: 0, x: 0, y: 300 });
 	const PLAN = 400_000;
-	/** Role of the third fact, which the helpers below place a filled shape at. */
+	/** 第三个事实的角色，下面的辅助函数把填充形状放在该位置。 */
 	const blockRole = (block: VectorElementFacts, planArea = PLAN) =>
 		classifyVectorElements([wall, detail, block], { planArea })[2]!.role;
 
 	it('takes a large dark block as wall', () => {
-		// state-floor.svg: the walls are ~56 filled blocks and no long thin shapes.
+		// state-floor.svg：墙体是约 56 个填充块，没有细长形状。
 		expect(blockRole(filled({ width: 100, height: 131 }))).toBe('wall');
 	});
 
 	it('leaves lettering alone even when it shares the wall colour', () => {
-		// little-white-house.svg: the room labels are outlined letters in exactly the
-		// wall's brown, one glyph per element. Their size is the only thing that
-		// separates them.
+		// little-white-house.svg：房间标注是与墙同色的描边字母，每个元素一个字，
+		// 尺寸是唯一可区分之处。
 		const glyphs = Array.from({ length: 8 }, (_, i) =>
 			filled({ width: 13, height: 47, x: i * 14 })
 		);
@@ -228,35 +199,31 @@ describe('poché built from blocks', () => {
 	});
 
 	it('leaves a word-shaped path alone even when it is big enough to be a block', () => {
-		// state-floor.svg: each room label is one filled path holding a whole word's
-		// letter outlines, so its bounding box clears the size test. The subpath count is
-		// what gives it away.
+		// state-floor.svg：房间标注是一个填充路径，含整词的字形轮廓，其包围盒能通过
+		// 尺寸测试，只能靠子路径数量识别。
 		const word = filled({ width: 132, height: 30, subpaths: 17 });
 		expect(blockRole(word)).toBe('fixture');
-		// The same box as a single shape is a wall.
+		// 同样的包围盒若为单一形状，则判为墙。
 		expect(blockRole(filled({ width: 132, height: 30, subpaths: 1 }))).toBe('wall');
 	});
 
 	it('leaves a room fill alone however large it is, because it is not dark', () => {
-		// The three room colours measured on the shipped plans, all with a bright
-		// channel; the red one is the reason brightness is measured per channel rather
-		// than as luminance (129 against the walls' 122).
+		// 房间填充色至少有一个通道较亮，因此亮度按通道而非按整体亮度判断。
 		for (const fill of ['rgb(255, 241, 218)', 'rgb(233, 86, 82)', 'rgb(71, 117, 209)']) {
 			expect(blockRole(filled({ width: 244, height: 143, fill })), fill).toBe('fixture');
 		}
 	});
 
 	it('judges size against the plan, not against pixels', () => {
-		// The same 100×131 block is structure on a small drawing and lettering-sized on a
-		// huge one; only the share of the plan tells them apart.
+		// 同样的块在小图纸上是结构，在大图纸上只有字级大小，
+		// 区分的依据是它在平面图中所占的比例。
 		const block = filled({ width: 100, height: 131 });
 		expect(blockRole(block, 100_000)).toBe('wall');
 		expect(blockRole(block, 40_000_000)).toBe('fixture');
 	});
 
 	it('recovers a block even when no wall stroke was identified at all', () => {
-		// A plan drawn entirely in poché: there is no wall colour to compare against, and
-		// the rule does not need one.
+		// 整张图都用 poché 绘制时没有可比的墙色，该规则也不需要墙色。
 		const classified = classifyVectorElements([filled({ width: 100, height: 131 })], {
 			planArea: PLAN
 		});
@@ -278,8 +245,7 @@ describe('windows are a pair, not a run', () => {
 	});
 
 	it('refuses a run of three, which is a staircase or hatching', () => {
-		// state-floor.svg's stair flights: parallel treads, every pair of which passes
-		// the pairwise test.
+		// state-floor.svg 的楼梯段：平行的踏步，任意两条都能通过配对测试。
 		const treads = [0, 20, 40, 60].map((y) =>
 			fact({ strokeWidth: 1, length: 60, x: 200, y, width: 60, height: 0 })
 		);
@@ -298,8 +264,8 @@ describe('windows are a pair, not a run', () => {
 
 describe('the width cluster', () => {
 	it('takes the thick minority as walls and leaves the thin majority alone', () => {
-		// apartment-48sqm.svg: 5 outer walls at 5 px, 8 partitions at 3.5, openings at
-		// 1.5, fixtures at 1. Only the walls and partitions are thick.
+		// apartment-48sqm.svg：外墙 5 px、隔墙 3.5 px、洞口 1.5 px、家具 1 px，
+		// 只有墙和隔墙是粗线。
 		const facts = [
 			...Array.from({ length: 5 }, () => fact({ strokeWidth: 5 })),
 			...Array.from({ length: 8 }, () => fact({ strokeWidth: 3.5 })),
@@ -311,9 +277,8 @@ describe('the width cluster', () => {
 	});
 
 	it('does not promote the majority when the drawing has almost no width spread', () => {
-		// little-white-house.svg: one 2 px path carries the whole wall network, and
-		// five 1 px paths carry details. A plain ratio puts the threshold at 1 px and
-		// makes those five walls too.
+		// little-white-house.svg：一条 2 px 路径构成整个墙体网络，五条 1 px 路径画细节；
+		// 单纯按比例定阈值会把那五条也判成墙。
 		const facts = [
 			...Array.from({ length: 5 }, () => fact({ strokeWidth: 1 })),
 			fact({ strokeWidth: 2, subpaths: 45, length: 3000 })
@@ -333,16 +298,15 @@ describe('the width cluster', () => {
 
 describe('doors', () => {
 	it('does not call a curve a door on the curve alone', () => {
-		// This is the old rule, kept as a test of what replaced it: a thin curve with no
-		// arc measurement is an `unknown`, which the review panel asks about. The arc
-		// tests above cover what earns the door role instead.
+		// 无弧线测量值的细曲线判为 `unknown`，由复核面板询问；
+		// 上面的弧线测试覆盖真正获得门角色的条件。
 		expect(
 			roles([fact({ curved: true, strokeWidth: 1.5, length: 63, width: 40, height: 40 })])
 		).toEqual(['unknown']);
 	});
 
 	it('does not call a thick curve a door, because an arch is a wall', () => {
-		// little-white-house.svg's sun-deck arch.
+		// little-white-house.svg 的露台拱券。
 		const facts = [
 			fact({ curved: true, strokeWidth: 2, length: 400, width: 200, height: 160 }),
 			fact({ strokeWidth: 1 })

@@ -1,23 +1,7 @@
 ﻿/**
- * Pick the right detector for a plan and return its masks.
- *
- * Two detectors exist now and they answer different questions:
- *
- * - **Vector** (`vector-detect.ts`) reads the file's own objects and classifies them.
- *   Exact where it applies, and it is the only one that can tell a door from a wall.
- * - **Raster** (`wall-detect.ts`) thresholds pixels. The only option once a plan has
- *   been flattened to an image, and it stays the fallback even for SVG: a vector file
- *   this project's classifier finds no walls in is precisely the file the pixel path
- *   was written for.
- *
- * The choice is made **per plan, on evidence**, not on the file extension: an SVG
- * whose classification comes back empty falls through to the pixels rather than
- * producing an empty mask and leaving the user to wonder.
- *
- * This lives apart from both detectors so the sidebar, the file-drop path and the
- * Re-detect button all make the same decision — they were three call sites of
- * `detectWalls` before, with one of them (Re-detect) unable to tell an SVG from a
- * PNG because the underlay is a session blob URL by then.
+ * 为平面图挑选合适的检测器并返回其掩码。
+ * 矢量检测器（`vector-detect.ts`）读取文件自身的对象并分类，可区分门与墙体；
+ * 光栅检测器（`wall-detect.ts`）对像素取阈值并始终兜底，选择依据平面图的实际证据而非扩展名。
  */
 
 import { prepareSvgForDetection } from './boundary-detect.js';
@@ -30,60 +14,48 @@ import {
 } from './vector-detect.js';
 
 /**
- * Why the pixel detector ran, and not the vector reader.
- *
- * Reported rather than left implicit, because the two answers need different things
- * from the user: a raster plan cannot be read as objects at all — "read from pixels"
- * is the whole story, and the way forward is a better pixel detector — while a vector
- * plan the reader could not see is a drawing it got wrong, and an override or a
- * hand-edit may fix it. A sidebar that says nothing in either case is what makes a
- * wrong mask feel like the tool ignoring you.
+ * 像素检测器而非矢量读取器运行的原因。
+ * 原因会显式上报，因为两种情形的后续处理不同：光栅平面图只能读像素，矢量平面图读不出则可能通过
+ * 覆盖或手工修正解决。
  */
 export type RasterReason =
-	/** The file is not vector markup: a PNG, a JPEG, a screenshot. */
+	/** 文件不是矢量标记：PNG、JPEG 或截图。 */
 	| 'not-vector'
-	/** It is vector markup, and the reader found nothing wall-shaped in it. */
+	/** 是矢量标记，但读取器未在其中找到墙体形状。 */
 	| 'no-walls-found'
-	/** It is vector markup, and the reader threw on it. */
+	/** 是矢量标记，但读取器处理时抛出异常。 */
 	| 'vector-failed'
-	/** The user pressed the escape hatch. */
+	/** 用户手动强制走像素路径。 */
 	| 'forced';
 
-/** Which detector produced the masks, and what the vector one saw. */
+/** 哪个检测器产出了掩码，以及矢量检测器看到的内容。 */
 export interface FloorplanDetection {
-	/** The drawing, rendered — the input the boundary pass expects. */
+	/** 渲染后的图形，即边界检测所需的输入。 */
 	image: HTMLImageElement;
 	wallMask: WallMask | null;
 	materialMask: WallMask | null;
 	via: 'vector' | 'raster';
-	/** Present only when `via === 'vector'`. */
+	/** 仅当 `via === 'vector'` 时存在。 */
 	summary: VectorDetectionSummary | null;
-	/** Present only when `via === 'vector'`; everything the review panel needs. */
+	/** 仅当 `via === 'vector'` 时存在，含复核面板所需的全部内容。 */
 	elements: ReviewableElement[] | null;
 	/**
-	 * The walls as geometry, when the vector reader could read them.
-	 *
-	 * Preferred over tracing the mask: exact, diagonals included, and each segment carries the
-	 * material its role gives it. Empty or null means the mask is all there is, and the caller
-	 * traces it as before.
+	 * 矢量读取成功时以几何形式给出的墙体。
+	 * 它比追踪掩码更精确且包含斜墙，每条线段带有其角色对应的材质；为空或 null 时只能追踪掩码。
 	 */
 	segments:
 		| Array<{ ax: number; ay: number; bx: number; by: number; material: number }>
 		| null;
-	/** The markup the vector reader was given, kept so an override can re-read it. */
+	/** 交给矢量读取器的标记文本，保留以便应用覆盖后重新读取。 */
 	source: string | null;
-	/** Present only when `via === 'raster'`: why the reader did not run. */
+	/** 仅当 `via === 'raster'` 时存在，说明读取器未运行的原因。 */
 	rasterReason: RasterReason | null;
 }
 
 /**
- * Detect the masks for the plan at `url`.
- *
- * `targetWidth` is the working resolution both detectors rasterise to, so the masks
- * they return are interchangeable. `forceRaster` skips the vector reader entirely,
- * which is the escape hatch the sidebar offers when it has classified a plan wrongly
- * — the pixel path draws every drawn line, which is a worse map but never a wrong
- * one. `overrides` carries the reader's per-element corrections.
+ * 检测 `url` 所指平面图的掩码。
+ * `targetWidth` 是两个检测器共同栅格化到的工作分辨率，使返回的掩码可互换；
+ * `forceRaster` 跳过矢量读取器，`overrides` 携带读取器的逐元素修正。
  */
 export async function detectFloorplanMasks(
 	url: string,
@@ -92,16 +64,9 @@ export async function detectFloorplanMasks(
 		forceRaster?: boolean;
 		overrides?: ReadonlyMap<number, ElementRole>;
 		/**
-		 * The plan is known to be a vector drawing, whatever the fetched bytes look like.
-		 *
-		 * Sniffing the content is right on import, where the file's own data is at hand,
-		 * and unreliable on a *re-detect*: the underlay is a session blob URL by then, and
-		 * a vector plan may have been handed to the image path on the way in, so its bytes
-		 * are a PNG of a drawing that is still a drawing. `floorplanState.sourceIsVector`
-		 * records what the file actually was, and this is how that record reaches here.
-		 *
-		 * A claim that turns out to be wrong is not a trap: the vector reader throws, the
-		 * raster path takes over and `rasterReason` says why.
+		 * 无论取回的字节内容如何，都认定该平面图是矢量图。
+		 * 导入时内容嗅探可靠，重新检测时底图已是会话 blob URL，故由 `floorplanState.sourceIsVector` 记录原始类型；
+		 * 判断有误时矢量读取器会抛出异常并回退到像素路径。
 		 */
 		assumeVector?: boolean;
 	} = {}
@@ -119,13 +84,9 @@ export async function detectFloorplanMasks(
 			const vector = await detectVectorFloorplan(markup, targetWidth, options.overrides);
 			if (vector) {
 				return {
-					// The boundary pass gets the same image it always has: the drawing at its
-					// own intrinsic size, text stripped. Not the vector reader's own render,
-					// which is 800 px wide and has the fills removed — `detectBoundary`
-					// derives its working scale from `naturalWidth` and its caller then scales
-					// the polygon by `targetWidth / naturalWidth`, so a render at target width
-					// halves the polygon, and removing the fills lost the outline entirely on
-					// `office-300sqm.svg`.
+					// 边界检测沿用其惯用图像：按图形固有尺寸渲染并去除文字，而非矢量读取器自己的渲染。
+					// `detectBoundary` 以 `naturalWidth` 推导工作比例，调用方再按 `targetWidth / naturalWidth`
+					// 缩放多边形，故按目标宽度渲染会使多边形减半，去除填充也会丢失外轮廓。
 					image: await prepareSvgForDetection(url),
 					wallMask: vector.wallMask,
 					materialMask: vector.materialMask,
@@ -138,9 +99,7 @@ export async function detectFloorplanMasks(
 				};
 			}
 		} catch (e) {
-			// A malformed or exotic SVG: fall through to the pixels rather than failing
-			// the import. The user still gets walls, and the reason says which of the two
-			// it was.
+			// 畸形或特殊的 SVG 回退到像素而不是让导入失败；用户仍能得到墙体，原因字段会说明属于哪种情况。
 			reason = 'vector-failed';
 			console.warn('[detect] vector detection failed, using pixels:', e);
 		}
@@ -148,13 +107,8 @@ export async function detectFloorplanMasks(
 
 	const image = await prepareSvgForDetection(url);
 	/*
-	 * Pixels, with nothing in front of them.
-	 *
-	 * There used to be an OCR step here that masked room labels before the threshold. It is
-	 * gone (see `detectWalls`): it loaded its model over the network, so a plan read on a
-	 * laptop in a basement was read differently from the same plan next to a router, and it
-	 * failed silently when it could not load. The job — keeping lettering out of the mask —
-	 * belongs to the tracer now, which drops runs too short to be a wall.
+	 * 直接使用像素，前面不再有其他步骤。
+	 * 遮蔽房间文字的工作已交由追踪器完成，它会丢弃过短而不可能是墙体的连续像素。
 	 */
 	const wallMask = await detectWalls(image, targetWidth);
 	return {
@@ -170,13 +124,12 @@ export async function detectFloorplanMasks(
 	};
 }
 
-/** The file's text, or empty when it cannot be read as text (a PNG, a dead blob URL). */
+/** 文件的文本；无法按文本读取时（PNG、失效的 blob URL）返回空字符串。 */
 async function fetchText(url: string): Promise<string> {
 	try {
 		const response = await fetch(url);
 		const type = response.headers.get('content-type') ?? '';
-		// A raster under a text-ish content type would decode to megabytes of mojibake;
-		// the length guard keeps a truncated read cheap.
+		// 声明为文本类型的栅格会解码出大量乱码；长度上限使被截断的读取代价可控。
 		if (type.startsWith('image/') && !type.includes('svg')) return '';
 		const text = await response.text();
 		return text.length > 8_000_000 ? '' : text;

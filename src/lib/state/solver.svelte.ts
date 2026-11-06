@@ -30,10 +30,7 @@ type Algorithm = 'greedy' | 'dsatur' | 'welsh-powell' | 'backtracking';
 const bridge = new SolverBridge();
 
 /**
- * 上一次的冲突图，以及它是按哪份几何建的。
- *
- * 见 `buildSerializedGraph`：建图要跑优化器那套边缘评估，几百毫秒起步，
- * 方案没变就不该付两次这个钱。
+ * 上一次的冲突图
  */
 let lastGraph: { signature: string; graph: Awaited<ReturnType<typeof buildGraphUncached>> } | null =
 	null;
@@ -165,30 +162,8 @@ function getWallLoss(
 
 /**
  * 谁不能和谁共用信道，以及每一对之间的耦合强度。
- *
- * 两个产物，故意分开：
- *
- * - **边**用优化器自己的冲突图，通过 `buildAssignmentConflictEdges` 要：某个采样点上
- *   一个是最好的服务 AP、另一个在 `COCHANNEL_REUSE_DB` 以内，这一对才算边。以前
- *   solver 在这里自己建图 —— 圆重叠加一个 AP 间距启发式，`1/(1+r⁴)` 再按 CCI 门限
- *   过滤 —— 那是*另一个*问题；实测的四 AP 楼层上两边结论不一致：那张图给出的分配在
- *   目标函数的图上算 14.75%，而给那张图正经着色是 0%。按目标函数衡量的东西着色，
- *   面板上的数字才可能描述屏幕上的方案。
- * - **`edgeSignals`** 保持原样：每对的衰减耦合值，给 AP 编辑器的读数和吞吐估算用。
- *   它是*显示和吞吐*的输入，不是冲突判据，所以保留自己的定义 —— 而且现在每对都填，
- *   因为老过滤器丢掉的正好是用户可能还想看的那些对。
- *
- * 优化器建不出图时（没有可采样的封闭内部：墙没闭合，或者压根没墙）退回老的几何图。
- * 自动分配在那儿也得给个说得过去的结果，没有内部的方案也仍然是摆了 AP 的方案。
  */
 async function buildSerializedGraph() {
-	/*
-	 * 图是方案的函数，所以就按方案缓存。
-	 *
-	 * 建一次图要在很细的采样网格上把优化器那套边缘评估跑一遍 —— 两个 AP 的楼层实测
-	 * 344→12 ms —— 而键一变就排一次自动求解。几何没变时重建，只是白占半秒主线程，
-	 * 还得到一样的邻接表。见 `graphSignature`。
-	 */
 	const signature = graphSignature();
 	if (lastGraph && lastGraph.signature === signature) return lastGraph.graph;
 	const graph = await buildGraphUncached();
@@ -350,14 +325,6 @@ function applyAssignments(assignment: Map<string, number>): void {
 	for (const [apId, channel] of assignment) {
 		updateAp(apId, { assignedChannel: channel });
 	}
-	/*
-	 * 干扰数字是按方案实际的信道量的，所以信道一变就得重新量。
-	 *
-	 * 以前这个数字一直留着优化器那次运行报的值，而那是按*worker*给该布局挑的着色量的
-	 * —— 跟这里落地的分配不是一回事，因为 worker 可能拿整个频段去着色，这里发的是不
-	 * 重叠的那套信道。AP 比信道多的时候，数字显示 0%，实际却有两个设备挤在一个信道上。
-	 * 见 `optimizer-coverage.svelte.ts`。
-	 */
 	void updateCoverage();
 }
 
@@ -439,16 +406,6 @@ export async function runSolver(): Promise<void> {
 				}
 			);
 
-			// 对 worker 的着色做两趟后处理，都得在应用这边做，因为 worker 只认信道*号*：
-			//
-			// 1. `widenAssignment` 把跟冲突对象共频谱的源，挪到一个更干净的中心信道上。
-			//    用不重叠的信道集合时，这只有在集合用光时才会发生 —— 互冲突的 AP 比信道
-			//    还多 —— 而频段里可能还有个更窄的中心，跟这个源冲突的东西确实都不沾。
-			//    B3 的信道集合近似以前就是在这一步算错的。
-			// 2. `balanceAssignment` 把信道摊开，用图留给它的余量，因为贪心着色器会把
-			//    一整段都塞到 1 号信道，而这些信道对空中时间来说并不等价。
-			//
-			// 这两趟都造不出干扰：它们只会挪到跟相关邻居不重叠的候选信道上。
 			const bandIndex = new Map(bandNodes.map((id, i) => [id, i]));
 			const neighbours = new Map(bandEdges);
 			const pinnedIds = new Set(bandFixed.map(([id]) => id));
@@ -457,9 +414,6 @@ export async function runSolver(): Promise<void> {
 					.map((n) => bandIndex.get(n))
 					.filter((n): n is number => n !== undefined)
 			);
-			// 这里叫 `bandNames` 而不是 `bands`：外层循环迭代的 `Set` 就叫 `bands`，
-			// 在函数体里重名遮蔽原本能跑，只是因为循环头在函数体的绑定存在之前就求值了
-			// —— 给下一次改动的坑。
 			const bandNames = bandNodes.map(() => band as string);
 			const widths = bandNodes.map(
 				(id) => apState.aps.find((ap) => ap.id === id)?.channelWidth ?? 20
@@ -516,14 +470,6 @@ export async function runSolver(): Promise<void> {
 		clearAssignments();
 		applyAssignments(mergedAssignment);
 		apState.aps = [...apState.aps];
-		// 分配结果属于项目，所以得像项目里其他改动一样存盘。以前只写进状态、从不保存：
-		// 自动 solver 跑起来时唯一在飞的保存，是*优化器*两秒前给它的新位置排的那次 ——
-		// 于是只要这次求解没在那两秒内跑完，落盘的文件带的就是 solver 给*上一份*位置算
-		// 出来的信道。重新打开这样的项目，看到的信道和当时会话里的不一样，而且存下来的
-		// 分配单看它自己那份方案都可能不合规（实测：同一种子、同样的位置，机器忙时存下
-		// 1、6、11、1，空闲时存 1、6、11、11 —— 在目标函数的图上是 14.75% 干扰对 0%）。
-		// 见 `ROADMAP.md` B6，它说的"两条路会合"就是这次测量要验证的事。
-		// `keep`：求解是后台活儿，不能把用户自己编辑已经排好的保存往后推。
 		scheduleSave(true);
 		computeThroughput();
 		debug(`[solve] done in ${Math.round(performance.now() - started)} ms`);
@@ -563,7 +509,6 @@ export async function runComparison(): Promise<void> {
 			clearAssignments();
 			applyAssignments(best.assignment);
 			apState.aps = [...apState.aps];
-			// 原因同 `runSolver`：分配结果属于项目状态，而以前比出来的获胜着色压根没保存。
 			scheduleSave(true);
 			computeThroughput();
 		}

@@ -1,21 +1,7 @@
 /**
- * One floor, in three dimensions: walls extruded to their real height, in their material's
- * colour, with the plan and the coverage lying on the slab.
- *
- * Why this exists at all is the wall. On a plan every wall is a line of the same weight,
- * so a glass partition, a brick wall and an open doorway look alike and a 2.4 m partition
- * next to a 6 m atrium is invisible. The model has known the materials and the storey
- * height all along; this is the view where that knowledge comes back as geometry.
- *
- * The projection is the stacked view's camera — a parallel projection with yaw and pitch
- * and no perspective divide (`stacked-floors.ts` owns that maths, and the two views share
- * the sliders so switching between them keeps the viewpoint). A floor's own plane is
- * therefore an *affine* map of the plan, which is what lets the existing card renderer
- * draw the plan, the coverage and the room labels through one `ctx.transform` — no
- * per-pixel warping, no second colourizer.
- *
- * Read-only, like the overviews: a wall is drawn where the model says it is, and editing
- * stays in the single-floor view.
+ * 单层楼的三维视图：墙体按真实高度拉伸并使用材质颜色，平面图与覆盖图贴在楼板上。
+ * 投影沿用堆叠视图的相机（`stacked-floors.ts`），平行投影加偏航与俯仰，不做透视除法，
+ * 因此楼层平面是平面图的仿射映射，可经一个 `ctx.transform` 复用现有的卡片渲染器。只读，编辑仍在单层视图。
  */
 import type { Layer, RenderContext } from '../types.js';
 import {
@@ -29,20 +15,19 @@ import { getMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 import { surfaceBox, surfaceColor, surfaceThickness, stepCount, type ElevatedSurface } from '$lib/rf/surface-height.js';
 import type { VectorColumn, VectorWall } from '$state/vector-walls.js';
 
-/** One quad to fill, projected into the drawing plane. */
+/** 一个待填充的四边形，已投影到绘制平面。 */
 interface Face {
 	points: Array<{ x: number; y: number }>;
-	/** Screen-space depth: larger is nearer the viewer, so it is painted last. */
+	/** 屏幕空间深度：值越大越靠近观察者，因此最后绘制。 */
 	depth: number;
 	fill: string;
 	stroke: string | null;
 }
 
 /**
- * The band a wall occupies on the plan, in world units.
+ * 墙体在平面图上占据的带宽，单位是世界坐标单位。
  *
- * The same figure `wall-raster.ts` paints and the vector layer strokes with, so the 3D
- * extrusion and the plan agree about how thick a wall is.
+ * 与 `wall-raster.ts` 绘制及矢量图层描边使用同一数值，使三维拉伸与平面图对墙厚的理解一致。
  */
 const WALL_BAND_WU = 6;
 
@@ -51,13 +36,13 @@ export class Floor3DLayer implements Layer {
 	visible = false;
 	camera: StackCamera = { ...DEFAULT_STACK_CAMERA, wupm: 32.8 };
 	source: FloorCardSource | null = null;
-	/** The floor's walls as segments: the geometry the extrusion is made of. */
+	/** 楼层的墙体线段：拉伸所用的几何数据。 */
 	walls: VectorWall[] = [];
-	/** Columns: a pier or a round pillar, extruded like a wall with no length. */
+	/** 柱子：墙垛或圆柱，按无长度的墙进行拉伸。 */
 	columns: VectorColumn[] = [];
-	/** Raised surfaces, drawn as the slabs they are. */
+	/** 抬升表面，按其板体本身绘制。 */
 	surfaces: ElevatedSurface[] = [];
-	/** Storey height, metres: what a wall without its own height is extruded to. */
+	/** 层高，单位米：没有独立高度的墙体按此值拉伸。 */
 	ceilingHeightM = 3;
 	planOpacity = 0.85;
 	showPlan = true;
@@ -67,22 +52,22 @@ export class Floor3DLayer implements Layer {
 
 	constructor(private readonly cards: FloorCardCache) {}
 
-	/** The box this floor occupies, in world coordinates. */
+	/** 该楼层占据的包围盒，使用世界坐标。 */
 	private contentBox(): { x: number; y: number; w: number; h: number } | null {
 		if (!this.source) return null;
-		// The 3D camera is in this floor's units, so the card scale is 1.
+		// 三维相机使用本楼层的单位，因此卡片缩放为 1。
 		const box = this.cards.contentBox(this.source, this.camera.wupm);
 		return { x: box.minX, y: box.minY, w: box.w, h: box.h };
 	}
 
-	/** Where the floor's centre is, so turning the view turns about the floor. */
+	/** 楼层的中心，使旋转视图时绕该楼层转动。 */
 	private pivot(): { x: number; y: number; z: number } {
 		const box = this.contentBox();
 		if (!box) return { x: 0, y: 0, z: 0 };
 		return { x: box.x + box.w / 2, y: box.y + box.h / 2, z: 0 };
 	}
 
-	/** The projected corners of the floor's box, at the slab and at the ceiling. */
+	/** 楼层包围盒在楼板与天花板两处的投影角点。 */
 	contentBounds(): Array<{ x: number; y: number }> {
 		const box = this.contentBox();
 		if (!box) return [];
@@ -119,7 +104,7 @@ export class Floor3DLayer implements Layer {
 		ctx.save();
 		ctx.transform(a, b, c, d, e, f);
 
-		/** The slab's outline in the drawing plane, reused for the fill and the label. */
+		/** 楼板在绘制平面上的轮廓，填充与标签共用。 */
 		const slab = [
 			projectPoint(view, box.x, box.y, 0, pivot),
 			projectPoint(view, box.x + box.w, box.y, 0, pivot),
@@ -128,9 +113,8 @@ export class Floor3DLayer implements Layer {
 		];
 
 		/*
-		 * The slab itself, before anything on it. A floor with no plan image and no
-		 * coverage has nothing to draw in the plane, and walls standing on nothing read as
-		 * floating rather than as a room — so the storey gets a surface of its own.
+		 * 楼板本身，先于其上的一切绘制。没有平面图也没有覆盖图的楼层在平面内无可绘制，
+		 * 而悬空的墙会像漂浮物而不是房间，因此这一层需要自身的表面。
 		 */
 		ctx.globalAlpha = 1;
 		ctx.fillStyle = 'rgba(38,42,54,0.55)';
@@ -141,14 +125,9 @@ export class Floor3DLayer implements Layer {
 		ctx.fill();
 
 		/*
-		 * The slab: the plan, the coverage and the room labels, drawn through the floor's
-		 * own affine transform. One transform for the whole plane is the reason this view
-		 * can reuse the single-floor renderers at all — a perspective projection would
-		 * need a warp, and a warp would need a second implementation of all of them.
+		 * 楼板：平面图、覆盖图与房间标签，经楼层自身的仿射变换绘制。
 		 *
-		 * The walls are drawn as extrusions below, not as the raster, unless the floor has
-		 * no segments at all: then the raster is the only statement of where its walls are
-		 * and a flat plan is still better than a blank one.
+		 * 整个平面只用一个变换，因此可复用单层渲染器；墙体在下方以拉伸形式绘制，无线段时才用栅格。
 		 */
 		ctx.save();
 		ctx.transform(
@@ -165,10 +144,9 @@ export class Floor3DLayer implements Layer {
 		ctx.globalAlpha = 1;
 		this.cards.draw(ctx, src, {
 			showPlan: this.showPlan,
-			// A walled floor extrudes; a floor with no segments falls back to its raster.
+			// 有墙的楼层使用拉伸；没有线段的楼层回退到栅格。
 			showWalls: this.showWalls && this.walls.length === 0,
-			// Markers are drawn in the drawing plane below: a mounting height is not
-			// expressible inside the floor's own transform.
+			// 标记在下方于绘制平面中绘制：安装高度无法在楼层自身的变换中表达。
 			showAPs: false,
 			showHeatmap: this.showHeatmap,
 			planOpacity: this.planOpacity,
@@ -177,7 +155,7 @@ export class Floor3DLayer implements Layer {
 		});
 		ctx.restore();
 
-		// The slab's own outline, in the drawing plane so it stays crisp at any yaw.
+		// 楼板自身的轮廓绘制在绘制平面中，使任意偏航下都保持清晰。
 		ctx.globalAlpha = 1;
 		ctx.strokeStyle = 'rgba(255,255,255,0.28)';
 		ctx.lineWidth = 1 / zoom;
@@ -187,8 +165,7 @@ export class Floor3DLayer implements Layer {
 		ctx.closePath();
 		ctx.stroke();
 
-		// Everything that stands up, painted back to front as one list: a wall behind a
-		// mezzanine has to be behind it whether it was drawn first or not.
+		// 所有竖直物体合并为一个列表并按从后到前绘制：夹层之后的墙必须位于其后，与绘制先后无关。
 		const faces: Face[] = [];
 		if (this.showWalls) faces.push(...this.wallFaces(view, pivot), ...this.columnFaces(view, pivot));
 		faces.push(...this.surfaceFaces(view, pivot));
@@ -197,8 +174,7 @@ export class Floor3DLayer implements Layer {
 
 		if (this.showAPs) this.drawAccessPoints(ctx, src, view, pivot, zoom);
 
-		// The floor's name, on the slab's topmost corner, so a reader knows what they are
-		// looking at without the sidebar.
+		// 楼层名称绘制在楼板最靠上的角，使读者无需侧栏也知道看的是什么。
 		ctx.font = `${13 / zoom}px sans-serif`;
 		ctx.textBaseline = 'bottom';
 		ctx.fillStyle = 'rgba(255,255,255,0.78)';
@@ -209,10 +185,9 @@ export class Floor3DLayer implements Layer {
 	}
 
 	/**
-	 * Columns, as the prisms they are: a rectangle is a box, a circle an octagon.
+	 * 柱子按其棱柱绘制：矩形为盒体，圆形为八边形。
 	 *
-	 * A pillar is a wall with no length, so it is extruded to the same height and painted the
-	 * same way — which is also how the model treats it (a filled footprint in the mask).
+	 * 柱子是没有长度的墙，因此按相同高度拉伸并以相同方式绘制，模型也这样处理（掩码中的填充轮廓）。
 	 */
 	private columnFaces(
 		view: StackCamera,
@@ -250,7 +225,7 @@ export class Floor3DLayer implements Layer {
 				const nx = p2.y - p1.y;
 				const ny = p1.x - p2.x;
 				const norm = Math.max(1e-6, Math.hypot(nx, ny));
-				// Back faces only: the prism is closed, so half its sides point away.
+				// 只绘制背面：棱柱是闭合的，一半侧面背向观察者。
 				if ((nx / norm) * sinYaw + (ny / norm) * cosYaw < 0) continue;
 				const shade = 0.8;
 				faces.push({
@@ -265,7 +240,7 @@ export class Floor3DLayer implements Layer {
 					stroke: null
 				});
 			}
-			// The cap: without it the prism is open at the top and reads as a tube.
+			// 顶盖：缺少它棱柱顶部开口，会看起来像一根管。
 			faces.push({
 				points: points.map((p) => projectPoint(view, p.x, p.y, top, pivot)),
 				depth: depth + 0.02,
@@ -291,11 +266,8 @@ export class Floor3DLayer implements Layer {
 	}
 
 	/**
-	 * Each wall as a quad from the slab to its top, in its material's colour.
-	 *
-	 * The shading is the angle between the wall and the view: a wall seen face-on keeps its
-	 * colour, one seen edge-on darkens. That is what makes a corner read as a corner
-	 * instead of two colours meeting at a line.
+	 * 每面墙作为从楼板到墙顶的四边形，使用其材质的颜色。
+	 * 明暗取决于墙与视线的夹角：正对观察者的墙保留原色，侧对观察者的墙变暗，使转角可辨。
 	 */
 	private wallFaces(
 		view: StackCamera,
@@ -312,18 +284,13 @@ export class Floor3DLayer implements Layer {
 			const heightM = wall.heightM ?? this.ceilingHeightM;
 			const top = Math.max(0.1, heightM) * view.wupm;
 			const material = getMaterial(wall.material);
-			// The wall's normal, in the floor's plane, against the viewing direction.
+			// 墙体在楼层平面内的法线，与观察方向比较用于判断朝向。
 			const nx = -dy / length;
 			const ny = dx / length;
 			const facing = Math.abs(nx * sinYaw + ny * cosYaw);
 			/*
-			 * One tone for every wall, not a shade per orientation.
-			 *
-			 * Shading each wall by how it faces the viewer made two walls that overlap at a
-			 * corner *different colours* exactly where they meet, so the seam was as visible
-			 * as the wall — which is what "the walls look overlapping" was. All walls the same
-			 * tone means an overlap is invisible; the top face's lighter edge is what gives a
-			 * corner its definition.
+			 * 所有墙统一色调，不按朝向分别着色：逐墙着色会让转角相接的两面墙在接缝处颜色不同，
+			 * 使接缝和墙一样显眼；统一色调后重叠不可见，转角由顶面较亮的边缘体现。
 			 */
 			const shade = facing >= 0 ? 0.82 : 0.82;
 			const [r, g, b] = material.color;
@@ -331,23 +298,15 @@ export class Floor3DLayer implements Layer {
 			const midY = (wall.ay + wall.by) / 2 - pivot.y;
 			const depth = sinYaw * midX + cosYaw * midY;
 			/*
-			 * One visible face per wall, plus its top — not a five-sided box.
+			 * 每面墙只绘制一个可见面加顶面，而不是五面的盒体。
 			 *
-			 * The raster band is what the plan shows, so the extrusion keeps its width, but
-			 * drawing both long faces and both end caps put a stroked edge *inside* every
-			 * junction: two walls meeting at a corner each drew the cap the other one covered,
-			 * and the seams read as overlapping slabs. Culling to the face that points at the
-			 * viewer — and filling it in one tone with no stroke — makes two adjacent walls
-			 * the same colour where they meet, so the only edges left are real silhouettes.
+			 * 剔除背向观察者的面并以单一色调无描边填充，相邻墙在相接处同色，剩余边缘即真实轮廓。
 			 */
 			const half = WALL_BAND_WU / 2;
 			/*
-			 * Each wall is extended by half its band at both ends.
+			 * 每面墙两端各延伸半个带宽。
 			 *
-			 * Two boxes centred on their segments meet at a corner at an angle, and between
-			 * them is a notch of background — the dark strip through every junction in the
-			 * 3D view. Extending each end by half a band makes the two overlap instead, and
-			 * because every wall is one tone the overlap is invisible.
+			 * 以线段为中心的盒体在转角处相交会留下背景缺口；两端延伸使它们重叠，重叠处因同色而不可见。
 			 */
 			const ux = dx / length;
 			const uy = dy / length;
@@ -372,11 +331,10 @@ export class Floor3DLayer implements Layer {
 				],
 				depth,
 				fill: fill(shade),
-				// No stroke: the fill is the silhouette, and a stroke is what drew the seams.
+				// 不描边：填充即轮廓，描边正是产生接缝的原因。
 				stroke: null
 			});
-			// The top face only, outlined, so a wall reads as solid from above and a corner has
-			// an edge without every junction drawing one.
+			// 只绘制顶面并描边，使墙从上方看是实心的，且只在转角处出现边缘。
 			faces.push({
 				points: [
 					projectPoint(view, a1.x, a1.y, top, pivot),
@@ -393,14 +351,8 @@ export class Floor3DLayer implements Layer {
 	}
 
 	/**
-	 * A raised surface as the solid it is: a deck with thickness, a ramp with a sloping
-	 * top, a stair as its treads.
-	 *
-	 * The thickness is the difference between "a coloured rectangle" and "a mezzanine": a
-	 * deck has an underside, and a stair is a *flight* — drawing it as one sloping plane
-	 * would say the thing the model deliberately does not (a step function through the
-	 * sample grid). The treads are therefore drawn, at the same 0.3 m depth the panel
-	 * reports, and the model keeps its continuous equivalent.
+	 * 抬升表面按其实体绘制：带厚度的平台、顶面倾斜的坡道、由踏步组成的楼梯。
+	 * 厚度是“彩色矩形”与“夹层”的区别；踏步按面板报告的 0.3 m 深度绘制，模型保留连续等价表示。
 	 */
 	private surfaceFaces(
 		view: StackCamera,
@@ -410,10 +362,8 @@ export class Floor3DLayer implements Layer {
 
 		for (const surface of this.surfaces) {
 			/*
-			 * The deck's own colour: a steel mezzanine and a timber gallery are different
-			 * obstacles and now look it. The top is the material at half strength, the sides
-			 * a shade darker and the edge lighter, so the slab reads as solid in the oblique
-			 * view without losing the hue.
+			 * 平台自身的颜色：钢制夹层与木质回廊是不同的障碍物，颜色因此不同。
+			 * 顶面用材质半强度，侧面稍暗，边缘稍亮，使板体在斜视图中显得实心且不丢失色相。
 			 */
 			const [sr, sg, sb] = surfaceColor(surface.material);
 			const shade = (channel: number, factor: number) =>
@@ -460,11 +410,8 @@ export class Floor3DLayer implements Layer {
 			const isStair = surface.kind === 'stair' && high - low > 1;
 			if (isStair) {
 				/*
-				 * Treads along the run, each as its own small slab plus a riser: a flight
-				 * reads as a staircase from either side, and the 0.3 m tread depth it is
-				 * drawn with is the same one the panel reports. The model keeps its
-				 * continuous height field — a step function through the sample grid would
-				 * make coverage jump at every tread edge.
+				 * 沿坡向逐级绘制踏步，每级是小板体加一个踢面，使梯段从两侧看都是楼梯；
+				 * 绘制用的 0.3 m 踏步深度与面板报告一致，而模型保留连续高度场。
 				 */
 				const steps = stepCount(surface);
 				const across = horizontal
@@ -502,7 +449,7 @@ export class Floor3DLayer implements Layer {
 							0.02 + t1
 						)
 					);
-					// The riser at the low edge of this tread, from the tread below to it.
+					// 该踏步低边缘的踢面，从下方踏步延伸到该踏步。
 					faces.push(
 						quad(
 							[
@@ -515,7 +462,7 @@ export class Floor3DLayer implements Layer {
 							t0
 						)
 					);
-					// Its two sides: the slab's own depth, from the tread down to its underside.
+					// 两侧面：板体自身的厚度，从踏面延伸到其底面。
 					faces.push(
 						quad(
 							[
@@ -544,7 +491,7 @@ export class Floor3DLayer implements Layer {
 				continue;
 			}
 
-			// A level deck or a ramp: one top, an underside `thickness` below it, and sides.
+			// 水平平台或坡道：一个顶面、其下 `thickness` 处的底面以及若干侧面。
 			const topPoints = corners.map((corner) => ({
 				...corner,
 				z: heightAt(corner.x, corner.y)
@@ -556,7 +503,7 @@ export class Floor3DLayer implements Layer {
 				z: base !== null ? base : Math.max(0, p.z - thickness)
 			});
 			if (base !== null) {
-				// A solid base is a plinth: its sides start at the floor.
+				// 实心底座即基座：其侧面从地面开始。
 				for (let i = 0; i < topPoints.length; i++) {
 					const a = topPoints[i]!;
 					const b = topPoints[(i + 1) % topPoints.length]!;
@@ -568,7 +515,7 @@ export class Floor3DLayer implements Layer {
 					const b = topPoints[(i + 1) % topPoints.length]!;
 					faces.push(quad([bottomOf(a), bottomOf(b), b, a], SIDE_FILL, 0));
 				}
-				// The underside, visible only from below — which at a normal pitch is not.
+				// 底面只在从下方观察时可见，常规俯仰下看不到。
 				faces.push(quad(topPoints.map(bottomOf).reverse(), SIDE_FILL, -0.01));
 			}
 		}
@@ -576,10 +523,9 @@ export class Floor3DLayer implements Layer {
 	}
 
 	/**
-	 * Access points, at their mounting height with a stem down to the floor.
+	 * 接入点，位于其安装高度，并有一段竖线连到地面。
 	 *
-	 * The one thing this view adds to a marker: an AP on a desk and one on the ceiling are
-	 * the same dot on a plan, and two metres apart in the room.
+	 * 这是本视图在标记上新增的信息：桌上的 AP 与天花板上的 AP 在平面图上是同一个点，在房间里却相距两米。
 	 */
 	private drawAccessPoints(
 		ctx: CanvasRenderingContext2D,

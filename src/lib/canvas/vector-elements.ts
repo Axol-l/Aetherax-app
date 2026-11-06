@@ -1,200 +1,103 @@
 /**
- * Classify the elements of a **vector** floorplan into walls, openings and everything
- * else — without any pixel thresholding.
- *
- * Why this exists at all: the raster pipeline flattens an SVG to a bitmap and then
- * asks which pixels look like walls. That discards the file's own structure. On the
- * plans this project ships, that is measurably expensive — `office-300sqm.svg` comes
- * back with 8 doors, 8 windows and 11 desks all inside the wall mask, and
- * `little-white-house.svg` (an Illustrator export) comes back with the whole drawing
- * inverted until the alpha fix, and its room labels as walls even after it.
- *
- * The insight that makes this cheap: a vector drawing is a list of **objects**, so
- * "which of these is a wall" is a classification problem over a handful of items,
- * not a segmentation problem over a million pixels. And it can be answered three
- * ways, in decreasing order of how much the file tells you:
- *
- * 1. **It names them.** `class="door"`, `inkscape:label="Walls"`, `id="window-3"`.
- *    The shipped samples do exactly this and it is exact. `NAME_RULES`.
- * 2. **It paints them distinguishably.** A wall is a *line* (stroke, no fill); a room
- *    is an *area* (fill, no stroke); a window is two parallel thin lines; a door is an
- *    arc. `little-white-house.svg` has no names at all, and this is enough: 2 of its
- *    185 drawable elements carry the entire wall network as strokes.
- * 3. **It neither names nor separates them.** Then relative geometry is all that is
- *    left: `state-floor.svg` gives every element a 1 px stroke except 13 at 6.8 px,
- *    and those 13 are the walls. `WIDTH_CLUSTER_RATIO`.
- *
- * Anything past that — a plan whose walls and labels are the same path, which is what
- * `little-white-house.svg` turns out to be — cannot be separated per element and needs
- * per-subpath work. This module reports `unknown` rather than guessing, which is what
- * the review UI is for.
- *
- * Pure: `classifyVectorElements` takes plain facts and returns roles, so it is unit
- * testable without a DOM. `describeSvgElements` is the thin browser-side adapter that
- * produces those facts (it resolves *computed* style, which is what makes it work on
- * a file that paints through a `<style>` block rather than attributes), and
- * `describeSvgElements`'s caller passes the drawing's area so a filled shape can be
- * judged against the plan rather than against a pixel count.
+ * 将**矢量**户型图中的图元分类为墙体、门窗洞口和其他类型，不做任何像素阈值处理。
+ * 分类依据依次为名称、绘制样式和相对几何，无法判断时返回 `unknown`；分类逻辑集中在
+ * 纯函数 `classifyVectorElements` 中，`describeSvgElements` 只是浏览器端适配器。
  */
 
 export type ElementRole =
 	| 'wall'
-	/** Glass in a wall: keeps the wall's topology, takes the glass material. */
+	/** 墙体中的玻璃：保留墙体拓扑，使用玻璃材质。 */
 	| 'window'
-	/** A leaf or swing arc: topology as a wall, a low-loss material. */
+	/** 门扇或开启弧线：按墙体参与拓扑，使用低损耗材质。 */
 	| 'door'
-	/** Lettering and dimension text: dropped, it is not a barrier. */
+	/** 文字标注和尺寸标注：不构成屏障，予以丢弃。 */
 	| 'text'
-	/** Sanitary ware, furniture, appliances: dropped. */
+	/** 洁具、家具和电器：予以丢弃。 */
 	| 'fixture'
-	/** Looked like nothing in particular. The caller decides; dropping is safest. */
+	/** 未能明确匹配任何类别；由调用方决定，丢弃最安全。 */
 	| 'unknown';
 
-/** Everything the classifier is allowed to look at. No DOM, no canvas. */
+/** 分类器允许读取的全部信息，不涉及 DOM 或画布。 */
 export interface VectorElementFacts {
 	tag: string;
 	/**
-	 * Every name the element carries, lowercased and space-joined: class names, id,
-	 * and a non-standard label attribute (`inkscape:label`, `data-name`). This is the
-	 * highest-value input — a file that names its walls needs no heuristics.
+	 * 图元携带的全部名称，转为小写并用空格连接，包括类名、id 和非标准 label 属性。
+	 * 这是信息量最大的输入：文件若为墙体命名，就无须依赖启发式规则。
 	 */
 	name: string;
 	strokeWidth: number;
 	hasStroke: boolean;
 	hasFill: boolean;
-	/** Computed `stroke`, e.g. `rgb(26, 26, 26)`, or `none`. */
+	/** 计算后的 `stroke` 值，或 `none`。 */
 	stroke: string;
-	/** Computed `fill`, or `none`. */
+	/** 计算后的 `fill` 值，或 `none`。 */
 	fill: string;
-	/** Path length in user units, from `getTotalLength()`. 0 when unavailable. */
+	/** 路径长度，单位为用户单位，来自 `getTotalLength()`；不可用时为 0。 */
 	length: number;
-	/** Bounding box in user units. `getBBox()` is local, so this is pre-transform. */
+	/** 用户单位下的包围盒；`getBBox()` 使用局部坐标，因此未经变换。 */
 	x: number;
 	y: number;
-	/** Axis-aligned extent in user units. */
+	/** 用户单位下轴对齐的范围。 */
 	width: number;
 	height: number;
-	/** Arc or bezier present — a door swing is the usual reason. */
+	/** 是否存在弧或贝塞尔曲线；门扇开启弧是常见原因。 */
 	curved: boolean;
 	/**
-	 * The arc a curve actually traces, measured. Null for anything that is not one open
-	 * curve — see `measureArc` for why this is sampled rather than parsed.
+	 * 曲线实际描绘的弧，由采样测得；无法测量时为 null。
+	 * 闭合曲线也会返回结果，其中 `chord` 为 0。
 	 */
 	arc: ArcMeasurement | null;
-	/** Subpath count: `M` commands. Lettering is many tiny closed subpaths. */
+	/** 子路径数量，即 `M` 命令数量；文字通常由许多细小闭合子路径组成。 */
 	subpaths: number;
 }
 
 /**
- * What a stroked curve actually is: how far apart its ends are, how far it bulges, and
- * the circle that bulge implies.
- *
- * `chord` is the load-bearing one. A swing arc is an **open** curve whose ends meet the
- * two jambs of an opening; a curve whose ends coincide is a loop — a basin, a round
- * table, an arched portico — and calling that a door was the false positive this exists
- * to remove: `state-floor.svg`'s only "door" was a closed 424-unit outline with a chord
- * of zero.
+ * 描边曲线实际构成的弧：两端间距、凸起量及凸起对应的圆。
+ * `chord` 最关键：门扇开启弧是两端落在门窗洞口两侧边框上的开放曲线；
+ * 两端重合的曲线为闭环，不能判定为门。
  */
 export interface ArcMeasurement {
-	/** Distance between the two ends. Zero for a closed curve. */
+	/** 两端之间的距离；闭合曲线为 0。 */
 	chord: number;
-	/** Radius of the circle the bulge implies, or null when there is no bulge. */
+	/** 凸起量对应的圆半径；无凸起时为 null。 */
 	radius: number | null;
-	/** How much of the circle the curve covers, in degrees, or null without a radius. */
+	/** 曲线覆盖圆的角度，单位为度；无半径时为 null。 */
 	sweep: number | null;
-	/** The curve changes side relative to its chord: an S, not an arc. */
+	/** 曲线相对弦换边，即 S 形而非圆弧。 */
 	sShaped: boolean;
 }
 
 export interface ClassifiedElement extends VectorElementFacts {
 	role: ElementRole;
-	/** Which rule decided, for the review UI and for the tests. */
+	/** 决定该角色的规则，供复核界面和测试使用。 */
 	reason: string;
 }
 
 /**
- * How much wider the widest stroke class must be than the next one before width is
- * treated as evidence at all.
- *
- * A drawing's stroke widths are picked from a handful of values — 5 px outer walls,
- * 3.5 px partitions, 1.5 px openings, 1 px fixtures — so the wall set is whatever
- * sits above the widest gap in that list, and a list with no gap in it carries no
- * information about walls. `little-white-house.svg` is the case that sets the
- * number: one 2 px stroke against five at 1 px, a ratio of exactly 2.
+ * 相邻描边宽度类别之间需要达到的最小比值；最大间隔低于此值时，宽度不作为分类依据。
+ * 户型图的描边宽度通常取自少数几个值，只有最宽间隔才能区分墙体。
  */
 const WIDTH_SPREAD_MIN = 1.5;
 
-/** Long-thin enough to be a filled wall (poché) rather than a room. */
+/** 填充图元达到此长宽比才可能是薄墙色块（poché），而非房间。 */
 const POCHÉ_ASPECT = 6;
 
 /**
- * How big a filled shape must be, as a share of the drawing, before it can be a wall.
- *
- * The poché problem: `state-floor.svg` draws its walls as ~56 small filled blocks,
- * none of them long and thin, so the aspect rule above drops the lot and only the
- * perimeter survives. The blocks carry the drawing's own dark wall brown, which looks
- * like the answer — until `little-white-house.svg`, whose room labels are outlined
- * lettering **in that same brown**. Measured on both files:
- *
- * | | poché blocks | lettering glyphs | room fills |
- * |---|---|---|---|
- * | share of drawing | 0.5 %–6.5 % | 0.01 %–0.1 % | 0.7 %–8 % |
- * | brightest channel | 138 | 138 | 193–255 |
- *
- * Size alone separates lettering from blocks by a factor of five. It does **not**
- * separate blocks from rooms — those overlap completely — which is what the brightness
- * test below is for. Stroke width separates nothing here: the blocks are 1 px while
- * one *room* fill is 6.8 px.
- *
- * The cost of the threshold: the smaller blocks (0.2 %–0.5 %) stay dropped. That is the
- * safe direction — a wall missed under-reports coverage, a glyph admitted invents a
- * barrier across a room.
+ * 填充图元要成为墙体，其面积占图纸面积的最小比例。
+ * 用于区分墙体填充块与房间填充；文字轮廓的面积占比更小，会被一并排除。
  */
 const POCHÉ_MIN_AREA_SHARE = 0.005;
 
 /**
- * The brightest channel a filled shape may have and still be wall-coloured.
- *
- * Runs of wall poché are dark in *every* channel (138, 121, 88), while a room is a
- * colour with a bright one — cream (255, 241, 218), red (233, 86, 82), blue (71, 117,
- * 209), green (125, 193, 68). Luminance would not do it: the red room computes to 129
- * against the walls' 122, a 7-point margin. The brightest channel puts every wall
- * colour under 160 and every room colour over 190.
- *
- * The known risk, stated rather than hidden: a drawing whose *rooms* are filled dark
- * — a night-mode plan, a parking level rendered solid grey — would have those rooms
- * recovered as walls. The size threshold keeps furniture out, and a wall wrongly
- * added is visible (a solid block where a room was) in a way a wall wrongly missed is
- * not, which is the direction this whole rule leans.
+ * 填充图元仍算墙体颜色时，其最亮通道的上限。
+ * 墙体填充在每个通道都偏暗，房间颜色通常有较亮的通道，因此用最亮通道区分。
  */
 const POCHÉ_MAX_CHANNEL = 160;
 
 /**
- * Whether a thin curve is a door swing, and the reason to report if it is.
- *
- * The old rule was "thin, unfilled and curved", which called every arc in the drawing a
- * door — stair rails, arched porticos, the curve of a basin. Measured against the three
- * samples that name their doors, a real swing is:
- *
- * | | true doors (18 of them) | `state-floor.svg`'s one false door |
- * |---|---|---|
- * | chord | 40–50 | **0** |
- * | radius | 40–50 | — |
- * | sweep | 60° | — |
- * | path length | 42–52 | 424 |
- *
- * So the test is the shape of an arc, not the presence of a curve: **open** (the ends do
- * not meet — a swing spans an opening, a loop spans nothing), a single bulge rather than
- * an S, and between `SWING_MIN_SWEEP` and `SWING_MAX_SWEEP` of a circle. Real plans draw
- * a swing as a quarter circle; these samples simplify it to 60°, which is why the band is
- * generous in both directions rather than pinned at 90.
- *
- * The plan-relative radius bound is the second line of defence, for a curve that is
- * open and arc-shaped but simply too big to be a door leaf — a bowed wall, a curved
- * balcony rail. It is relative because a drawing is in no particular unit.
- *
- * A curve that fails is left `unknown`, not a wall: it appears in the review panel as a
- * question, where a wrong "door" would have quietly put a 5 dB hole in a wall.
+ * 判断细曲线是否为门扇开启弧，是则返回原因，否则返回 null。
+ * 要求曲线开放、单侧凸起、覆盖角度在允许范围内，且半径相对图纸不过大；
+ * 不符合时返回 null，调用方将其保留为 unknown。
  */
 function swingArcOf(fact: VectorElementFacts, planArea: number): string | null {
 	const arc = fact.arc;
@@ -204,8 +107,8 @@ function swingArcOf(fact: VectorElementFacts, planArea: number): string | null {
 	if (arc.sweep === null || arc.radius === null) return null;
 	if (arc.sweep < SWING_MIN_SWEEP || arc.sweep > SWING_MAX_SWEEP) return null;
 
-	// Relative to the drawing, so it holds whatever the units are: the plan's own width
-	// is the square root of its area, and a door leaf is a small fraction of a building.
+	// 以图纸面积为基准，因此不受单位影响：图纸宽度取面积的平方根，
+	// 门扇半径只占其中很小一部分。
 	const radiusShareOfPlan = planArea > 0 ? arc.radius / Math.sqrt(planArea) : 0;
 	if (radiusShareOfPlan > SWING_MAX_RADIUS_SHARE) return null;
 
@@ -213,44 +116,26 @@ function swingArcOf(fact: VectorElementFacts, planArea: number): string | null {
 }
 
 /**
- * The sweep a door swing may cover.
- *
- * A quarter circle is the convention and these samples draw 60°; below 40° the curve is
- * too flat to be a swing and looks like a leader line or a slightly bowed wall, and above
- * 135° it is most of a loop — a basin, a round fixture.
+ * 门扇开启弧允许覆盖的角度范围。
+ * 小于 40° 的曲线过平，可能是标注引线或微弯墙体；大于 135° 则接近闭环。
  */
 const SWING_MIN_SWEEP = 40;
 const SWING_MAX_SWEEP = 135;
 
 /**
- * The largest radius a swing may have, as a share of the plan's own width.
- *
- * A door leaf is roughly 0.8–1.2 m; a building is tens of metres across, so a swing's
- * radius is a few percent of the plan's width. Measured: 40 / 440 = 9 % on
- * `apartment-48sqm.svg`, 50 / 700 = 7 % on `office-300sqm.svg`. The cut sits at 25 %, so
- * it rejects only curves that are plainly structure rather than a leaf.
+ * 门扇开启弧半径相对图纸宽度的最大占比。
+ * 门扇半径通常只占建筑宽度的百分之几，超过此比例的多为结构曲线而非门扇。
  */
 const SWING_MAX_RADIUS_SHARE = 0.25;
 
 /**
- * The most subpaths a filled shape may hold and still be a wall block.
- *
- * A poché block is one rectangle or one simple outline — measured 1–3 subpaths on
- * `state-floor.svg`. Its room labels are the exception that makes this necessary: each
- * *word* is a single filled path holding 11–21 letter outlines, and a word's bounding
- * box is big enough to pass the size test, which left "CROSS HALL" and friends standing
- * as thin walls across their rooms.
- *
- * The shape of the risk on the other side: a wall drawn as one path with many dashed
- * subpaths would now be dropped by this rule. That drawing exists in principle; it has
- * not appeared in the corpus, and it is the failure this rule trades against the one
- * that did.
+ * 填充图元仍可视为墙体色块时允许的最大子路径数。
+ * 墙体填充块通常由一个矩形或简单轮廓构成；文字则是一个填充路径包含多个字母轮廓。
  */
 const POCHÉ_MAX_SUBPATHS = 6;
 
 /**
- * Painter's colours, normalised for comparison: `rgb(138, 121, 88)` and
- * `rgb(138,121,88)` are the same brown and must compare equal.
+ * 用于比较的颜色值，规范化为 `r,g,b` 形式；无法解析时返回 null。
  */
 function colourKey(value: string | undefined): string | null {
 	if (!value) return null;
@@ -259,7 +144,7 @@ function colourKey(value: string | undefined): string | null {
 	return `${m[1]},${m[2]},${m[3]}`;
 }
 
-/** The brightest channel of a colour, or null when it is not a plain `rgb()`. */
+/** 颜色的最亮通道值；无法解析为 `rgb()` 或 `rgba()` 时返回 null。 */
 function brightestChannel(value: string | undefined): number | null {
 	const key = colourKey(value);
 	if (!key) return null;
@@ -267,15 +152,14 @@ function brightestChannel(value: string | undefined): number | null {
 }
 
 /**
- * Two thin parallel lines closer than this multiple of their own stroke width are
- * one window rather than two walls. The shipped samples draw them 4 px apart at
- * 1.5 px stroke; a wall pair would be a room's two sides, orders of magnitude apart.
+ * 两条平行细线的间距小于自身描边宽度的该倍数时，视为一扇窗而非两道墙。
+ * 该值是无单位系数，用作窗对检测的间距上限。
  */
 const WINDOW_PAIR_GAP = 8;
 
-/** Name fragments, checked in order. First match wins, so `door` beats `wall`. */
+/** 名称片段规则，按顺序检查，首个匹配生效，因此门窗洞口优先于墙体。 */
 const NAME_RULES: ReadonlyArray<{ role: ElementRole; match: RegExp }> = [
-	// Openings first: "door-wall" or "wall-window" should read as the opening.
+	// 先判断门窗洞口，确保同时含墙体字样的名称仍按洞口处理。
 	{ role: 'door', match: /(^|[\s_-])(door|doors|doorway|opening|gate|entry)([\s_-]|$)/ },
 	{ role: 'window', match: /(^|[\s_-])(window|windows|glaz|glass|wind)([\s_-]|$)/ },
 	{
@@ -294,7 +178,7 @@ const NAME_RULES: ReadonlyArray<{ role: ElementRole; match: RegExp }> = [
 	}
 ];
 
-/** The role a name claims, or null when no fragment matches. */
+/** 名称所声明的角色；没有片段匹配时返回 null。 */
 export function roleFromName(name: string): { role: ElementRole; reason: string } | null {
 	for (const rule of NAME_RULES) {
 		if (rule.match.test(name)) {
@@ -305,12 +189,9 @@ export function roleFromName(name: string): { role: ElementRole; reason: string 
 }
 
 /**
- * Assign a role to every element.
- *
- * Order is deliberate: a name beats geometry, because a name is the draughtsman's
- * own statement and geometry is an inference. Within the geometry pass, a *line*
- * (stroke, no fill) can be a wall, a window or a door; an *area* (fill) with a thin
- * stroke is a room and is dropped unless it is long and thin enough to be poché.
+ * 为每个图元分配角色。
+ * 名称优先于几何，因为名称是绘图者的明确声明；几何阶段中，描边线条可为墙体、窗或门，
+ * 填充区域按薄长、颜色和面积判断是否为墙体色块，其余归为固定设施。
  */
 export function classifyVectorElements(
 	facts: VectorElementFacts[],
@@ -320,11 +201,11 @@ export function classifyVectorElements(
 	const stroked = facts.filter((f) => f.hasStroke && f.strokeWidth > 0);
 	const thickAt = wallWidthThreshold(stroked);
 
-	// Windows are pairs, which cannot be decided one element at a time.
+	// 窗由成对图元构成，无法逐个图元单独判定。
 	const paired = findWindowPairs(facts, thickAt);
 
-	// First pass: everything whose role can be decided on its own. A bare fill is left
-	// for the second pass, which needs to know what colour this drawing's walls are.
+	// 第一遍：处理所有能独立判定角色的图元。纯填充留到第二遍，
+	// 因为需要知道本图的墙体颜色。
 	const prelim = facts.map((fact, index): { role: ElementRole; reason: string } | null => {
 		const named = roleFromName(fact.name);
 		if (named) return named;
@@ -339,7 +220,7 @@ export function classifyVectorElements(
 			if (fact.strokeWidth >= thickAt) {
 				return { role: 'wall', reason: `stroke ${fact.strokeWidth} is above the width cut` };
 			}
-			// A thin line that is not paired: a door swing, if it is shaped like one.
+			// 未配对的细线：若形状符合，则为门扇开启弧。
 			if (fact.curved && !fact.hasFill) {
 				const swing = swingArcOf(fact, planArea);
 				if (swing) return { role: 'door', reason: swing };
@@ -350,10 +231,8 @@ export function classifyVectorElements(
 		return { role: 'unknown', reason: 'nothing to classify' };
 	});
 
-	// Second pass: a bare fill. A long thin one is poché on its shape alone. A blocky
-	// one needs two things together — dark enough to be wall poché rather than a room,
-	// and big enough to be structure rather than lettering. Either test alone is wrong
-	// on a plan this project ships; see `POCHÉ_MIN_AREA_SHARE`.
+	// 第二遍：处理纯填充。薄长的填充仅凭形状即可判为墙体色块；
+	// 块状填充则需同时足够暗且足够大，分别排除房间和文字。详见 `POCHÉ_MIN_AREA_SHARE`。
 	return facts.map((fact, index) => {
 		const decided = prelim[index];
 		if (decided) return { ...fact, ...decided };
@@ -385,22 +264,12 @@ export function classifyVectorElements(
 }
 
 /**
- * The stroke width at or above which a stroke is a wall, or `Infinity` when the
- * drawing's strokes are too uniform for width to distinguish anything.
- *
- * The cut is placed at the **largest relative gap** in the drawing's own stroke
- * widths, not at a fixed fraction of the widest one. A fraction was tried first and
- * the anonymous-file experiment broke it: `house-120sqm.svg` draws 6 px outer walls,
- * 5 px walls and 3.5 px partitions, so `0.6 × 6` puts the threshold at 3.6 and drops
- * every partition by a tenth of a pixel — recovering 11 of its 25 walls once the
- * class names that would have saved them are removed. The gap cut lands at 2.5 and
- * keeps all of them. On the same rule the other four shipped plans land correctly
- * too (`state-floor.svg` cuts between 6.8 and 1.9, `little-white-house.svg` between
- * 2 and 1, the samples between 3.5 and 1.5).
+ * 描边达到或超过该宽度时判为墙体；描边宽度过于均匀而无法区分时返回 `Infinity`。
+ * 阈值取描边宽度序列中相对间隔最大的位置，而非最宽值的固定比例。
  */
 function wallWidthThreshold(stroked: VectorElementFacts[]): number {
-	// Distinct widths, widest first. Rounded because a computed style carries float
-	// noise (6.80000019) that would otherwise look like a gap of its own.
+	// 取不同宽度并按从宽到窄排序；计算样式带有浮点噪声，
+	// 四舍五入到三位小数可避免把噪声当成间隔。
 	const widths = [...new Set(stroked.map((f) => Math.round(f.strokeWidth * 1000) / 1000))].sort(
 		(a, b) => b - a
 	);
@@ -419,13 +288,13 @@ function wallWidthThreshold(stroked: VectorElementFacts[]): number {
 		}
 	}
 
-	// No gap worth cutting at: width is not evidence, and the rules below get their
-	// turn. This is the plan whose only strokes are its window lines.
+	// 没有值得切分的间隔：宽度不构成证据，交由后续规则处理。
+	// 这类图纸的描边可能只有窗线。
 	if (widestRatio < WIDTH_SPREAD_MIN) return Infinity;
 	return cut;
 }
 
-/** Longest side over shortest side, 1 for a square, ∞ for a degenerate line. */ function thinAspect(
+/** 最长边与最短边之比；正方形为 1，退化线为 ∞。 */ function thinAspect(
 	fact: VectorElementFacts
 ): number {
 	const long = Math.max(fact.width, fact.height);
@@ -435,26 +304,9 @@ function wallWidthThreshold(stroked: VectorElementFacts[]): number {
 }
 
 /**
- * Indices of thin stroked elements that have **exactly one** parallel twin a few
- * stroke widths away: the double-line convention for a window.
- *
- * Length within 25 %, same orientation, their runs overlapping along that axis, and
- * a gap across it of between 1 and `WINDOW_PAIR_GAP` times the element's *own*
- * stroke width. The shipped samples draw windows as two lines 4 px apart at 1.5 px
- * stroke; a room's two facing walls are orders of magnitude further apart.
- *
- * **Exactly one** is the load-bearing word, and it was measured into place. A run of
- * parallel lines satisfies every pairwise test above, and staircases are drawn as
- * exactly that: without this, `state-floor.svg` reported 19 windows, most of them
- * the treads of its two stair flights. A window is a pair; three or more lines in a
- * row are hatching, treads or a ladder.
- *
- * A curve that actually bulges is excluded outright, on both sides of the comparison. A
- * window is two **straight** parallel lines; nothing else in a plan is drawn as a pair of
- * arcs. Without this the test ran first and took door swings for windows: stripping the
- * names from `apartment-48sqm.svg` left 8 windows and 3 doors, because a swing arc and
- * its straight leaf are the same length, sit a few stroke widths apart, and overlap —
- * every condition the pair test asks for.
+ * 返回具有**恰好一条**平行配对线的细描边图元索引，对应窗的双线画法。
+ * 配对要求曲线不凸起，长度接近、方向相同、沿轴向重叠，横向间距在自身描边宽度的
+ * 1 倍到 `WINDOW_PAIR_GAP` 倍之间；多于一条配对线的视为踏步或剖面线。
  */
 function findWindowPairs(facts: VectorElementFacts[], wallWidth: number): Set<number> {
 	const candidates = facts
@@ -464,13 +316,11 @@ function findWindowPairs(facts: VectorElementFacts[], wallWidth: number): Set<nu
 				fact.hasStroke &&
 				!fact.hasFill &&
 				fact.strokeWidth > 0 &&
-				// Thinner than a wall. When the drawing has no width spread `wallWidth`
-				// is Infinity, so every stroked line is a candidate and the pair test
-				// alone decides — which is the right answer for a plan whose only
-				// strokes are its windows.
+				// 按墙体宽度过滤：若图纸没有宽度分层，wallWidth 为 Infinity，
+				// 此时所有描边线都参与配对，仅由配对测试决定。
 				fact.strokeWidth < wallWidth &&
 				fact.length > 0 &&
-				// A real bulge, not merely a curve command in the path.
+				// 排除有明显凸起的曲线，而不只是路径中含曲线命令。
 				!(fact.arc && fact.arc.radius !== null)
 		);
 
@@ -493,17 +343,16 @@ function findWindowPairs(facts: VectorElementFacts[], wallWidth: number): Set<nu
 }
 
 function isParallelTwin(a: VectorElementFacts, b: VectorElementFacts): boolean {
-	// Similar length.
+	// 长度接近。
 	const long = Math.max(a.length, b.length);
 	const short = Math.min(a.length, b.length);
 	if (long <= 0 || short / long < 0.75) return false;
 
-	// Which way round they run. A degenerate extent means the element *is* a line
-	// along the other axis.
+	// 判断走向；退化的跨度意味着图元沿另一轴成线。
 	const horizontal = a.width >= a.height;
 	if (horizontal !== b.width >= b.height) return false;
 
-	// Overlap along the run, so two collinear segments are not paired.
+	// 沿走向需有重叠，避免共线线段被配对。
 	const startA = horizontal ? a.x : a.y;
 	const endA = startA + (horizontal ? a.width : a.height);
 	const startB = horizontal ? b.x : b.y;
@@ -511,7 +360,7 @@ function isParallelTwin(a: VectorElementFacts, b: VectorElementFacts): boolean {
 	const overlap = Math.min(endA, endB) - Math.max(startA, startB);
 	if (overlap < Math.min(endA - startA, endB - startB) * 0.75) return false;
 
-	// Gap across the run, measured between the elements' own lines.
+	// 测量横向间距，取图元自身线条之间的距离。
 	const acrossA = horizontal ? a.y : a.x;
 	const acrossB = horizontal ? b.y : b.x;
 	const gap = Math.abs(acrossA - acrossB);
@@ -519,17 +368,12 @@ function isParallelTwin(a: VectorElementFacts, b: VectorElementFacts): boolean {
 	return gap >= stroke && gap <= stroke * WINDOW_PAIR_GAP;
 }
 
-// ─── Browser adapter ────────────────────────────────────────────────────────
+// ─── 浏览器适配器 ──────────────────────────────────────────────────────────
 
 /**
- * The drawing's own area, in the same units as the facts' `width`/`height`.
- *
- * Those come from `getBBox()`, which is **user space** — before the viewBox is scaled
- * to the raster width. So this must be user space too: a viewBox of 1200×786 rendered
- * at 800 px wide shrinks every block by 0.44 in each axis, and comparing a user-space
- * block against a pixel-space plan understated every poché share by more than half.
- * That is the bug this function exists to prevent, so it takes the viewBox rather than
- * the render size.
+ * 图纸自身的面积，单位与 `width`/`height` 相同。
+ * 优先取 viewBox 的面积，无法取得时回退到 `getBBox()`；两者都是用户空间，
+ * 不能使用渲染后的像素尺寸。
  */
 export function planAreaOf(svg: SVGSVGElement): number {
 	const box = svg.viewBox?.baseVal;
@@ -538,24 +382,16 @@ export function planAreaOf(svg: SVGSVGElement): number {
 		const own = svg.getBBox();
 		if (own.width > 0 && own.height > 0) return own.width * own.height;
 	} catch {
-		// A detached root: fall through to "unknown", which the caller treats as "cannot
-		// judge size", leaving blocks unclassified rather than calling them walls.
+		// 根节点游离时进入未知分支；调用方按“无法判断大小”处理，
+		// 使色块保持未分类，而不是被误判为墙体。
 	}
 	return 0;
 }
 
 /**
- * The elements this module reasons about, in document order.
- *
- * Exported so a caller can keep its own list index-aligned with
- * `describeSvgElements`' output. Two matching queries would drift apart the moment
- * either changes, and the drift would be silent: `vector-detect.ts` maps roles onto
- * elements by index, so one extra element on one side rewrites every role after it.
- *
- * Elements inside `<defs>` and friends are excluded. They are not drawn by
- * themselves — only where something references them — and counting them made
- * `little-white-house` report 103 "fill-only elements" that are the insides of a
- * polka-dot pattern.
+ * 本模块处理的图元，按文档顺序返回。
+ * 导出是为让调用方的列表索引与 `describeSvgElements` 结果对齐，任一侧多一个图元都会使后续角色错位；
+ * `<defs>` 等容器内的图元不单独绘制，已排除。
  */
 export function selectDrawableElements(svg: SVGSVGElement): SVGElement[] {
 	const selector = 'path, line, rect, polygon, polyline, circle, ellipse';
@@ -567,11 +403,8 @@ export function selectDrawableElements(svg: SVGSVGElement): SVGElement[] {
 }
 
 /**
- * Facts for every drawable element under `svg`, using **computed** style.
- *
- * Computed rather than attribute values, because half the files in the wild paint
- * through a `<style>` block: `state-floor.svg` has not one `fill=` attribute on its
- * 101 drawable elements, and an attribute-based reader sees them all as unpainted.
+ * 使用**计算样式**为 `svg` 下每个可绘制图元生成事实。
+ * 采用计算样式而非属性值，是因为许多文件通过 `<style>` 块着色，属性读取会漏掉。
  */
 export function describeSvgElements(svg: SVGSVGElement): VectorElementFacts[] {
 	const out: VectorElementFacts[] = [];
@@ -597,8 +430,8 @@ export function describeSvgElements(svg: SVGSVGElement): VectorElementFacts[] {
 			width = box.width;
 			height = box.height;
 		} catch {
-			// A detached or zero-sized element: leave the geometry at zero, which the
-			// classifier treats as "no evidence" rather than as a measurement.
+			// 游离或尺寸为零的图元：几何值保持为 0，
+			// 分类器会将其视为“无证据”，而不是一次测量。
 		}
 
 		const d = el.getAttribute('d') ?? '';
@@ -628,16 +461,8 @@ export function describeSvgElements(svg: SVGSVGElement): VectorElementFacts[] {
 }
 
 /**
- * Measure the arc a stroked curve traces, by walking it.
- *
- * Sampling `getTotalLength`/`getPointAtLength` rather than parsing `d`: the same arc can
- * arrive as an `A` command, as beziers, or as a chain of short segments, and the browser
- * already knows how to walk all three. Parsing would mean re-implementing the path
- * grammar to learn the same thing less reliably.
- *
- * Only stroked, unfilled curves are measured — that is the only shape a door swing can
- * be, and walking 33 points of every path in a 3,000-element CAD export is not free.
- * Returns null when the element is not such a curve, or is not walkable.
+ * 通过采样 `getTotalLength`/`getPointAtLength` 测量描边曲线描绘的弧。
+ * 只测量有描边、无填充的曲线；不是此类曲线或无法采样时返回 null。
  */
 function measureArc(el: Element, d: string, hasFill: boolean): ArcMeasurement | null {
 	const tag = el.tagName.toLowerCase();
@@ -669,12 +494,12 @@ function measureArc(el: Element, d: string, hasFill: boolean): ArcMeasurement | 
 	const [bx, by] = points[SAMPLES]!;
 	const chord = Math.hypot(bx - ax, by - ay);
 	if (chord < 1e-6) {
-		// The ends meet: a loop, not an arc. Whether it is closed by a `Z` or simply
-		// curves back to where it started, it cannot be a swing.
+		// 两端重合：闭环而非弧线；无论由 `Z` 闭合还是曲线回到起点，
+		// 都不能成为门扇开启弧。
 		return { chord: 0, radius: null, sweep: null, sShaped: false };
 	}
 
-	// Signed perpendicular deviation from the chord, both ways.
+	// 相对弦的有符号垂直偏差，分别记录两侧最大值。
 	let maxPositive = 0;
 	let maxNegative = 0;
 	for (const [px, py] of points) {
@@ -684,11 +509,11 @@ function measureArc(el: Element, d: string, hasFill: boolean): ArcMeasurement | 
 	}
 	const bulge = Math.max(maxPositive, -maxNegative);
 	if (bulge < 1e-6) {
-		// Straight in disguise: a curve command that drew a line.
+		// 看似直线：曲线命令实际画出了直线。
 		return { chord, radius: null, sweep: null, sShaped: false };
 	}
 
-	// Sagitta to radius, for a circular arc: r = s/2 + c^2 / (8s).
+	// 矢高转半径，圆弧公式：r = s/2 + c^2 / (8s)。
 	const radius = bulge / 2 + (chord * chord) / (8 * bulge);
 	const sweep =
 		radius >= chord / 2 ? (2 * Math.asin(Math.min(1, chord / (2 * radius))) * 180) / Math.PI : null;
@@ -701,7 +526,7 @@ function measureArc(el: Element, d: string, hasFill: boolean): ArcMeasurement | 
 	};
 }
 
-/** Class and id and any label attribute, lowercased and space-joined. */
+/** 类名、id 和所有 label 属性，转为小写并用空格连接。 */
 function namesOf(el: Element): string {
 	const parts: string[] = [];
 	const cls = el.getAttribute('class');

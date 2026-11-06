@@ -3,10 +3,10 @@ import type { Layer, RenderContext } from '../types.js';
 export class SelectionRectLayer implements Layer {
 	id = 'selection-rect';
 	visible = true;
-	/** A gesture, not the plan. */
+	/** 手势产物，不属于图纸内容。 */
 	readonly exportable = false;
 
-	// World coordinates of the selection box
+	// 选择框的世界坐标
 	startX = 0;
 	startY = 0;
 	endX = 0;
@@ -27,11 +27,11 @@ export class SelectionRectLayer implements Layer {
 
 		const zoom = camera.state.zoom;
 
-		// Fill
+		// 填充
 		ctx.fillStyle = 'rgba(75, 227, 160, 0.08)';
 		ctx.fillRect(x, y, w, h);
 
-		// Border
+		// 边框
 		ctx.strokeStyle = 'rgba(75, 227, 160, 0.5)';
 		ctx.lineWidth = 1 / zoom;
 		ctx.setLineDash([4 / zoom, 4 / zoom]);

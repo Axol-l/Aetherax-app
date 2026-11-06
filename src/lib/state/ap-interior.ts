@@ -63,7 +63,7 @@ async function computeInterior(floorId: string): Promise<CachedInterior | null> 
 		trimWallAdjacent: true
 	});
 	debug(
-		`[interior] ${decoded.width}脳${decoded.height} in ${Math.round(performance.now() - interiorStarted)} ms`
+		`[interior] ${decoded.width}×${decoded.height} in ${Math.round(performance.now() - interiorStarted)} ms`
 	);
 	const roomTypes = decoded.roomTypeData;
 	if (roomTypes && roomTypes.length === interior.length) {

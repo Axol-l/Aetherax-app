@@ -1,60 +1,36 @@
 /**
- * The plan's rooms: one derivation, for everyone who has to agree about which room is which.
- *
- * "Which regions are rooms" is answered in seven places — the placement domain, the coverage
- * sample set, the density map, the click guard, the worker's verifier, the worker's wall band
- * and the canvas's own room labels. They all ask the same question and they were answering it
- * with different parameters, which produced *different partitions of the same plan, numbered
- * differently*. `roomDensityOverrides` is keyed by those numbers, so a density the user set on
- * a room was read back by the optimiser against whatever room happened to carry that ordinal
- * in its own partition — or against nothing at all.
- *
- * The parameters live here now, once. What a caller may still choose is the one thing that
- * genuinely differs between them: whether the wall-adjacent pixels are trimmed. The placement
- * domain trims (an access point against a wall face is not a placement); the picture and the
- * density map do not (a room on screen is the room that was drawn, and the density of the
- * pixels hugging a wall is still the density of the room they are in). Everything else — the
- * working resolution, the close radius, the minimum room radius — is shared, because a
- * difference in any of them renumbers the plan.
- *
- * What this deliberately does not do: it does not make the ids *stable* across edits. They are
- * ordinals from a scan of the interior, so drawing a wall can renumber the rooms — that is what
- * the pixel-addressed `roomTypeMask` is for, and it is why an override belongs to a room rather
- * than to a position. Making them stable needs a geometric key and a change to the persisted
- * project format; nothing here does that.
+ * 规划中的房间：所有需要就“哪个房间是哪个”达成一致的地方共用同一份推导结果。
+ * `roomDensityOverrides` 以这里产生的区域 id 为键，调用方必须传入相同参数；
+ * id 在编辑后不保证稳定，新增墙体可能使房间重排。
  */
 import { computeBuildingInterior } from './morphology.js';
 import { labelRooms } from './region-labels.js';
 
 export interface RoomDomain {
-	/** Walkable floor: inside the building, cavities below the minimum radius removed. */
+	/** 可行走地面：位于建筑内部，且已移除小于最小半径的凹腔。 */
 	interior: Uint8Array;
-	/** Region id per pixel, or −1 outside every room. */
+	/** 每个像素所属的区域 id，不属于任何房间时为 −1。 */
 	labels: Int32Array;
-	/** How many distinct rooms the labels contain. */
+	/** 标签中不同房间的数量。 */
 	regionCount: number;
 }
 
 export interface RoomDomainOptions {
 	/**
-	 * Smallest inscribed radius a region may have and still be a room, in mask pixels.
-	 *
-	 * Every caller converts the same metre figure (`MIN_ROOM_RADIUS_M`) with its own
-	 * calibration, so this is the one parameter that legitimately differs with the scale of
-	 * the drawing rather than with the caller.
+	 * 区域可成为房间的最小内切半径，单位为掩码像素。
+	 * 各调用方用自身标定换算同一米制值（`MIN_ROOM_RADIUS_M`），因此该参数随图纸比例变化，
+	 * 而不随调用方变化。
 	 */
 	minRegionRadius: number;
 	/**
-	 * Whether to trim the pixels touching a wall.
+	 * 是否裁掉紧贴墙体的像素。
 	 *
-	 * True for the placement domain and for anything that verifies a placement against it —
-	 * false for the picture and for the density map, which are both about the room the user
-	 * drew. The two families must each be internally consistent; mixing them renumbers rooms.
+	 * 放置域及其校验传 true；画面和密度图传 false，两者都必须内部一致，混用会重新编号房间。
 	 */
 	trimWallAdjacent: boolean;
 }
 
-/** The rooms of one plan. */
+/** 构建单张平面图的房间。 */
 export function buildRoomDomain(
 	wallData: Uint8Array,
 	width: number,
@@ -62,11 +38,10 @@ export function buildRoomDomain(
 	options: RoomDomainOptions
 ): RoomDomain {
 	const { interior } = computeBuildingInterior(wallData, width, height, {
-		// The working resolution both detectors rasterise to, so the same plan gives the same
-		// partition whatever it was read from.
+		// 两个检测器共同栅格化到的工作分辨率，使同一平面图得到相同的分区。
 		maxDim: 400,
 		dilateRatio: 0.04,
-		// Seals door-sized gaps in an outline without closing a real corridor.
+		// 封闭轮廓上门宽大小的缺口，同时不封死真实走廊。
 		minDilateR: 4,
 		trimWallAdjacent: options.trimWallAdjacent,
 		minRegionRadius: Math.max(0, options.minRegionRadius)

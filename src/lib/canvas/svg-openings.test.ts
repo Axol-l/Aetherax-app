@@ -1,6 +1,4 @@
-/**
- * A window is two strokes in the drawing and one material change in the model.
- */
+/** 窗户在图纸上是两条线，在模型里是一次材质变化。 */
 import { describe, expect, it } from 'vitest';
 import { collapseOpenings, mergeOpeningsIntoWalls } from './svg-walls.js';
 
@@ -30,7 +28,7 @@ describe('collapseOpenings', () => {
 describe('mergeOpeningsIntoWalls', () => {
 	it('cuts the wall and marks the piece as glass, leaving wall on both sides', () => {
 		const merged = mergeOpeningsIntoWalls([wall], [collapseOpenings([window1, window2], 10)[0]!], 10);
-		// Three pieces: wall, glass, wall — not a wall with a second line over it.
+		// 三段：墙、玻璃、墙，而不是墙外加一条重叠线。
 		expect(merged).toHaveLength(3);
 		const materials = merged.map((segment) => segment.material);
 		expect(materials).toEqual([0, glass, 0]);

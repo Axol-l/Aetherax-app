@@ -1,10 +1,6 @@
 /**
  * 工程两次打开之间存在哪儿。
- *
- * 垫这一层是因为后端迟早要换：`localStorage` 只有约 5 MB，而一层楼的墙体掩码就是一张 PNG data URL，
- * 三层楼就快撑爆，满了以后工程重新加载回来会少东西。换成 IndexedDB 有几百 MB，写入也不必卡在主线程，
- * 所以接口**一律异步**——哪怕现在的实现不需要；以后再往调用方里补异步，正是这模块想避免的事。
- * 值统一是字符串：工程是 JSON，掩码是 data URL，这里不需要懂 blob 或 schema，那是 `persistence` 的事。
+ 
  */
 
 export type StorageBackend = 'indexeddb' | 'localstorage';
@@ -14,15 +10,6 @@ export interface KeyValueStore {
 	readonly backend: StorageBackend;
 	read(key: string): Promise<string | null>;
 	write(key: string, value: string): Promise<void>;
-	/**
-	 * 不返回 promise 的写入，只给那个等不了异步的调用方用。
-	 *
-	 * 正在关闭的窗口没机会跑完 promise 链：页面只剩一个同步回合，然后它就是没了。它存在就是为了
-	 * 这个——见 `persistence.flushSaveSync`，也是唯一的调用方。
-	 *
-	 * 是可选项，因为不是每个后端都做得到。IndexedDB 就做不到：事务什么时候提交就什么时候提交，
-	 * 没有同步写入。需要它的调用方得先检查有没有，不能想当然。
-	 */
 	writeSync?(key: string, value: string): void;
 	remove(key: string): Promise<void>;
 	/** 这个存储里的所有键，给迁移和工程列表用。 */
@@ -155,11 +142,6 @@ export const indexDbStore: KeyValueStore = {
 
 /**
  * 把只存在于 localStorage 里的记录搬进 `store`。
- *
- * 每次启动都跑，且幂等：目标里已经有这个键就跳过。所以这是复制不是移动，旧数据在写入
- * 确认落地之前一直留着，由调用方之后自己一次性删掉。
- *
- * 返回搬过去多少个键。
  */
 export async function migrateInto(
 	store: KeyValueStore,

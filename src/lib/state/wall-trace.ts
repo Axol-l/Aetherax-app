@@ -1,9 +1,5 @@
 /**
  * 从画好的墙体掩码里描出线段，供矢量墙使用。
- *
- * 做法只认正交：连续墙体像素的中间就是中心线，同一条线上的段会合并（被门框、文字打断的墙
- * 仍算一根）；厚墙带靠「横截面比最小长度短」被丢掉，一条带只出一根线。坐标是掩码像素，原点
- * 由调用方补上。
  */
 import type { WallMaterialId } from '$lib/domain/materials.js';
 import { getFloorMask } from './floor-mask.js';
@@ -156,11 +152,6 @@ function thicknessAt(
 }
 
 /**
- * 收拾描摹出来的结果。
- *
- * 去掉三种「把墙算多」的情况：每多一根线段射线就多穿一次，实测这样描出来是 5.98 dB，按掩码
- * 算是 4.60。
- *
  * 1. **去掉横截面**：沿墙带短轴的段长度等于墙厚，不是墙；横竖两遍都会产出候选。
  * 2. **合并重叠段**：同一条线上的共线重叠段是同一道墙，墙带错位时会重复。
  * 3. **接上端点**：相距几个单位内的端点拉到中点，搭在墙上的端点投影过去，别留缝。
@@ -296,9 +287,6 @@ export function traceWallsFromMask(
 
 /**
  * 用矢量读取器给出的几何直接写入楼层的墙。
- *
- * 这是最准的路径：图纸本身说了墙在哪，不用描、不用近似。返回写入的线段数——返回 0 说明
- * 调用方该退回描摹掩码（比如图纸里的元素全是曲线）。
  */
 export function setFloorWallsFromSegments(
 	floorId: string,
@@ -320,11 +308,6 @@ export function setFloorWallsFromSegments(
 
 /**
  * 把楼层当前的掩码描成墙体线段。
- *
- * **凡是**产出掩码的路径都得调它，否则只有掩码的楼层在矢量层上画不出东西、也没法编辑（以前
- * 只接在「重新检测」上，导入的还是一张图，而导入走的是 `importFloorplanFile` 那几条路径）。
- * 调用方必须先清空 `floor.walls`：有线段时 `getFloorMask` 是用线段反推掩码。返回写入的
- * 线段数，0 表示没有够长的连续段可描。
  */
 export async function traceFloorWalls(floorId: string): Promise<number> {
 	const floor = floorState.floors.find((candidate) => candidate.id === floorId);
@@ -337,14 +320,6 @@ export async function traceFloorWalls(floorId: string): Promise<number> {
 		decoded.width,
 		decoded.height,
 		floor.wallMaterial as WallMaterialId,
-		/*
-		 * 够长才算墙，别把家具算进来。
-		
-		 * 默认最小值 12 像素，对手绘掩码合适（那是一笔的横截面），但对检测出的图纸太松：
-		 * 桌子、椅子或一排剖面线都有二三十像素长，以前全成了墙——图纸上多个小凸起，热力图里
-		 * 多道窄阴影。24 像素大约等于导入目标尺寸下一扇门的宽度，真正的隔断还能留下，家具
-		 * 不会。
-		 */
 		{ minLength: 24 }
 	);
 	floor.walls = traced.map((wall) => ({

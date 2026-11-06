@@ -1,23 +1,6 @@
 /**
- * The wall-loss half of a link budget, in one place.
- *
- * Every consumer of the RF model has to answer the same two questions about a path:
- * "what do the walls on this floor charge?" and "what do they charge when the path leaves
- * one storey and arrives on another?". The answer is a march through a mask that charges
- * the material table once per crossing — but each consumer kept its own copy of the
- * plumbing around the march: which table belongs to which band, which figure to charge for
- * an id the table does not have, the mask's origin subtracted from both ends, and the
- * split of a cross-floor ray at the slab.
- *
- * That plumbing is what drifted: the heatmap, the coverage pass and the optimiser worker
- * are three copies of the same sequence, and each one can be edited without the others.
- * The march itself was already shared (`rayMarchWallAtten`); this module shares the layer
- * that turns a floor's mask into a *run* and a path into one or two runs.
- *
- * Deliberately not here: the rest of the budget (free-space loss, the antenna cuts, the
- * slab figure, diffraction, reflection). Those still differ per consumer by design — the
- * heatmap marches at a coarser stride and uses a polar field, the worker has no fields at
- * all — and folding them in would be a rewrite, not a deduplication.
+ * 链路预算中穿墙损耗部分的统一入口：把楼层掩膜与路径转换为一次或两次穿墙路径。
+ * 只负责这一层公共流程，自由空间损耗、天线、楼板、绕射与反射仍由各调用方自行处理。
  */
 import { crossFloorLoss, crossFloorSegments } from './cross-floor.js';
 import { rayMarchWallAtten } from './propagation.js';
@@ -28,35 +11,29 @@ export interface Point {
 }
 
 /**
- * One mask a ray can be marched through, with everything the march needs.
- *
- * `originX`/`originY` are the world coordinates of mask pixel (0, 0). The march works in
- * mask pixels, so a caller that has world points subtracts the origin — one pair of
- * subtractions that used to be written out at every call site, and that is easy to get
- * wrong in exactly one of them.
+ * 射线可以穿越的一张掩膜，以及行进所需的全部参数。
+ * `originX`/`originY` 是掩膜像素 (0, 0) 的世界坐标；行进按像素进行，调用方需先减去原点。
  */
 export interface WallRun {
 	mask: Uint8Array;
 	width: number;
 	height: number;
-	/** Painted material id per pixel, or null when the floor has none. */
+	/** 每个像素的材质 id，该楼层没有材质时为 null。 */
 	materialMask: Uint8Array | null;
-	/** dB per crossing, indexed by material id, for this run's band. */
+	/** 本路径所在频段下按材质 id 索引的每次穿越损耗，单位 dB。 */
 	materialDb: number[];
-	/** Charged for a material id the table does not contain. */
+	/** 材质表中不存在该 id 时所计的损耗。 */
 	fallbackDb: number;
-	/** World coordinates of mask pixel (0, 0). */
+	/** 掩膜像素 (0, 0) 的世界坐标。 */
 	originX: number;
 	originY: number;
-	/** Material that counts when there is no material mask. */
+	/** 没有材质掩膜时使用的材质。 */
 	defaultMaterialId: number;
 }
 
 /**
- * dB charged by the walls between two world points, on one floor.
- *
- * `stride` is the march's step in pixels: the heatmap uses 2 because the wall band is six
- * pixels wide and it regenerates an image, while the evaluators march at 1.
+ * 同一楼层上两个世界坐标点之间墙体产生的损耗，单位 dB。
+ * `stride` 是行进的像素步长，默认 1。
  */
 export function wallRunLoss(run: WallRun, from: Point, to: Point, stride = 1): number {
 	return rayMarchWallAtten(
@@ -76,13 +53,8 @@ export function wallRunLoss(run: WallRun, from: Point, to: Point, stride = 1): n
 }
 
 /**
- * dB charged by a cross-floor path, split at the storey it crosses.
- *
- * The ray leaves the AP through its own floor's plan, drops through the slab, and finishes
- * on the client's floor; each half is marched against the mask of the floor it actually
- * passes through. Returns null when there is no split to build — the two fractions are
- * equal, or the geometry is degenerate — so the caller can fall back to a single run, which
- * is what every hand-written copy of this did.
+ * 跨楼层路径的损耗，按穿过的楼层分段计算，单位 dB。
+ * 没有可拆分的位置（两段比例相等或几何退化）时返回 null，由调用方退回单段计算。
  */
 export function splitWallRunLoss(
 	source: WallRun,

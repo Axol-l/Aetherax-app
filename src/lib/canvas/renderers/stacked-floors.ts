@@ -5,46 +5,25 @@ import type { FloorCardCache} from './floor-card.js';
 import { type FloorCardSource } from './floor-card.js';
 
 /**
- * A parallel-projection camera for the stacked view: yaw around the vertical axis,
- * pitch down onto the floors, and no perspective divide.
- *
- * Three things follow from that choice, and they are the reason it is this and not
- * a WebGL scene:
- *
- * - **It is affine**, so a floor — which is a flat plane at one height — maps to a
- *   parallelogram that canvas 2D can draw with a single `ctx.transform`. No
- *   texture-mapping tricks, no per-scanline work, and the plans, masks and coverage
- *   images that the single-floor view already draws all keep working.
- * - **Yaw is what makes it read as a viewpoint.** An earlier version of this view
- *   only *offset* each floor sideways (`x - oblique·z`), which slides the storeys
- *   apart but leaves every plan drawn from straight above — so turning the knob
- *   looked like the frames moving and nothing else. Rotating the *plane* is what
- *   the eye reads as walking around the building.
- * - **Pitch is what separates the storeys.** Looking straight down the floors
- *   coincide however much spacing is set; the vertical gap on screen is
- *   `z·sin(pitch)`.
- *
- * Still no perspective, no wall height (each floor is a flat slab) and no
- * volumetric field: see `docs/ROADMAP.md` A3 for why walls with height is a
- * separate, much larger piece of work.
+ * 堆叠视图使用的平行投影相机：绕垂直轴偏航、向下俯仰看楼层，不做透视除法。
+ * 仿射投影使每层平面只需一个 `ctx.transform`，层间的屏幕间距为 `z·sin(pitch)`；
+ * 没有透视与墙体高度，原因见 `docs/ROADMAP.md` A3。
  */
 export interface StackCamera {
-	/** Rotation about the vertical axis, in radians. 0 looks at the plan as drawn. */
+	/** 绕垂直轴的旋转，单位弧度。为 0 时按平面图原样观察。 */
 	yaw: number;
-	/** Tilt down onto the floors, in radians. 0 is straight down, π/2 is level. */
+	/** 向下俯视楼层的角度，单位弧度。0 为垂直向下，π/2 为水平。 */
 	pitch: number;
 	/**
-	 * Multiplier on the storey spacing.
-	 *
-	 * Screen only: the RF model reads `floorElevation`, so pulling a stack apart to
-	 * see into it cannot change a single figure the planner reports.
+	 * 层间距的倍数。
+	 * 仅影响屏幕显示：RF 模型读取 `floorElevation`，因此拉开堆叠不会改变规划报告的任何数值。
 	 */
 	spacing: number;
-	/** World units per metre, for turning elevations into world heights. */
+	/** 每米对应的世界坐标单位数，用于把标高换算成世界坐标高度。 */
 	wupm: number;
 }
 
-/** Pitch beyond this is nearly level, where a floor is a line and cannot be read. */
+/** 超过此值的俯仰已接近水平，楼层会退化成一条线而无法辨认。 */
 export const MAX_PITCH = (78 * Math.PI) / 180;
 
 export const DEFAULT_STACK_CAMERA: StackCamera = {
@@ -54,79 +33,59 @@ export const DEFAULT_STACK_CAMERA: StackCamera = {
 	wupm: 1
 };
 
-/** Slop around a slab that still counts as a hit, in world units. */
+/** 判定命中时板面外仍视为命中的容差，单位是世界坐标单位。 */
 const HIT_PAD = 10;
 
-/** One floor's place in the stack, in world units. */
+/** 一层楼在堆叠中的位置，单位是世界坐标单位。 */
 export interface StackedSlab {
 	id: string;
 	name: string;
-	/** World-space box of the floor's content, on its own floor's plane. */
+	/** 该层内容在其自身楼层平面上的世界坐标包围盒。 */
 	boxX: number;
 	boxY: number;
 	boxW: number;
 	boxH: number;
 	/**
-	 * Height of this floor's walking surface, in world units — elevation in metres
-	 * times `wupm` times `spacing`. This is the z the plane is projected at.
+	 * 该层行走面的高度，单位是世界坐标单位：标高（米）乘以 `wupm` 与 `spacing`。
+	 * 这是平面投影时使用的 z 值。
 	 */
 	z: number;
 	/**
-	 * How far this floor's walls reach below its own plane, in world units: the
-	 * storey it stands on. Zero for the bottom floor, which stands on nothing.
+	 * 该层墙体向自身平面以下延伸的深度，单位是世界坐标单位，即它所在的层高。
+	 * 最底层没有下方楼层，取值为 0。
 	 */
 	depth: number;
-	/** Alpha to draw this floor's content with. */
+	/** 绘制该层内容时使用的透明度。 */
 	alpha: number;
-	/** True for the floor the single-floor view is showing. */
+	/** 单层视图当前显示的楼层为 true。 */
 	isCurrent: boolean;
-	/** True while the pointer is over this slab. */
+	/** 指针位于该板面上时为 true。 */
 	isHovered: boolean;
-	/** Height of this floor above the lowest one, in metres, for the label. */
+	/** 该层相对最低层的高度，单位米，用于标签显示。 */
 	elevation: number;
 }
 
 export interface StackLayoutOptions extends StackCamera {
 	currentFloorId: string | null;
 	/**
-	 * Draw only the current floor and its immediate neighbours.
-	 *
-	 * Plans stacked up are mud, and the question the view is usually asked is about
-	 * one floor and the one below it. Filtering happens here, in the layout, so the
-	 * reduced stack is also what the fit and the hit test see — a slab that is not
-	 * drawn must not be clickable.
+	 * 仅绘制当前楼层及其相邻楼层。
+	 * 过滤在布局阶段完成，因此缩放适配与命中测试也只看到缩减后的堆叠：未被绘制的板面不可点击。
 	 */
 	focus: boolean;
-	/** Floor to highlight because the pointer is over it, or null. */
+	/** 因指针悬停而高亮的楼层 id，没有时为 null。 */
 	hoverFloorId: string | null;
 }
 
-/** A point in the plane the stacked layer draws in, after projection. */
+/** 堆叠图层绘制平面上的一个点，坐标已投影。 */
 export interface PlanePoint {
 	x: number;
 	y: number;
 }
 
 /**
- * Project one point on a floor's plane into the layer's drawing plane.
- *
- * Relative to `pivot` — the stack's centre, which is what the view turns around —
- * then yaw, then pitch:
- *
- *     dx = x − pivot.x,  dy = y − pivot.y,  dz = z − pivot.z
- *     x1 =  dx·cos(yaw) − dy·sin(yaw)
- *     y1 =  dx·sin(yaw) + dy·cos(yaw)
- *     X  =  x1
- *     Y  =  y1·cos(pitch) − dz·sin(pitch)
- *
- * `Y` grows downwards, as canvas y does, so a taller floor moves *up* the screen.
- * Note what `sin(pitch)` implies: **looking straight down, height does not appear
- * at all** and the storeys coincide, which is what a plan view of a stack really
- * looks like. The height is only visible because the camera is tilted; the default
- * 40° is what makes a stack read as one.
- *
- * The pivot maps to the origin at every yaw and pitch, so turning the view leaves
- * the stack where it is: no re-fit, and nothing to chase.
+ * 把楼层平面上的点投影到绘制平面：相对 `pivot` 平移后做偏航与俯仰，`Y` 向下增长，俯仰为 0 时各层重合。
+ * dx = x − pivot.x, dy = y − pivot.y, dz = z − pivot.z
+ * x1 = dx·cos(yaw) − dy·sin(yaw), y1 = dx·sin(yaw) + dy·cos(yaw)；X = x1, Y = y1·cos(pitch) − dz·sin(pitch)
  */
 export function projectPoint(
 	camera: Pick<StackCamera, 'yaw' | 'pitch'>,
@@ -151,12 +110,8 @@ export function projectPoint(
 const ORIGIN_PIVOT = { x: 0, y: 0, z: 0 };
 
 /**
- * The inverse of `projectPoint` *on one floor's plane*: which point of that floor a
- * point in the drawing plane came from.
- *
- * Pitch does not enter the inverse as a rotation — it only scales the plan's y —
- * but it does enter as the division by `cos(pitch)`, which is why a nearly level
- * camera cannot be inverted (and why `MAX_PITCH` is short of π/2).
+ * `projectPoint` 在单层平面上的逆变换：求绘制平面上的点来自该层哪个位置。
+ * 俯仰以除以 `cos(pitch)` 的形式出现，因此接近水平的相机无法求逆，这也是 `MAX_PITCH` 小于 π/2 的原因。
  */
 export function unprojectPoint(
 	camera: Pick<StackCamera, 'yaw' | 'pitch'>,
@@ -170,14 +125,14 @@ export function unprojectPoint(
 	const sinYaw = Math.sin(camera.yaw);
 	const dz = z - pivot.z;
 	const y1 = cosPitch === 0 ? 0 : (Y + dz * Math.sin(camera.pitch)) / cosPitch;
-	// Inverse of the yaw rotation, which is its transpose, then back off the pivot.
+	// 偏航旋转的逆即其转置矩阵，最后再把 pivot 的偏移加回去。
 	return {
 		x: cosYaw * X + sinYaw * y1 + pivot.x,
 		y: -sinYaw * X + cosYaw * y1 + pivot.y
 	};
 }
 
-/** The four corners of a floor's content box, projected at that floor's height. */
+/** 楼层内容包围盒的四个角，按该层高度投影后的坐标。 */
 export function projectBox(
 	camera: Pick<StackCamera, 'yaw' | 'pitch'>,
 	box: { x: number; y: number; w: number; h: number },
@@ -192,23 +147,21 @@ export function projectBox(
 	];
 }
 
-/** Where each floor sits in the stack. Sorted bottom-up, which is the draw order. */
+/** 各楼层在堆叠中的位置，按从下到上排序，该顺序也是绘制顺序。 */
 export function stackedLayout(
 	sources: FloorCardSource[],
 	boxes: Map<string, { minX: number; minY: number; w: number; h: number }>,
 	opts: StackLayoutOptions
 ): StackedSlab[] {
-	// Sorted by elevation, not by array order: the view's whole claim is that the
-	// floors are where the building puts them, and `floorElevation` is the only
-	// authority on that.
+	// 按标高排序而非按数组顺序：本视图的核心主张是楼层位于建筑给定的高度，
+	// 而 `floorElevation` 是唯一依据。
 	const ordered = [...sources].sort((a, b) => a.elevation - b.elevation);
 	const visible = opts.focus ? isolateCurrent(ordered, opts.currentFloorId) : ordered;
 	return visible.map((s, i) => {
 		const box = boxes.get(s.id) ?? { minX: 0, minY: 0, w: 0, h: 0 };
 		const z = storeyHeight(s.elevation, opts.wupm, opts.spacing);
-		// The storey underneath, taken from the *whole* stack rather than the focused
-		// one: hiding a floor in between must not silently change the height a storey
-		// is drawn at.
+		// 下方楼层取自完整堆叠而非聚焦后的子集：隐藏中间某一层不应悄悄改变
+		// 该层被绘制的高度。
 		const below = storeyBelow(ordered, s.id);
 		const belowZ = storeyHeight(below?.elevation ?? 0, opts.wupm, opts.spacing);
 		const isCurrent = s.id === opts.currentFloorId;
@@ -230,31 +183,22 @@ export function stackedLayout(
 }
 
 /**
- * Height in world units of a floor's plane.
- *
- * `elevation` is already cumulative in metres (`floorElevation`), so the pixels are
- * too; `spacing` scales only the visual separation.
+ * 楼层平面的高度，单位是世界坐标单位：`elevation` 已累计，`spacing` 只缩放视觉分离。
  */
 export function storeyHeight(elevation: number, wupm: number, spacing: number): number {
 	return elevation * wupm * spacing;
 }
 
-/** The floor immediately below this one in the whole stack, or null. */
+/** 完整堆叠中紧邻该层下方的楼层，没有则为 null。 */
 function storeyBelow(ordered: FloorCardSource[], id: string): FloorCardSource | null {
 	const i = ordered.findIndex((s) => s.id === id);
 	return i > 0 ? ordered[i - 1]! : null;
 }
 
 /**
- * Only the current floor, when isolating.
+ * 隔离显示：只保留当前楼层。
  *
- * This used to keep the current floor and its two neighbours, which meant that on a
- * two-storey plan — the common case — the toggle kept everything and did *nothing*,
- * and a control that appears to do nothing reads as broken. Isolating exactly one
- * floor always has a visible effect, which is what the label promises.
- *
- * With no current floor (nothing selected yet) everything is kept: an empty view
- * would look like a bug rather than like a filter.
+ * 没有当前楼层（尚未选中）时保留全部，因为空视图会像缺陷而不像过滤。
  */
 function isolateCurrent(
 	ordered: FloorCardSource[],
@@ -265,16 +209,7 @@ function isolateCurrent(
 }
 
 /**
- * The stack's centre, in world units: the point the view turns around.
- *
- * Rotating about the plan's origin instead would sweep the building across the
- * screen — the origin is a corner of the mask — so every camera change (yaw, pitch,
- * spacing) is applied *relative to this point* and the stack stays where it is.
- * That is what makes turning the view need no re-fit, and what keeps a stack that
- * grows with spacing growing symmetrically rather than off the top of the canvas.
- *
- * Derived from the slabs rather than passed in, so the projection, the bounds and
- * the hit test cannot disagree about where the centre is.
+ * 堆叠的中心，单位是世界坐标单位：视图绕该点旋转，由板面计算得出，旋转与缩放都相对它施加。
  */
 export function stackPivot(slabs: StackedSlab[]): { x: number; y: number; z: number } {
 	if (slabs.length === 0) return { x: 0, y: 0, z: 0 };
@@ -296,11 +231,7 @@ export function stackPivot(slabs: StackedSlab[]): { x: number; y: number; z: num
 }
 
 /**
- * The stack's extent in the drawing plane, for fitting the camera.
- *
- * Centred on the pivot by construction, so a fit at one yaw is still a reasonable
- * frame at another — the box grows when the plan turns diagonal, but it grows about
- * the middle rather than away from it.
+ * 堆叠在绘制平面上的范围，用于适配相机：按构造以 pivot 为中心，故适配结果对任意偏航都成立。
  */
 export function stackedBounds(
 	camera: Pick<StackCamera, 'yaw' | 'pitch'>,
@@ -328,16 +259,7 @@ export function stackedBounds(
 }
 
 /**
- * Front-most floor whose *plan* contains a point of the drawing plane, or null.
- *
- * Top-down, because that is the order the slabs are painted in: the floor the user
- * can see at a point is the last one drawn over it. The test un-projects the point
- * onto each floor's own plane and asks whether it lands inside that floor's box,
- * which is exact for a parallel projection and needs no polygon test.
- *
- * Only the content box counts, not the walls below it: a storey's worth of wall
- * covers most of the floor beneath, so including it would make that floor
- * unselectable wherever it is still visible. What the user aims at is a plan.
+ * 包含该绘制平面点的最前方楼层 id，没有则为 null：从顶到底反投影并检查内容包围盒，墙体不计入。
  */
 export function slabAt(
 	camera: Pick<StackCamera, 'yaw' | 'pitch'>,
@@ -361,19 +283,15 @@ export function slabAt(
 	return null;
 }
 
-/** One face of a floor's walls, as a projected quad. */
+/** 楼层墙体的一个面，已投影为四边形。 */
 interface WallFace {
 	points: PlanePoint[];
-	/** Shading, so the two visible sides of a box read as different surfaces. */
+	/** 明暗系数，使盒体可见的两侧看起来是不同的面。 */
 	shade: number;
 }
 
 /**
- * The four walls under a floor's own plane, as projected quads.
- *
- * Filled back-to-front by the caller. With translucent floor planes over them, the
- * walls are what make the stack read as a building rather than as a pile of
- * drawings, and the shading is what makes a corner visible.
+ * 楼层自身平面下方的四面墙，已投影为四边形，由调用方按从后到前填充；明暗让转角可见。
  */
 function wallFaces(
 	camera: Pick<StackCamera, 'yaw' | 'pitch'>,
@@ -400,8 +318,7 @@ function wallFaces(
 				projectPoint(camera, b[0], b[1], bottom, pivot),
 				projectPoint(camera, a[0], a[1], bottom, pivot)
 			],
-			// Opposite walls share a shade, so a corner is a visible edge and the two
-			// pairs read as the same surface seen twice.
+			// 相对的墙使用同一明暗系数，使转角成为可见的棱边，两对墙面读作同一表面。
 			shade: i % 2 === 0 ? 0.42 : 0.28
 		});
 	}
@@ -409,14 +326,7 @@ function wallFaces(
 }
 
 /**
- * Every floor at once, stacked by its real elevation, seen from a rotatable
- * viewpoint.
- *
- * Read-only, like the contact sheet, and for the same reason: editing would mean
- * running the wall editor and the AP interactions once per floor against its own
- * origin. The difference is what it answers — the sheet answers "what is on each
- * floor", this answers "how do the storeys line up", which is the question a
- * multi-floor coverage plan is actually about.
+ * 一次绘制所有楼层，按真实标高堆叠，并从可旋转的视点观察；只读，编辑需按各层自身原点进行。
  */
 export class StackedFloorsLayer implements Layer {
 	id = 'stacked-floors';
@@ -427,18 +337,18 @@ export class StackedFloorsLayer implements Layer {
 	showAPs = true;
 	showHeatmap = false;
 	planOpacity = 0.8;
-	/** Viewpoint. See `StackCamera`. */
+	/** 视点，见 `StackCamera`。 */
 	camera: StackCamera = { ...DEFAULT_STACK_CAMERA };
-	/** Draw only the current floor and its immediate neighbours. */
+	/** 仅绘制当前楼层及其相邻楼层。 */
 	focus = false;
-	/** Floor the pointer is over, drawn highlighted. Set by the caller. */
+	/** 指针悬停的楼层，绘制时高亮，由调用方设置。 */
 	hoverFloorId: string | null = null;
 
 	private sources: FloorCardSource[] = [];
 
 	constructor(private readonly cards: FloorCardCache) {}
 
-	/** Called once a plan image finishes loading, so the engine can repaint. */
+	/** 平面图加载完成后调用，以便引擎重绘。 */
 	set onLoad(fn: (() => void) | null) {
 		this.cards.onLoad = fn;
 	}
@@ -454,7 +364,7 @@ export class StackedFloorsLayer implements Layer {
 		this.sources = sources;
 	}
 
-	/** Where each slab sits. Sorted bottom-up, which is also the draw order. */
+	/** 各板面的位置，按从下到上排序，该顺序也是绘制顺序。 */
 	layout(): StackedSlab[] {
 		if (this.sources.length === 0) return [];
 		const boxes = new Map(
@@ -469,16 +379,13 @@ export class StackedFloorsLayer implements Layer {
 	}
 
 	/**
-	 * Which floor a point of the *drawing plane* falls on, or null.
-	 *
-	 * The caller hands over a point from `camera.screenToWorld`, so the un-projecting
-	 * is this layer's business and nobody above it has to know the view can rotate.
+	 * 绘制平面上的点落在哪一层，没有则为 null：反投影由本图层负责，上层无需知道视图可旋转。
 	 */
 	floorAt(planeX: number, planeY: number): string | null {
 		return slabAt(this.camera, this.layout(), planeX, planeY);
 	}
 
-	/** Bounds of the whole stack, for fitting the camera. */
+	/** 整个堆叠的边界，用于适配相机。 */
 	contentBounds(): Array<{ x: number; y: number }> {
 		return stackedBounds(this.camera, this.layout());
 	}
@@ -492,8 +399,8 @@ export class StackedFloorsLayer implements Layer {
 		const [a, b, c, d, e, f] = camera.getTransform();
 		const zoom = camera.state.zoom || 1;
 		const view = this.camera;
-		// Everything is projected relative to the stack's centre, so turning the view
-		// leaves the stack where it is instead of sweeping it across the canvas.
+		// 所有内容都相对堆叠中心投影，因此旋转视图时堆叠留在原处，
+		// 而不是在画布上横扫过去。
 		const pivot = stackPivot(slabs);
 		const cosYaw = Math.cos(view.yaw);
 		const sinYaw = Math.sin(view.yaw);
@@ -503,15 +410,14 @@ export class StackedFloorsLayer implements Layer {
 		ctx.save();
 		ctx.transform(a, b, c, d, e, f);
 
-		/** Markers wait for every floor, so none is hidden by the storey above it. */
+		/** 标记延后到所有楼层绘制完毕，以免被上层楼层遮挡。 */
 		const markers: Array<{ src: FloorCardSource; slab: StackedSlab }> = [];
 
 		for (const slab of slabs) {
 			const src = this.sources.find((s) => s.id === slab.id);
 			if (!src) continue;
 
-			// The walls first, then this floor's own plane over them, so the floor
-			// caps the storey it stands on.
+			// 先绘制墙体，再在其上绘制该层平面，使楼层盖住它所在的层。
 			for (const face of wallFaces(view, slab, pivot)) {
 				ctx.globalAlpha = 1;
 				ctx.fillStyle = `rgba(0,0,0,${face.shade})`;
@@ -524,11 +430,9 @@ export class StackedFloorsLayer implements Layer {
 				ctx.fill();
 			}
 
-			// One floor, one affine transform: off the pivot, yaw, then pitch, then its
-			// own height. Drawing the content through this is what rotates the *plan*
-			// rather than sliding it, and it is why every existing per-floor drawing
-			// routine keeps working unchanged. The translation terms are the pivot's
-			// own projection, which keeps it at the origin for every yaw and pitch.
+			// 一层楼对应一次仿射变换：先移出 pivot，再偏航、俯仰，最后加上自身高度。
+			// 通过该变换绘制内容，旋转的是平面而不是平移它，因此现有的各层绘制流程无需改动。
+			// 平移项即 pivot 自身的投影，使 pivot 在任何偏航与俯仰下都保持在原点。
 			const dz = slab.z - pivot.z;
 			ctx.save();
 			ctx.transform(
@@ -539,8 +443,7 @@ export class StackedFloorsLayer implements Layer {
 				-cosYaw * pivot.x + sinYaw * pivot.y,
 				-cosPitch * (sinYaw * pivot.x + cosYaw * pivot.y) - sinPitch * dz
 			);
-			// The clip is the box in the floor's own coordinates, so a coverage image
-			// generated past the plan cannot spill onto the floor below.
+			// 裁剪范围是该层自身坐标下的包围盒，因此超出平面图生成的覆盖图不会溢出到下层。
 			ctx.beginPath();
 			ctx.rect(slab.boxX, slab.boxY, slab.boxW, slab.boxH);
 			ctx.clip();
@@ -548,9 +451,8 @@ export class StackedFloorsLayer implements Layer {
 			this.cards.draw(ctx, src, {
 				showPlan: this.showPlan,
 				showWalls: this.showWalls,
-				// The markers are drawn below instead, in the *drawing* plane: their
-				// whole point in this view is that they sit at a height of their own,
-				// and a height is not expressible inside a floor's own transform.
+				// 标记改为稍后在绘制平面上绘制：它们在本视图中的意义就是带有自身高度，
+				// 而高度无法在单层自身的变换中表达。
 				showAPs: false,
 				showHeatmap: this.showHeatmap,
 				planOpacity: this.planOpacity,
@@ -559,8 +461,8 @@ export class StackedFloorsLayer implements Layer {
 			});
 			ctx.restore();
 
-			// Outline and label in the *drawing* plane, i.e. unrotated, so the text
-			// stays readable and the edge stays crisp at any yaw.
+			// 轮廓与标签绘制在绘制平面上，即不随视图旋转，使任意偏航下文字都保持可读、
+			// 边缘都保持清晰。
 			const quad = projectBox(
 				view,
 				{ x: slab.boxX, y: slab.boxY, w: slab.boxW, h: slab.boxH },
@@ -580,8 +482,7 @@ export class StackedFloorsLayer implements Layer {
 			ctx.closePath();
 			ctx.stroke();
 
-			// The label carries the height, which is the one thing the stack knows and
-			// the contact sheet cannot show: where the floor sits.
+			// 标签携带高度，这是堆叠能表达而接触表无法表达的信息：楼层所处的位置。
 			ctx.font = `${13 / zoom}px sans-serif`;
 			ctx.fillStyle = slab.isHovered
 				? 'rgba(255,255,255,0.95)'
@@ -589,16 +490,15 @@ export class StackedFloorsLayer implements Layer {
 					? ACCENT_TEXT
 					: 'rgba(255,255,255,0.6)';
 			ctx.textBaseline = 'bottom';
-			// Anchored on whichever corner is topmost on screen, so the label is never
-			// drawn inside the floor it names.
+			// 锚定在屏幕上最靠上的那个角，避免标签绘制在它所标注的楼层内部。
 			const anchor = quad.reduce((best, p) => (p.y < best.y ? p : best), quad[0]!);
 			ctx.fillText(`${slab.name} · +${slab.elevation.toFixed(1)} m`, anchor.x, anchor.y - 6 / zoom);
 
-			// Access points are collected rather than drawn here: see `markers`.
+			// 接入点在此处只收集而不绘制，见 `markers`。
 			if (this.showAPs) markers.push({ src, slab });
 		}
 
-		// Every floor is down, so the markers can go over all of them.
+		// 所有楼层已绘制完毕，因此标记可以覆盖在所有楼层之上。
 		for (const marker of markers) {
 			this.drawAccessPoints(ctx, marker.src, marker.slab, view, pivot, zoom);
 		}
@@ -607,26 +507,8 @@ export class StackedFloorsLayer implements Layer {
 	}
 
 	/**
-	 * This floor's access points, each at its own mounting height.
-	 *
-	 * This is the one thing the stacked view can show that no other view can: an AP
-	 * on a desk and one on the ceiling of the same storey are in *different places*,
-	 * and on a plan they are the same dot. Here each marker is projected at
-	 * `slab.z + height`, with a short stem down to the floor it is mounted on so the
-	 * height reads as height rather than as a wrong position.
-	 *
-	 * Every floor's markers are drawn after *all* the floors, so one can never be
-	 * hidden under the slab of the storey above it — the point of the marker is to be
-	 * found, and an AP under a ceiling is what this view is for.
-	 *
-	 * The height is scaled by the camera's `spacing` like the storey heights are: a
-	 * stack pulled apart to be read must not show an AP floating further above its
-	 * floor than the storey it is in is tall.
-	 *
-	 * The marker's *shape* is the plan's, not this view's: a wall-mounted unit is the
-	 * plate it is, laid in the floor's own plane (see `drawWallPlate`). It used to be a
-	 * dot here whatever the mount, which made the one view that separates an AP from
-	 * its ceiling the one view that said every AP hangs from it.
+	 * 该层的接入点，各自位于其安装高度：按 `slab.z + height` 投影并用竖线连到楼层。
+	 * 高度按相机 `spacing` 缩放，全部标记最后绘制，因此不会被上层楼板遮挡。
 	 */
 	private drawAccessPoints(
 		ctx: CanvasRenderingContext2D,
@@ -637,8 +519,8 @@ export class StackedFloorsLayer implements Layer {
 		zoom: number
 	): void {
 		const dotR = 4 / zoom;
-		// The markers are drawn in the sheet's plane, so the floor's own coordinates are
-		// converted first — and the plate's size follows the same conversion.
+		// 标记绘制在图纸平面上，因此先把楼层自身的坐标换算过去，
+		// 面板尺寸也按同一换算缩放。
 		const k = src.wupm > 0 ? view.wupm / src.wupm : 1;
 		for (const ap of src.aps) {
 			const ax = ap.x * k;
@@ -647,8 +529,7 @@ export class StackedFloorsLayer implements Layer {
 			const onFloor = projectPoint(view, ax, ay, slab.z, pivot);
 			const at = projectPoint(view, ax, ay, slab.z + heightWu, pivot);
 			ctx.globalAlpha = 1;
-			// The stem: the floor end is a ghost, the marker end is the solid dot, so
-			// the line reads as "this high above that point".
+			// 竖线：楼层一端较淡，标记一端为实心圆点，使线段表达出该点上方的高度。
 			if (heightWu > 0) {
 				ctx.strokeStyle = 'rgba(255,255,255,0.35)';
 				ctx.lineWidth = 1 / zoom;
@@ -668,7 +549,7 @@ export class StackedFloorsLayer implements Layer {
 			ctx.beginPath();
 			ctx.arc(at.x, at.y, dotR, 0, Math.PI * 2);
 			ctx.fill();
-			// A ring, so a marker against a pale plan still reads as a marker.
+			// 加一圈描边，使标记在浅色平面图上仍然可辨。
 			ctx.strokeStyle = 'rgba(255,255,255,0.6)';
 			ctx.lineWidth = 1 / zoom;
 			ctx.stroke();
@@ -676,16 +557,8 @@ export class StackedFloorsLayer implements Layer {
 	}
 
 	/**
-	 * A wall-mounted unit here: the plan's plate, lying in the floor's own plane.
-	 *
-	 * The plate's own axes are projected rather than its outline being drawn in screen
-	 * space, so it stays on the wall as the stack is turned and tilted — at a shallow
-	 * pitch it foreshortens exactly as the floor it hangs on does, and at a yaw it
-	 * turns with the room. It is a quad rather than the plan's rounded plate because
-	 * the radius is a couple of screen pixels and the projection would shear it anyway.
-	 *
-	 * Local +x is the facing direction: the plate is thin across it and long along the
-	 * wall, which is what makes "hung the other way round" legible in this view too.
+	 * 壁挂单元在此视图中的绘制：平面图的面板躺在楼层自身平面内，坐标轴参与投影，旋转时仍贴墙。
+	 * 这里使用四边形；局部 +x 为朝向方向，面板在朝向上很薄、沿墙方向较长。
 	 */
 	private drawWallPlate(
 		ctx: CanvasRenderingContext2D,
@@ -701,10 +574,10 @@ export class StackedFloorsLayer implements Layer {
 		const facing = ((ap.facingDeg ?? 0) * Math.PI) / 180;
 		const fx = Math.cos(facing);
 		const fy = Math.sin(facing);
-		// Same proportions as `ap.ts` and the overview: 2×dotR across, 4.4×dotR along.
+		// 与 `ap.ts` 及总览视图相同的比例：横向 2×dotR，纵向 4.4×dotR。
 		const HALF_ACROSS = dotR;
 		const HALF_ALONG = dotR * 2.2;
-		/** A corner of the plate, in the floor's plane, projected into the drawing plane. */
+		/** 面板的一个角，位于楼层平面内，已投影到绘制平面。 */
 		const corner = (across: number, along: number) =>
 			projectPoint(
 				view,

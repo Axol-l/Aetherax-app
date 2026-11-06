@@ -3,16 +3,9 @@ import type { VectorColumn, VectorWall } from '../../state/vector-walls.js';
 import { getMaterial, type WallMaterialId } from '$lib/domain/materials.js';
 
 /**
- * Walls drawn as line segments, over the plan.
- *
- * Each segment is stroked in its material's colour, so the drawing itself says what the
- * model will charge: red for brick, blue-grey for concrete, green dashed for a virtual
- * partition that attenuates nothing. The line is a couple of pixels wide regardless of
- * zoom — it is a schematic, not a plan of the wall's thickness — and a selected wall is
- * drawn thicker and lighter so a delete has something to aim at.
- *
- * The draft segment follows the pointer, so the wall being drawn is visible before the
- * second click commits it.
+ * 以线段绘制的墙体，绘制在平面图之上。
+ * 线段按材质颜色描边，选中墙体加粗并提亮，线宽固定为几个像素而不表示墙体实际厚度；
+ * 草稿线段跟随指针，使绘制中的墙体在第二次点击确认前可见。
  */
 export class VectorWallsLayer implements Layer {
 	id = 'vector-walls';
@@ -20,28 +13,25 @@ export class VectorWallsLayer implements Layer {
 
 	walls: readonly VectorWall[] = [];
 	/**
-	 * Columns: a pier or a round pillar. Filled in their material's colour, because what
-	 * they obstruct is their footprint rather than a line.
+	 * 柱：墙垛或圆柱。按材质颜色填充，因为其遮挡效果来自占位面积而非一条线。
 	 */
 	columns: readonly VectorColumn[] = [];
 	selectedId: string | null = null;
-	/** The selected column, when a column is what is selected. */
+	/** 选中柱时其 id，否则为 null。 */
 	selectedColumnId: string | null = null;
-	/** The first click of the wall being drawn, and where the pointer is now. */
+	/** 正在绘制墙体的第一次点击位置，以及当前指针位置。 */
 	draft: { x: number; y: number } | null = null;
-	/** The rectangle or circle being drawn, as two opposite corners (a circle's centre + rim). */
+	/** 正在绘制的矩形或圆形，用两个对角点表示（圆心 + 圆周点）。 */
 	columnDraft: { shape: 'rect' | 'circle'; ax: number; ay: number; bx: number; by: number } | null =
 		null;
 	cursor: { x: number; y: number } | null = null;
 	/**
-	 * The endpoint the next click will snap to, if any.
+	 * 下一次点击将吸附到的端点，没有可吸附端点时为 null。
 	 *
-	 * Drawn as a ring before the click lands, which is the whole point: snapping that happens
-	 * silently is a wall that was *going* to meet another one and did not, and the user only
-	 * finds out later, when the model leaks through the gap.
+	 * 点击前以圆环标出，避免吸附静默失败而让墙体留下缺口。
 	 */
 	snapTarget: { x: number; y: number } | null = null;
-	/** World units per metre, for the length readout on the selected wall. */
+	/** 每米对应的世界单位，用于选中墙体的长度读数。 */
 	wupm = 1;
 
 	render(rc: RenderContext): void {
@@ -52,15 +42,13 @@ export class VectorWallsLayer implements Layer {
 		ctx.transform(m0, m1, m2, m3, m4, m5);
 		const zoom = camera.state.zoom;
 
-		// The drawing colour: green, the same accent the app uses for "this is going right".
+		// 绘制颜色：绿色，与应用表示“操作正常”的强调色一致。
 		const DRAW = 'rgba(74, 222, 128, ';
 
 		/*
-		 * The stroke width, in **world** units: the smallest brush the raster tool offers
-		 * (radius 3, so 6 units across). A vector wall and a painted one then have the same
-		 * thickness on the plan, and the line grows with the zoom instead of staying a
-		 * hairline on top of a thick wall. The floor of one screen pixel keeps it visible when
-		 * the plan is zoomed far out.
+		 * 描边宽度，单位为**世界**单位：取栅格工具提供的最小笔刷（半径 3，即直径 6）。
+		 * 使矢量墙与手绘墙在平面图上厚度一致，并随缩放变化，而不是始终一条细线。
+		 * 缩放到很小时保底为一个屏幕像素，保持可见。
 		 */
 		const stroke = Math.max(1 / zoom, 6);
 
@@ -72,13 +60,12 @@ export class VectorWallsLayer implements Layer {
 			ctx.lineTo(wall.bx, wall.by);
 			ctx.strokeStyle = `rgba(${material.color[0]}, ${material.color[1]}, ${material.color[2]}, ${selected ? 1 : 0.9})`;
 			ctx.lineWidth = selected ? stroke * 1.4 : stroke;
-			// A virtual partition is a modelling line rather than a surface: dashed says so
-			// without a legend.
+			// 虚拟隔断是建模线而非实体表面：用虚线表示，无需图例说明。
 			ctx.setLineDash(material.dbPerMeter['5ghz'] === 0 ? [5 / zoom, 4 / zoom] : []);
 			ctx.stroke();
 			ctx.setLineDash([]);
 
-			// Endpoints, so a wall that meets another one visibly meets it.
+			// 绘制端点，使相接的墙体在视觉上确实相连。
 			for (const point of [
 				{ x: wall.ax, y: wall.ay },
 				{ x: wall.bx, y: wall.by }
@@ -89,8 +76,7 @@ export class VectorWallsLayer implements Layer {
 				ctx.fill();
 			}
 
-			// The selected wall's length: the confirmation that the segment went where it was
-			// meant to, and the number a plan is checked against.
+			// 选中墙体的长度：用于确认线段位置是否符合预期，也是核对平面图的数值。
 			if (selected) {
 				const metres = Math.hypot(wall.bx - wall.ax, wall.by - wall.ay) / (this.wupm || 1);
 				const label = `${metres.toFixed(2)} m`;
@@ -116,7 +102,7 @@ export class VectorWallsLayer implements Layer {
 			}
 		}
 
-		// Columns, under the segments: a wall that meets a pier should be drawn over it.
+		// 柱绘制在线段之下：与墙垛相接的墙体应覆盖在其上。
 		for (const column of this.columns) {
 			this.drawColumn(
 				ctx,
@@ -165,7 +151,7 @@ export class VectorWallsLayer implements Layer {
 			ctx.fill();
 		}
 
-		// The endpoint this click would land on, ringed before it lands.
+		// 本次点击将落到的端点，在落点前以圆环标出。
 		if (this.snapTarget) {
 			ctx.beginPath();
 			ctx.arc(this.snapTarget.x, this.snapTarget.y, stroke * 1.6, 0, Math.PI * 2);
@@ -176,10 +162,9 @@ export class VectorWallsLayer implements Layer {
 	}
 
 	/**
-	 * One column: a filled rectangle or circle in its material's colour.
+	 * 单个柱：以材质颜色填充的矩形或圆形。
 	 *
-	 * The draft is drawn with the same green as a wall being drawn, dashed, so an
-	 * uncommitted shape cannot be mistaken for an obstruction the model already has.
+	 * 草稿使用与绘制墙体相同的绿色并设为虚线，避免被误认为模型已有的遮挡物。
 	 */
 	private drawColumn(
 		ctx: CanvasRenderingContext2D,

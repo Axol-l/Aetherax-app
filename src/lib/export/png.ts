@@ -2,11 +2,11 @@ import { RENDER_BACKGROUND, type CanvasEngine } from '$canvas/engine.js';
 import { projectMeta } from '$state/project-meta.svelte.js';
 
 export interface PngOptions {
-	/** Resolution multiplier (1, 2, 4). Default 2. */
+	/** 分辨率倍数（1、2、4），默认 2。 */
 	scale?: number;
 }
 
-/** Save the current view as a PNG. */
+/** 把当前视图保存成 PNG 文件。 */
 export async function exportPng(engine: CanvasEngine, options: PngOptions = {}): Promise<void> {
 	const scale = options.scale ?? 2;
 

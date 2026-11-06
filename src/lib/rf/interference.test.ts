@@ -17,18 +17,14 @@ import {
 } from './interference.js';
 
 /**
- * The co-channel interference term, as it is evaluated inside the optimiser's
- * sample loop. See `MODEL_NOTES.md` §6.
- *
- * The unit under test is the decision only: the sample loop itself is in the
- * worker, which is not importable here, so this pins the inequality and the
- * channel bookkeeping that loop relies on.
+ * 优化器采样循环中评估的同频干扰项，见 `MODEL_NOTES.md` §6。
+ * 被测对象只是判定本身：采样循环在 worker 内无法在此导入，因此这里只校验它依赖的不等式与信道记账。
  */
 
 describe('reachAtMargin', () => {
 	it('agrees with coverageReach at 0 dB of margin', () => {
-		// 5 GHz, 20 dBm: the association radius is ~29.9 m, so the coverage reach is
-		// ~12.6 m — the same figure the ramp floor produces in rf/propagation.ts.
+		// 5 GHz、20 dBm 下余量为 0 时的到达距离与 coverageReach 相同，
+		// 也与 rf/propagation.ts 中斜坡下限给出的值一致。
 		expect(reachAtMargin(988, 0, 0)).toBeCloseTo(coverageReach(988), 9);
 		expect(reachAtMargin(988, 0, 0)).toBeCloseTo(988 * Math.pow(10, -15 / 40), 6);
 	});
@@ -36,9 +32,8 @@ describe('reachAtMargin', () => {
 	it('reaches further for a margin below the coverage threshold', () => {
 		const atThreshold = reachAtMargin(988, 0, 0);
 		const forInterference = reachAtMargin(988, 0, -COCHANNEL_REUSE_DB);
-		// 10 dB further out at n = 4 is a factor of 10^(10/40) = 1.78: a source that
-		// cannot cover the sample at all can still spoil it, which is exactly why the
-		// coverage pass's reach test cannot decide what the interference pass marches.
+		// 余量低于覆盖阈值时到达距离更远：覆盖不到采样点的源仍可能削弱它，
+		// 因此覆盖的可达判定不能决定干扰的行进范围。
 		expect(forInterference / atThreshold).toBeCloseTo(1.778, 3);
 		expect(forInterference).toBeGreaterThan(atThreshold);
 	});
@@ -51,10 +46,10 @@ describe('reachAtMargin', () => {
 describe('violatesAt', () => {
 	it('flags a co-channel secondary within the reuse distance', () => {
 		const channels = [36, 36];
-		// Best at +5 dB, secondary 6 dB down: inside the 10 dB reuse distance.
+		// 次服务器比最佳服务器低，但差距仍在复用距离之内。
 		expect(violatesAt([5, -1], channels, 2)).toBe(true);
-		// Secondary 12 dB down: outside it, and a secondary *above* the best server
-		// is simply the best server.
+		// 次服务器低出复用距离则不计入；
+		// 高于最佳服务器的次服务器本身就是最佳服务器。
 		expect(violatesAt([5, -7], channels, 2)).toBe(false);
 		expect(violatesAt([-1, 5], channels, 2)).toBe(true);
 	});
@@ -64,11 +59,11 @@ describe('violatesAt', () => {
 	});
 
 	it('ignores a same-numbered channel in another band', () => {
-		// 6 GHz uses 1/5/9/… and 2.4 GHz uses 1-13, so on channel numbers alone
-		// these two look co-channel. Different bands do not interfere.
+		// 每个频段有自己的信道号，号码可以重复，只看信道号会误判为同频；
+		// 不同频段之间并不干扰。
 		expect(violatesAt([5, 4], [1, 1], 2, 0, ['6ghz', '6ghz'])).toBe(true);
 		expect(violatesAt([5, 4], [1, 1], 2, 0, ['6ghz', '2.4ghz'])).toBe(false);
-		// A same-band secondary still counts while a cross-band one is present.
+		// 存在跨频段次服务器时，同频段的次服务器仍然计入。
 		expect(violatesAt([5, 4, 4], [1, 1, 1], 3, 0, ['6ghz', '2.4ghz', '6ghz'])).toBe(true);
 	});
 
@@ -78,23 +73,20 @@ describe('violatesAt', () => {
 	});
 
 	it('counts a secondary below the coverage threshold, which is the point', () => {
-		// Best server barely over the threshold: a second server 6 dB down is below
-		// it too, and still spoils the sample. A term that only looked at covered
-		// samples would miss exactly this case.
+		// 最佳服务器刚过覆盖阈值，低几 dB 的次服务器同样低于阈值，却仍会削弱本采样点；
+		// 只看已覆盖采样点的干扰项会漏掉这种情况。
 		expect(violatesAt([1, -5], [36, 36], 2)).toBe(true);
 	});
 
 	it('reads only the first count entries of a reused buffer', () => {
-		// The evaluators reuse one margins array across samples; the tail holds the
-		// previous sample's numbers and must not be read.
+		// 评估器跨采样点复用同一个 margins 数组，尾部残留上一采样点的数值，不应读取。
 		expect(violatesAt([5, -1, 5, 5], [36, 36, 36, 36], 2)).toBe(true);
 		expect(violatesAt([5, -1, 5, 5], [36, 40, 36, 36], 2)).toBe(false);
 	});
 
 	it('addresses a sample through an offset instead of a slice', () => {
-		// The search loop keeps every sample's margins in one buffer, so a sample is
-		// addressed by `offset` rather than by allocating a view per sample. Entry 0
-		// is a decoy: reading it would flip both answers.
+		// 搜索循环把所有采样点的 margins 放在一个缓冲区里，用 `offset` 定位而不逐点分配视图；
+		// 第 0 项是干扰项，读到它会使两个断言都翻转。
 		const all = [5, 5, -1, 7, 7, 7, 7, 7];
 		expect(violatesAt(all, [36, 36], 2, 1)).toBe(true);
 		expect(violatesAt(all, [36, 40], 2, 1)).toBe(false);
@@ -118,8 +110,7 @@ describe('resolveChannels', () => {
 		const resolved = resolveChannels([{ assignedChannel: 36 }, { assignedChannel: null }]);
 		expect(resolved.known).toBe(false);
 		expect(resolved.channels).toEqual([COCHANNEL_UNKNOWN, COCHANNEL_UNKNOWN]);
-		// Every pair is co-channel in that case, so any secondary within the reuse
-		// distance counts.
+		// 此时任意两源都互为同频，复用距离内的次服务器一律计入。
 		expect(violatesAt([5, -1], resolved.channels, 2)).toBe(true);
 	});
 
@@ -129,12 +120,11 @@ describe('resolveChannels', () => {
 });
 
 /**
- * The assignment half of the alternating loop: which pairs must not share a
- * channel, and what to give them. See MODEL_NOTES.md §6.
+ * 交替循环中信道分配的一半：哪些源对不能共用信道，以及各自分到什么，见 MODEL_NOTES.md §6。
  */
 describe('conflict matrix and colouring', () => {
 	const N = 3;
-	/** Margins of three sources at one sample: 5, 2 and -20 dB. */
+	/** 一个采样点上三个信号源的 margin，单位 dB。 */
 	function sample(): Float64Array {
 		return new Float64Array([5, 2, -20]);
 	}
@@ -142,7 +132,7 @@ describe('conflict matrix and colouring', () => {
 	it('marks a pair only when both are within the reuse distance', () => {
 		const conflicts = conflictMatrix(N);
 		markSampleConflicts(conflicts, sample(), N);
-		// 5 and 2 are 3 dB apart: conflict. -20 is 25 dB down: no edge to either.
+		// 前两个源相差在复用距离内，构成冲突；第三个远低于它们，与两者都不成边。
 		expect(conflicts[0 * N + 1]).toBe(1);
 		expect(conflicts[1 * N + 0]).toBe(1);
 		expect(conflicts[0 * N + 2]).toBe(0);
@@ -150,22 +140,20 @@ describe('conflict matrix and colouring', () => {
 	});
 
 	it('marks the sample at an offset, ignoring an unrelated sample before it', () => {
-		// Two samples in one buffer, as the evaluators hold them. The first is a
-		// single-server sample (no edges), the second has a co-channel pair.
+		// 一个缓冲区里存放两个采样点：第一个只有单个服务器，第二个含同频对。
 		const conflicts = conflictMatrix(N);
-		const all = Float64Array.from([5, -30, -30, /* sample 1 */ 1, 0, -25]);
+		const all = Float64Array.from([5, -30, -30, /* 采样点 1 */ 1, 0, -25]);
 		markSampleConflicts(conflicts, all, N, 0);
 		expect(conflicts[0 * N + 1]).toBe(0);
 		markSampleConflicts(conflicts, all, N, N);
 		expect(conflicts[0 * N + 1]).toBe(1);
-		// The third source is 26 dB down at the offset sample: still no edge.
+		// 在偏移处的采样点上第三个源远低于其余源，仍不构成边。
 		expect(conflicts[0 * N + 2]).toBe(0);
 	});
 
 	it('never marks an edge across bands, however close the levels are', () => {
-		// The pair is 1 dB apart, so it would be an edge within one band. Across
-		// bands there is nothing to avoid, and a 6 GHz AP must not be pushed off
-		// channel 1 by a 2.4 GHz AP holding the same number.
+		// 该源对差距极小，在同一频段内必然成边；跨频段则无需规避，
+		// 不能因为信道号相同就把一个 AP 挤下该信道。
 		const sameBand = conflictMatrix(2);
 		markSampleConflicts(sameBand, new Float64Array([5, 4]), 2, 0, ['2.4ghz', '2.4ghz']);
 		expect(sameBand[0 * 2 + 1]).toBe(1);
@@ -186,15 +174,14 @@ describe('conflict matrix and colouring', () => {
 			[1, 6, 11]
 		]);
 		expect(channels[0]).not.toBe(channels[1]);
-		// The third source conflicts with nothing, so it takes the lowest channel.
+		// 第三个源没有冲突，因而取列表中的第一个信道。
 		expect(channels[2]).toBe(1);
 	});
 
 	it('reuses a channel only when the conflict graph forces it, lowest free first', () => {
-		// Three sources all within the reuse distance of the strongest one, so the
-		// graph is a star: 0 conflicts with both, 1 and 2 conflict with neither of
-		// each other. Two channels are therefore not scarce here — 0 takes 1, and
-		// both others take the lowest channel 0 does not hold.
+		// 三个源都落在最强源的复用距离内，冲突图呈星形：0 与两者都冲突，另两者互不冲突。
+		// 两个信道因此并不紧缺，0 取首个可用信道，
+		// 其余两个各取 0 未占用的最小信道。
 		const conflicts = conflictMatrix(3);
 		markSampleConflicts(conflicts, new Float64Array([5, 4, 3]), 3);
 		const channels = colourConflicts(conflicts, 3, [
@@ -208,23 +195,23 @@ describe('conflict matrix and colouring', () => {
 	it('weighs a conflict by how many samples it spoils', () => {
 		const conflicts = conflictMatrix(N);
 		const weights = conflictWeights(N);
-		// Source 0 leads at both samples, source 1 is within the reuse distance at
-		// both, source 2 only at the second: the 0–1 edge is twice as expensive.
+		// 源 0 在两个采样点都最强，源 1 两点都在复用距离内，
+		// 源 2 只在第二个采样点进入，故 0–1 这条边的代价是 0–2 的两倍。
 		markSampleConflicts(conflicts, new Float64Array([5, 2, -30]), N, 0, null, weights, 1);
 		markSampleConflicts(conflicts, new Float64Array([5, 2, 0]), N, 0, null, weights, 1);
 		expect(weights[0 * N + 1]).toBe(2);
 		expect(weights[0 * N + 2]).toBe(1);
-		// Symmetric, since a conflict is not directed.
+		// 冲突没有方向，因此矩阵对称。
 		expect(weights[1 * N + 0]).toBe(2);
-		// An unmarked pair carries no weight, whatever the samples said.
+		// 未被标记的源对不累计权重。
 		expect(weights[1 * N + 2]).toBe(0);
 	});
 
 	it('leaves the cheaper conflict standing when only one channel is left', () => {
 		/*
-		 * Three mutually conflicting sources and two channels, so one pair must share.
-		 * Two of the three edges are expensive (three samples) and one is cheap (one):
-		 * the colourer's job is to make the *cheap* pair share.
+		 * 三个互相冲突的源只有两个信道，因此必然有一对共用。
+		 * 三条边中两条代价高、一条代价低，
+		 * 着色的目标是让代价低的那一对共用。
 		 */
 		const conflicts = conflictMatrix(3);
 		conflicts[0 * 3 + 1] = conflicts[1 * 3 + 0] = 1;
@@ -240,12 +227,12 @@ describe('conflict matrix and colouring', () => {
 			[1, 6]
 		];
 		const weighted = colourConflicts(conflicts, 3, allowed, undefined, weights);
-		// 1 and 2 share, and both heavy edges are broken.
+		// 1 与 2 共用，两条高代价边都被拆开。
 		expect(weighted[1]).toBe(weighted[2]);
 		expect(weighted[0]).not.toBe(weighted[1]);
 
-		// Unweighted, the same graph shares a *heavy* edge instead — 0 and 2 — because
-		// the colourer cannot tell the pairs apart. That difference is the point.
+		// 不带权重时同一张图改为共用一条高代价边，因为着色无法区分配对；
+		// 这一差别正是权重的作用。
 		const plain = colourConflicts(conflicts, 3, allowed);
 		expect(plain[0]).toBe(plain[2]);
 		expect(plain[1]).not.toBe(plain[0]);
@@ -255,12 +242,11 @@ describe('conflict matrix and colouring', () => {
 		const margins = sample();
 		const conflicts = conflictMatrix(N);
 		markSampleConflicts(conflicts, margins, N);
-		// Source 1 is pinned to 1, so source 0 cannot have it even though 1 is first.
+		// 源 1 固定在某信道上，即使该信道排在首位，源 0 也不能取它。
 		const channels = colourConflicts(conflicts, N, [[1, 6, 11], [1], [1, 6, 11]]);
 		expect(channels[1]).toBe(1);
 		expect(channels[0]).not.toBe(1);
-		// Two conflicting sources both pinned to 1: the colouring reports the plan
-		// as asked for rather than silently moving one.
+		// 两个互相冲突的源被固定到同一信道时，着色按用户要求返回，不会私自挪动其中一个。
 		const pinned = colourConflicts(conflictMatrix(N), 2, [[1], [1]]);
 		expect(pinned).toEqual([1, 1]);
 	});
@@ -287,8 +273,7 @@ describe('conflict matrix and colouring', () => {
 	});
 
 	describe('grading the interference at a sample', () => {
-		// Best server 5 dB above the threshold, secondary 4 dB above it: inside the
-		// 10 dB reuse window, so whatever they share counts.
+		// 最佳与次服务器都高于覆盖阈值且差距在复用窗口内，二者共用的频谱全部计入。
 		const margins = [5, 4];
 
 		it('is 1 for two sources on one channel, and 0 when they are apart', () => {
@@ -304,34 +289,29 @@ describe('conflict matrix and colouring', () => {
 		});
 
 		it('takes the worst secondary, not the sum', () => {
-			// Two secondaries at 0.2 and 0.9: the strongest competitor decides, so a
-			// pair of weak ones cannot outrank it.
+			// 两个次服务器的重叠比例不同，取较强者；几个弱的相加也不能盖过它。
 			const byChannel = (_i: number, _ci: number, _j: number, cj: number): number =>
 				cj === 40 ? 0.9 : 0.2;
 			expect(interferenceAt([5, 4, 4], [36, 40, 44], 3, 0, null, byChannel)).toBe(0.9);
 		});
 
 		it('ignores a secondary outside the reuse window, and a band mismatch', () => {
-			// 11 dB below the best is past `COCHANNEL_REUSE_DB`, so it does not count.
+			// 低出 `COCHANNEL_REUSE_DB` 的次服务器不计入。
 			expect(interferenceAt([5, -6], [1, 1], 2)).toBe(0);
-			// Same number, different band: not the same spectrum.
+			// 信道号相同但频段不同，不算同一段频谱。
 			expect(interferenceAt([5, 4], [1, 1], 2, 0, ['2.4ghz', '6ghz'])).toBe(0);
 		});
 	});
 
 	describe('choosing centres across the whole band', () => {
-		// The band's permitted channels in preference order: the conventional
-		// palette first, then the rest. See `planningCandidates`.
+		// 该频段允许的信道，按偏好顺序排列：常用信道表在前，其余在后，见 `planningCandidates`。
 		const five80 = planningCandidates('5ghz', 'fcc', 80).map((c) => c.number);
 		const five20 = planningCandidates('5ghz', 'fcc', 20).map((c) => c.number);
 		const two20 = planningCandidates('2.4ghz', 'fcc', 20).map((c) => c.number);
 
 		it('finds a clear narrower centre where the palette ran out', () => {
-			// Four mutually conflicting APs: three 80 MHz (which take the whole
-			// non-DFS 5 GHz palette, 36/149/165) and one 20 MHz. The palette cannot
-			// serve the fourth — every entry is held by an AP it conflicts with — but
-			// channel 48 at 20 MHz sits clear of both 80 MHz spans, so a widened
-			// candidate set gives it zero overlap instead of a full reuse.
+			// 四个互相冲突的 AP：三个 80 MHz 占满常用信道表，一个 20 MHz 无表项可用；
+			// 扩宽候选集后，后者能找到与各 80 MHz 跨度都不重叠的窄信道，重叠为 0 而不是完全复用。
 			const k4 = conflictMatrix(4);
 			for (let i = 0; i < 4; i++)
 				for (let j = 0; j < 4; j++) if (i !== j) k4[i * 4 + j] = 1;
@@ -345,14 +325,13 @@ describe('conflict matrix and colouring', () => {
 			);
 			expect(channels.slice(0, 3)).toEqual([36, 149, 165]);
 			expect(channels[3]).toBe(48);
-			// And it really is clear: the whole point of taking it.
+			// 结果确实无重叠，这正是取它的意义。
 			for (let i = 0; i < 3; i++) expect(overlap(3, channels[3]!, i, channels[i]!)).toBe(0);
 		});
 
 		it('reuses a centre rather than inventing a partial overlap', () => {
-			// Four 2.4 GHz APs, all conflicting. Three take 1/6/11; the fourth could
-			// move to channel 2 (75% overlap with 1) or 3, but reusing 1 costs the same
-			// interference and occupies less spectrum, so reuse wins.
+			// 四个互相冲突的 2.4 GHz AP：前三个取常用信道，第四个本可选部分重叠的新信道，
+			// 但复用已有信道干扰相同而占用频谱更少，因此复用胜出。
 			const k4 = conflictMatrix(4);
 			for (let i = 0; i < 4; i++)
 				for (let j = 0; j < 4; j++) if (i !== j) k4[i * 4 + j] = 1;
@@ -370,11 +349,8 @@ describe('conflict matrix and colouring', () => {
 		});
 
 		it('leaves a source with nothing to avoid on the first candidate', () => {
-			// No edges at all: there is no interference to trade away, so the colourer
-			// takes the first candidate for everyone. Spreading the palette for airtime
-			// is `balanceAssignment`'s job, and it works over the palette alone — using
-			// the widened tail there would put neighbouring APs on overlapping channels
-			// for no gain.
+			// 完全没有边时没有干扰可权衡，着色对每个源都取第一个候选；
+			// 按空口时间铺开信道是 `balanceAssignment` 的职责，且只在常用信道表内进行。
 			const none = conflictMatrix(4);
 			const overlap = makeOverlapLookup(
 				['2.4ghz', '2.4ghz', '2.4ghz', '2.4ghz'],
@@ -393,8 +369,7 @@ describe('conflict matrix and colouring', () => {
 				Array.from({ length: 4 }, () => false),
 				overlap
 			);
-			// The palette is in use and no channel is more crowded than it has to be;
-			// which source lands where is the greedy's business.
+			// 常用信道表被用满，且没有信道过度拥挤；具体哪个源落在哪个信道由贪心决定。
 			expect(new Set(spread)).toEqual(new Set(palette));
 			const counts = palette.map((c) => spread.filter((x) => x === c).length);
 			expect(Math.max(...counts)).toBeLessThanOrEqual(2);
@@ -408,8 +383,8 @@ describe('conflict matrix and colouring', () => {
 			['5ghz', '5ghz', '5ghz', '5ghz'],
 			[80, 80, 80, 20]
 		);
-		// The palette-only colouring of four mutually conflicting APs: the 20 MHz one
-		// has no palette entry left, so it shares 36 completely.
+		// 四个互相冲突的 AP 只用常用信道表着色时，20 MHz 的那个没有表项可用，
+		// 只能与已有信道完全共用。
 		const adjacency = [
 			[1, 2, 3],
 			[0, 2, 3],
@@ -418,10 +393,8 @@ describe('conflict matrix and colouring', () => {
 		];
 
 		it('moves a forced overlap onto a clear centre', () => {
-			// Two sources share 36 (the 20 MHz one had no palette entry left). Either of
-			// them can move to 48 to fix it — 48 at 80 MHz starts at 5200 and 36 at
-			// 20 MHz ends at 5190, so the two are disjoint — and which one moves is the
-			// walk order, not a modelling choice. What matters is the outcome.
+			// 两个源共用一个信道（20 MHz 的那个没有表项可用），其中任一移到更窄的空闲信道即可解决；
+			// 移动哪一个取决于遍历顺序而非建模选择，结果才重要。
 			const widened = widenAssignment(
 				[36, 149, 165, 36],
 				adjacency,
@@ -435,7 +408,7 @@ describe('conflict matrix and colouring', () => {
 					expect(overlap(i, widened[i]!, j, widened[j]!)).toBe(0);
 				}
 			}
-			// And it is not the old assignment: something had to give.
+			// 结果已不同于原分配，必然有源被挪动。
 			expect(widened).not.toEqual([36, 149, 165, 36]);
 		});
 
@@ -463,9 +436,8 @@ describe('conflict matrix and colouring', () => {
 		const free = (n: number): number[][] => Array.from({ length: n }, () => []);
 
 		it('spreads a palette over sources the graph does not separate', () => {
-			// What a greedy colourer does with no edges at all: everything on channel
-			// 1. There is no measured interference to trade away, but there is airtime
-			// to share, so the palette should be in use.
+			// 没有边时贪心着色会把所有源放在同一信道；此时虽无实测干扰可权衡，
+			// 但空口时间仍需分摊，常用信道表应当被用起来。
 			const balanced = balanceAssignment(
 				[1, 1, 1, 1, 1, 1],
 				free(6),
@@ -478,8 +450,7 @@ describe('conflict matrix and colouring', () => {
 		});
 
 		it('never creates a conflict the colouring did not have', () => {
-			// A triangle plus a pendant: 0-1-2 is a triangle, 3 hangs off 2. The input
-			// is proper on three channels; whatever balancing does, it stays proper.
+			// 三角形加一个悬挂点：输入在三信道上已是正常着色，均衡之后仍须保持不冲突。
 			const adjacency = [
 				[1, 2],
 				[0, 2],
@@ -506,8 +477,7 @@ describe('conflict matrix and colouring', () => {
 				Array.from({ length: 4 }, () => false)
 			);
 			const counts = PALETTE.map((c) => balanced.filter((x) => x === c).length);
-			// Three 1s and one 6 become at most two of anything: the worst channel is
-			// no more crowded than it has to be.
+			// 原本三个源同信道、一个源另一信道，均衡后任一信道最多被两个源占用。
 			expect(Math.max(...counts)).toBeLessThanOrEqual(2);
 		});
 
@@ -519,7 +489,7 @@ describe('conflict matrix and colouring', () => {
 				[true, false, false]
 			);
 			expect(balanced[0]).toBe(1);
-			// The other two still spread: 6 and 11 both end up in use.
+			// 其余两个源仍会分散，两个空闲信道都被用上。
 			expect(new Set(balanced.slice(1)).size).toBe(2);
 		});
 

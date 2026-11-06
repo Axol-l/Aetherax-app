@@ -1,13 +1,7 @@
 /**
- * Notes left on the plan, and the geometry that lets the pointer find them.
- *
- * A note is a pin with a sentence attached: "the lift lobby has a steel door", "do not put
- * an AP here". Survey tools carry them because the plan is not only a drawing — half of what
- * decides where an access point goes never made it into the CAD file.
- *
- * Kept per floor, at world coordinates, and drawn by a canvas layer. The hit test lives here
- * rather than in the renderer because it is the only part worth testing on its own: the
- * renderer needs a canvas, this needs two points and a radius.
+ * 平面图上的标注，以及让指针命中它们的几何计算。
+ * 标注是放置在世界坐标上、带一句话的图钉，按楼层保存并由画布图层绘制；
+ * 命中检测只依赖点和半径，因此放在这里以便单独测试。
  */
 import type { Layer, RenderContext } from '../types.js';
 
@@ -18,15 +12,13 @@ export interface Note {
 	text: string;
 }
 
-/** How close the pointer has to be, in *screen* pixels, to catch a pin. */
+/** 指针命中标注点所需的最大距离，单位为*屏幕*像素。 */
 export const NOTE_HIT_PX = 12;
 
 /**
- * The note under a world point, if any.
+ * 世界坐标点下的标注，没有则为 null。
  *
- * `toleranceWorld` is the screen tolerance divided by the zoom — a pin is a fixed size on
- * screen, so at 4x zoom it is a quarter as large in world units and the tolerance has to
- * follow, or the same pin would need a much more careful click on a zoomed plan.
+ * `toleranceWorld` 是屏幕容差除以缩放比例；标注点在屏幕上的大小固定，容差必须随缩放变化。
  */
 export function noteAtPoint(
 	notes: readonly Note[],
@@ -46,12 +38,9 @@ export function noteAtPoint(
 }
 
 /**
- * The pins, and the text of the one under the pointer.
+ * 标注点，以及指针下标注的文本。
  *
- * Notes are drawn last, over the heatmap and the walls: they are annotations *about* the
- * plan, and an annotation under the thing it annotates is unreadable. The hover bubble is
- * canvas-drawn with the pin because a DOM tooltip would have to track the camera on every
- * pan and zoom for the same effect.
+ * 标注最后绘制，覆盖在热力图和墙体之上；悬停气泡与标注点一起由画布绘制，避免 DOM 提示框跟踪相机。
  */
 export class NotesLayer implements Layer {
 	id = 'notes';
@@ -73,7 +62,7 @@ export class NotesLayer implements Layer {
 			const hovered = note.id === this.hoverId;
 			const radius = (selected || hovered ? 7 : 6) / zoom;
 
-			// The pin: a filled circle with a ring, so it reads on a green heatmap.
+			// 标注点：带圆环的实心圆，使其在绿色热力图上仍可辨认。
 			ctx.beginPath();
 			ctx.arc(note.x, note.y, radius, 0, Math.PI * 2);
 			ctx.fillStyle = selected ? 'rgba(255, 190, 60, 1)' : 'rgba(20, 24, 34, 0.92)';
@@ -82,7 +71,7 @@ export class NotesLayer implements Layer {
 			ctx.lineWidth = 1.5 / zoom;
 			ctx.stroke();
 
-			// A dot in the middle, so the pin has a direction even at a glance.
+			// 中心小圆，用于在快速扫视时强调标注点的位置。
 			ctx.beginPath();
 			ctx.arc(note.x, note.y, 1.6 / zoom, 0, Math.PI * 2);
 			ctx.fillStyle = selected ? 'rgba(20, 24, 34, 0.9)' : 'rgba(255, 214, 120, 0.95)';
@@ -90,8 +79,7 @@ export class NotesLayer implements Layer {
 
 			if (!hovered && !selected) continue;
 
-			// The bubble: the note's first line, clipped by hand because canvas text has no
-			// wrapping. Two lines is what fits over a plan without covering it.
+			// 气泡：标注文本，最多两行，因画布文本不自动换行而手动裁剪，以免遮挡平面图。
 			const lines = wrapText(note.text || '…', 42, 2);
 			ctx.font = `${11 / zoom}px 'Inter', system-ui, sans-serif`;
 			const padding = 6 / zoom;
@@ -120,7 +108,7 @@ export class NotesLayer implements Layer {
 	}
 }
 
-/** Split a note into at most `maxLines` lines of roughly `width` characters. */
+/** 将标注文本拆成最多 `maxLines` 行，每行约 `width` 个字符。 */
 export function wrapText(text: string, width: number, maxLines: number): string[] {
 	const words = text.replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
 	const lines: string[] = [];

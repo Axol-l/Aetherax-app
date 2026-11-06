@@ -1,18 +1,14 @@
 import type { Layer, RenderContext } from '../types.js';
 
 /**
- * The measured line, drawn while the user calibrates.
- *
- * Two clicks and a straight line between them: the whole point of calibrating this way is
- * that the user is matching a drawn segment against a stated distance, so the segment has
- * to be visible on the plan they are matching it against. A dashed line with a tick at
- * each end reads as a measurement rather than as an object on the drawing.
+ * 标定过程中绘制的测量线段。
+ * 两次点击连成直线，两端各带一个端点标记，虚线使其读作测量而非图纸上的对象。
  */
 export class CalibrationLineLayer implements Layer {
 	id = 'calibration-line';
 	visible = true;
 
-	/** World coordinates of the first and second click. */
+	/** 第一次和第二次点击的世界坐标。 */
 	a: { x: number; y: number } | null = null;
 	b: { x: number; y: number } | null = null;
 
@@ -34,7 +30,7 @@ export class CalibrationLineLayer implements Layer {
 		ctx.stroke();
 		ctx.setLineDash([]);
 
-		// Ends: a solid dot at each, so a short segment is still visible at any zoom.
+		// 两端各画一个实心圆点，使短线段在任意缩放下都可见。
 		for (const point of [this.a, this.b]) {
 			if (!point) continue;
 			ctx.beginPath();

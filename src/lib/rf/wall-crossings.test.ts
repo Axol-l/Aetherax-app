@@ -1,10 +1,7 @@
 /**
- * The ray-versus-segment kernel that the vector wall model charges loss with.
- *
- * The cases worth pinning are the ones a raster march gets wrong: a ray that runs *along* a
- * wall (not a crossing), a ray that ends exactly on one (a grazing hit, which counts), a
- * corner where two walls meet at the same point (both count — there are two surfaces there),
- * and the ordering, because a breakdown is read in the order the signal meets things.
+ * 矢量墙体模型用于计损的射线—线段求交内核。
+ * 重点覆盖栅格步进容易出错的情形：沿墙而行的射线不计穿越、恰好终止于墙上的射线计一次、
+ * 墙角处两道墙各计一次，以及按信号遇到墙体的先后排序。
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -62,9 +59,7 @@ describe('rayWallCrossings', () => {
 	});
 
 	it('counts both walls where they meet at a corner', () => {
-		// Two surfaces at that point, so two crossings — deterministically, which is the
-		// difference from the raster model, where which pixels belong to which wall (and
-		// whether a corner is charged twice) depends on how the mask was painted.
+		// 该点处有两个表面，因此计两次穿越，且结果是确定的；栅格模型的结果则取决于掩码的绘制方式。
 		const hits = rayWallCrossings(
 			{ x: 0, y: 0 },
 			{ x: 10, y: 0 },
@@ -83,14 +78,13 @@ describe('rayWallCrossings', () => {
 
 describe('loss', () => {
 	it('adds one figure per crossing, from the material row', () => {
-		// Drywall is 5.6 dB per crossing at this band since the figure is computed from the
-		// P.2040 slab model (12 mm plasterboard at 5.5 GHz), not read off a table.
+		// 该频段下石膏板每次穿越 5.6 dB，数值由 P.2040 平板模型（5.5 GHz、12 mm 板厚）算出，而非查表。
 		const walls = [wall(3, -5, 3, 5, 0), wall(7, -5, 7, 5, 0)];
 		expect(rayWallLossDb({ x: 0, y: 0 }, { x: 10, y: 0 }, walls, BAND)).toBeCloseTo(11.2, 1);
 	});
 
 	it('charges nothing for a virtual partition', () => {
-		// Id 6 is the zero-attenuation partition: a line that divides rooms, not a surface.
+		// 材质 id 6 是零衰减隔断：只划分房间，不是实体表面。
 		const walls = [wall(5, -5, 5, 5, 6)];
 		expect(rayWallLossDb({ x: 0, y: 0 }, { x: 10, y: 0 }, walls, BAND)).toBeCloseTo(0);
 	});

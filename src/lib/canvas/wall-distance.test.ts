@@ -7,7 +7,7 @@ import {
 	wallDistanceTransform
 } from './wall-distance.js';
 
-/** A deterministic pseudo-random mask, so the reference comparison is repeatable. */
+/** 确定性的伪随机掩码，使对照比较可重复。 */
 function randomMask(width: number, height: number, walls: number): Uint8Array {
 	const data = new Uint8Array(width * height);
 	let seed = 12345;
@@ -18,7 +18,7 @@ function randomMask(width: number, height: number, walls: number): Uint8Array {
 	return data;
 }
 
-/** The answer by exhaustion: the distance to every wall pixel, minimised. */
+/** 穷举法答案：计算到每个墙体像素的距离并取最小值。 */
 function bruteForce(
 	data: Uint8Array,
 	width: number,
@@ -50,7 +50,7 @@ describe('wallDistanceTransform', () => {
 				const expected = bruteForce(data, width, height, px, py)!;
 				const actual = transform.query(px, py)!;
 				expect(actual.distance).toBeCloseTo(expected.distance, 4);
-				// The named wall pixel has to be a wall, and at the distance claimed.
+				// 返回的墙体像素必须确实是墙，且距离与声称的一致。
 				expect(data[actual.y * width + actual.x]).not.toBe(0);
 				expect(Math.hypot(actual.x - px, actual.y - py)).toBeCloseTo(expected.distance, 4);
 			}
@@ -58,7 +58,7 @@ describe('wallDistanceTransform', () => {
 	});
 
 	it('measures through a wall to the far side of a corridor', () => {
-		// Two vertical walls 10 px apart; the middle of the gap is 5 px from both.
+		// 两堵竖直墙相距 10 px，间隙中点与两者都相距 5 px。
 		const width = 21;
 		const height = 5;
 		const data = new Uint8Array(width * height);
@@ -71,7 +71,7 @@ describe('wallDistanceTransform', () => {
 		expect(middle.distance).toBe(5);
 		expect([5, 15]).toContain(middle.x);
 		expect(transform.query(5, 2)).toEqual({ distance: 0, x: 5, y: 2 });
-		// 0 and 20 are outside the walls, so the nearest wall is still one of the two.
+		// 0 和 20 在墙外，因此最近的墙仍是两堵之一。
 		expect(transform.query(0, 2)!.distance).toBe(5);
 		expect(transform.query(20, 2)!.distance).toBe(5);
 	});
@@ -95,8 +95,8 @@ describe('wallDistanceTransform', () => {
 	});
 
 	it('treats any non-zero pixel as a wall', () => {
-		// The editor's raster is 1 = wall, but the material mask shares the geometry
-		// code and a stray material id must not read as an empty plan.
+		// 编辑器的光栅以 1 表示墙，但材质掩码共用几何代码，
+		// 杂散的材质 id 不能读作空图纸。
 		const transform = wallDistanceTransform(new Uint8Array([0, 0, 3, 0]), 4, 1)!;
 		expect(transform.query(0, 0)).toEqual({ distance: 2, x: 2, y: 0 });
 	});
@@ -113,9 +113,8 @@ describe('cachedWallDistanceTransform', () => {
 
 	it('rebuilds when the same array is patched in place and the version is bumped', () => {
 		/*
-		 * The wall editor's `materialize()` returns the same array after a stroke,
-		 * with the pixels changed inside it, so identity alone would hand back a
-		 * field measured from walls the user has since erased.
+		 * 墙体编辑器的 `materialize()` 在笔画后返回同一个数组，只改变其中的像素，
+		 * 因此仅比较引用会返回基于已被擦除墙体的距离场。
 		 */
 		const data = new Uint8Array([1, 0, 0, 0, 0, 0]);
 		const mask = { data, width: 6, height: 1, originX: 0, originY: 0 };
@@ -136,7 +135,7 @@ describe('cachedWallDistanceTransform', () => {
 });
 
 describe('firstWallAlong', () => {
-	/** A 60×60 room: walls on the border, plus a partition at x = 40..41. */
+	/** 一个 60×60 的房间：边框为墙，另在 x = 40..41 处有一道隔断。 */
 	function roomMask(): Uint8Array {
 		const data = new Uint8Array(60 * 60);
 		for (let i = 0; i < 60; i++) {
@@ -154,8 +153,8 @@ describe('firstWallAlong', () => {
 
 	it('measures to the first wall along the bearing, not the nearest one', () => {
 		const data = roomMask();
-		// From (20, 30) facing +x: the partition at x = 40, twenty units away — while
-		// the *nearest* wall is the border ten units behind it.
+		// 从 (20, 30) 朝 +x：隔断在 x = 40，距离二十个单位，
+		// 而最近的墙是其后方十个单位的边框。
 		const hit = firstWallAlong(data, 60, 60, 0, 0, 20, 30, 0, 60);
 		expect(hit).not.toBeNull();
 		expect(hit!.distanceW).toBeCloseTo(20, 6);
@@ -165,9 +164,8 @@ describe('firstWallAlong', () => {
 
 	it('follows the bearing, in world units with the mask origin subtracted', () => {
 		const data = roomMask();
-		// The same room, five world units up and to the right of the mask's origin:
-		// mask (20, 30) is world (25, 35), and the border wall is at mask x = 0, i.e.
-		// world x = 5.
+		// 同一个房间，整体位于掩码原点右上方五个世界单位：
+		// 掩码 (20, 30) 对应世界 (25, 35)，边框在掩码 x = 0，即世界 x = 5。
 		const hit = firstWallAlong(data, 60, 60, 5, 5, 25, 35, 180, 60);
 		expect(hit!.x).toBeCloseTo(5, 6);
 		expect(hit!.y).toBeCloseTo(35, 6);
@@ -176,8 +174,7 @@ describe('firstWallAlong', () => {
 
 	it('returns null when the ray leaves the plan before meeting a wall', () => {
 		const data = roomMask();
-		// A gap in the right-hand border, with the ray starting clear of the
-		// partition: nothing to measure to out there.
+		// 右侧边框有一个缺口，射线起点避开了隔断，那一侧没有可测量的对象。
 		for (let i = 0; i < 60; i++) data[30 * 60 + 59] = 0;
 		expect(firstWallAlong(data, 60, 60, 0, 0, 50, 30, 0, 60)).toBeNull();
 	});
@@ -189,7 +186,7 @@ describe('firstWallAlong', () => {
 });
 
 describe('nearestSideWall', () => {
-	/** A 60×60 room: walls on the border, plus a partition at x = 40..41. */
+	/** 一个 60×60 的房间：边框为墙，另在 x = 40..41 处有一道隔断。 */
 	function roomMask(): Uint8Array {
 		const data = new Uint8Array(60 * 60);
 		for (let i = 0; i < 60; i++) {
@@ -207,20 +204,20 @@ describe('nearestSideWall', () => {
 
 	it('measures across the facing direction, not down it', () => {
 		const data = roomMask();
-		// At (20, 30) facing +x — the room's depth — so the walls beside it are the
-		// top and bottom borders: 30 up and 29 down.
+		// 在 (20, 30) 朝 +x——即房间的进深方向——两侧的墙是上下边框：
+		// 向上 30、向下 29。
 		const hit = nearestSideWall(data, 60, 60, 0, 0, 20, 30, 0, 60);
 		expect(hit).not.toBeNull();
 		expect(hit!.distanceW).toBeCloseTo(29, 6);
 		expect(hit!.y).toBe(59);
-		// Directly below the unit, not on the partition twenty units ahead of it.
+		// 落点在设备正下方，而不是前方二十个单位处的隔断。
 		expect(hit!.x).toBe(20);
 	});
 
 	it('never measures the wall the unit is mounted on', () => {
 		const data = roomMask();
-		// At (50, 30) facing −x, i.e. mounted on the partition: the answer is the
-		// border above and below, not the 9 units of partition behind it.
+		// 在 (50, 30) 朝 −x，即安装在隔断上：答案是上下的边框，
+		// 而不是身后九个单位的隔断。
 		const hit = nearestSideWall(data, 60, 60, 0, 0, 50, 30, 180, 60);
 		expect(hit!.distanceW).toBeCloseTo(29, 6);
 		expect(hit!.x).toBe(50);
@@ -228,11 +225,10 @@ describe('nearestSideWall', () => {
 
 	it('reports a corner as near zero, and tolerates one side running out', () => {
 		const data = roomMask();
-		// Two units from the top border, facing +x: the unit is in a corner.
+		// 距上边框两个单位、朝 +x：设备位于角落。
 		expect(nearestSideWall(data, 60, 60, 0, 0, 20, 2, 0, 60)!.distanceW).toBeCloseTo(2, 6);
 
-		// Both sides open (a gap in the top and bottom border at this column): nothing
-		// to measure to, so nothing is drawn.
+		// 两侧都敞开（该列上下边框各有一个缺口）：没有可测量的对象，因此不绘制。
 		for (let i = 0; i < 60; i++) {
 			data[0 * 60 + 20] = 0;
 			data[59 * 60 + 20] = 0;

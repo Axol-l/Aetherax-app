@@ -17,17 +17,9 @@ import {
 } from './stacked-floors.js';
 
 /**
- * The stacked view is a camera plus arithmetic, and this is both.
- *
- * It is worth testing on its own because the whole claim of the view is geometric:
- * the floors are separated by their *real* storey heights, the plan is rotated and
- * tilted rather than slid sideways, and the topmost slab at a point is the one
- * drawn over it. A test that only looked at pixels would be asserting the drawing
- * code, not the projection the drawing is supposed to express.
- *
- * The history is in the first test: an earlier version offset each floor sideways
- * and drew every plan from straight above, so turning the knob looked like the
- * frames moving. Rotating the *plane* is the difference, and it is checkable.
+ * 堆叠视图由相机与几何运算组成，本文件同时覆盖两者。
+ * 视图的主张都是几何性的：楼层按真实层高分开、平面图被旋转与倾斜而非横向平移，
+ * 某点处最上层的板面就是绘制在其上的那层。
  */
 
 const WUPM = 33.05;
@@ -39,7 +31,7 @@ const camera = (over: Partial<StackCamera> = {}): StackCamera => ({
 	...over
 });
 
-/** Floors with the same 800 x 600 mask, three-metre storeys. */
+/** 掩码均为 800 x 600、层高为 3 米的楼层数据。 */
 function sources(count = 2): FloorCardSource[] {
 	const floor = (id: string, name: string, elevation: number): FloorCardSource => ({
 		id,
@@ -59,8 +51,7 @@ function sources(count = 2): FloorCardSource[] {
 		elevation
 	});
 	const all = [floor('f1', 'Floor 1', 0), floor('f2', 'Floor 2', 3), floor('f3', 'Floor 3', 6)];
-	// Deliberately in the wrong order: the layout sorts by elevation, and a view
-	// that trusted array order would draw the building inside out.
+	// 故意按错误顺序排列：布局会按标高排序，依赖数组顺序的视图会把建筑画反。
 	return count === 2 ? [all[1]!, all[0]!] : [all[2]!, all[0]!, all[1]!];
 }
 
@@ -83,7 +74,7 @@ describe('storeyHeight', () => {
 	it('is metres in world units, scaled by the spread', () => {
 		expect(storeyHeight(3, 33.05, 1)).toBeCloseTo(99.15, 9);
 		expect(storeyHeight(3, 33.05, 1.5)).toBeCloseTo(148.725, 9);
-		// The ground floor stands on nothing, so it has no height of its own.
+		// 底层没有下方支撑，因此自身高度为 0。
 		expect(storeyHeight(0, 33.05, 1)).toBe(0);
 	});
 });
@@ -92,16 +83,13 @@ describe('projectPoint', () => {
 	it('is the plan unchanged in an unrotated top view', () => {
 		const top = camera({ yaw: 0, pitch: 0 });
 		expect(projectPoint(top, 100, 200, 0)).toEqual({ x: 100, y: 200 });
-		// Height does *not* appear: looking straight down, the storeys coincide,
-		// which is what a plan view of a stack really looks like. An earlier version
-		// always offset by height here, which made the tilt knob look like it was
-		// doing the projection's job.
+		// 高度不参与：垂直向下看时各层重合，这正是堆叠平面图应有的样子。
 		expect(projectPoint(top, 100, 200, 50)).toEqual({ x: 100, y: 200 });
 	});
 
 	it('rotates the plan with yaw, which is what a viewpoint does', () => {
 		const turned = camera({ yaw: 90 * DEG, pitch: 0 });
-		// A quarter turn maps +x onto +y: the *plan* turns, it is not slid sideways.
+		// 旋转四分之一圈把 +x 映射到 +y：转动的是平面本身，而不是横向平移。
 		const p = projectPoint(turned, 100, 0, 0);
 		expect(p.x).toBeCloseTo(0, 9);
 		expect(p.y).toBeCloseTo(100, 9);
@@ -110,10 +98,10 @@ describe('projectPoint', () => {
 	it('foreshortens y with pitch and lifts a floor by its height', () => {
 		const tilted = camera({ yaw: 0, pitch: 60 * DEG });
 		const flat = projectPoint(tilted, 0, 100, 0);
-		// cos(60掳) = 0.5: distances away from the viewer halve.
+		// cos(60°) = 0.5：远离观察者的距离减半。
 		expect(flat.x).toBeCloseTo(0, 9);
 		expect(flat.y).toBeCloseTo(100 * Math.cos(60 * DEG), 9);
-		// sin(60掳) = 0.866: a 100-unit height moves the floor up by that much.
+		// sin(60°) 决定高度在屏幕上带来的上移量。
 		expect(projectPoint(tilted, 0, 0, 100).y).toBeCloseTo(-100 * Math.sin(60 * DEG), 9);
 	});
 
@@ -144,9 +132,9 @@ describe('stackedLayout', () => {
 
 	it('gives each upper floor walls down to the floor below it', () => {
 		const [ground, upper] = layout(null);
-		// The ground floor stands on nothing: no walls, and its hit area is its box.
+		// 底层没有下方楼层：没有墙体，其命中区域就是自身包围盒。
 		expect(ground!.depth).toBe(0);
-		// One storey of building for the floor above.
+		// 上层楼层对应一层的建筑高度。
 		expect(upper!.depth).toBeCloseTo(99.15, 6);
 	});
 
@@ -155,10 +143,10 @@ describe('stackedLayout', () => {
 	});
 
 	it('draws the current floor nearly opaque and the others translucent', () => {
-		// With full-size plans an opaque upper floor hides everything below it.
+		// 平面图为全尺寸时，不透明的上层会遮住其下所有内容。
 		expect(layout('f2')[1]!.alpha).toBeCloseTo(0.9, 6);
 		expect(layout('f1')[1]!.alpha).toBeCloseTo(0.6, 6);
-		// Nothing covers the bottom floor, so it is drawn solid either way.
+		// 底层上方没有遮挡，因此始终以不透明绘制。
 		expect(layout('f2')[0]!.alpha).toBe(1);
 		expect(layout('f2')[0]!.isCurrent).toBe(false);
 		expect(layout('f2')[1]!.isCurrent).toBe(true);
@@ -177,23 +165,21 @@ describe('stackedLayout', () => {
 
 describe('stackedLayout with focus', () => {
 	it('keeps only the current floor', () => {
-		// Not "the current floor and its neighbours": on a two-storey plan that kept
-		// everything, so the toggle did nothing at all and read as broken.
+		// 与“当前楼层及其相邻楼层”的行为不同：两层平面图上过滤后只剩一层。
 		expect(layout('f2', { count: 3, focus: true }).map((s) => s.id)).toEqual(['f2']);
 		expect(layout('f3', { count: 3, focus: true }).map((s) => s.id)).toEqual(['f3']);
 		expect(layout('f1', { count: 3, focus: true }).map((s) => s.id)).toEqual(['f1']);
-		// The common case: two floors, so it has to do something there too.
+		// 常见情形：只有两层，因此在这里也必须产生效果。
 		expect(layout('f1', { focus: true }).map((s) => s.id)).toEqual(['f1']);
 	});
 
 	it('keeps every floor when nothing is selected', () => {
-		// An empty view would read as a bug rather than as a filter.
+		// 空视图会像缺陷而不像过滤。
 		expect(layout(null, { count: 3, focus: true })).toHaveLength(3);
 	});
 
 	it('still stands the isolated floor on the storey below it', () => {
-		// Its walls are one storey tall even with nothing drawn beneath: the building
-		// underneath decides that, not the visible list.
+		// 即使下方没有绘制任何楼层，其墙体仍有一层高：由整个建筑决定，而不是可见列表。
 		const focused = layout('f3', { count: 3, focus: true });
 		expect(focused).toHaveLength(1);
 		expect(focused[0]!.depth).toBeCloseTo(99.15, 6);
@@ -203,8 +189,8 @@ describe('stackedLayout with focus', () => {
 
 describe('stackedBounds', () => {
 	it('is centred on the pivot, and at a top view it is the plan\'s own box', () => {
-		// The drawing plane is pivot-relative, so the plan of an 800 x 600 floor runs
-		// from -400 to 400 and -300 to 300 whatever the viewpoint.
+		// 绘制平面以 pivot 为原点，因此 800 x 600 的楼层平面范围是 -400 到 400、-300 到 300，
+		// 与视点无关。
 		const bounds = stackedBounds(camera({ yaw: 0, pitch: 0 }), layout(null));
 		expect(bounds[0]!.x).toBeCloseTo(-400, 6);
 		expect(bounds[0]!.y).toBeCloseTo(-300, 6);
@@ -215,17 +201,15 @@ describe('stackedBounds', () => {
 	it('grows with the tilt, symmetrically about the pivot', () => {
 		const view = camera({ yaw: 0, pitch: 30 * DEG });
 		const bounds = stackedBounds(view, layout(null));
-		// The plans are foreshortened to 300路cos(30掳) either side of the middle, and
-		// the storeys are lifted 卤(99.15/2)路sin(30掳) about it: 259.8 + 24.8 = 284.6.
+		// 平面图在中心两侧各被压缩到 300·cos(30°)，楼层围绕中心抬升 ±(99.15/2)·sin(30°)。
 		const reach = 300 * Math.cos(30 * DEG) + (99.15 / 2) * Math.sin(30 * DEG);
 		expect(bounds[0]!.y).toBeCloseTo(-reach, 6);
 		expect(bounds[1]!.y).toBeCloseTo(reach, 6);
 	});
 
 	it('a yawed plan needs a wider box than the plan itself', () => {
-		// A rectangle seen at 45掳 has a bounding box as wide as the sum of its sides
-		// times cos(45掳) 鈥?the visible proof that the view rotated rather than
-		// translated. Sliding the floors sideways never changes this.
+		// 45° 下的矩形，其包围盒宽度等于两边之和乘以 cos(45°)，这是视图旋转而非平移的直接证据：
+		// 横向平移楼层永远不会改变这一点。
 		const straight = stackedBounds(camera({ yaw: 0, pitch: 0 }), layout(null));
 		const turned = stackedBounds(camera({ yaw: 45 * DEG, pitch: 0 }), layout(null));
 		const width = (b: Array<{ x: number; y: number }>) => b[1]!.x - b[0]!.x;
@@ -246,21 +230,18 @@ describe('slabAt', () => {
 		const ground = slabs[0]!;
 		const upper = slabs[1]!;
 
-		// The middle of the upper floor's own plan is the upper floor: it is painted
-		// last, so that is what the user sees there.
+		// 上层自身平面图的中部属于上层：它最后绘制，因此用户在那里看到的就是它。
 		const upperCentre = projectPoint(view, 400, 300, upper.z, stackPivot(slabs));
 		expect(slabAt(view, slabs, upperCentre.x, upperCentre.y)).toBe('f2');
 
-		// Far along the ground floor's plan, the upper floor's own plan has already
-		// ended 鈥?un-projected onto the upper plane this point lands past its far
-		// edge 鈥?so the ground floor is what is there.
+		// 在地面平面图的很远处，上层的平面图已经结束：反投影到上层平面会落在其远端之外，
+		// 因此该处属于地面楼层。
 		const groundEdge = projectPoint(view, 400, 580, ground.z, stackPivot(slabs));
 		expect(slabAt(view, slabs, groundEdge.x, groundEdge.y)).toBe('f1');
 	});
 
 	it('picks the top floor in a top view, where the storeys coincide', () => {
-		// Looking straight down there is only one plan on screen, and it is the one
-		// drawn last. The floors below are simply behind it.
+		// 垂直向下看时屏幕上只有一个平面图，即最后绘制的那层，下方楼层都在其后面。
 		const top = camera({ yaw: 0, pitch: 0 });
 		expect(slabAt(top, layout(null), 0, 0)).toBe('f2');
 	});
@@ -284,8 +265,7 @@ describe('slabAt', () => {
 	});
 
 	it('narrows with focus, so a floor that is not drawn is not clickable', () => {
-		// The same far edge of the ground floor's plan: the ground floor's when it is
-		// drawn, and nothing at all once another floor is isolated.
+		// 地面平面图同一远端边缘：绘制地面楼层时命中它，隔离其他楼层后则什么都不命中。
 		const sprawling = layout('f2', { count: 3 });
 		const focused = layout('f2', { count: 3, focus: true });
 		const point = projectPoint(view, 400, 580, 0, stackPivot(sprawling));
@@ -300,7 +280,7 @@ describe('the pivot', () => {
 		const pivot = stackPivot(layout(null));
 		expect(pivot.x).toBeCloseTo(400, 6);
 		expect(pivot.y).toBeCloseTo(300, 6);
-		// Two floors three metres apart: the middle is one storey up.
+		// 两层相距 3 米：中心位于一层高的位置。
 		expect(pivot.z).toBeCloseTo(99.15 / 2, 6);
 	});
 
@@ -317,8 +297,7 @@ describe('the pivot', () => {
 	});
 
 	it('keeps the bounds centred on the pivot however the view is turned', () => {
-		// Rotating about a corner would sweep the stack across the canvas; this is the
-		// property that makes turning the view need no fit.
+		// 绕角落旋转会让堆叠在画布上横扫；本性质使旋转视图无需重新适配。
 		const slabs = layout(null);
 		for (const yaw of [0, 45 * DEG, 120 * DEG]) {
 			const bounds = stackedBounds(camera({ yaw, pitch: 40 * DEG }), slabs);
@@ -328,8 +307,7 @@ describe('the pivot', () => {
 	});
 
 	it('grows the storeys apart symmetrically when spacing changes', () => {
-		// Spacing acts about the pivot too, so a stack pulled apart does not walk off
-		// the top of the canvas.
+		// 间距同样以 pivot 为中心施加，因此拉开堆叠不会跑出画布顶部。
 		const slabs = layout(null, { spacing: 2 });
 		const pivot = stackPivot(slabs);
 		const zs = slabs.map((s) => s.z - pivot.z);
@@ -341,7 +319,7 @@ describe('projectBox', () => {
 	it('is the plan\'s own rectangle, unrotated and untilted', () => {
 		const view = camera({ yaw: 0, pitch: 0 });
 		const quad = projectBox(view, { x: 10, y: 20, w: 100, h: 50 }, 30);
-		// The height does not appear at pitch 0; see `projectPoint`.
+		// 俯仰为 0 时高度不产生位移，见 `projectPoint`。
 		expect(quad).toEqual([
 			{ x: 10, y: 20 },
 			{ x: 110, y: 20 },
@@ -353,8 +331,7 @@ describe('projectBox', () => {
 	it('turns into a parallelogram when the view is turned', () => {
 		const view = camera({ yaw: 30 * DEG, pitch: 20 * DEG });
 		const quad = projectBox(view, { x: 0, y: 0, w: 100, h: 100 }, 0);
-		// Opposite sides stay parallel 鈥?that is what makes one `ctx.transform` per
-		// floor exact rather than an approximation.
+		// 对边保持平行，这正是每层一个 `ctx.transform` 精确成立而非近似的原因。
 		const d1 = { x: quad[1]!.x - quad[0]!.x, y: quad[1]!.y - quad[0]!.y };
 		const d2 = { x: quad[2]!.x - quad[3]!.x, y: quad[2]!.y - quad[3]!.y };
 		expect(d1.x).toBeCloseTo(d2.x, 9);
@@ -363,12 +340,8 @@ describe('projectBox', () => {
 });
 
 /**
- * The marker each access point gets, which is where this view's own bug was: it drew
- * a dot for every mount, so the one view that exists to separate an AP from its
- * ceiling was the one view that said every AP hangs from it.
- *
- * A recording context rather than pixels, because the marker *is* its geometry: the
- * plan's shape for the mount, projected into the floor's own plane.
+ * 每个接入点获得的标记，使用记录型上下文而非像素：标记本身就是其几何形状，
+ * 即按安装方式取平面图的形状，投影到楼层自身的平面。
  */
 class RecordingContext {
 	arcs: Array<{ x: number; y: number; r: number }> = [];
@@ -400,13 +373,13 @@ class RecordingContext {
 
 type MarkerAp = FloorCardSource['aps'][number];
 
-/** Draw one floor with these access points, unrotated and untilted. */
+/** 绘制带这些接入点的一层楼，不旋转也不俯仰。 */
 function markers(aps: MarkerAp[], over: Partial<StackCamera> = {}): RecordingContext {
 	const ctx = new RecordingContext();
 	const layer = new StackedFloorsLayer(new FloorCardCache());
 	layer.visible = true;
-	// No plan and no mask: this is about the marker, and a mask URL would have the
-	// card cache construct an `Image`, which a unit test has none of.
+	// 没有平面图与掩码：本测试只关心标记，而掩码 URL 会让卡片缓存构造 `Image`，
+	// 单元测试环境没有该对象。
 	const floor: FloorCardSource = {
 		id: 'f1',
 		name: 'Floor 1',
@@ -437,10 +410,9 @@ function markers(aps: MarkerAp[], over: Partial<StackCamera> = {}): RecordingCon
 }
 
 /**
- * What the *markers* drew: the same render with no access points, subtracted.
+ * 标记实际绘制的内容：用不含接入点的相同渲染结果做减法得到。
  *
- * The floor's own outline and label are paths too, and counting them in would make
- * every assertion about the marker's shape wrong by a constant.
+ * 楼层自身的轮廓与标签也是路径，计入它们会使关于标记形状的断言整体偏移一个常量。
  */
 function markerDrawing(aps: MarkerAp[], over: Partial<StackCamera> = {}) {
 	const full = markers(aps, over);
@@ -449,7 +421,7 @@ function markerDrawing(aps: MarkerAp[], over: Partial<StackCamera> = {}) {
 		arcs: full.arcs.length - bare.arcs.length,
 		moves: full.moves.length - bare.moves.length,
 		lines: full.lines.length - bare.lines.length,
-		/** The last path drawn: the marker, since the markers go last. */
+		/** 最后绘制的路径，即标记，因为标记最后绘制。 */
 		first: full.moves[full.moves.length - 1]!,
 		rest: full.lines.slice(full.lines.length - 3)
 	};
@@ -474,7 +446,7 @@ describe('stacked view: access point markers', () => {
 	it('draws a wall unit as a plate, not a circle', () => {
 		const drawn = markerDrawing([ap({ mount: 'wall', mountHeightM: 0, facingDeg: 0 })]);
 		expect(drawn.arcs).toBe(0);
-		// One quad: a move and three lines, closed back to the first corner.
+		// 一个四边形：一次 move 与三条线，最后闭合回第一个角。
 		expect(drawn.moves).toBe(1);
 		expect(drawn.lines).toBe(3);
 	});
@@ -486,18 +458,17 @@ describe('stacked view: access point markers', () => {
 			return { w: Math.max(...xs) - Math.min(...xs), h: Math.max(...ys) - Math.min(...ys) };
 		};
 
-		// Facing +x: thin across x, long along the wall, which is y.
+		// 朝向 +x：在 x 方向很薄，沿墙方向（y）较长。
 		const alongX = extents(markerDrawing([ap({ mount: 'wall', mountHeightM: 0, facingDeg: 0 })]));
 		expect(alongX.h).toBeGreaterThan(alongX.w * 2);
 
-		// Facing +y: the same plate, turned a quarter turn.
+		// 朝向 +y：同一面板旋转四分之一圈。
 		const alongY = extents(markerDrawing([ap({ mount: 'wall', mountHeightM: 0, facingDeg: 90 })]));
 		expect(alongY.w).toBeGreaterThan(alongY.h * 2);
 	});
 
 	it('turns the plate with the room, not with the screen', () => {
-		// A yawed view rotates the floor plane. A quad drawn in screen space would
-		// keep its first edge level; this one is turned with the plan.
+		// 偏航会旋转楼层平面。在屏幕空间绘制的四边形会保持第一条边水平，而这个四边形随平面一起转动。
 		const level = markerDrawing([ap({ mount: 'wall', mountHeightM: 0, facingDeg: 0 })]);
 		expect(Math.abs(level.rest[0]!.y - level.first.y)).toBeCloseTo(0, 6);
 

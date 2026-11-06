@@ -1,24 +1,17 @@
 /**
- * Wall masks as pixels: a data URL in, an array out, and back.
- *
- * This lived inside `wall-detect.ts`, next to 400 lines of thresholding and blob filtering,
- * and seven modules imported that file only to get it — `floor-mask.ts` on the startup path
- * among them. Reading and writing a mask has nothing to do with detecting one, and a module
- * that is imported by everything should not be the one that also owns a computer-vision
- * pipeline.
- *
- * The value is 1 for wall, 0 for not, read back from the red channel of a PNG.
+ * 掩码编解码：在 PNG data URL 与像素数组之间转换。
+ * 墙体为 1、非墙体为 0，值从 PNG 的红色通道读回。
  */
 export interface DecodedWallMask {
 	data: Uint8Array;
 	width: number;
 	height: number;
-	/** World-space origin of the mask (default 0). */
+	/** 掩码的世界坐标原点（默认 0）。 */
 	originX: number;
 	originY: number;
 }
 
-/** Decode a wall mask PNG data URL to a Uint8Array for fast pixel lookups. */
+/** 把墙体掩码 PNG data URL 解码为 Uint8Array，便于快速查询像素。 */
 export function decodeMask(
 	dataUrl: string,
 	width: number,
@@ -39,16 +32,15 @@ export function decodeMask(
 			}
 			resolve({ data: mask, width, height, originX: 0, originY: 0 });
 		};
-		// A mask that will not decode is an empty plan rather than a thrown error: the callers
-		// are all "draw what we have", and a project with one unreadable floor should still
-		// open on the others.
+		// 无法解码的掩码返回空结果而不是抛错：调用方都在画已有的内容，
+		// 一层楼读不出来不应影响其他楼层打开。
 		img.onerror = () =>
 			resolve({ data: new Uint8Array(width * height), width, height, originX: 0, originY: 0 });
 		img.src = dataUrl;
 	});
 }
 
-/** Encode a binary wall mask Uint8Array back to a PNG data URL. */
+/** 把二值墙体掩码 Uint8Array 编码回 PNG data URL。 */
 export function encodeMask(data: Uint8Array, w: number, h: number): string {
 	const canvas = document.createElement('canvas');
 	canvas.width = w;

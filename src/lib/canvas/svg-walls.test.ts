@@ -1,8 +1,6 @@
 /**
- * Reading wall geometry out of an SVG, on cases whose answer is the drawing itself.
- *
- * The module is arithmetic over attributes, so the tests build minimal element objects rather than
- * a DOM: the rules are about coordinates, not about rendering.
+ * 从 SVG 读取墙体几何的测试，所用用例的答案即图形本身。
+ * 模块只对属性做算术，故测试构造最小元素对象而不用 DOM，因为规则针对坐标而非渲染。
  */
 import { describe, expect, it } from 'vitest';
 import { elementSegments, parseTransform, pathSegments, segmentsFromSvg } from './svg-walls.js';
@@ -14,8 +12,7 @@ interface FakeElement {
 }
 
 /**
- * A minimal element: the module only ever calls `getAttribute` and walks `parentElement`, so a
- * plain object is enough and the rules can be tested without a DOM.
+ * 最小元素：模块只调用 `getAttribute` 并沿 `parentElement` 上溯，故普通对象即可，无需 DOM。
  */
 function el(
 	tagName: string,
@@ -104,7 +101,7 @@ describe('segmentsFromSvg', () => {
 			contentBox: { x: 0, y: 0, width: 200, height: 200 },
 			scale: 0.5
 		});
-		// The fixture line is dropped; the wall lands at half size in the render's frame.
+		// 固定装置线段被丢弃；墙体在渲染坐标系中按一半尺寸落位。
 		expect(segments).toHaveLength(1);
 		expect(segments[0]!.ax).toBeCloseTo(5, 6);
 		expect(segments[0]!.bx).toBeCloseTo(55, 6);

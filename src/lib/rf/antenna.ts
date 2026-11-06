@@ -1,120 +1,46 @@
 /**
- * The antenna's vertical cut: where an access point radiates, in the plane that
- * decides how far down a client is.
- *
- * The site-general model this app is built on (`PL = PL0 + 10·n·log10(d)`) has no
- * antenna in it at all: every access point radiated equally in every direction, so
- * a client 20 m away on the same floor and a client directly under the AP were
- * given the same treatment. That is wrong in a way that matters, and the error is
- * entirely in the vertical plane:
- *
- * - An indoor access point is an upright omni — its pattern is a doughnut around
- *   its own axis, i.e. **peaked near the horizon** and rolling off towards its
- *   ends. A same-floor client is always within about 20° of the horizon beyond
- *   4 m, so it sits near the peak; a client **directly below** (or an AP directly
- *   above a client — the multi-floor case) is at 90° off it, which is the weakest
- *   part of the pattern.
- * - The horizontal plane, by contrast, is nearly flat for these devices, so an
- *   *azimuth* pattern would buy little for the ceiling hardware this is written
- *   for — which is why the ceiling case has none. A **wall-mounted** unit is the
- *   exception: it radiates into the room and is heavily attenuated behind, so its
- *   horizontal cut is what decides where coverage goes, and `azimuthGainDb` below
- *   supplies it. See `docs/PHYSICAL_MODELS.md` D2 and D2a.
- *
- * The shape below is a two-anchor profile calibrated against the vendor pattern
- * files analysed in D2 (Ubiquiti U6/U7 series, 2.4/5/6 GHz, kept locally and
- * untracked): `-3 dB` exactly at the half-power angle, then a smoothstep down to a
- * broadside floor whose depth is per band. Fitting the measured 5 GHz cuts, a
- * 60° beamwidth with a 12 dB floor reproduces them within about a decibel over the
- * angles a same-floor client actually sits at (35°/54°/70° off the peak for 2 m /
- * 1 m / 0.5 m horizontally at the default ceiling height, where the measurement
- * reads 2-7 / 4-8 / 5-10 dB down); the 2.4 GHz cuts are consistently wider and
- * shallower, hence 120° and 7 dB.
- *
- * Absolute orientation is deliberately not taken from those files: each of their
- * two cuts is normalised to its own peak with no reference axis, so which way the
- * doughnut points cannot be recovered. The profile therefore states it — the peak
- * is `aimDeg` from the horizontal, positive downwards — and that is what the
- * parameter means.
+ * 天线的垂直切面：接入点在决定客户端高低方向的平面内的辐射方向图。
  */
 
 /**
- * The vertical pattern of one access point.
+ * 单个接入点的垂直方向图。
  *
- * `floorDb` is the level at broadside (90° off the peak, and beyond) relative to
- * the peak. It is not editable: it comes from the band, together with the
- * default beamwidth, because it is a property of the antenna class rather than
- * something a planner tunes. The two editable numbers are the beamwidth and the
- * aim, which are the two that change where coverage goes.
+ * `floorDb` 为侧射方向（偏离峰值 90° 及更远）低于峰值的量，由频段决定且不可编辑；可编辑的是波束宽度与瞄准方向。
  */
 export interface AntennaProfile {
-	/** −3 dB beamwidth of the vertical cut, in degrees. */
+	/** 垂直切面的 −3 dB 波束宽度，单位度。 */
 	beamwidthDeg: number;
 	/**
-	 * Where the pattern's peak points, in degrees from the horizontal.
+	 * 方向图峰值的指向，以水平面为基准，单位度。
 	 *
-	 * **Signed**: positive aims down, negative aims up, zero is level. The peak is
-	 * the direction a client has to be in to get the full gain, so one signed number
-	 * covers both ends of the axis without a second "which way up" switch:
-	 *
-	 * - `0` — an upright omni, and the default. Its doughnut is level, so a client
-	 *   out on the floor is near the peak and one straight below is not.
-	 * - `+45…+90` — aimed at the floor: a panel against a ceiling, or a unit mounted
-	 *   flat to the slab with a patch antenna.
-	 * - `−45…−90` — aimed up: a unit standing on a desk or the floor, radiating into
-	 *   the room instead of into the slab under it.
-	 *
-	 * It is deliberately *not* derived from the mounting height. The height says
-	 * where the access point is, not which way its antenna faces, and for the
-	 * ceiling hardware this is written for the two are independent: the antennas are
-	 * vertical in every mount, which is what makes the pattern a level doughnut.
+	 * 正值为向下，负值为向上，0 为水平且为默认值；该值不根据安装高度推导。
 	 */
 	aimDeg: number;
-	/** Level at broadside (90° off the peak) and beyond, in dB below it. */
+	/** 侧射方向（偏离峰值 90° 及更远）低于峰值的量，单位 dB。 */
 	floorDb: number;
 	/**
-	 * The **horizontal** cut, which only hardware that radiates forwards has.
-	 *
-	 * An upright omni is a doughnut about its own axis, so its azimuth cut is very
-	 * nearly a circle (the vendor cuts on hand ripple by 3–8 dB, see D2) and an
-	 * azimuth term would buy nothing — which is why the ceiling case leaves these
-	 * unset and `azimuthLossDb` returns 0.
-	 *
-	 * A wall-mounted unit is not that: it radiates into the room and is heavily
-	 * attenuated behind, so the plan direction it faces decides where coverage goes,
-	 * and the vertical cut alone would give a client standing behind it the same
-	 * level as one in front. `facingDeg` is that direction, and the other two
-	 * describe the shape of the cut.
+	 * 水平切面，仅向前辐射的设备具有。
 	 */
 	facingDeg?: number;
-	/** −3 dB width of the horizontal cut, in degrees. Absent or 180 = no cut. */
+	/** 水平切面的 −3 dB 宽度，单位度。缺省或 180 表示无水平切面。 */
 	azBeamwidthDeg?: number;
-	/** Level straight behind, relative to straight in front, in dB. */
+	/** 正后方相对正前方的衰减量，单位 dB。 */
 	frontToBackDb?: number;
 }
 
-/**
- * Defaults per band, from the vendor cuts: the 2.4 GHz patterns are wide and
- * shallow, 5 and 6 GHz noticeably narrower and deeper.
- */
+/** 各频段的默认波束宽度与侧射电平。 */
 const BAND_DEFAULTS: Record<string, { beamwidthDeg: number; floorDb: number }> = {
 	'2.4ghz': { beamwidthDeg: 120, floorDb: 7 },
 	'5ghz': { beamwidthDeg: 60, floorDb: 12 },
 	'6ghz': { beamwidthDeg: 60, floorDb: 13 }
 };
 
-/** Widest beamwidth that still means "a beam": at 180° the pattern is flat. */
+/** 最大波束宽度；180° 时方向图平坦。 */
 export const MAX_BEAMWIDTH_DEG = 180;
-/**
- * How far the peak may be aimed from the horizontal.
- *
- * 90° is straight down or straight up, which is as far as "aimed at the floor" or
- * "aimed at the ceiling" can go before it stops being an aim and becomes a
- * mounting orientation.
- */
+/** 峰值相对水平面的最大瞄准角度，90° 为正下方或正上方。 */
 export const MAX_AIM_DEG = 90;
 
-/** The vertical pattern a new access point starts with on this band. */
+/** 该频段上新建接入点使用的垂直方向图。 */
 export function defaultAntenna(beamwidthDeg: number | null, band: string): AntennaProfile {
 	const fallback = BAND_DEFAULTS[band] ?? BAND_DEFAULTS['5ghz']!;
 	return {
@@ -125,16 +51,7 @@ export function defaultAntenna(beamwidthDeg: number | null, band: string): Anten
 }
 
 /**
- * The profile of one access point, from the fields an AP or a worker payload carries.
- *
- * This is the only place that decides that a **wall-mounted** unit has a horizontal
- * cut and an upright omni does not, so the editor's panel, the heatmap, the live
- * coverage pass and the optimiser's worker cannot disagree about it — the worker
- * cannot import the state module (`$state` is not worker-safe), which is why the
- * decision lives here in the pure layer rather than beside `AccessPoint`.
- *
- * `mount` is a plain string rather than the state module's `ApMount` for the same
- * reason: this file stays free of application state.
+ * 根据接入点或 worker 负载携带的字段构造方向图。
  */
 export function antennaProfileForMount(input: {
 	band: string;
@@ -157,34 +74,20 @@ export function antennaProfileForMount(input: {
 	};
 }
 
-/** The band's broadside floor, for a profile whose beamwidth the user has edited. */
+/** 该频段的侧射电平，用于用户改过波束宽度的方向图。 */
 export function antennaFloorDb(band: string): number {
 	return (BAND_DEFAULTS[band] ?? BAND_DEFAULTS['5ghz']!).floorDb;
 }
 
 /**
- * Gain of the vertical cut, in dB relative to its peak.
+ * 垂直切面的增益，单位 dB，相对峰值。
  *
- * `angleBelowHorizonDeg` is signed: positive for a ray that goes *down* from the
- * access point, negative for one that goes up. The offset from the peak is
- * therefore `|angle − aim|`, which is what makes an aimed pattern weaker behind
- * the aim than in front of it — the whole point of aiming at all.
- *
- * Below the half-power angle the curve is the usual squared-offset rolloff; past
- * it a smoothstep carries the level to the broadside floor, so the curve has no
- * kink where the two meet and none at 90°. Beyond 90° the floor holds: a
- * measured cut bottoms out at −23 dB and is smoothed, so it has no usable null,
- * and inventing one would make the model claim coverage holes it cannot know.
+ * `angleBelowHorizonDeg` 有符号，向下为正；偏移量为 `|angle − aim|`，超过 90° 后保持侧射电平。
  */
 export function elevationGainDb(angleBelowHorizonDeg: number, profile: AntennaProfile): number {
-	/*
-	 * A 180° beamwidth is the documented way to say "no vertical pattern at all" —
-	 * it is what reproduces the figures recorded before this module existed, and
-	 * what a flat-profile test asserts. It cannot come out of the shape below: a
-	 * half-power angle of 90° with a −3 dB anchor is a parabola, not a constant.
-	 */
+	/* 180° 波束宽度表示“没有垂直方向图”，返回 0；该值无法由下方曲线得到。 */
 	if (profile.beamwidthDeg >= MAX_BEAMWIDTH_DEG) return 0;
-	// 0 would put the half-power angle at the peak, which is no beam at all.
+	// 0 会让半功率角落在峰值处，等于没有波束。
 	const half = Math.max(1, profile.beamwidthDeg / 2);
 	const offset = Math.abs(angleBelowHorizonDeg - profile.aimDeg);
 	if (offset <= half) return -3 * (offset / half) ** 2;
@@ -194,28 +97,18 @@ export function elevationGainDb(angleBelowHorizonDeg: number, profile: AntennaPr
 }
 
 /**
- * The angle below the horizon of the ray from an access point to a point, in
- * degrees, from the vertical and horizontal parts of that ray.
+ * 从接入点到目标点的射线相对水平面的夹角，单位度，由射线的垂直与水平分量求得。
  *
- * Positive downwards, negative when the target is above the access point — see
- * `elevationGainDb`.
+ * 向下为正，目标在接入点上方时为负。
  */
 export function angleBelowHorizonDeg(vertical: number, horizontal: number): number {
 	return (Math.atan2(vertical, horizontal) * 180) / Math.PI;
 }
 
 /**
- * The vertical cut's loss for one ray, in dB, as a **positive** number to be added
- * to the other losses on that path.
+ * 单条射线的垂直切面损耗，单位 dB，为正值，可直接加到该路径的其他损耗上。
  *
- * This exists because `elevationGainDb` returns a gain *relative to the peak*, which
- * is negative for every direction but one — and subtracting a negative number adds
- * signal. That is exactly the mistake this function was written to stop: the
- * heatmap and the coverage pass both had `level -= elevationGainDb(...)`, which
- * made a *narrower* beam paint a *larger* covered area. The optimiser worker,
- * written against a positive loss from the start, was the only one of the three
- * that was right, which is the sort of thing a shared helper and a sign test are
- * for.
+ * `elevationGainDb` 返回相对峰值的增益，直接相减会放大信号，本函数统一取反以避免符号错误。
  */
 export function antennaLossDb(
 	profile: AntennaProfile,
@@ -225,24 +118,13 @@ export function antennaLossDb(
 	return -elevationGainDb(angleBelowHorizonDeg(vertical, horizontal), profile);
 }
 
-/**
- * The horizontal cut assumed for a wall-mounted access point.
- *
- * A wall unit radiates into the room and is heavily attenuated behind, and this
- * repository has no datasheet for one: the vendor pattern files on hand are ceiling
- * omnis, whose azimuth cuts ripple by 3–8 dB and would say a unit mounted on a wall
- * shines backwards almost as well as forwards. So these are **assumed** values of
- * the class — a wall-plate access point's horizontal cut is roughly this wide and
- * roughly this far down behind — and they are the one place to change when a real
- * datasheet arrives. The vertical cut keeps the band's own defaults, which are
- * calibrated.
- */
+/** 壁挂接入点假定的水平切面参数；垂直切面仍使用频段默认值。 */
 export const WALL_MOUNT_AZIMUTH: { azBeamwidthDeg: number; frontToBackDb: number } = {
 	azBeamwidthDeg: 90,
 	frontToBackDb: 20
 };
 
-/** An angle folded into (−180, 180]. */
+/** 将角度折算到 (−180, 180]。 */
 export function wrap180(deg: number): number {
 	let a = deg % 360;
 	if (a > 180) a -= 360;
@@ -251,37 +133,24 @@ export function wrap180(deg: number): number {
 }
 
 /**
- * A facing folded into [0, 360): how a direction is stored, shown and written out.
+ * 将朝向折算到 [0, 360)，即方向的存储、显示与输出形式。
  *
- * The pattern itself does not care — `azimuthGainDb` folds whatever it is given —
- * but a field, a JSON export and a `-90` that means "north" are three ways of
- * describing one angle, so the stored value is kept canonical.
+ * 方向图本身不要求该范围，但字段、JSON 导出与存储值需要统一。
  */
 export function normaliseBearing(deg: number): number {
 	const a = deg % 360;
 	return a < 0 ? a + 360 : a;
 }
 
-/** The plan bearing of a ray, in degrees from +x towards +y, i.e. `atan2`'s angle. */
+/** 射线的平面方位角，单位度，从 +x 转向 +y，即 `atan2` 的角度。 */
 export function bearingDeg(dx: number, dy: number): number {
 	return (Math.atan2(dy, dx) * 180) / Math.PI;
 }
 
 /**
- * Gain of the horizontal cut, in dB relative to its own peak.
+ * 水平切面的增益，单位 dB，相对自身峰值。
  *
- * The same two-anchor shape as the vertical cut — `−3·(offset/half)²` to the
- * half-power angle, then a smoothstep — with two differences that matter:
- *
- * - the offset is the bearing *from the facing direction*, which is what makes a
- *   wall-mounted unit's coverage depend on the plan direction a client is in;
- * - the far anchor is **180°** (straight behind) rather than 90°, because that is
- *   where this cut's floor is. Reusing the vertical cut's 90° asymptote here would
- *   put a wall unit's back lobe at its front, which is the error this exists to
- *   avoid.
- *
- * A profile with no horizontal cut — every ceiling mount, and every profile written
- * before wall mounts existed — returns 0: the model stays exactly what it was.
+ * 偏移量取自相对 `facingDeg` 的方位角，远端锚点为 180°（正后方）；无水平切面的方向图返回 0。
  */
 export function azimuthGainDb(bearing: number, profile: AntennaProfile): number {
 	const beamwidth = profile.azBeamwidthDeg;
@@ -295,24 +164,17 @@ export function azimuthGainDb(bearing: number, profile: AntennaProfile): number 
 	return -3 - (back - 3) * t * t * (3 - 2 * t);
 }
 
-/**
- * The horizontal cut's loss for one ray, in dB, positive to be added — the same
- * contract as `antennaLossDb`, and for the same reason.
- */
+/** 单条射线的水平切面损耗，单位 dB，为正值，约定与 `antennaLossDb` 相同。 */
 export function azimuthLossDb(bearing: number, profile: AntennaProfile): number {
 	const gain = azimuthGainDb(bearing, profile);
-	// `=== 0` rather than a bare negation, which would hand back −0 where there is no
-	// horizontal cut at all.
+	// 用 `=== 0` 而非直接取负，避免在无水平切面时返回 −0。
 	return gain === 0 ? 0 : -gain;
 }
 
 /**
- * Both cuts for one ray, as the single number a path's loss is built from.
+ * 单条射线的两个切面损耗之和，即路径损耗中天线部分的单一数值。
  *
- * There is deliberately no way to apply the vertical cut alone to a profile that has
- * a horizontal one: the two are added here, from the ray's own `dx`/`dy`, so a call
- * site cannot forget the second term and quietly give a wall-mounted unit a back
- * lobe as strong as its front. Both callers and the tests go through this.
+ * 垂直与水平损耗在此一并相加，调用方无法只应用其中一项。
  */
 export function antennaRayLossDb(
 	profile: AntennaProfile,
@@ -327,13 +189,9 @@ export function antennaRayLossDb(
 }
 
 /**
- * A short identity for everything about an access point that changes its *pattern*.
+ * 接入点方向图相关字段的短标识，用作缓存键的一部分。
  *
- * Cache keys are this codebase's most repeated source of stale-picture bugs: a key that
- * forgets one of these fields hands back a picture built for a different antenna, and
- * the symptom is a heatmap, a tile or a coverage figure that disagrees with the panel.
- * Every key that covers an antenna builds that part by calling this — one list of
- * fields, three call sites, instead of three hand-written fragments that drift apart.
+ * 所有涉及天线的缓存键都通过本函数生成，避免遗漏字段而返回为其他天线生成的图像。
  */
 export function antennaSignature(ap: {
 	beamwidthDeg?: number | null;

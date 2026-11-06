@@ -1,9 +1,5 @@
 /**
- * 优化器：一次运行、它用的 Worker，以及对外的入口。
- *
- * 负责拼好单层的数据、跑搜索（可能换多个随机种子）、提交胜出的布点；评估器本身在
- * `workers/optimizer-worker.ts`，共享状态在 `optimizer-state.svelte.ts`。
- * 名字和导出故意没改，以前 import 这个模块的代码都还能用。
+ * 优化器
  */
 import { debug } from '$lib/log.js';
 import {
@@ -37,28 +33,12 @@ const bridge = new OptimizerBridge();
 
 /**
  * 第二个 Worker，只用来算冲突图。
- *
- * 不能和运行共用一个 Worker：`OptimizerBridge` 在新请求到来时会拒掉还挂着的旧请求（报「Superseded」）。
- * 同类请求这样处理是对的（新的布点运行就该顶掉旧的），跨类就错了——自动选信道每移动一次 AP 就要算一次图，
- * 如果这时正好有一次运行在跑，运行会被掐掉，用户点「优化布点」只会看到「Superseded」。
  */
 const graphBridge = new OptimizerBridge();
-
-/**
- * 一次运行期间有效，`cancelOptimizer` 会 abort 它。
- *
- * 以前取消只调一次 `bridge.cancel()`：Worker 停掉当前请求，`optimizeFloor` 把拒绝变成 `ok: false`，
- * 上层循环当成「这次重启没收获」继续跑，剩下的重启、楼层、轮次全跑完，面板还显示正在运行。
- * 一次运行一个 controller，上一次的取消不会停掉下一次。
- */
 let runAbort: AbortController | null = null;
 
 /**
  * 跑一层的优化。
- *
- * `floorId` 是显式传的，不从 `floorState.currentFloorId` 读，因为全楼运行会优化屏幕之外的楼层。
- * 每层的输入——墙体掩码、材质掩码、默认材质、墙体衰减、房间类型、密度覆盖——都按这一层读，
- * 而不是读描述当前层的 `wallState`。
  */
 async function optimizeFloor(
 	floorId: string,

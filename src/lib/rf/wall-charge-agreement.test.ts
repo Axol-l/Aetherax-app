@@ -1,27 +1,12 @@
 /**
- * One plan, one answer: how a wall is charged, checked across the paths that charge it.
- *
- * Four places compute the loss along a ray through the same wall mask — the heatmap's field,
- * the coverage pass, the optimiser's fast pass and the solver — and they are allowed to differ
- * in *sampling* (stride 1, 2 or 3; a polar field read out at a point rather than marched), not
- * in what a crossing costs. When they differ in the second thing, no test notices that the
- * app's own numbers disagree with each other, because each of them is self-consistent.
- *
- * This is the fixture the plan (`docs/FIX-PLAN.zh-CN.md`, item 13) asked for: one small walled
- * plan, every route a ray can take through it, and the claims that must hold whichever route
- * computed the number. It pins `rf/link-budget.ts` — the one place the four are supposed to go
- * through — and the two things a call site can still get wrong on its own:
- *
- * - **the frame.** `wallRunLoss` subtracts the mask's origin; a call site that marches the mask
- *   itself has to do the same, and exactly one of them getting it wrong is invisible.
- * - **the stride.** A coarser march can miss a thin wall or land on it twice. That is a
- *   quantisation difference and is bounded here, rather than being allowed to be anything.
+ * 校验同一面墙无论由哪条路径计费都得到同一答案：热力图、覆盖遍历、优化器快速通路和求解器共用同一墙体损耗。
+ * 同时约束坐标原点处理和步长量化，避免各路径的数值互相矛盾。
  */
 import { describe, expect, it } from 'vitest';
 import { wallRunLoss, splitWallRunLoss, type WallRun } from './link-budget.js';
 import { rayMarchWallAtten } from './propagation.js';
 
-/** Two vertical partitions: a stud wall at x = 12 and a concrete one at x = 26. */
+/** 两道竖直隔墙：x = 12 处的龙骨墙和 x = 26 处的混凝土墙。 */
 const W = 40;
 const H = 30;
 
@@ -57,7 +42,7 @@ function run(overrides: Partial<WallRun> = {}): WallRun {
 	};
 }
 
-/** Rays that cross neither wall, one of them, or both — straight and slanted. */
+/** 不穿墙、穿一道墙或穿两道墙的射线，含直线与斜线。 */
 const RAYS: Array<{ from: { x: number; y: number }; to: { x: number; y: number }; walls: number }> = [
 	{ from: { x: 2, y: 15 }, to: { x: 8, y: 15 }, walls: 0 },
 	{ from: { x: 2, y: 15 }, to: { x: 20, y: 15 }, walls: 1 },
@@ -69,16 +54,15 @@ const RAYS: Array<{ from: { x: number; y: number }; to: { x: number; y: number }
 
 describe('what a wall costs, whichever path charged it', () => {
 	it('charges the material table, once per crossing, through the shared helper', () => {
-		// The reference: three dB for the stud wall, twelve for the concrete one.
+		// 参考值：龙骨墙 3 dB，混凝土墙 12 dB。
 		expect(wallRunLoss(run(), { x: 2, y: 15 }, { x: 8, y: 15 })).toBe(0);
 		expect(wallRunLoss(run(), { x: 2, y: 15 }, { x: 20, y: 15 })).toBe(3);
 		expect(wallRunLoss(run(), { x: 2, y: 15 }, { x: 38, y: 15 })).toBe(15);
 	});
 
 	it('is the same number whether the caller uses the helper or marches itself', () => {
-		// `wallRunLoss` *is* the return value of `rayMarchWallAtten` — this pins that, because
-		// the optimiser's fast pass calls the march directly and subtracts its own prefix. A
-		// change to one that the other does not see shows up here.
+		// `wallRunLoss` 的返回值就是 `rayMarchWallAtten` 的结果：优化器快速通路直接调用步进
+		// 并自行扣除前缀，这里锁定两者一致，任一改动都会在此暴露。
 		const plan = partitionedPlan();
 		for (const ray of RAYS) {
 			const viaHelper = wallRunLoss(run(), ray.from, ray.to, 1);
@@ -102,9 +86,8 @@ describe('what a wall costs, whichever path charged it', () => {
 
 	it('gives the same loss when the plan is drawn somewhere else on the sheet', () => {
 		/*
-		 * The hazard the helper exists for: every call site used to subtract the origin itself,
-		 * and one of them getting it wrong moves the plan under the ray. Aligning a floor does
-		 * exactly this — the mask does not change, its origin does.
+		 * 掩码原点只改变坐标范围，不改变墙体内容；平移方案后损耗必须一致。
+		 * 楼层对齐只改变原点，不改变掩码。
 		 */
 		const shifted = run({ originX: 100, originY: 50 });
 		for (const ray of RAYS) {
@@ -120,9 +103,8 @@ describe('what a wall costs, whichever path charged it', () => {
 
 	it('lets the stride round the answer but not invent or lose a wall', () => {
 		/*
-		 * The heatmap marches at 2 and the solver at 3, so the figures cannot be equal. What
-		 * they must not do is disagree by a whole wall: a coarse march that steps over a 1 px
-		 * partition would make the app's cheapest evaluator blind to it.
+		 * 热力图步长为 2、求解器为 3，数值不可能完全相等；但粗步进不能整道墙地偏离，
+		 * 否则会跳过 1 px 隔墙，使最便宜的计算器失明。
 		 */
 		for (const ray of RAYS) {
 			const fine = wallRunLoss(run(), ray.from, ray.to, 1);
@@ -133,7 +115,7 @@ describe('what a wall costs, whichever path charged it', () => {
 				expect(Math.abs(coarse - fine), `stride ${stride}, ray ${JSON.stringify(ray)}`).toBeLessThanOrEqual(
 					worst
 				);
-				// And a ray that crosses nothing stays free at every stride.
+				// 不穿墙的射线在任何步长下损耗都为零。
 				if (ray.walls === 0) expect(coarse).toBe(0);
 			}
 		}
@@ -141,12 +123,11 @@ describe('what a wall costs, whichever path charged it', () => {
 
 	it('splits a cross-floor path at the storey and charges each half on its own plan', () => {
 		/*
-		 * The other half of the shared layer: a path that leaves the AP's floor through the slab
-		 * and finishes on the client's. The two floors have different plans here, so a split
-		 * that used one mask for both would be visible in the total.
+		 * 共享层的另一半：路径从 AP 楼层穿过楼板到达客户端楼层；两层平面不同，
+		 * 若两段共用同一掩码，总损耗会暴露差异。
 		 */
 		const upper: WallRun = run();
-		// The lower floor has its own partition, at a different place.
+		// 下层有自己的隔墙，位置不同。
 		const lowerMask = new Uint8Array(W * H);
 		const lowerMaterial = new Uint8Array(W * H);
 		const lowerWallX = 30;
@@ -168,9 +149,8 @@ describe('what a wall costs, whichever path charged it', () => {
 
 		const from = { x: 2, y: 15 };
 		const to = { x: 38, y: 15 };
-		// Fractions along the ray where it leaves each floor. The source half ends at x = 16.4
-		// (past the upper plan's 12 px wall) and the target half starts at x = 23.6 (before the
-		// lower plan's 30 px wall), so each half crosses exactly one wall of its own floor.
+		// 射线离开各楼层处的比例：源段在 x = 16.4 结束（已越过上层 12 px 的墙），目标段在
+		// x = 23.6 开始（尚未到下层 30 px 的墙），因此每段各穿过本层一道墙。
 		const sourceT = 0.4;
 		const targetT = 0.6;
 		const split = splitWallRunLoss(upper, lower, sourceT, targetT, from, to);
@@ -187,8 +167,7 @@ describe('what a wall costs, whichever path charged it', () => {
 
 	it('falls back to one run when the path stays on one floor', () => {
 		const flat = run();
-		// Both crossing fractions at zero is how `crossFloorSegments` says "this ray never
-		// leaves the client's floor", and the caller keeps its single-run path.
+		// 两个穿墙比例都为零表示 `crossFloorSegments` 判定射线从未离开客户端楼层，调用方保持单段路径。
 		expect(splitWallRunLoss(flat, flat, 0, 0, { x: 2, y: 15 }, { x: 38, y: 15 })).toBeNull();
 	});
 });

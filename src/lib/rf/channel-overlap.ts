@@ -9,13 +9,8 @@ import {
 } from '@aetherax/channels';
 
 /**
- * Frequency overlap between two sources' assignments, as a fraction of the
- * narrower channel's bandwidth.
- *
- * `i` and `j` are source indices, `channelI` and `channelJ` the channel numbers
- * they currently hold (or a candidate one, when an assigner is asking what a swap
- * would cost). The bands and widths are not arguments because they do not change
- * during a run: they are what the lookup is built from.
+ * 两个信号源信道分配之间的频率重叠，取较窄信道带宽的比例。
+ * `i`、`j` 为信号源下标，信道号可以是候选值；频段与带宽在一次运行中固定，不走参数。
  */
 export type OverlapLookup = (
 	i: number,
@@ -25,14 +20,12 @@ export type OverlapLookup = (
 ) => number;
 
 /**
- * The model that predates B3's second stage: two sources overlap completely when
- * their channel numbers are equal, and not at all otherwise. Correct only while
- * every assignment is drawn from a non-overlapping palette.
+ * 简化模型：信道号相同即完全重叠，否则不重叠，仅适用于互不重叠的信道集合。
  */
 export const SAME_CHANNEL_OVERLAP: OverlapLookup = (_i, channelI, _j, channelJ) =>
 	channelI === channelJ ? 1 : 0;
 
-/** Channel tables by band, built at most once per band. */
+/** 各频段的信道表，每个频段最多构建一次。 */
 const tables = new Map<Band, Map<number, Channel>>();
 
 function tableFor(band: Band): Map<number, Channel> {
@@ -47,12 +40,9 @@ function tableFor(band: Band): Map<number, Channel> {
 }
 
 /**
- * Build the overlap lookup for one run's sources.
+ * 为一次运行中的信号源构建信道重叠查找函数。
  *
- * `bands[i]` and `widths[i]` describe source `i` — its band and the channel width
- * it is configured for. A channel number that is not in its band's table (a pin the
- * domain does not permit, or a source with no band) contributes no overlap, which
- * is the conservative reading: an unknown assignment cannot be shown to be clean.
+ * `bands[i]` 与 `widths[i]` 描述信号源 `i` 的频段与信道带宽；信道号不在所属频段表中时按零重叠处理。
  */
 export function makeOverlapLookup(
 	bands: readonly string[],
@@ -61,8 +51,7 @@ export function makeOverlapLookup(
 	const bandOf = (i: number): Band => bands[i] as Band;
 	return (i, channelI, j, channelJ) => {
 		const band = bandOf(i);
-		// A pair in different bands cannot share spectrum, whatever the numbers say:
-		// 6 GHz channel 1 and 2.4 GHz channel 1 are 3.5 GHz apart.
+		// 不同频段的两个信号源不共享频谱，直接按零重叠处理。
 		if (band !== bandOf(j)) return 0;
 		const a = tableFor(band).get(channelI);
 		const b = tableFor(band).get(channelJ);

@@ -2,8 +2,8 @@
 	/**
 	 * The placement tool's floating bar.
 	 *
-	 * Placing access points inherits the last one's mounting 鈥?a plan is normally described
-	 * with one kind of hardware 鈥?but until this bar existed the mounting could not be
+	 * Placing access points inherits the last one's mounting — a plan is normally described
+	 * with one kind of hardware — but until this bar existed the mounting could not be
 	 * changed *before* the click: a wall mount could only be placed by first placing a wall
 	 * mount somewhere else, then editing it. The bar is the missing switch, floating over the
 	 * canvas where the next click lands, like the wall tool's own bar.

@@ -1,18 +1,7 @@
 /**
- * The canvas keyboard map.
- *
- * It used to live in `CanvasView`, which is where every handler it could reach happened to
- * be: the result was a 185-line `if`/`else` chain in the middle of a component that already
- * had forty effects, and no way to read the shortcut table without reading the view.
- *
- * Four things only the view can do are handed in as `hooks`; everything else is state that
- * a keyboard shortcut has as much right to touch as a click does. The **order** of the
- * branches is part of the behaviour and is preserved:
- *
- * 1. undo/redo, before any mode can consume the key (a tool must not own Ctrl+Z);
- * 2. mode exits (Escape) and mode-specific keys;
- * 3. deleting the selected object (wall/column, surface, AP), most specific first;
- * 4. global keys (Ctrl+S, layer toggles).
+ * 画布键盘映射。
+ * 视图独有的四项能力通过 `hooks` 传入，其余都是快捷键与点击同样有权修改的状态。
+ * 分支顺序属于行为的一部分：依次为撤销/重做、模式退出与模式专属键、删除选中对象、全局键。
  */
 import { removeAps } from '$state/ap-state.svelte.js';
 import {
@@ -30,19 +19,19 @@ import { pushState, redo, undo } from '$state/history.svelte.js';
 import { updateCoverage } from '$state/optimizer.svelte.js';
 import { saveNow, scheduleSave } from '$state/persistence.svelte.js';
 
-/** The four gestures the view owns, because they touch its layers. */
+/** 视图拥有的四个手势，因为它们会触及视图的图层。 */
 export interface ShortcutHooks {
-	/** Leave the wall tool (and clear its draft selection). */
+	/** 离开墙体工具并清除其草稿选择。 */
 	stopWallMode(): void;
-	/** Close the planning-area draft, if it has three corners. */
+	/** 若规划区域草稿已有三个角点，则闭合它。 */
 	commitPlanningDraft(): void;
-	/** Abandon a floor-alignment drag in progress. */
+	/** 放弃进行中的楼层对齐拖拽。 */
 	cancelAlignDrag(): void;
-	/** Re-derive the mask from the floor's wall segments. */
+	/** 根据楼层的墙体段重新推导掩码。 */
 	syncVectorWallsToMask(forceEmpty?: boolean): void;
 }
 
-/** Handle one keydown for the canvas. */
+/** 为画布处理一次按键。 */
 export function handleShortcut(e: KeyboardEvent, hooks: ShortcutHooks): void {
 	const target = e.target as HTMLElement;
 	const isInput =
@@ -51,20 +40,15 @@ export function handleShortcut(e: KeyboardEvent, hooks: ShortcutHooks): void {
 	const markDirty = () => canvasEngineRef.engine?.markDirty();
 
 	/*
-	 * Undo and redo first, in every mode.
+	 * 撤销与重做优先，任何模式下都是。
 	 *
-	 * They used to sit below the mode-specific branches, and a mode that consumed the key
-	 * first won: with the wall tool open, Ctrl+Z did nothing, and the workaround was to press
-	 * Done and then undo. Undo is a property of the project, not of the tool that happens to
-	 * be open, so it is handled before anything looks at the key for its own purposes.
+	 * 撤销属于项目而非当前打开的工具，因此在其他逻辑取用按键之前处理。
 	 */
 	if (mod && (e.key === 'z' || e.key === 'Z')) {
 		e.preventDefault();
 		if (e.shiftKey) redo();
 		else undo();
-		// An undo changes the project, so it has to be written like any other edit —
-		// otherwise the storage still holds the state that was undone and the next reload
-		// brings it back.
+		// 撤销改变了项目，必须像其他编辑一样写入存储；否则存储仍保留被撤销的状态，下次重载会恢复它。
 		scheduleSave();
 		markDirty();
 		return;
@@ -80,8 +64,7 @@ export function handleShortcut(e: KeyboardEvent, hooks: ShortcutHooks): void {
 		(appState.wallVectorSelected || appState.wallColumnSelected) &&
 		(e.key === 'Delete' || e.key === 'Backspace')
 	) {
-		// A selected segment or column is a selected object: the same key that deletes an
-		// access point deletes it, and it must be consumed before the AP branch below.
+		// 选中的墙段或柱是选中对象：删除接入点所用的同一按键也删除它，且必须先于下方的 AP 分支消费按键。
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		const wallSelected =
 			!!appState.wallVectorSelected &&
@@ -103,8 +86,7 @@ export function handleShortcut(e: KeyboardEvent, hooks: ShortcutHooks): void {
 				);
 				appState.wallColumnSelected = null;
 			}
-			// The last obstruction on the floor: the mask has to be emptied with it, in the
-			// frame it already has, or the model keeps charging a wall that no longer exists.
+			// 楼层上最后一道障碍：掩码必须随之在其现有帧内清空，否则模型会继续把不存在的墙计入。
 			const segmentsLeft = (floor!.walls ?? []).length + (floor!.columns ?? []).length === 0;
 			if (segmentsLeft) hooks.syncVectorWallsToMask(true);
 			scheduleSave();
@@ -119,31 +101,30 @@ export function handleShortcut(e: KeyboardEvent, hooks: ShortcutHooks): void {
 	}
 
 	if (!isInput && appState.planningDrawMode && (e.key === 'Backspace' || e.key === 'Delete')) {
-		// Before the AP delete below: in this mode Backspace means "that corner was
-		// wrong", which is the correction the user reaches for most often.
+		// 先于下方的 AP 删除：此模式下 Backspace 表示“上一个角点画错了”，是用户最常用的纠正方式。
 		e.preventDefault();
 		if (appState.planningDraft.length > 0) {
 			appState.planningDraft = appState.planningDraft.slice(0, -1);
-			// Undoing a corner reopens a loop that was closed on its first corner.
+			// 撤销一个角点会重新打开已在第一个角点闭合的回路。
 			appState.planningDraftClosed = false;
 		}
 		return;
 	}
 
 	if (!isInput && e.key === 'Escape' && appState.planningDrawMode) {
-		// Abandoning the loop: an unfinished outline is not a statement about the floor.
+		// 放弃回路：未完成的轮廓不代表对楼层的任何声明。
 		setPlanningDrawMode(false);
 		return;
 	}
 
 	if (!isInput && e.key === 'Escape' && appState.surfaceMode) {
-		// A half-drawn rectangle is not a surface; leaving the mode drops it.
+		// 半画完的矩形不是表面；离开模式即丢弃它。
 		setSurfaceMode(false);
 		return;
 	}
 
 	if (!isInput && appState.surfaceSelected && (e.key === 'Delete' || e.key === 'Backspace')) {
-		// A selected surface is a selected object, like a wall and like an AP.
+		// 选中的表面是选中对象，与墙体和 AP 一样。
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		if (floor?.surfaces?.some((surface) => surface.id === appState.surfaceSelected)) {
 			e.preventDefault();
@@ -160,31 +141,26 @@ export function handleShortcut(e: KeyboardEvent, hooks: ShortcutHooks): void {
 	}
 
 	if (!isInput && e.key === 'Escape' && appState.calibrateMode) {
-		// The measured line belongs to the mode, so leaving the mode drops it; the
-		// sidebar keeps the typed distance but not a line to apply it to.
+		// 测量线属于该模式，离开模式即丢弃；侧边栏保留输入的距离，但没有可应用它的线。
 		setCalibrateMode(false);
 		return;
 	}
 
 	if (!isInput && e.key === 'Escape' && appState.floorAlignMode) {
-		// Escape is the conventional way out of a mode, and leaving it to the
-		// sidebar toggle alone makes a mode that looks stuck.
+		// Escape 是退出模式的常规方式；只依赖侧边栏开关会让模式看起来卡住。
 		hooks.cancelAlignDrag();
 		setFloorAlignMode(false);
 		return;
 	}
 
 	if (!isInput && e.key === 'Escape' && appState.apPlaceMode) {
-		// Same reasoning: a mode that owns the canvas has to be escapable without
-		// reaching for the sidebar.
+		// 同理：占用画布的模式必须能直接用 Escape 退出，而无需去操作侧边栏。
 		setApPlaceMode(false);
 		return;
 	}
 
 	if (mod && (e.key === 's' || e.key === 'S')) {
-		// The browser's own save dialog has nothing to do with a project: intercept it,
-		// write the project to the app's store, and answer visibly. Autosave is silent
-		// by design, but a key the user pressed has to say something.
+		// 浏览器的保存对话框与项目无关：拦截它，把项目写入应用存储，并给出可见反馈。
 		e.preventDefault();
 		void saveNow();
 		return;

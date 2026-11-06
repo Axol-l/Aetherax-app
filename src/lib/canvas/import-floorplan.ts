@@ -10,14 +10,13 @@ import { detectFloorplanMasks } from '$canvas/detect-floorplan.js';
 const FLOORPLAN_TARGET_WIDTH = 800;
 
 /**
- * Import a floorplan file, run boundary + wall detection, and update project state.
- * Called from both the sidebar drop zone and the canvas drop target.
+ * 导入平面图文件，执行边界与墙体检测并更新项目状态。
+ * 侧边栏拖放区和画布拖放目标共用此入口。
  */
 export async function importFloorplanFile(file: File): Promise<void> {
 	const validTypes = ['image/png', 'image/jpeg', 'image/svg+xml'];
 	if (!validTypes.includes(file.type)) {
-		// Silence here was the worst possible answer: a PDF floorplan is the most common
-		// thing to drop on a planner and the drop simply did nothing.
+		// 不支持的类型必须给出提示，否则拖放会静默失败。
 		floorplanState.importNotice =
 			file.type === 'application/pdf'
 				? 'PDF plans are not supported yet — export the page as a PNG and drop that.'
@@ -31,11 +30,11 @@ export async function importFloorplanFile(file: File): Promise<void> {
 	floorplanState.sourceIsVector = file.type === 'image/svg+xml';
 
 	try {
-		// Which detector runs is decided on the file's content, not its extension.
+		// 用哪个检测器由文件内容决定，而非扩展名。
 		const detection = await detectFloorplanMasks(blobUrl, FLOORPLAN_TARGET_WIDTH);
 		const { image, wallMask, materialMask } = detection;
 
-		// Boundary detection
+		// 边界检测
 		const result = detectBoundary(image);
 		if (result && result.polygon.length >= 3) {
 			const scaleFactor = FLOORPLAN_TARGET_WIDTH / image.naturalWidth;
@@ -43,35 +42,27 @@ export async function importFloorplanFile(file: File): Promise<void> {
 				x: p.x * scaleFactor,
 				y: p.y * scaleFactor
 			}));
-			// Area for calibration (stored but not auto-applied without user input)
+			// 标定用面积，仅存储，无用户输入时不自动应用
 		}
 
 		if (wallMask) {
 			wallState.wallMask = wallMask;
-			// A vector detection knows what each opening is; a raster one cannot, so it
-			// leaves the material map alone rather than half-filling it.
+			// 矢量检测能识别每个开口的类型，位图检测不能，因此不改动材质图，避免只填一半。
 			if (materialMask) wallState.materialMask = materialMask;
 			/*
-			 * Trace the mask into the segments the drawing actually shows.
-			 *
-			 * Walls are segments, and this import path sets the mask directly, so without this
-			 * an imported plan arrived as a raster band that could not be edited — the mask was
-			 * there, the model had no walls, and the vector layer (which paints segments) had
-			 * nothing to paint. Re-detect traced; the import did not.
+			 * 把掩码描摹成图纸实际显示的线段。导入路径直接写入掩码，若不描摹，
+			 * 模型就没有可编辑的墙。
 			 */
 			const floor = floorState.floors.find((candidate) => candidate.id === floorState.currentFloorId);
 			if (floor) {
 				floor.walls = [];
 				floor.columns = [];
-				// Exact geometry from the drawing when the vector reader got any; otherwise the
-				// mask is traced as before. Either way the floor ends up with segments, which is
-				// what the drawing shows.
+				// 矢量读取得到几何时用图纸的精确几何，否则照旧描摹掩码；两种方式都让楼层得到线段。
 				const written = setFloorWallsFromSegments(floor.id, detection.segments ?? []);
 				if (written === 0) await traceFloorWalls(floor.id);
 			}
 		}
-		// What the vector reader saw, for the review panel. Cleared by a raster run so a
-		// stale report cannot describe a mask that has since been replaced.
+		// 矢量读取的结果，供复核面板使用。位图检测会将其清空，避免过期报告描述已被替换的掩码。
 		const { summary, elements, source } = detection;
 		wallState.vectorReview =
 			detection.via === 'vector' && summary && elements && source

@@ -1,11 +1,11 @@
 /**
- * A raster reading of the same ray, for the comparison harness.
+ * 同一射线的栅格读数，供对比测试使用。
  */
 import { getFlatAttenuation, type WallMaterialId } from '$lib/domain/materials.js';
 import type { Band } from '@aetherax/channels';
 
 /**
- * Wall loss along a ray, measured by walking the drawn grid.
+ * 沿射线按绘制的栅格逐点行进得到的墙体损耗，dB。
  */
 export function rasterRayLossDb(
 	from: { x: number; y: number },
@@ -25,7 +25,7 @@ export function rasterRayLossDb(
 	const length = Math.hypot(dx, dy);
 	if (length <= 0) return 0;
 
-	// Half a pixel steps: fine enough that a one-pixel band cannot be stepped over.
+	// 以半像素为步长，避免宽度为一像素的墙体被跨过。
 	const steps = Math.max(1, Math.ceil(length * 2));
 	let inside = false;
 	let total = 0;
@@ -43,11 +43,10 @@ export function rasterRayLossDb(
 			inside = false;
 			continue;
 		}
-		// Still in the same band: no new crossing.
+		// 仍在同一墙带内，不算新的穿越。
 		if (inside) continue;
 		inside = true;
-		// Zero in the material map means "not painted", so the floor's default applies —
-		// which for a drywall wall is drywall, and for a concrete floor is concrete.
+		// 材质图中 0 表示未涂改，此时使用默认材质。
 		const id = (material?.[index] ?? 0) || defaultMaterial;
 		total += getFlatAttenuation(id as WallMaterialId, band);
 	}

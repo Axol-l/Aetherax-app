@@ -26,7 +26,7 @@ export class SelectHandler {
 			this.engine.markDirty();
 			return true;
 		} else if (!e.shiftKey) {
-			// Start box selection on empty canvas
+			// 在空白画布上开始框选
 			const worldPoint = this.engine.camera.screenToWorld(screenPoint);
 			this.isBoxSelecting = true;
 			this.boxStart = worldPoint;

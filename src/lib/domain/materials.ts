@@ -1,6 +1,6 @@
 /**
- * Wall material definitions for RF attenuation modeling.
- * Values based on IEEE 802.11 propagation studies and ITU-R P.1238.
+ * 墙体材质定义，以及逐米、逐频段的射频衰减。
+ * 有 P.2040 编号的材质按模型计算，其余用表里的 dB/m 乘厚度。
  */
 
 import type { Band } from '@aetherax/channels';
@@ -12,44 +12,25 @@ export interface WallMaterial {
 	id: WallMaterialId;
 	name: string;
 	/**
-	 * The P.2040 material this one is made of, when it is a real construction.
-	 *
-	 * With a key the crossing's loss is *computed* (`rf/material-itu.ts`: frequency-dependent
-	 * εr and σ, the single-layer slab coefficients, the mean of both polarisations) instead of
-	 * read off `dbPerMeter`. The table below keeps `dbPerMeter` for the materials with no ITU
-	 * equivalent — the virtual partition and the closed door, both engineering choices — and
-	 * as the fallback for a custom material, whose number the user typed.
+	 * 该材质对应的 P.2040 材质编号。
+	 * 有编号时损耗按模型计算；没有时回退到 `dbPerMeter`。
 	 */
 	itu?: ItuMaterialKey;
-	/** Fallback/legacy figure, dB per metre of thickness, per band. */
+	/** 回退用的每米损耗，单位 dB/m，按频段给出。 */
 	dbPerMeter: Record<Band, number>;
-	typicalThickness: number; // meters — used when calibration unavailable
+	typicalThickness: number; // 典型厚度，单位米，未标定时使用。
 	color: [number, number, number];
 }
 
 /**
- * Wall material definitions with per-metre, per-band attenuation.
- * Effective dB = dbPerMeter[band] * thickness (from a calibrated ray march,
- * i.e. the pixel run length) or * typicalThickness when uncalibrated.
- *
- * The 5 GHz column is the original anchor. 2.4 GHz is scaled by 1/1.9 and
- * 6 GHz by 1.2. The ~1.9x ratio between the 2.4 and 5 GHz transmission loss of
- * building materials is the figure reported by the iBwave material database
- * this table was originally sourced from (e.g. lime brick 4.30 dB @2.4 GHz vs
- * 7.80 dB @5 GHz, dry wall partition 5.39 vs 10.11, heavy concrete 22.79 vs
- * 44.77). Scaling the anchor preserves the measured cross-band ratios without
- * inventing new materials.
- *
- * Sanity check against those measurements: brick 18 dB/m * 0.23 m = 4.14 dB at
- * 2.4 GHz vs 4.30 dB measured.
- *
- * Sources: ITU-R P.1238-12, IEEE 802.11, iBwave material database.
+ * 内置材质表：每米、每频段的衰减，单位 dB/m。
+ * 单次穿越损耗 = `dbPerMeter[band]` × 厚度；未标定时用 `typicalThickness`。
  */
 export const WALL_MATERIALS: readonly WallMaterial[] = [
 	{
 		id: 0,
 		name: 'Drywall',
-		// ITU: plasterboard — a 12 mm stud partition.
+		// P.2040 对应石膏板，按 12 mm 隔墙计。
 		itu: 'plasterboard',
 		dbPerMeter: { '2.4ghz': 13, '5ghz': 25, '6ghz': 30 },
 		typicalThickness: 0.12,
@@ -97,16 +78,8 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 	},
 	{
 		/**
-		 * Zero-attenuation partition.
-		 *
-		 * It lives in the wall mask so it divides space — `computeBuildingInterior`
-		 * sees it as a wall, so rooms, labels and density regions stop at it — but
-		 * every per-metre figure is zero, so no RF path loses anything crossing it.
-		 * That is the whole point: an open-plan boundary you want for room
-		 * detection without inventing attenuation that does not exist.
-		 *
-		 * This only holds if the loss path consults the material map. Any consumer
-		 * still counting raw wall crossings would treat this as a real wall.
+		 * 零衰减隔断。
+		 * 它在墙体掩码里，房间与密度区域会在它处断开；穿过它的射频路径不扣损耗。
 		 */
 		id: 6,
 		name: 'Virtual Partition',
@@ -116,23 +89,8 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 	},
 	{
 		/**
-		 * A closed timber door leaf.
-		 *
-		 * It exists as its own material because a door is not a wall and the two were
-		 * the same thing until the vector detector learned to tell them apart: every
-		 * door in a detected plan was charged drywall's figure and, worse, nothing
-		 * could express the case the RF model actually cares about — a doorway that is
-		 * **open**. That case is `Virtual Partition` (0 dB), and a door that is merely
-		 * a hole in the wall is the wrong model for a plan being surveyed, because the
-		 * door is usually shut as often as not.
-		 *
-		 * 5 GHz anchor 110 dB/m at a 45 mm leaf: **4.95 dB per crossing**, the middle
-		 * of the 3–6 dB range indoor planning uses for a closed wooden door. The other
-		 * two columns follow this table's own convention (2.4 GHz = anchor/1.9,
-		 * 6 GHz = anchor x 1.2), so the cross-band ratios match every other row.
-		 *
-		 * It is an engineering choice, not a measurement: `docs/PHYSICAL_MODELS.md`
-		 * records it as such, alongside the door detection that writes it.
+		 * 关闭的木门。
+		 * 单次穿越损耗按工程取值：5 GHz 下 45 mm 门扇约 4.95 dB。
 		 */
 		id: 7,
 		name: 'Door',
@@ -144,36 +102,23 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 
 export const DEFAULT_MATERIAL: WallMaterialId = 0;
 
-/**
- * Materials that actually attenuate RF.
- *
- * Excludes zero-attenuation partitions, so a picker that sets the DEFAULT
- * material cannot accidentally make every unpainted wall transparent.
- */
+/** 真正有衰减的材质 id，排除零衰减隔断。 */
 export const ATTENUATING_MATERIAL_IDS: readonly WallMaterialId[] = WALL_MATERIALS.filter((m) =>
 	Object.values(m.dbPerMeter).some((db) => db > 0)
 ).map((m) => m.id);
 
-/** True for partitions that divide space but absorb nothing. */
+/** 是否为零衰减隔断：分隔空间但不吸收信号。 */
 export function isVirtualMaterial(id: WallMaterialId): boolean {
 	const m = WALL_MATERIALS[id];
 	return m != null && Object.values(m.dbPerMeter).every((db) => db === 0);
 }
 
-/** Default band used wherever a call site has no per-AP band available. */
+/** 调用方没有 AP 频段信息时使用的默认频段。 */
 export const DEFAULT_BAND: Band = '5ghz';
 
 /**
- * Materials the user added, in the shape this module's lookups already speak.
- *
- * A registry rather than a parameter on every function: the table is consulted from the
- * renderer, the solver, the optimiser's main thread and the worker, and threading a list
- * through all four is how one of them ends up not knowing about the user's material and
- * charging the built-in fallback instead. Whoever owns the project's materials registers
- * them once — on mount and whenever they change — and every lookup here sees them.
- *
- * Nothing persists here; the list lives in the project (`projectMeta.customMaterials`) and
- * is handed over in the worker's payload, so the two realms agree.
+ * 用户自定义材质，由工程在挂载和变更时注册一次。
+ * 渲染器、求解器和 Worker 都从这里查表，保证各处看到同一份材质。
  */
 let customMaterials: WallMaterial[] = [];
 
@@ -181,7 +126,7 @@ export function registerCustomMaterials(materials: readonly WallMaterial[]): voi
 	customMaterials = [...materials];
 }
 
-/** Built-ins plus the registry, which is what every lookup and picker should use. */
+/** 内置材质加上用户自定义材质，所有查表都应使用这张表。 */
 export function wallMaterialTable(): WallMaterial[] {
 	return customMaterials.length === 0
 		? [...(WALL_MATERIALS as readonly WallMaterial[])]
@@ -194,15 +139,8 @@ export function getMaterial(id: WallMaterialId): WallMaterial {
 }
 
 /**
- * Flat dB for one typical crossing at the given band.
- *
- * A material with an ITU key is **computed** — frequency-dependent εr and σ, the single-layer
- * slab coefficients, the mean of the two polarisations — at the band's centre frequency and the
- * material's typical thickness. P.2040 makes that figure materially different from the old
- * hand-tuned table (a 20 cm concrete wall is 14.6 dB at 2.4 GHz, not 6.4), which is the point:
- * the table was a set of numbers and this is the model they were approximations of.
- *
- * Memoised, because the march asks per crossing.
+ * 该材质在指定频段下一次典型穿越的损耗，单位 dB。
+ * 有 P.2040 编号的按模型计算，否则用 `dbPerMeter × typicalThickness`；结果有缓存。
  */
 const flatCache = new Map<string, number>();
 export function getFlatAttenuation(id: WallMaterialId, band: Band = DEFAULT_BAND): number {
@@ -222,26 +160,17 @@ export function getFlatAttenuation(id: WallMaterialId, band: Band = DEFAULT_BAND
 }
 
 /**
- * Per-band lookup table indexed by material id: **the figure for one crossing of that
- * material**, `dbPerMeter(band) × typicalThickness`.
- *
- * This is what the wall march and the heatmap's field both charge, one per crossing. It is the
- * table's own measured figure — the per-metre column in `WALL_MATERIALS` multiplied by the
- * material's typical construction thickness — and deliberately not anything measured off the
- * drawing: a material mask is painted with a brush, and a drawn band width is a drawing
- * convention. See the march's doc comment in `rf/propagation.ts` for the measurements.
+ * 按材质 id 索引的单次穿越损耗表，单位 dB。
+ * 穿墙步进和热力图场都用它，每个请求的 id 都必须有值。
  */
 export function getMaterialDbTable(band: Band = DEFAULT_BAND): number[] {
 	const table = wallMaterialTable();
 	const out: number[] = [];
-	// Indexed by id, so a custom material's row lands where a painted mask pixel points.
-	// An id nothing answers for costs what a plain drywall wall costs, not zero: a deleted
-	// material must not make the walls painted with it transparent.
+	// 按 id 下标存放，自定义材质也能落到掩码像素指向的位置；未知 id 按默认材质计。
 	const fallback = getFlatAttenuation(DEFAULT_MATERIAL, band);
 	for (const material of table) {
 		if (material.id >= 0 && material.id < 256) {
-			// The same figure as a single crossing, whichever way it was computed: the ITU
-			// model for a real material, `dbPerMeter × thickness` for a user's own.
+			// 与单次穿越损耗一致：真实材质走 P.2040 模型，自定义材质用每米损耗乘厚度。
 			out[material.id] = getFlatAttenuation(material.id, band);
 		}
 	}

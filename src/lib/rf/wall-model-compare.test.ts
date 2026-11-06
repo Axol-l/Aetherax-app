@@ -1,10 +1,7 @@
 /**
- * Comparing the two wall models, on geometry where the right answer is known.
- *
- * A comparison harness is only worth trusting if it reports what it claims, so these tests
- * feed it cases with an obvious truth: identical geometry (difference zero), a wall one
- * model sees and the other does not (a disagreement, counted separately from a rounding
- * difference), and a systematic bias (means apart, absolute difference small).
+ * 在答案已知的几何上比较两种墙体模型。
+ * 用例分别覆盖几何完全一致（差值为零）、一方看到而另一方漏掉的墙（记为分歧而非舍入差）
+ * 以及系统性偏差（均值偏离而绝对差较小）。
  */
 import { describe, expect, it } from 'vitest';
 import { getFlatAttenuation } from '$lib/domain/materials.js';
@@ -15,18 +12,15 @@ const BAND = '5ghz' as const;
 const from = { x: 0, y: 0 };
 
 /**
- * What one crossing of drywall costs at this band.
- *
- * The figure is computed now (P.2040 slab model), so the tests read it from the same table the
- * model does instead of hard-coding a number that a physics change would invalidate: what they
- * are about is whether the two paths agree, not what drywall costs.
+ * 该频段下石膏板一次穿越的损耗。
+ * 数值取自模型所用的材质表，而不是写死常数。
  */
 const DRYWALL_DB = getFlatAttenuation(0, BAND);
 
-/** A vertical drywall wall at x = 5, one crossing's loss. */
+/** x = 5 处的一道竖直石膏板墙，穿过它即承担一次穿越损耗。 */
 const wall: WallSegment = { ax: 5, ay: -50, bx: 5, by: 50, material: 0 as WallSegment['material'] };
 
-/** Points on one side of the wall, spread out. */
+/** 位于墙同一侧的若干采样点。 */
 const points = [
 	{ x: 10, y: 0 },
 	{ x: 10, y: 10 },
@@ -41,8 +35,7 @@ describe('compareWallModels', () => {
 			band: BAND,
 			from,
 			points,
-			// The two rays that cross the wall pay one crossing each, the two that do not pay
-			// nothing.
+			// 两条穿墙的射线各计一次穿越，另外两条不计。
 			rasterLoss: (_from, to) => (to.x > 5 ? DRYWALL_DB : 0)
 		});
 		expect(result.samples).toBe(4);
@@ -58,11 +51,10 @@ describe('compareWallModels', () => {
 			band: BAND,
 			from,
 			points,
-			// A raster march that never sees the wall: exactly the leak the vector model exists
-			// to fix, and the case a "looks similar" review would wave through.
+			// 完全看不到墙体的栅格步进：正是矢量模型要消除的漏计。
 			rasterLoss: () => 0
 		});
-		// Three of the four sample points sit across the wall; the fourth is behind the source.
+		// 四个采样点中有三个位于墙的另一侧，第四个在源的后方。
 		expect(result.disagreements).toBe(3);
 		expect(result.maxAbsDb).toBeCloseTo(DRYWALL_DB);
 		expect(result.vectorMeanDb).toBeCloseTo((DRYWALL_DB * 3) / 4);
@@ -75,7 +67,7 @@ describe('compareWallModels', () => {
 			band: BAND,
 			from,
 			points,
-			// Off by 1 dB on every ray that crosses: mean difference 1, means 1 dB apart.
+			// 每条穿墙射线都偏大 1 dB：平均绝对差为 0.75，两均值相差 1 dB。
 			rasterLoss: (_from, to) => (to.x > 5 ? DRYWALL_DB + 1 : 0)
 		});
 		expect(result.meanAbsDb).toBeCloseTo(0.75);

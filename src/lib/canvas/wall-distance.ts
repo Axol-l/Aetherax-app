@@ -1,42 +1,15 @@
 /**
- * How far a point is from the nearest wall, and which wall that is.
- *
- * The access-point annotation needs two answers the wall mask does not give
- * directly: the distance from an AP to the wall it sits next to, and the
- * *position* of that wall so a dashed connector can be drawn to it. Both come
- * out of one exact Euclidean distance transform over the mask.
- *
- * Exact rather than a chamfer approximation: this number is shown to the user as
- * a measurement ("1.2 m to wall"), and a 3-4 chamfer is 2-4% off, which is
- * visible at the precision the readout is rounded to. The transform is O(pixels)
- * once per mask, and every later query — one per AP, on every frame, including
- * the frames of a drag — is an array lookup.
- *
- * A **wall-mounted** access point gets a different question answered: it is *on*
- * a wall, so "how far to the nearest wall" is its own bracket depth and says
- * nothing. What matters for a unit that is screwed to a wall is how much wall it has
- * *beside* it — the first wall along `facing ± 90`, which is where the mounting wall
- * ends. See `firstWallAlong` and `nearestSideWall` at the foot of this file.
- *
- * Mask pixels are world units: the mask's origin is a world coordinate and its
- * width and height are world extents (see `DecodedWallMask`), so a distance in
- * mask pixels is a distance in world units and only the calibration turns it
- * into metres. Nothing here knows about metres.
- *
- * The two-pass Felzenszwalb–Huttenlocher transform below also carries each
- * pixel's nearest wall pixel through the passes, which is what makes the
- * connector endpoint available without a second pass over the mask.
- *
- * Field layout: the wall mask is 1 = wall, 0 = passable.
+ * 计算某点到最近墙体的距离以及该墙体的位置，供接入点标注使用。
+ * 使用精确欧氏距离变换；掩码像素即世界单位，字段布局为 1 = 墙体、0 = 可通行。
  */
 
 import type { DecodedWallMask } from './mask-codec.js';
 
-/** A point on the nearest wall, in mask pixels, and the distance to it. */
+/** 最近墙体上的一点（掩码像素坐标）及其距离。 */
 export interface NearestWallPixel {
-	/** Distance in mask pixels, which are world units. */
+	/** 距离，单位是掩码像素，也就是世界单位。 */
 	distance: number;
-	/** The nearest wall pixel itself, in mask pixel coordinates. */
+	/** 最近的墙体像素本身，使用掩码像素坐标。 */
 	x: number;
 	y: number;
 }
@@ -45,33 +18,25 @@ export interface WallDistanceTransform {
 	readonly width: number;
 	readonly height: number;
 	/**
-	 * The nearest wall pixel to a mask pixel, or null when there is no wall to
-	 * measure to at all — an empty mask, or a mask too large to transform.
+	 * 查询某个掩码像素最近的墙体像素；空掩码或大到无法变换的掩码没有墙体可测量，返回 null。
 	 */
 	query(px: number, py: number): NearestWallPixel | null;
 }
 
 /**
- * Above this many mask pixels the transform is skipped rather than attempted.
- *
- * A mask this size is already past the point where the rest of the application
- * gives up (the encode path warns above 8000 px a side), and the transient
- * arrays here are 8 bytes per pixel. Skipping costs an annotation, not a mask.
+ * 掩码像素数超过该值时跳过变换而不尝试。
+ * 此尺寸已超出应用其余部分的承受范围，变换所需的临时数组每像素占 8 字节。
  */
 const MAX_TRANSFORM_PIXELS = 16_000_000;
 
 /**
- * "No wall in this column", as an integer.
- *
- * Distances are held squared, and squared distances between two pixels of a mask
- * are whole numbers, so an `Int32Array` carries them exactly and quickly — which
- * is why there is no `Infinity` here and no floating-point distance array. The
- * sentinel only has to beat every real squared distance (a 16M-pixel mask is at
- * most 4000² + 3000², 25 million) and leave room for `f + q²` to stay in range.
+ * “该列没有墙”的整数哨兵值。
+ * 距离以平方形式保存，平方距离是整数，因此用 `Int32Array` 精确承载；该值只需大于所有真实平方距离，
+ * 并留出 `f + q²` 不越界的余量。
  */
 const NO_WALL = 1 << 30;
 
-/** Build the transform, or null when there is nothing to measure from. */
+/** 构建变换；没有可供测量的墙体时返回 null。 */
 export function wallDistanceTransform(
 	data: Uint8Array,
 	width: number,
@@ -82,9 +47,8 @@ export function wallDistanceTransform(
 	if (data.length < width * height) return null;
 	if (!data.some((v) => v !== 0)) return null;
 
-	// Squared distance to the nearest wall in the same column, and that wall's
-	// row. Pass one is a plain nearest-neighbour scan down and back up a column,
-	// so it needs none of the envelope machinery of pass two.
+	// 同一列内到最近墙体的平方距离，以及该墙体的行号。
+	// 第一遍沿列向下再向上做最近邻扫描，不需要第二遍的包络结构。
 	const columnDistance = new Int32Array(width * height);
 	const columnSource = new Int32Array(width * height);
 	for (let x = 0; x < width; x++) {
@@ -109,11 +73,8 @@ export function wallDistanceTransform(
 	}
 
 	/*
-	 * Pass two: combine the columns within each row.
-	 *
-	 * For every pixel the answer is min over x' of (x - x')² + columnDistance(x'),
-	 * the lower envelope of a set of parabolas. `source` carries the column-pass
-	 * wall row along with each parabola, so the winner also names the wall pixel.
+	 * 第二遍：在每一行内合并各列，每个像素的答案是 x' 上 (x - x')² + columnDistance(x') 的最小值。
+	 * 这是一组抛物线的下包络；`source` 随每条抛物线携带墙体行，因此获胜的抛物线也给出墙体像素。
 	 */
 	const distance = new Int32Array(width * height);
 	const source = new Int32Array(width * height);
@@ -162,7 +123,7 @@ export function wallDistanceTransform(
 		}
 
 		if (k < 0) {
-			// Not one column of this row met a wall.
+			// 该行没有任何一列碰到墙。
 			for (let x = 0; x < width; x++) {
 				distance[row + x] = NO_WALL;
 				source[row + x] = -1;
@@ -175,8 +136,7 @@ export function wallDistanceTransform(
 			while (boundaries[j + 1]! < x) j++;
 			const p = vertices[j]!;
 			distance[row + x] = (x - p) * (x - p) + rowInput[p]!;
-			// The winning parabola is at column p and carries the wall row it was
-			// measured from, so together they name the wall pixel.
+			// 获胜的抛物线位于列 p，并携带它测得的墙体行，二者合起来给出墙体像素。
 			source[row + x] = rowSource[p]! * width + p;
 		}
 	}
@@ -197,13 +157,9 @@ export function wallDistanceTransform(
 }
 
 /**
- * A transform for a mask, cached across calls.
- *
- * `version` is the caller's invalidation counter, and it is not optional: the
- * wall editor's `materialize()` patches its raster **in place** and hands back
- * the same `Uint8Array` after every stroke, so identity alone would serve a
- * distance field measured from walls that are no longer there. The tap that
- * republishes the mask has to bump the version.
+ * 针对某个掩码的变换缓存，跨调用复用。
+ * `version` 是调用方的失效计数器，不可省略：光栅会被原地修补并返回同一个 `Uint8Array`，
+ * 只比较引用会复用已经过期的距离场。
  */
 export interface WallDistanceCache {
 	transform: WallDistanceTransform | null;
@@ -213,12 +169,12 @@ export interface WallDistanceCache {
 	version: number;
 }
 
-/** An empty cache slot for a view to own. */
+/** 供视图持有的空缓存槽。 */
 export function createWallDistanceCache(): WallDistanceCache {
 	return { transform: null, data: null, width: 0, height: 0, version: -1 };
 }
 
-/** The transform for `mask` at `version`, rebuilt only when either has moved. */
+/** 返回 `mask` 在 `version` 下的变换，仅在任一者变化时重建。 */
 export function cachedWallDistanceTransform(
 	cache: WallDistanceCache,
 	mask: DecodedWallMask | null,
@@ -249,19 +205,8 @@ export function cachedWallDistanceTransform(
 }
 
 /**
- * The nearest wall to either **side** of a facing direction, or null if the plan
- * runs out first.
- *
- * What a wall-mounted access point is actually up against. It is screwed to a wall
- * whose normal is `facingDeg`, so that wall runs away to both sides of it: marching
- * along `facingDeg ± 90` stays clear of the mounting wall and meets whatever ends it
- * — a corner, a perpendicular partition, the far end of the room. The nearer of the
- * two is the binding one, and it is the number a planner wants: it says how much wall
- * the unit has beside it, and a value near zero says it is in a corner.
- *
- * The opposite wall — straight ahead — is deliberately *not* measured: a unit that
- * radiates forwards is not helped by knowing how deep the room is, and the depth is
- * already visible on the plan.
+ * 朝面向方向两侧最近的一堵墙；图纸先到头时返回 null。
+ * 测量壁挂接入点旁边还有多少墙：沿 `facingDeg ± 90` 前进，取较近的一侧，正前方的对墙不测量。
  */
 export function nearestSideWall(
 	data: Uint8Array,
@@ -301,32 +246,17 @@ export function nearestSideWall(
 	return left.distanceW < right.distanceW ? left : right;
 }
 
-/** Where a ray from a point first meets a wall, in world units. */
+/** 从某点出发的射线首次碰到墙体的位置，单位是世界单位。 */
 export interface FirstWallHit {
 	x: number;
 	y: number;
-	/** Distance from the starting point to that wall, in world units. */
+	/** 从起点到该墙体的距离，单位是世界单位。 */
 	distanceW: number;
 }
 
 /**
- * The first wall along a bearing, or null when the ray leaves the plan first.
- *
- * The measurement a **wall-mounted** access point needs. It is on a wall already,
- * so its distance to the nearest one is the bracket it hangs on; what a unit that
- * radiates in one direction has instead is a *throw* — how much room is in front of
- * it before a wall stops it. That is this: a march along the facing direction until
- * the mask says wall.
- *
- * Sampled every half world unit rather than every one, because a diagonal ray
- * stepping a whole unit can pass between two pixels of a thin partition and report
- * a room twice as deep as it is. The mask is world units, so the step is 0.5 of one
- * — about 1.5 cm at the default calibration, which is finer than the reading's own
- * rounding.
- *
- * A ray that leaves the mask before meeting a wall returns null: the plan does not
- * say what is out there, and a number invented at the mask's edge would read as a
- * measurement.
+ * 沿某个方位角遇到的第一堵墙；射线先离开图纸时返回 null。
+ * 这是壁挂接入点所需的投射距离；每半个世界单位采样一次，避免斜向射线从像素间穿过而误报。
  */
 export function firstWallAlong(
 	data: Uint8Array,
@@ -347,14 +277,13 @@ export function firstWallAlong(
 	for (let d = 0; d <= maxW; d += step) {
 		const px = Math.round(worldX - originX + dx * d);
 		const py = Math.round(worldY - originY + dy * d);
-		// Off the plan: there is nothing further to measure against.
+		// 离开图纸：没有可继续测量的对象。
 		if (px < 0 || py < 0 || px >= width || py >= height) return null;
 		if (data[py * width + px] === 1) {
 			const x = originX + px;
 			const y = originY + py;
-			// Measured to the pixel that was hit rather than to the step that found
-			// it: the two differ by up to half a step, and the point returned is the
-			// one the caption draws its connector to.
+			// 返回到命中的像素而非发现它的步进点，因为两者最多相差半步，
+			// 而返回的点正是标注连接线指向的位置。
 			return { x, y, distanceW: Math.hypot(x - worldX, y - worldY) };
 		}
 	}

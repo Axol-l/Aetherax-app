@@ -6,7 +6,7 @@ export interface BoundaryResult {
 }
 
 /**
- * Strip text elements from SVG before rendering for cleaner detection.
+ * 渲染前去除 SVG 中的文字元素，使检测结果更干净。
  */
 export async function prepareSvgForDetection(url: string): Promise<HTMLImageElement> {
 	const img = new Image();
@@ -21,7 +21,7 @@ export async function prepareSvgForDetection(url: string): Promise<HTMLImageElem
 			const svg = doc.querySelector('svg');
 
 			if (svg) {
-				// Remove text, tspan, and small decorative elements
+				// 移除 text、tspan 以及尺寸过小的装饰元素
 				svg.querySelectorAll('text, tspan').forEach((el) => el.remove());
 				svg.querySelectorAll('circle').forEach((el) => {
 					const r = parseFloat(el.getAttribute('r') || '0');
@@ -43,7 +43,7 @@ export async function prepareSvgForDetection(url: string): Promise<HTMLImageElem
 			}
 		}
 	} catch {
-		// Fall through
+		// 继续向下执行
 	}
 
 	return new Promise((resolve, reject) => {
@@ -68,13 +68,13 @@ export function detectBoundary(image: HTMLImageElement): BoundaryResult | null {
 	const imageData = ctx.getImageData(0, 0, w, h);
 	const { data } = imageData;
 
-	// Step 1: Grayscale
+	// 步骤 1：灰度化
 	const gray = new Uint8Array(w * h);
 	for (let i = 0; i < w * h; i++) {
 		gray[i] = Math.round((data[i * 4]! + data[i * 4 + 1]! + data[i * 4 + 2]!) / 3);
 	}
 
-	// Step 2: Detect background from edges
+	// 步骤 2：由图像边缘判断背景
 	let edgeSum = 0;
 	let edgeCount = 0;
 	for (let x = 0; x < w; x++) {
@@ -89,7 +89,7 @@ export function detectBoundary(image: HTMLImageElement): BoundaryResult | null {
 	}
 	const darkBg = edgeSum / edgeCount < 128;
 
-	// Step 3: Binary threshold (1 = passable/background, 0 = wall)
+	// 步骤 3：二值阈值（1 表示可通行/背景，0 表示墙体）
 	const threshold = darkBg ? 80 : 160;
 	const binary = new Uint8Array(w * h);
 	for (let i = 0; i < w * h; i++) {
@@ -100,9 +100,8 @@ export function detectBoundary(image: HTMLImageElement): BoundaryResult | null {
 		}
 	}
 
-	// Step 3.5 + 4 + 5: Morph close to seal doors, flood fill to find exterior,
-	// building footprint = everything not exterior.
-	// binary convention here is inverted (0=wall, 1=passable), convert to util convention (1=wall)
+	// 步骤 3.5、4、5：形态学闭运算封住门洞，泛洪填充找出外部，建筑轮廓即所有非外部区域。
+	// 此处二值约定相反（0=墙体，1=可通行），需转换为工具约定（1=墙体）。
 	const wallMask = new Uint8Array(w * h);
 	for (let i = 0; i < w * h; i++) wallMask[i] = binary[i] ? 0 : 1;
 
@@ -116,9 +115,7 @@ export function detectBoundary(image: HTMLImageElement): BoundaryResult | null {
 		if (!exterior[i]) footprint[i] = 1;
 	}
 
-	// Step 6: Find connected components of the footprint.
-	// The building is the largest component. Isolated decorations, text, and
-	// exterior features form smaller components that we discard.
+	// 步骤 6：求轮廓的连通分量；建筑是最大分量，孤立的装饰、文字和外部特征形成较小分量并被丢弃。
 	const blobLabels = new Int32Array(w * h);
 	blobLabels.fill(-1);
 	const blobSizes: number[] = [];
@@ -157,7 +154,7 @@ export function detectBoundary(image: HTMLImageElement): BoundaryResult | null {
 
 	if (blobSizes.length === 0) return null;
 
-	// Step 7: Keep only the largest connected component (the building)
+	// 步骤 7：仅保留最大的连通分量（建筑）
 	let mainBlob = 0;
 	let mainSize = 0;
 	for (let i = 0; i < blobSizes.length; i++) {
@@ -174,7 +171,7 @@ export function detectBoundary(image: HTMLImageElement): BoundaryResult | null {
 		}
 	}
 
-	// Step 8: Compute area and trace boundary
+	// 步骤 8：计算面积并追踪边界
 	let areaPx = 0;
 	let minX = w;
 	let maxX = 0;
@@ -197,7 +194,7 @@ export function detectBoundary(image: HTMLImageElement): BoundaryResult | null {
 
 	const areaOriginal = areaPx / (scale * scale);
 
-	// Trace boundary
+	// 追踪边界
 	const leftEdge: Array<{ x: number; y: number }> = [];
 	const rightEdge: Array<{ x: number; y: number }> = [];
 

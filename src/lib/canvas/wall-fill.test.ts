@@ -1,20 +1,11 @@
 /**
- * A wall drawn as two strokes must come out of detection as a solid band.
- *
- * Reported from a real plan: the detected mask showed every wall as a hollow frame, one
- * thin line per side, because the threshold keeps the ink of the two strokes and the paper
- * between them stays "floor". The mask looked like a honeycomb of frames, and the interior
- * test then treated the inner stroke as the room's boundary.
- *
- * The fix is a morphological close in the detection pipeline: it bridges a gap up to twice
- * its radius, which is exactly the cavity between a wall's two strokes, and cannot bridge
- * a room. These tests pin the property rather than the numbers — a frame closes, a room
- * survives.
+ * 画成两条描边的墙，在识别后应输出为实心带。
+ * 两条描边之间的空腔由检测流程中的形态学闭运算填补，房间不受影响。
  */
 import { describe, expect, it } from 'vitest';
 import { dilateMask, erodeMask } from './morphology.js';
 
-/** The close the detector applies, at a given radius. */
+/** 检测器在给定半径下使用的闭运算。 */
 function close(mask: Uint8Array, w: number, h: number, radius: number): Uint8Array {
 	return erodeMask(dilateMask(mask, w, h, radius), w, h, radius, 'solid');
 }
@@ -42,7 +33,7 @@ function count(mask: Uint8Array): number {
 
 describe('closing the cavity inside a drawn wall', () => {
 	it('fills the gap between two strokes of one wall', () => {
-		// A wall band four pixels apart: two strokes, nothing between them.
+		// 相距四像素的墙体带：两条描边，中间为空。
 		const w = 60;
 		const h = 40;
 		const mask = new Uint8Array(w * h);
@@ -52,24 +43,24 @@ describe('closing the cavity inside a drawn wall', () => {
 		}
 		const before = count(mask);
 		const after = count(close(mask, w, h, 3));
-		// The cavity (3 px tall, 40 wide) is filled, so the band is solid.
+		// 空腔（高 3 px、宽 40 px）被填满，带体变为实心。
 		expect(after).toBeGreaterThan(before + 100);
 		for (let x = 10; x < 50; x++) expect(close(mask, w, h, 3)[14 * w + x]).toBe(1);
 	});
 
 	it('leaves a room alone', () => {
-		// A 60 x 40 sheet with a 30 x 20 room outlined in the middle.
+		// 60 x 40 的图纸，中间是 30 x 20 的房间轮廓。
 		const mask = frame(60, 40, 15, 10, 45, 30);
 		const closed = close(mask, 60, 40, 3);
-		// The room's inside is still empty: a close cannot bridge thirty pixels.
+		// 房间内部仍为空：闭运算无法跨越三十像素。
 		expect(closed[20 * 60 + 30]).toBe(0);
-		// ...and the outline is still there, in the same place.
+		// 轮廓依然在原位。
 		expect(closed[10 * 60 + 30]).toBe(1);
 	});
 
 	it('does not fatten a wall it does not need to fill', () => {
-		// A solid three-pixel band: closing must return it unchanged, or every wall in the
-		// mask would grow by the radius and the attenuation would double-count crossings.
+		// 实心三像素带：闭运算必须原样返回，否则掩码中每条墙都会按半径增厚，
+		// 衰减计算会重复计入穿越。
 		const w = 60;
 		const h = 20;
 		const mask = new Uint8Array(w * h);

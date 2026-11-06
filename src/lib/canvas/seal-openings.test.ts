@@ -1,11 +1,7 @@
 /**
- * Sealing openings: the difference between "a room with a doorway" and "the way out".
- *
- * The guard that asks whether an access point is inside the building reads the interior the
- * flood fill infers from the walls. A doorway is a gap in those walls, so a room with one
- * read as connected to the outside and the room's own AP was reported as outside — the
- * complaint this change answers. Closing the wall mask by half the widest opening that
- * still counts as a room bridges the doorway and leaves a genuinely open side open.
+ * 封堵洞口：区分“带门洞的房间”与真正的出口。
+ * 内部区域由墙体推断，门洞是墙上的缺口，会让房间被判为连通外部；
+ * 按仍算洞口的最宽宽度的一半做闭运算可连接门洞，同时保留真正的开口。
  */
 import { describe, expect, it } from 'vitest';
 import { sealOpenings } from './morphology.js';
@@ -13,7 +9,7 @@ import { sealOpenings } from './morphology.js';
 const W = 120;
 const H = 120;
 
-/** A room filling most of the sheet, with a gap of `gap` pixels in its right wall. */
+/** 占满图纸大部分区域的房间，右墙上有 `gap` 像素宽的缺口。 */
 function roomWithGap(gap: number): Uint8Array {
 	const mask = new Uint8Array(W * H);
 	for (let x = 20; x <= 100; x++) {
@@ -22,16 +18,16 @@ function roomWithGap(gap: number): Uint8Array {
 	}
 	for (let y = 20; y <= 100; y++) {
 		mask[y * W + 20] = 1;
-		// The right wall, with a doorway in the middle.
+		// 右墙，中间留出门洞。
 		const inGap = y >= 60 - gap / 2 && y <= 60 + gap / 2;
 		if (!inGap) mask[y * W + 100] = 1;
 	}
 	return mask;
 }
 
-/** True when the mask blocks a straight line from the room's middle to the sheet's edge. */
+/** 掩码挡住从房间中心到图纸边缘的直线时返回 true。 */
 function sealed(mask: Uint8Array): boolean {
-	// Flood the open space from the outside corner; if the middle is reached, the gap is open.
+	// 从外侧角点对空白区域做泛洪；若能到达中心，说明缺口是通的。
 	const seen = new Uint8Array(W * H);
 	const stack = [0];
 	seen[0] = 1;
@@ -57,11 +53,11 @@ function sealed(mask: Uint8Array): boolean {
 
 describe('sealOpenings', () => {
 	it('closes a doorway and leaves a genuine opening open', () => {
-		const door = roomWithGap(6); // ~1.5 m at the radius below
+		const door = roomWithGap(6); // 按下面的半径约合 1.5 m
 		expect(sealed(door)).toBe(false);
 		expect(sealed(sealOpenings(door, W, H, 4))).toBe(true);
 
-		// A whole missing wall (a 40 px opening) is not a doorway, at the same radius.
+		// 整段缺失的墙（40 px 开口）在同半径下不算门洞。
 		const open = roomWithGap(40);
 		expect(sealed(sealOpenings(open, W, H, 4))).toBe(false);
 	});
@@ -69,7 +65,7 @@ describe('sealOpenings', () => {
 	it('does not fatten the walls it keeps', () => {
 		const door = roomWithGap(6);
 		const sealedMask = sealOpenings(door, W, H, 4);
-		// The room's own inner corner is still open, and the wall still starts at x = 20.
+		// 房间内角仍为空，墙体仍从 x = 20 开始。
 		expect(sealedMask[21 * W + 21]).toBe(0);
 		expect(sealedMask[20 * W + 19]).toBe(0);
 		expect(sealedMask[21 * W + 20]).toBe(1);
@@ -84,13 +80,8 @@ describe('sealOpenings', () => {
 	});
 
 	/**
-	 * The size and radius a real plan produces.
-	 *
-	 * The closing used to paint a (2r+1)² square per set pixel — 820 × 839 at r ≈ 22 is 1.4
-	 * billion writes, measured at ~880 ms per call and called twice per wall edit, which froze
-	 * the app on every gesture. A square element is separable, so the same result costs two
-	 * passes of O(n·r). The bound is loose on purpose: it is there to catch a return to the
-	 * quadratic version, not to police milliseconds.
+	 * 真实平面图的尺寸与半径：确认闭运算没有退回到按像素逐一涂正方形的二次实现。
+	 * 阈值宽松，只用于捕捉性能回退，不考核具体毫秒数。
 	 */
 	it('closes a plan-sized mask in the time a gesture can afford', () => {
 		const w = 820;

@@ -10,66 +10,52 @@ import {
 } from './cross-floor.js';
 
 /**
- * The cross-floor ray split.
- *
- * These pin the geometry behind a model correction: the wall loss along a path between
- * two floors used to be charged entirely against the client's floor, so a ray that
- * spends two thirds of its horizontal run above the client's ceiling was attenuated by
- * the wrong plan for two thirds of its length.
+ * 校验跨层射线的切分：按楼板把路径分成源楼层和目标楼层两段。
+ * 同时锁定切分点几何，避免墙体损耗被记到错误楼层。
  */
 
-/** Floor planes at 0, 3 and 6 m (three storeys of 3 m). */
+/** 0、3、6 m 处的楼层平面（三层，每层 3 m）。 */
 const PLANES = [0, 3, 6];
 
 describe('crossFloorSplit', () => {
 	it('puts the crossing two thirds along an adjacent-floor ray', () => {
-		// AP at 6 m (ceiling of storey 2), client at 1.5 m on storey 1. The slab between
-		// them is at 3 m, i.e. (3 - 6) / (1.5 - 6) = 2/3 of the way.
+		// AP 在 6 m（2 层顶板）、客户端在 1 层 1.5 m；两者之间的楼板在 3 m，即射线
+		// (3 - 6) / (1.5 - 6) = 2/3 处。
 		const { sourceT, targetT } = crossFloorSplit(6, 1.5, PLANES);
 		expect(sourceT).toBeCloseTo(2 / 3, 10);
 		expect(targetT).toBeCloseTo(2 / 3, 10);
 	});
 
 	it('finds both crossings when the ray passes a whole storey', () => {
-		// AP on storey 3 down to a client on storey 1: crosses 6 m at 0.4 and 3 m at 0.8.
+		// 3 层 AP 到 1 层客户端：6 m 穿墙点在 0.4，3 m 穿墙点在 0.8。
 		const { sourceT, targetT } = crossFloorSplit(9, 1.5, PLANES);
 		expect(sourceT).toBeCloseTo(0.4, 10);
 		expect(targetT).toBeCloseTo(0.8, 10);
 	});
 
 	it('does not split when the ray never leaves the client floor', () => {
-		// An AP on the storey below is ceiling-mounted *at* the client's floor plane, so
-		// every metre of the run is inside the client's floor volume. The plane is listed
-		// as a crossing — the slab above the AP is in the path — but it is at `t = 0`,
-		// which splits nothing.
+		// 下方楼层的 AP 吊顶安装在客户端所在楼层平面上，因此整段射线都在客户端楼层内。
+		// 平面虽在 t = 0 处被列为穿墙点（AP 上方楼板属于路径），但不切分任何一段。
 		expect(crossFloorSplit(3, 4.5, PLANES)).toEqual({ sourceT: 0, targetT: 0 });
-		// Same floor.
+		// 同一楼层。
 		expect(crossFloorSplit(1.5, 1.5, PLANES)).toEqual({ sourceT: 0, targetT: 0 });
-		// A plane exactly at the AP or at the client is not crossed.
+		// 平面恰好位于 AP 或客户端时不算穿过。
 		expect(crossFloorSplit(3, 3, PLANES)).toEqual({ sourceT: 0, targetT: 0 });
 	});
 });
 
 /**
- * The instrument the first D-prime attempt lacked: **which slab is each crossing?**
- *
- * D-prime's per-slab waiver waives a *share* of the aggregate slab loss, and the share
- * has to be attributed to the right storey boundary or the waiver lands on the wrong
- * floor. The first attempt computed the fraction from "the vertical distance from the AP
- * to that plane", which for the AP's own floor plane is zero — so it tested a point at
- * the AP itself and the three-storey A/B read identical coverage.
- *
- * Planes at 0, 3 and 6 m: storey boundaries at 3 m (floors 1|2) and 6 m (floors 2|3).
+ * 校验每个穿墙点属于哪块楼板；份额必须归到正确的楼层边界，否则豁免会落到错误楼层。
  */
 describe('floorPlaneCrossings', () => {
 	it('names one slab for an adjacent-floor ray, and the same one the split uses', () => {
-		// AP ceiling-mounted on floor 2 (z = 6), client on floor 1 (z = 1.5).
+		// 2 层吊顶 AP（z = 6）、1 层客户端（z = 1.5）。
 		const crossings = floorPlaneCrossings(6, 1.5, PLANES);
 		expect(crossings).toHaveLength(1);
-		// 3 m is the boundary floors 1|2.
+		// 3 m 是 1、2 层之间的边界。
 		expect(crossings[0]!.planeZ).toBe(3);
 		expect(crossings[0]!.planeIndex).toBe(1);
-		// (3 - 6) / (1.5 - 6) = 2/3, and the split's two ends are this one crossing.
+		// (3 - 6) / (1.5 - 6) = 2/3，切分的两端都落在这一穿墙点。
 		expect(crossings[0]!.t).toBeCloseTo(2 / 3, 10);
 		const { sourceT, targetT } = crossFloorSplit(6, 1.5, PLANES);
 		expect(sourceT).toBeCloseTo(crossings[0]!.t, 10);
@@ -77,22 +63,19 @@ describe('floorPlaneCrossings', () => {
 	});
 
 	it('lists both slabs of a two-storey gap, outermost first', () => {
-		// AP ceiling-mounted on floor 3 (z = 9), client on floor 1 (z = 1.5).
+		// 3 层吊顶 AP（z = 9）、1 层客户端（z = 1.5）。
 		const crossings = floorPlaneCrossings(9, 1.5, PLANES);
 		expect(crossings.map((c) => c.planeZ)).toEqual([6, 3]);
-		// 6 m: (6 - 9) / (1.5 - 9) = 0.4. 3 m: (3 - 9) / (1.5 - 9) = 0.8.
+		// 6 m：(6 - 9) / (1.5 - 9) = 0.4；3 m：(3 - 9) / (1.5 - 9) = 0.8。
 		expect(crossings[0]!.t).toBeCloseTo(0.4, 10);
 		expect(crossings[1]!.t).toBeCloseTo(0.8, 10);
 		expect(crossings.map((c) => c.planeIndex)).toEqual([2, 1]);
 	});
 
 	it('lists nothing for an upward adjacent-floor ray, whose only plane is at the AP', () => {
-		// AP on floor 1 (z = 3) up to a client on floor 2 (z = 4.5): the plane between the
-		// two storeys is the 3 m one, which is exactly where the AP is. That slab *is* in
-		// the path — it is the slab the AP is mounted under — but this is the list of
-		// planes a run gets **split** at, and a crossing at the AP splits the run into
-		// nothing. The slab-loss waiver does not read this list for that reason: it derives
-		// the charged planes from the floor range. See `slab-crossings.test.ts`.
+		// 1 层 AP（z = 3）向上到 2 层客户端（z = 4.5）：两层之间的平面是 3 m，恰好位于
+		// AP 处。该楼板确实在路径中（AP 安装在其下方），但本函数列出的是切分点，而位于
+		// AP 处的穿墙点无法切出任何一段。
 		expect(floorPlaneCrossings(3, 4.5, PLANES)).toEqual([]);
 		expect(floorPlaneCrossings(1.5, 1.5, PLANES)).toEqual([]);
 	});
@@ -123,7 +106,7 @@ describe('crossFloorSegments', () => {
 });
 
 describe('crossFloorLoss', () => {
-	/** One wall per floor, at a given x, costing a given number of dB. */
+	/** 每层一道墙，位于给定 x，损耗为给定 dB。 */
 	function wallLoss(byFloor: Record<'source' | 'target', { wallX: number; db: number }>) {
 		return (
 			floor: 'source' | 'target',
@@ -138,11 +121,8 @@ describe('crossFloorLoss', () => {
 	}
 
 	it('charges each half of the run to the floor it passes through', () => {
-		// AP at (0,0) on the upper floor, client at (300,0) one storey down. The crossing
-		// is at two thirds, i.e. x = 200. The upper floor has a wall at x = 50 (crossed,
-		// 5 dB); the lower floor's wall at x = 50 is *behind* the crossing, so the ray
-		// never meets it. The old model charged 7 dB — the wrong floor's wall — for a path
-		// that meets only the upper one.
+		// 上层 AP 在 (0,0)、下层客户端在 (300,0)，穿墙点在 2/3 处即 x = 200：上层 x = 50
+		// 的墙被穿过（5 dB），下层 x = 50 的墙位于穿墙点后方而未被射线遇到；旧模型会误计为 7 dB。
 		const { sourceT, targetT } = crossFloorSplit(6, 1.5, PLANES);
 		const seg = crossFloorSegments(sourceT, targetT, 0, 0, 300, 0)!;
 		expect(
@@ -153,8 +133,8 @@ describe('crossFloorLoss', () => {
 	it('adds a wall that only the client floor reaches', () => {
 		const { sourceT, targetT } = crossFloorSplit(6, 1.5, PLANES);
 		const seg = crossFloorSegments(sourceT, targetT, 0, 0, 300, 0)!;
-		// Target floor: one wall behind the crossing (x = 50, in the prefix the ray never
-		// sees) and one beyond it (x = 250). Only the second counts.
+		// 目标楼层：穿墙点后方有一道墙（x = 50，射线前缀中看不到），前方还有一道
+		// （x = 250）；只有后者计入。
 		expect(
 			crossFloorLoss(seg, wallLoss({ source: { wallX: 50, db: 5 }, target: { wallX: 250, db: 3 } }))
 		).toBe(5 + 3);
@@ -162,16 +142,15 @@ describe('crossFloorLoss', () => {
 });
 
 /**
- * An atrium is a hole in the slab, so a ray crossing there meets no concrete. The slab
- * between two storeys belongs to the upper floor, which is why the caller has to pass
- * *that* floor's room-type mask.
+ * 中庭是楼板上的洞，射线经过时不会遇到混凝土；两层之间的楼板属于上层，
+ * 因此调用方必须传入上层的房间类型掩码。
  */
 describe('slabIsVoid', () => {
 	const W = 10;
 	const H = 10;
-	/** The void's real id, so this test cannot drift from the room type table. */
+	/** 空洞的真实 id，确保测试不会与房间类型表脱节。 */
 	const VOID_ID = ROOM_TYPES.find((t) => t.isVoid)!.id;
-	/** Room types: the void's own id, and 1 for a normal room. */
+	/** 房间类型：空洞使用其真实 id，普通房间为 1。 */
 	function roomTypes(voidFrom: number, voidTo: number): Uint8Array {
 		const data = new Uint8Array(W * H).fill(1);
 		for (let y = 0; y < H; y++) {
@@ -188,7 +167,7 @@ describe('slabIsVoid', () => {
 
 	it('respects the mask origin', () => {
 		const data = roomTypes(2, 4);
-		// The hole covers world x 102..104 when the mask starts at 100.
+		// 掩码从 100 开始时，空洞覆盖世界坐标 x 102..104。
 		expect(slabIsVoid(data, W, H, 100, 100, 103, 105)).toBe(true);
 		expect(slabIsVoid(data, W, H, 100, 100, 3, 5)).toBe(false);
 	});

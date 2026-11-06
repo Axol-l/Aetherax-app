@@ -1,20 +1,7 @@
 /**
- * A signature for a mask *object*, for cache invalidation.
- *
- * Every consumer here caches derived work — the heatmap's attenuation field, the decoded
- * interior, the coloured wall raster — and every one of those caches used to key on things
- * that do not change when the mask's *content* does: its width, its height, its origin, a
- * counter somebody has to remember to bump. Replacing a floor's mask with one of the same
- * size therefore left every consumer showing the previous geometry, which looks exactly like
- * a broken drag.
- *
- * The object identity is the honest signal: every path that changes a mask assigns a new
- * object (`wallState.wallMask = {...}`), including undo and detection, and none of them
- * mutate a mask in place. A WeakMap turns that identity into a string, so a cache key can
- * carry it without keeping the mask alive.
- *
- * The rule this encodes, for the next person: **anything that writes a mask hands out a new
- * object, and nothing may rely on a version counter to notice.**
+ * 掩码对象的签名，用于缓存失效。
+ * 掩码内容变化时对象标识必然改变；WeakMap 把它转成字符串，缓存键可安全持有，也不会阻止掩码被回收。
+ * 约定：任何写入掩码的代码都必须交出新的对象，不得依赖版本计数器。
  */
 const signatures = new WeakMap<object, string>();
 let next = 0;

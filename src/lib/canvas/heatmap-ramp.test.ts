@@ -1,8 +1,7 @@
 /**
- * The shared ramp: the heatmap's colours, and now the antenna panel's too.
+ * 共用的色阶：热力图与天线面板都使用它。
  *
- * The point of the tests is that the ramp says one thing — stronger is greener — at every
- * position, because a panel that inverted it would be worse than no colour at all.
+ * 这些测试确认色阶在所有位置上语义一致：信号越强越偏绿。
  */
 import { describe, expect, it } from 'vitest';
 import { rampColorAt, rampCss, RAMP_STOPS } from './heatmap-ramp.js';
@@ -16,19 +15,19 @@ describe('signal ramp', () => {
 	});
 
 	it('runs from red at the weak end to green at the strong one', () => {
-		// Not the green channel alone: the ramp peaks in yellow, so green rises and then
-		// settles, and it is the red-to-green reading a viewer takes from it.
+		// 不能只看绿通道：色阶中段偏黄，绿色先升后降，
+		// 观者读到的是红到绿的相对关系。
 		const weak = rampColorAt(0.05);
 		const strong = rampColorAt(0.95);
 		expect(weak.r).toBeGreaterThan(weak.g);
 		expect(strong.g).toBeGreaterThan(strong.r);
-		// The middle of the ramp is the yellow the heatmap shows for "usable".
+		// 色阶中段偏黄，对应热力图中「可用」的区间。
 		expect(rampColorAt(0.35).r).toBeGreaterThan(180);
 		expect(rampColorAt(0.35).g).toBeGreaterThan(170);
 	});
 
 	it('interpolates between the stops rather than snapping to them', () => {
-		// Halfway from the red stop to the orange one, so neither end's value.
+		// 位于红色色标到橙色色标的中点，因此不等于任一端的值。
 		const middle = rampColorAt(0.075);
 		expect(middle.r).toBeGreaterThan(100);
 		expect(middle.r).toBeLessThan(220);

@@ -1,23 +1,15 @@
 /**
- * Tiled binary mask for infinite-canvas wall drawing.
- *
- * Storage: sparse Map of 256×256 tiles. Only non-empty tiles consume memory.
- * Computation: materialize() flattens to a Uint8Array for hot-path consumers
- * (ray march, renderer, BFS) — same speed as a monolithic array.
- *
- * Supports negative coordinates. Materialized origin tracks the bounding box.
+ * 用于无限画布墙体绘制的分块二值掩码。
+ * 存储：256×256 瓦片的稀疏 Map，只有非空瓦片占用内存。
+ * 计算：materialize() 展平为 Uint8Array 供热路径使用；支持负坐标，原点跟随包围盒。
  */
 
 const TILE_SIZE = 256;
 const TILE_PIXELS = TILE_SIZE * TILE_SIZE;
 
 /**
- * Pack a tile coordinate into a single number.
- *
- * This used to build a template string on every getPixel/setPixel, which a
- * radius-15 material brush does thousands of times per stroke. The +32768
- * offset keeps negative tile coordinates distinct; a canvas would have to
- * exceed roughly 8.4 million pixels per axis for these to collide.
+ * 将瓦片坐标打包为单个数字。
+ * +32768 偏移用于区分为负的瓦片坐标，跨度是 65536。
  */
 const TILE_KEY_BIAS = 32768;
 const TILE_KEY_SPAN = 65536;
@@ -34,22 +26,14 @@ function tileKeyY(key: number): number {
 	return (key % TILE_KEY_SPAN) - TILE_KEY_BIAS;
 }
 
-/** Proper floor division that handles negatives (JS % is remainder, not modulo). */
+/** 能正确处理负数的向下取整除法（JS 的 % 是取余而非取模）。 */
 function floorDiv(n: number, d: number): number {
 	return Math.floor(n / d);
 }
 
 /**
- * Snap a world coordinate to the pixel raster.
- *
- * The mask is a pixel grid, but every caller works in world units, and the world
- * origin of a mask is whatever the alignment drag last settled on
- * (`dxScreen / zoom`), so it is routinely fractional. That mattered: a fractional
- * coordinate made `mod(x, 256)` fractional, and writing to a typed array with a
- * fractional index is *silently discarded* — the key becomes an ordinary expando
- * property instead of an element. A floor whose offset had a fractional part
- * therefore loaded its detected walls into an all-zero raster, and the first edit
- * saved that blank raster back over them.
+ * 将世界坐标对齐到像素栅格。
+ * 掩码是像素网格，而调用方使用世界坐标，原点常为小数，因此先四舍五入。
  */
 function snap(v: number): number {
 	return Math.round(v);
@@ -66,10 +50,10 @@ export interface MaterialTiledMask {
 
 export class TiledMask {
 	tiles = new Map<number, Uint8Array>();
-	/** Optional per-pixel material data (same tile layout). */
+	/** 可选的逐像素材质数据（瓦片布局相同）。 */
 	materialTiles: MaterialTiledMask | null = null;
 
-	// Bounding box of all non-empty tiles (in world pixels)
+	// 所有非空瓦片的包围盒（单位：世界像素）
 	private minTX = Infinity;
 	private minTY = Infinity;
 	private maxTX = -Infinity;
@@ -77,34 +61,23 @@ export class TiledMask {
 	private dirty = true;
 
 	/**
-	 * Tiles touched since the last materialisation.
-	 *
-	 * materialize() used to clear the whole raster and recopy every tile on each
-	 * rebuild. Because a brush stroke only ever touches a handful of 256x256
-	 * tiles, tracking the touched keys lets a rebuild patch just those instead.
-	 * `fullRebuild` forces the slow path when the bounding box moved (which
-	 * reallocates the raster) or when a caller explicitly requested it.
+	 * 自上次物化以来被改动过的瓦片。
+	 * 重建时只修补这些瓦片；包围盒移动或调用方显式要求时用 `fullRebuild` 走全量重建。
 	 */
 	private dirtyTileKeys = new Set<number>();
 	private dirtyMatTileKeys = new Set<number>();
 	private fullRebuild = true;
 
 	/**
-	 * An explicit rectangle, in world pixels, that the raster must always cover.
-	 *
-	 * This is what keeps an *empty* mask materialisable. The box used to come from
-	 * the occupied tiles alone, so a mask with no walls had no box at all,
-	 * `materialize()` returned null, and every caller reads null as "this floor
-	 * has no floorplan" — the wall editor included, which then dropped every
-	 * subsequent stroke without a word. "Clear all walls" put the floor in exactly
-	 * that state, so clearing the walls also silently ended the drawing session.
+	 * 光栅必须始终覆盖的显式矩形，单位是世界像素。
+	 * 空掩码靠它保持可物化，避免 `materialize()` 返回 null 后被当作没有户型图。
 	 */
 	frameOriginX = 0;
 	frameOriginY = 0;
 	frameWidth = 0;
 	frameHeight = 0;
 
-	/** Pin the raster box, e.g. to the extent of the mask a floor was loaded with. */
+	/** 固定光栅框，用于设定楼层加载时所用的掩码范围。 */
 	setFrame(originX: number, originY: number, width: number, height: number): void {
 		this.frameOriginX = Math.round(originX);
 		this.frameOriginY = Math.round(originY);
@@ -114,7 +87,7 @@ export class TiledMask {
 		this.fullRebuild = true;
 	}
 
-	// Cached flat materialization
+	// 缓存展平后的物化结果
 	private cachedData: Uint8Array | null = null;
 	private cachedMaterial: Uint8Array | null = null;
 	private cachedOriginX = 0;
@@ -122,7 +95,7 @@ export class TiledMask {
 	private cachedWidth = 0;
 	private cachedHeight = 0;
 
-	/** Read a single pixel (for non-hot-path use). */
+	/** 读取单个像素（用于非热路径）。 */
 	getPixel(x: number, y: number): number {
 		x = snap(x);
 		y = snap(y);
@@ -135,7 +108,7 @@ export class TiledMask {
 		return tile[ly * TILE_SIZE + lx]!;
 	}
 
-	/** Write a single pixel. Allocates tile on first write. */
+	/** 写入单个像素；首次写入时分配瓦片。 */
 	setPixel(x: number, y: number, value: number): void {
 		x = snap(x);
 		y = snap(y);
@@ -144,12 +117,8 @@ export class TiledMask {
 		const key = tileKey(tx, ty);
 		let tile = this.tiles.get(key);
 		if (!tile) {
-			// Clearing a pixel that was never set must not allocate a tile or move
-			// the bounds. Otherwise an erase outside the drawn area silently grows
-			// the mask, and the mask is materialised and PNG-encoded whole on every
-			// edit — so a stray erase costs work proportional to the empty span it
-			// just added, and past the canvas size limit the encode fails and the
-			// entire wall layer disappears.
+			// 清除从未设置过的像素不得分配瓦片或移动边界，否则绘制区域外的擦除会扩大掩码，
+			// 而每次编辑都要整体物化并编码 PNG，可能因超出画布尺寸上限而导致整个墙体图层消失。
 			if (!value) return;
 			tile = new Uint8Array(TILE_PIXELS);
 			this.tiles.set(key, tile);
@@ -160,14 +129,14 @@ export class TiledMask {
 		this.dirty = true;
 		this.dirtyTileKeys.add(key);
 
-		// Update bounding box
+		// 更新包围盒
 		if (tx < this.minTX) this.minTX = tx;
 		if (ty < this.minTY) this.minTY = ty;
 		if (tx > this.maxTX) this.maxTX = tx;
 		if (ty > this.maxTY) this.maxTY = ty;
 	}
 
-	/** Set a material value for a pixel. */
+	/** 设置单个像素的材质值。 */
 	setMaterial(x: number, y: number, materialId: number): void {
 		if (!this.materialTiles) {
 			this.materialTiles = { tiles: new Map(), defaultValue: 0 };
@@ -190,7 +159,7 @@ export class TiledMask {
 		this.dirtyMatTileKeys.add(key);
 	}
 
-	/** Paint a filled circle of wall pixels (brush stroke). */
+	/** 绘制一个实心圆形的墙体像素（笔刷笔画）。 */
 	paintCircle(cx: number, cy: number, radius: number, value: number, materialId?: number): void {
 		cx = snap(cx);
 		cy = snap(cy);
@@ -213,39 +182,17 @@ export class TiledMask {
 		}
 	}
 
-	/** Check if the mask has any tiles with data. */
+	/** 判断掩码是否含有带数据的瓦片。 */
 	get isEmpty(): boolean {
 		return this.tiles.size === 0;
 	}
 
 	/**
-	 * Get the bounding box in world pixels (the occupied tiles unioned with the
-	 * explicit frame).
-	 *
-	 * The origin is the first occupied tile, not zero.
-	 *
-	 * It used to be `Math.min(tileOX, 0)`, which forced every mask to start at the
-	 * world origin. For a plan drawn near (0, 0) that is invisible; for a floor
-	 * that has been moved — an alignment offset of a few thousand world units —
-	 * it turned a 1500-wide mask into a 3500-wide mostly-empty one, because the
-	 * whole span from the origin to the content was included. The mask is
-	 * materialised and PNG-encoded whole on every wall edit, so that span is paid
-	 * for on every stroke, and it grows with the alignment offset.
-	 *
-	 * The box is always on whole pixels. It is a pixel raster: `materialize()`
-	 * allocates `width * height` bytes and `blitTile` derives the row stride from
-	 * the array length, while `encodeMask` feeds the same numbers to a canvas,
-	 * which truncates them. So a fractional box does not fail loudly — the raster
-	 * is silently shaped differently from the numbers that describe it, and the
-	 * encoded PNG no longer corresponds to the pixels. A floor aligned to
-	 * `y = 14.2796` reported `height: 540.2796`, which is how a 526-tall mask grew a
-	 * phantom half-row.
+	 * 获取世界像素坐标下的包围盒（占用瓦片与显式框的并集）。
+	 * 原点是第一个占用瓦片而非零点，且始终对齐到整像素；无瓦片且无框时返回 null。
 	 */
 	get bounds(): { originX: number; originY: number; width: number; height: number } | null {
-		// The box has to cover the material tiles as well as the wall tiles.
-		// `setMaterial` allocates its own tiles without consulting the wall grid, so
-		// a material can exist where no wall does; sizing the raster from the wall
-		// tiles alone left those tiles outside it.
+		// 包围盒必须同时覆盖材质瓦片：`setMaterial` 会独立分配瓦片，材质可能出现在没有墙的位置。
 		let minTX = this.minTX;
 		let maxTX = this.maxTX;
 		let minTY = this.minTY;
@@ -297,8 +244,8 @@ export class TiledMask {
 	}
 
 	/**
-	 * Materialize tiles into a flat Uint8Array for hot-path consumers.
-	 * Returns cached result if unchanged since last call. Cost: <1ms for typical masks.
+	 * 将瓦片展平为 Uint8Array，供热路径使用。
+	 * 若自上次调用后没有变化则返回缓存结果。
 	 */
 	materialize(): {
 		data: Uint8Array;
@@ -323,7 +270,7 @@ export class TiledMask {
 		if (!b) return null;
 
 		const { originX, originY, width, height } = b;
-		// Reuse cached arrays if bounds unchanged (avoid a full alloc per stroke)
+		// 包围盒不变时复用缓存数组，避免每次笔画都完整分配
 		const sameSize =
 			this.cachedData != null &&
 			this.cachedWidth === width &&
@@ -333,10 +280,8 @@ export class TiledMask {
 
 		const needsMat = this.materialTiles != null && this.materialTiles.tiles.size > 0;
 
-		// Fast path: bounds unchanged and only whole tiles were touched. Patch just
-		// those tiles. Blitting a tile overwrites all 256x256 of its pixels, so
-		// erased pixels inside a touched tile are cleared correctly without having
-		// to clear the whole raster first.
+		// 快路径：包围盒未变且只改动了整块瓦片时，仅修补这些瓦片。
+		// 平铺一整块瓦片会覆盖其全部像素，因此被擦除的像素无需先清空整个光栅。
 		if (sameSize && !this.fullRebuild) {
 			const data = this.cachedData!;
 			for (const key of this.dirtyTileKeys) {
@@ -348,8 +293,7 @@ export class TiledMask {
 			let matData = this.cachedMaterial;
 			if (needsMat) {
 				if (!matData) {
-					// Material tiles appeared for the first time: the untouched area
-					// must read as the default material, not as zero.
+					// 材质瓦片首次出现：未改动的区域必须读作默认材质，而不是 0。
 					matData = new Uint8Array(width * height);
 					matData.fill(this.materialTiles!.defaultValue);
 				}
@@ -367,7 +311,7 @@ export class TiledMask {
 			return { data, materialData: matData, originX, originY, width, height };
 		}
 
-		// Slow path: (re)build the whole raster.
+		// 慢路径：重新构建整个光栅。
 		const data = sameSize ? this.cachedData! : new Uint8Array(width * height);
 		if (sameSize) data.fill(0);
 		const matData = needsMat
@@ -379,12 +323,12 @@ export class TiledMask {
 			matData.fill(this.materialTiles.defaultValue);
 		}
 
-		// Copy tile data into flat array
+		// 将瓦片数据复制到展平数组
 		for (const [key, tile] of this.tiles) {
 			this.blitTile(data, tile, key, originX, originY, width);
 		}
 
-		// Copy material tiles
+		// 复制材质瓦片
 		if (matData && this.materialTiles) {
 			for (const [key, tile] of this.materialTiles.tiles) {
 				this.blitTile(matData, tile, key, originX, originY, width);
@@ -413,14 +357,8 @@ export class TiledMask {
 	}
 
 	/**
-	 * Copy one 256x256 tile into the flat raster at its world offset.
-	 *
-	 * Clipped, not assumed to fit. A tile can exist for a pixel that is not a wall
-	 * — `setMaterial` allocates its own tiles and does not consult the wall grid —
-	 * so a material tile can sit outside the box `bounds` derives from the wall
-	 * tiles. Trusting that it fit threw `RangeError: offset is out of bounds` out
-	 * of `materialize`, which surfaces as the entire wall layer vanishing on a
-	 * stroke rather than as a bad material somewhere.
+	 * 将一块 256x256 瓦片复制到展平光栅中对应的世界偏移处。
+	 * 按裁剪处理而不假设瓦片一定落在光栅内；`setMaterial` 分配的瓦片可能位于包围盒之外。
 	 */
 	private blitTile(
 		dst: Uint8Array,
@@ -437,7 +375,7 @@ export class TiledMask {
 		for (let ly = 0; ly < TILE_SIZE; ly++) {
 			const dy = baseY + ly;
 			if (dy < 0 || dy >= height) continue;
-			// Columns of this tile that land inside the raster.
+			// 该瓦片落在光栅内的列范围。
 			const srcX0 = Math.max(0, -baseX);
 			const srcX1 = Math.min(TILE_SIZE, width - baseX);
 			if (srcX1 <= srcX0) continue;
@@ -446,7 +384,7 @@ export class TiledMask {
 		}
 	}
 
-	/** Import from a flat Uint8Array with world-space origin offset. */
+	/** 从带世界坐标原点偏移的展平 Uint8Array 导入。 */
 	static fromFlat(
 		data: Uint8Array,
 		width: number,
@@ -457,9 +395,8 @@ export class TiledMask {
 		originY = 0
 	): TiledMask {
 		const mask = new TiledMask();
-		// The caller's origin is in world units and can be fractional (it comes from
-		// the alignment offset), so snap it before it becomes a pixel address. The
-		// frame is what keeps the raster the same size when the data is all zeros.
+		// 调用方的原点以世界单位表示且可能是小数，因此在变成像素地址前先取整。
+		// 框用于在数据全为零时保持光栅尺寸不变。
 		originX = Math.round(originX);
 		originY = Math.round(originY);
 		mask.setFrame(originX, originY, width, height);
@@ -490,17 +427,8 @@ export class TiledMask {
 	}
 
 	/**
-	 * Drop every pixel, keeping the raster frame.
-	 *
-	 * Tiles are never reclaimed individually — erasing a region leaves its
-	 * (zeroed) tile in place — so this is the only way to actually shrink the
-	 * mask back down.
-	 *
-	 * The frame deliberately survives. A cleared mask still has to materialise:
-	 * with no pixels and no frame, `materialize()` returned null, and callers read
-	 * null as "no floorplan here" — so "clear all walls" left the wall editor
-	 * holding nothing and swallowed every stroke the user drew afterwards. Use
-	 * `setFrame(0, 0, 0, 0)` as well to mean "no raster at all".
+	 * 清除所有像素，但保留光栅框。
+	 * 瓦片不会被单独回收，这是真正缩小掩码的唯一方式；空掩码仍需可物化，因此框有意保留。
 	 */
 	clear(): void {
 		this.tiles.clear();
@@ -521,11 +449,8 @@ export class TiledMask {
 	}
 
 	/**
-	 * Mark as dirty so the next materialize() rebuilds the flat array.
-	 *
-	 * Forces a full rebuild rather than patching touched tiles, because this is
-	 * called by callers that mutated tiles directly (and so are not tracked by
-	 * the dirty-tile sets).
+	 * 标记为脏，使下一次 materialize() 重建展平数组。
+	 * 走全量重建而非修补，因为调用方是直接修改瓦片的，脏瓦片集合没有记录这些改动。
 	 */
 	markDirty(): void {
 		this.dirty = true;

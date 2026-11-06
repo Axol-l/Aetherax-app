@@ -8,18 +8,9 @@ import {
 } from './propagation.js';
 
 /**
- * The objective's coverage kernel, and the softness the F2 measurement added.
+ * 目标函数的覆盖核及其软阈值。
  *
- * The optimiser used to treat the coverage threshold as a hard edge. On a
- * coverage-limited floor that made every uncovered sample a plateau — a sample one
- * metre outside the circle and one fifteen metres outside both scored 0 — and
- * eight restarts differed by 5.3 points of coverage while their objective differed
- * by 0.9% (`docs/ROADMAP.md` F1, second measurement). Softness puts a slope back
- * into that region.
- *
- * The load-bearing property is that `softnessDb = 0` is the *old* kernel exactly:
- * that is what makes the before/after comparison a real A/B rather than two
- * models, and what lets every measurement taken before this change stand.
+ * `softnessDb = 0` 时退化为硬阈值核；软阈值在阈值附近给出连续斜率。
  */
 
 describe('coverageUtilityAboveThreshold', () => {
@@ -33,8 +24,7 @@ describe('coverageUtilityAboveThreshold', () => {
 
 	it('ramps from zero below the threshold to full above it', () => {
 		const softness = 10;
-		// The ramp spans [-softness, +FULL_MARGIN], so the threshold itself is the
-		// midpoint and the slope is 1/(10 + 10).
+		// 斜坡范围是 [−softness, +FULL_MARGIN]，阈值恰在中点，斜率为 1/(10 + 10)。
 		expect(coverageUtilityAboveThreshold(-softness, softness)).toBe(0);
 		expect(coverageUtilityAboveThreshold(-softness - 0.1, softness)).toBe(0);
 		expect(coverageUtilityAboveThreshold(0, softness)).toBe(0.5);
@@ -50,16 +40,14 @@ describe('coverageUtilityAboveThreshold', () => {
 		for (let i = 1; i < values.length; i++) {
 			expect(values[i]!).toBeGreaterThan(values[i - 1]!);
 		}
-		// And the hard kernel is flat over the same range, which is what it fixes.
+		// 同一区间内硬阈值核为常数，这正是软化要修正的问题。
 		const hard = [-10, -5, -1].map((m) => coverageUtilityAboveThreshold(m));
 		expect(new Set(hard).size).toBe(1);
 	});
 
 	it('keeps the slope gentler above the threshold than the hard kernel', () => {
-		// Not a defect but a consequence worth pinning: with softness the sample that
-		// sits on the threshold is worth half, so the same absolute gain in dB buys
-		// less utility. Scores from before and after the change are therefore not
-		// comparable in absolute terms; coverage and spread are.
+		// 软化后阈值上的样本只值 0.5，同样的 dB 增益换来更少的效用，
+		// 因此改动前后的分数不能按绝对值比较，覆盖率与分布仍可比较。
 		expect(coverageUtilityAboveThreshold(0, 10)).toBeGreaterThan(coverageUtilityAboveThreshold(0));
 		expect(coverageUtilityAboveThreshold(10, 10)).toBe(coverageUtilityAboveThreshold(10));
 	});
@@ -71,7 +59,7 @@ describe('coverageHorizontalReach with a negative margin', () => {
 		const coverage = coverageHorizontalReach(radius);
 		const soft = coverageHorizontalReach(radius, 0, 0, -10);
 		expect(soft).toBeCloseTo(coverage * Math.pow(10, 10 / 40), 6);
-		// At n = 4 a 10 dB reduction in the required margin is 1.78x the distance.
+		// 余量降低 10 dB 时，可达距离按 n = 4 的幂次关系放大。
 		expect(soft / coverage).toBeCloseTo(1.7783, 3);
 	});
 

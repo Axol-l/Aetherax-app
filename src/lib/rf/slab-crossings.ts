@@ -1,11 +1,9 @@
-/**
- * Attributing a cross-floor path's storey boundaries to the floors that own them.
- */
+/** 将跨层路径的楼层边界归属到对应楼层。 */
 
 import type { Band } from '@aetherax/channels';
 import type { SlabCrossing } from './cross-floor.js';
 
-/** A room-type mask on its own pixel grid, in whatever frame the caller works in. */
+/** 独立像素网格上的房间类型掩码，坐标系由调用方决定。 */
 export interface RoomTypeSlice {
 	roomTypes: Uint8Array | null;
 	width: number;
@@ -14,34 +12,32 @@ export interface RoomTypeSlice {
 	originY: number;
 }
 
-/** One floor, as this computation needs it. */
+/** 本计算所需的一个楼层。 */
 export interface FloorForSlab {
 	id: string;
-	/** Walking-surface elevation above the lowest floor, in metres. */
+	/** 相对最低楼层的行走面高度，单位米。 */
 	elevation: number;
-	/** Ceiling height, so a ceiling-mounted AP's height is `elevation + ceilingHeight`. */
+	/** 层高；吊顶安装接入点的高度为 `elevation + ceilingHeight`。 */
 	ceilingHeight: number;
-	/** Material loss of the slab owned by this floor, for the band in question. */
+	/** 该楼层所拥有楼板对应频段的材料损耗，单位 dB。 */
 	slabLossDb: number;
-	/** This floor's room types, in the frame the caller's samples are in. */
+	/** 该楼层的房间类型，使用调用方采样所在的坐标系。 */
 	slice: RoomTypeSlice;
 }
 
 export interface CrossingSlabInput {
-	/** Every floor, **lowest first**. `floorPlaneHeights` uses this order. */
+	/** 所有楼层，**从低到高**排列；`floorPlaneHeights` 依赖此顺序。 */
 	floors: readonly FloorForSlab[];
-	/** Client height above its own floor, metres. */
+	/** 客户端相对所在楼层的高度，单位米。 */
 	clientHeight: number;
-	/**
-	 * The access point's own height above *its* floor, metres.
-	 */
+	/** 接入点相对**其所在楼层**的高度，单位米。 */
 	apHeightM?: number;
-	/** Band, carried only for the doc trail: the loss is already resolved. */
+	/** 频段，仅用于记录；损耗值已确定。 */
 	band: Band;
 }
 
 /**
- * The crossings a path from `apFloorId` to `clientFloorId` makes, ready to score.
+ * 从 `apFloorId` 到 `clientFloorId` 的路径所产生的楼层边界，可直接用于评分。
  */
 export function crossingSlabsFor(
 	input: CrossingSlabInput,
@@ -58,25 +54,14 @@ export function crossingSlabsFor(
 	const clientZ = client.elevation + input.clientHeight;
 	if (Math.abs(clientZ - apZ) < 1e-9) return null;
 
-	// The floors whose own floor slabs the path crosses are the ones **between** the two
-	// endpoints, inclusive — and this comes from the floor *indices*, not from a list of
-	// crossings. Deriving it from the crossings was wrong for an upward path: a
-	// ceiling-mounted AP sits on the underside of the slab above it, so the ray crosses
-	// that slab at `t = 0`, and a list that held only strictly-interior planes silently
-	// charged the whole aggregate to some further crossing instead.
-	//
-	// Floor `k`'s own floor slab is the boundary between floors `k - 1` and `k`, so it is
-	// in the path exactly when `k` is strictly between the two endpoints (or at the lower
-	// one, for an upward path that starts under it) — which is the half-open range below,
-	// written so it holds whichever endpoint is higher.
+	// 路径穿越的楼板属于上下端点之间的楼层，按索引取 `(min, max]`：不含低端楼层，含高端楼层。
+	// 楼层 `k` 的楼板是 `k - 1` 与 `k` 之间的边界，该半开区间对向上和向下路径都成立。
+	// 向上路径中吊顶接入点位于上方楼板底面，射线在 `t = 0` 处即穿过该楼板。
 	const loFloor = Math.min(apIndex, clientIndex) + 1;
 	const hiFloor = Math.max(apIndex, clientIndex);
 
-	// The aggregate, built exactly the way `getFloorSlabAttenuation` builds it: the first
-	// charged floor in full, every later one capped. `floors[k].slabLossDb` is floor
-	// `k`'s own floor slab, which is the boundary between floors `k - 1` and `k` — so
-	// indexing the charged floors by **floor** rather than by boundary is what keeps
-	// these shares summing to the figure the path is actually charged.
+	// 汇总方式与 `getFloorSlabAttenuation` 一致：首个计入的楼层取全值，之后各层封顶。
+	// 以楼层而非边界为索引，可使各份额之和等于路径实际计入的损耗。
 	const applied: number[] = [];
 	for (let k = loFloor; k <= hiFloor; k++) {
 		const own = input.floors[k]?.slabLossDb ?? 0;
@@ -84,25 +69,15 @@ export function crossingSlabsFor(
 	}
 	const total = applied.reduce((a, b) => a + b, 0);
 
-	// **Floor and plane are different indices, and mixing them is silent.** Plane `p` is
-	// the walking surface of floor `p`, so a plane carries the slab of the floor *below*
-	// it: plane `p` is floor `p - 1`'s own floor slab. The charged floors are
-	// `loFloor .. hiFloor`, so the charged planes are the same range — plane `p` takes
-	// `applied[p - loFloor]`, and with that index the shares sum to exactly the number
-	// `getFloorSlabAttenuation` charges.
+	// **楼层与平面是不同索引，混用不会报错但会算错。** 平面 `p` 是楼层 `p` 的行走面，其楼板属于下方楼层。
+	// 计入的楼层为 `loFloor .. hiFloor`，对应平面范围相同，`applied[p - loFloor]` 即该平面的份额。
 	const out: SlabCrossing[] = [];
 	for (let p = loFloor; p <= hiFloor; p++) {
 		const planeZ = input.floors[p]!.elevation;
 		const t = (planeZ - apZ) / (clientZ - apZ);
-		// The ray crosses this plane if the plane lies between the endpoints, endpoints
-		// **included**: a ceiling-mounted AP sits on the underside of the slab above it, so
-		// a plane at `t = 0` is in the path even though it splits the run into nothing.
+		// 平面落在路径上且 `0 <= t < 1` 时算穿越；吊顶接入点位于上方楼板底面，`t = 0` 仍在路径上。
 		if (t < 0 || t >= 1) continue;
-		// **Which plan has the hole?** Plane `p`'s own floor, because the plane *is* that
-		// floor's walking surface and the hole is painted there. A void is an atrium drawn
-		// on a storey's plan, which is where the heatmap reads it and what `slabIsVoid`'s
-		// own comment states; reading the floor *below* the slab instead tests a plan the
-		// user never painted.
+		// 空洞由平面 `p` 自身楼层判定：平面就是该层行走面，房间类型也画在该层。
 		const owner = input.floors[p];
 		if (!owner?.slice.roomTypes) continue;
 		out.push({
@@ -115,17 +90,10 @@ export function crossingSlabsFor(
 			originY: owner.slice.originY
 		});
 	}
-	// Ordered as the ray meets them — the order `crossFloorSplit`'s two ends are in, and
-	// the order a reader expects: downward that is top-down, upward bottom-up.
+	// 按射线遇到的先后排序，与 `crossFloorSplit` 两端顺序一致，向下为自上而下，向上为自下而上。
 	out.sort((a, b) => a.t - b.t);
 	return out.length > 0 ? out : null;
 }
 
-/**
- * A storey boundary past the first contributes only this much, however thick its slab
- * is — ITU-R P.1238 measures multi-slab isolation levelling off, because signal
- * escapes around the building. Mirrors `ADDITIONAL_FLOOR_DB` in
- * `state/floor-state.svelte.ts`; the two have to agree or the shares would not sum to
- * the loss the path is charged.
- */
+/** 首个之后的楼层边界最多只计入该值，单位 dB；须与 `state/floor-state.svelte.ts` 中的 `ADDITIONAL_FLOOR_DB` 一致。 */
 export const ADDITIONAL_FLOOR_DB = 5;

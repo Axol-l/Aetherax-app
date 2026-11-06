@@ -161,7 +161,7 @@ test('redrawing the planning area moves the heatmap clip with it', async ({ page
 	expect(before).toBeGreaterThan(100);
 
 	// The area is the statement of the floor; there is no button to hand it back to the
-	// detector 鈥?redraw it instead.
+	// detector — redraw it instead.
 	await expect(page.getByRole('button', { name: 'Use the detected area' })).toHaveCount(0);
 
 	await page.getByRole('button', { name: 'Redraw planning area' }).click();
@@ -194,7 +194,7 @@ test('redrawing the planning area moves the heatmap clip with it', async ({ page
 	await expect(toolbar.getByRole('button', { name: 'Confirm area' })).toBeVisible();
 	await toolbar.getByRole('button', { name: 'Confirm area' }).click();
 
-	// The save is debounced, and the seeded area already has four corners 鈥?so wait for
+	// The save is debounced, and the seeded area already has four corners — so wait for
 	// the *new* size, not for a corner count that was true before the redraw.
 	await expect
 		.poll(
@@ -243,7 +243,7 @@ test('clicking the first corner closes the loop as a proposal, then confirms', a
 	for (const corner of corners) await canvas.click({ position: corner });
 
 	// The first corner is still the corner it was snapped to; clicking it closes the loop
-	// as a proposal 鈥?the bar stays up with the confirm, and the saved area is unchanged
+	// as a proposal — the bar stays up with the confirm, and the saved area is unchanged
 	// until that confirm is pressed.
 	await canvas.click({ position: corners[0]! });
 	await expect(toolbar).toBeVisible();

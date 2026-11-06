@@ -1,17 +1,16 @@
 /**
- * Connected component labeling and region operations.
- * Used for wall blob detection (click-to-override material) and room detection.
+ * 连通区域标记与区域操作。
+ * 用于墙体块检测（点击覆盖材质）和房间检测。
  */
 
 export interface RegionLabels {
-	labels: Int32Array; // pixel → region ID (-1 = not in any region)
+	labels: Int32Array; // 像素 → 区域 id（-1 表示不属于任何区域）
 	regionCount: number;
 }
 
 /**
- * Label connected regions in a binary mask via BFS.
- * Works on any Uint8Array where truthy pixels are the regions to label.
- * Used for wall blobs (mask = wallData) and rooms (mask = interior).
+ * 通过 BFS 标记二值掩码中的连通区域，适用于任意 Uint8Array，其中真值像素为待标记区域。
+ * 墙体块（mask = wallData）和房间（mask = interior）共用此函数。
  */
 export function labelConnectedRegions(mask: Uint8Array, w: number, h: number): RegionLabels {
 	const labels = new Int32Array(w * h).fill(-1);
@@ -51,22 +50,22 @@ export function labelConnectedRegions(mask: Uint8Array, w: number, h: number): R
 	return { labels, regionCount: nextLabel };
 }
 
-/** Backward-compatible alias. */
+/** 向后兼容别名。 */
 export const labelWallBlobs = labelConnectedRegions;
-/** Backward-compatible type alias. */
+/** 向后兼容的类型别名。 */
 export type WallLabels = RegionLabels;
 
 /**
- * Label enclosed rooms — contiguous non-wall regions inside the building.
- * Calls labelConnectedRegions on the interior mask (walkable floor space).
+ * 标记建筑内部的封闭房间，即连续的非墙体区域。
+ * 对内部掩码（可行走地面）调用 labelConnectedRegions。
  */
 export function labelRooms(interior: Uint8Array, w: number, h: number): RegionLabels {
 	return labelConnectedRegions(interior, w, h);
 }
 
 /**
- * Fill all pixels of a given region with a value in a target mask.
- * Used for wall material overrides and room type assignments.
+ * 将指定区域的所有像素在目标掩码中写为给定值。
+ * 用于墙体材质覆盖和房间类型赋值。
  */
 export function fillRegion(
 	labels: Int32Array,
@@ -81,10 +80,10 @@ export function fillRegion(
 	}
 }
 
-/** Backward-compatible alias. */
+/** 向后兼容别名。 */
 export const relabelBlob = fillRegion;
 
-/** Encode a Uint8Array mask as a PNG data URL (R channel stores the value). */
+/** 将 Uint8Array 掩码编码为 PNG data URL（R 通道存储数值）。 */
 export function encodeMaterialMask(mask: Uint8Array, w: number, h: number): string {
 	const canvas = document.createElement('canvas');
 	canvas.width = w;
@@ -102,7 +101,7 @@ export function encodeMaterialMask(mask: Uint8Array, w: number, h: number): stri
 	return canvas.toDataURL('image/png');
 }
 
-/** Decode a PNG data URL to a Uint8Array mask (reads R channel). */
+/** 将 PNG data URL 解码为 Uint8Array 掩码（读取 R 通道）。 */
 export function decodeMaterialMask(dataUrl: string, w: number, h: number): Promise<Uint8Array> {
 	return new Promise((resolve) => {
 		const img = new Image();

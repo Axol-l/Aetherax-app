@@ -4,7 +4,7 @@
 	 *
 	 * Three shapes and a material, because that is what a plan is made of: partition walls,
 	 * the piers that break them, and round columns. They share the same two-click gesture and
-	 * the same material, so they are one tool with a shape switch 鈥?switching must not drop
+	 * the same material, so they are one tool with a shape switch — switching must not drop
 	 * the mode, since a plan is drawn by alternating them.
 	 *
 	 * It floats over the canvas rather than living in the sidebar: the canvas is what the

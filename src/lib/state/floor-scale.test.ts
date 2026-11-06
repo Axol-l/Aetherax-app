@@ -78,7 +78,7 @@ afterEach(() => {
 });
 
 describe('wupmForFloor', () => {
-	it('reads each floor鈥檚 own scale, and the current floor through getEffectiveWupm', () => {
+	it('reads each floor’s own scale, and the current floor through getEffectiveWupm', () => {
 		seed();
 		expect(wupmForFloor('f1')).toBe(20);
 		expect(wupmForFloor('f2')).toBe(40);
@@ -87,7 +87,7 @@ describe('wupmForFloor', () => {
 		expect(getEffectiveWupm()).toBe(40);
 	});
 
-	it('falls back to the default for an uncalibrated floor, not to a sibling鈥檚 value', () => {
+	it('falls back to the default for an uncalibrated floor, not to a sibling’s value', () => {
 		seed();
 		floorState.floors.push(floor('f3', 2, null));
 		expect(wupmForFloor('f3')).toBe(DEFAULT_WUPM);
@@ -95,7 +95,7 @@ describe('wupmForFloor', () => {
 });
 
 describe('setFloorScale', () => {
-	it('changes one floor and leaves the others鈥?scale and radii alone', () => {
+	it('changes one floor and leaves the others’ scale and radii alone', () => {
 		seed();
 		setFloorScale('f1', 60);
 
@@ -125,14 +125,14 @@ describe('setFloorScale', () => {
 });
 
 describe('radiusFromPower', () => {
-	it('can be told which floor鈥檚 units to use', () => {
+	it('can be told which floor’s units to use', () => {
 		seed();
 		expect(radiusFromPower(20, '5ghz', 40)).toBe(radiusFromPower(20, '5ghz', 20) * 2);
 	});
 });
 
 describe('addFloor', () => {
-	it('inherits the scale of the floor it was added from, not floor 1鈥檚', () => {
+	it('inherits the scale of the floor it was added from, not floor 1’s', () => {
 		seed();
 		floorState.currentFloorId = 'f2';
 		const added = addFloor();

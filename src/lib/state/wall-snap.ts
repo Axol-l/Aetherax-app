@@ -1,8 +1,8 @@
 /**
- * 「贴到墙上」：找离某个点最近的墙，并给出这面墙的朝向。
+ * 找离某个点最近的墙，并给出这面墙的朝向。
  *
  * 壁挂 AP 的正面要背对安装面，所以「装在哪」和「朝哪」都来自一次测量：最近的墙体像素。
- * 朝向取墙点到放置点的方向（背离墙、指向房间）。墙只给建议，最终朝向按 AP 存、可手改。
+ * 朝向取墙点到放置点的方向（背离墙、指向房间）。
  */
 import { normaliseBearing, wrap180 } from '../rf/antenna.js';
 import { isVirtualMaterial, type WallMaterialId } from '$lib/domain/materials.js';

@@ -41,7 +41,7 @@ export class WallLayer implements Layer {
 			this.cachedDefaultMat = this.defaultMaterial;
 		}
 
-		// Draw directly to main ctx with camera transform (no intermediate canvas)
+		// 直接按相机变换绘制到主 ctx（不经过中间画布）
 		const transform = camera.getTransform();
 		const [a, b, c, d, e, f] = transform;
 
@@ -54,18 +54,9 @@ export class WallLayer implements Layer {
 }
 
 /**
- * Walls as a coloured raster: one pixel per mask pixel, in its material's colour.
- *
- * Exported because the plan is no longer the only view that needs it. The overviews
- * (the tiles sheet and the 2.5D stack) used to draw the encoded wall mask as it is —
- * white walls on transparent — which is why a glass door and a brick wall looked the
- * same up there while the plan told them apart. One function, so they cannot drift
- * again.
- *
- * A virtual partition gets a diagonal hatch: it attenuates nothing, and a plain fill
- * would make it look identical to a real wall in the same material's colour, which is
- * the one thing the user has to be able to tell apart. Cheap here because this runs
- * once per mask change rather than per frame.
+ * 以彩色栅格表示的墙体：每个掩码像素按材质颜色绘制，导出供其他视图共用，
+ * 避免显示不一致。
+ * 虚拟隔断使用斜线纹理，以区别于同材质颜色的真实墙体。
  */
 export function colorizeWalls(
 	maskData: Uint8Array,
@@ -80,10 +71,8 @@ export function colorizeWalls(
 	const ctx = canvas.getContext('2d')!;
 	const imgData = ctx.createImageData(width, height);
 	/*
-	 * Through `getMaterial`, not the built-in table: a wall painted with one of the user's own
-	 * materials has an id the table does not contain, so indexing it directly fell back to the
-	 * default colour — picking a custom material in the right-click menu changed the physics
-	 * and left the wall looking exactly as it did.
+	 * 必须通过 `getMaterial` 取色：用户自定义材质的 id 不在内置表中，
+	 * 直接索引会回退到默认颜色。
 	 */
 	for (let i = 0; i < maskData.length; i++) {
 		if (!maskData[i]) continue;

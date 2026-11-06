@@ -2,14 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { ROOM_TYPES, getRoomType, isVoidRoomType } from '$lib/domain/room-types.js';
 
 /**
- * Room type ids are the contract.
- *
- * A room type id is what a saved project stores inside its room type mask, so an
- * id is permanent and has to be unique. Neither was enforced, and `Void / Atrium`
- * was added as 40 — the id `Huddle Room` already had. `getRoomType` and
- * `isVoidRoomType` both return the *first* match, so a painted void came back as a
- * Huddle Room: 0.5 devices/m², the label "Huddle", and no hole anywhere in the
- * placement or propagation code. The feature was inert and nothing said so.
+ * 房间类型 id 是对外的约定：工程文件把 id 存进房间类型掩码，所以 id 必须永久且唯一。
+ * 这两个查找函数都只返回第一个匹配项，重复 id 会让标注落在错误的类型上。
  */
 describe('ROOM_TYPES', () => {
 	it('gives every room type a unique id', () => {
@@ -30,7 +24,7 @@ describe('ROOM_TYPES', () => {
 	});
 
 	it('keeps ids inside one byte, which is how they are stored', () => {
-		// The mask is a PNG with the id in the red channel.
+		// 掩码是一张 PNG，id 存在红通道里。
 		for (const t of ROOM_TYPES) {
 			expect(t.id, t.name).toBeGreaterThan(0);
 			expect(t.id, t.name).toBeLessThanOrEqual(255);
@@ -43,7 +37,7 @@ describe('ROOM_TYPES', () => {
 		const id = voids[0]!.id;
 		expect(isVoidRoomType(id)).toBe(true);
 		expect(getRoomType(id)?.name).toBe('Void / Atrium');
-		// And no other type is reported as a hole.
+		// 其他类型都不能被当成空洞。
 		for (const t of ROOM_TYPES) {
 			if (t.id === id) continue;
 			expect(isVoidRoomType(t.id), t.name).toBe(false);

@@ -2,19 +2,14 @@ import { describe, expect, it } from 'vitest';
 import { TiledMask } from './tiled-mask.js';
 
 /**
- * Regression tests for the wall mask's raster bounds.
- *
- * These cover a bug that was reported as "erasing a wall makes the whole layer
- * disappear". It was not the erase: `materialize()` threw
- * `RangeError: offset is out of bounds` out of `blitTile`, so the edit never
- * committed and the layer rendered stale or empty. Two things had to be true at
- * once, which is why it only showed up on a floor that had been moved by an
- * alignment offset.
+ * 墙体掩码光栅包围盒的回归测试。
+ * 覆盖“擦除一堵墙会导致整个图层消失”的问题：实际是 `blitTile` 抛出
+ * `RangeError: offset is out of bounds`，编辑未能提交，图层于是渲染出陈旧或空的内容。
  */
 
 const TILE = 256;
 
-/** A 4x4 mask with one wall at its local (0, 0), placed at a world offset. */
+/** 一个 4x4 掩码，局部 (0, 0) 处有一堵墙，并放在给定的世界坐标偏移上。 */
 function maskAt(originX: number, originY: number): TiledMask {
 	const w = 4;
 	const h = 4;
@@ -30,9 +25,8 @@ describe('TiledMask bounds', () => {
 		const mask = maskAt(2000, 1200);
 		const b = mask.bounds;
 		expect(b).not.toBeNull();
-		// The tile lattice is 256 px, so the box starts at the tile containing the
-		// content. It used to start at 0, which for an offset floor meant a raster
-		// thousands of pixels wide and almost entirely empty.
+		// 瓦片网格为 256 px，因此包围盒从包含内容的瓦片开始，
+		// 而不是从 0 开始，以免带偏移的楼层生成几乎全空的光栅。
 		expect(b!.originX).toBe(Math.floor(2000 / TILE) * TILE);
 		expect(b!.originY).toBe(Math.floor(1200 / TILE) * TILE);
 		expect(b!.width).toBeLessThanOrEqual(TILE * 2);
@@ -42,17 +36,15 @@ describe('TiledMask bounds', () => {
 	it('does not grow when clearing a pixel that was never set', () => {
 		const mask = maskAt(2000, 1200);
 		const before = mask.bounds!;
-		// A brush far outside the drawn area, erasing. This allocated a tile for
-		// every cleared pixel, so the raster grew with every stray stroke.
+		// 在绘制区域外很远处用笔刷擦除，验证包围盒不会增大。
 		mask.paintCircle(before.originX - 5000, before.originY - 5000, 5, 0);
 		expect(mask.bounds).toEqual(before);
 	});
 
 	it('materialises a material tile that sits outside the wall tiles', () => {
 		const mask = maskAt(2000, 1200);
-		// A material where there is no wall. `setMaterial` allocates its own tiles
-		// and never consults the wall grid, so the raster has to be sized to cover
-		// both — sizing it from the wall tiles alone is what threw.
+		// 在没有墙的位置放一个材质。`setMaterial` 会独立分配瓦片，从不查询墙体网格，
+		// 因此光栅必须同时覆盖两者。
 		const matX = 2000 + 4000;
 		const matY = 1200 + 4000;
 		mask.setMaterial(matX, matY, 4);
@@ -76,23 +68,19 @@ describe('TiledMask bounds', () => {
 		const idx = (1200 - r.originY) * r.width + (2000 - r.originX);
 		expect(r.data[idx]).toBe(1);
 		expect(mask.getPixel(2000, 1200)).toBe(1);
-		// And a pixel that was never a wall stays clear.
+		// 且从未是墙的像素保持干净。
 		expect(mask.getPixel(2001, 1200)).toBe(0);
 	});
 });
 
 /**
- * A floor that has been aligned carries a fractional offset, and that offset is
- * used as the mask's pixel origin. Writing to a typed array with a fractional
- * index is silently discarded — the key becomes an expando property, not an
- * element — so every pixel of such a floor's detected walls was dropped and the
- * first edit then saved the resulting blank raster over them. Reported as "the
- * walls on floor 2 disappear as soon as I erase anything, and I cannot draw".
+ * 对齐后的楼层带有小数偏移，该偏移被用作掩码的像素原点。
+ * 以小数索引写入类型化数组会被静默丢弃，因此这类楼层的墙体像素会全部丢失，首次编辑还会把空白光栅覆盖回去。
  */
 describe('TiledMask with a fractional origin', () => {
 	it('lands the pixels on the pixel grid instead of dropping them', () => {
 		const mask = maskAt(0, 14.279614761037685);
-		// Rounded, not truncated, and the pixel is really there.
+		// 采用四舍五入而非截断，且像素确实存在。
 		expect(mask.getPixel(0, 14)).toBe(1);
 		expect(mask.getPixel(0, 15)).toBe(0);
 	});
@@ -107,11 +95,8 @@ describe('TiledMask with a fractional origin', () => {
 	});
 
 	it('reports a whole-pixel box, so the raster and the numbers agree', () => {
-		// A 526-tall mask on a floor aligned to y = 14.2796 — the shape the bug was
-		// reported with. The box end was `origin + height` as a fractional number, so
-		// the raster was allocated `256 * 540.2796` bytes (the typed array truncates)
-		// while reporting a height of 540.2796, and `encodeMask` handed the same
-		// fraction to a canvas, which truncates it again.
+		// 对齐楼层的小数偏移会让包围盒终点成为小数，而光栅分配与画布编码各自截断，
+		// 导致报告高度与实际尺寸不一致。
 		const mask = maskAt(0, 14.279614761037685);
 		mask.setFrame(0, 14.279614761037685, 4, 526);
 		const r = mask.materialize()!;
@@ -124,9 +109,8 @@ describe('TiledMask with a fractional origin', () => {
 });
 
 /**
- * "Clear all walls" used to leave the editor with nothing to paint into: no
- * pixels means no bounds, `materialize()` returns null, and null reads as "this
- * floor has no floorplan". Every stroke drawn afterwards was dropped in silence.
+ * “清除所有墙体”后空掩码仍需可物化：没有像素就没有包围盒，`materialize()` 返回 null，
+ * 而 null 被读作“该楼层没有户型图”，之后每次笔画都会被静默丢弃。
  */
 describe('TiledMask after clear()', () => {
 	it('still materialises, so a cleared floor stays editable', () => {
@@ -135,15 +119,14 @@ describe('TiledMask after clear()', () => {
 
 		const cleared = mask.materialize();
 		expect(cleared).not.toBeNull();
-		// The mask shrinks back to its frame — clearing is the only way to reclaim
-		// the tiles — and it is that frame that keeps the empty raster materialisable.
+		// 掩码收缩回它的框，清除是回收瓦片的唯一方式，而正是这个框让空光栅仍可物化。
 		expect(cleared!.originX).toBe(2000);
 		expect(cleared!.originY).toBe(1200);
 		expect(cleared!.width).toBe(4);
 		expect(cleared!.height).toBe(4);
 		expect(cleared!.data.some((v) => v !== 0)).toBe(false);
 
-		// And the next stroke persists, which is the whole point.
+		// 之后的一次笔画能够保留，这正是关键。
 		mask.paintCircle(2000, 1200, 1, 1);
 		const after = mask.materialize()!;
 		const idx = (1200 - after.originY) * after.width + (2000 - after.originX);

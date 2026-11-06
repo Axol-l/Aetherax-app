@@ -5,9 +5,6 @@ import { floorState } from './floor-state.svelte.js';
 
 /**
  * 按楼层缓存的已解码墙体掩码。
- *
- * 楼层有矢量墙时，掩码在这里从线段推导：所有用掩码的地方都走这个口子，这样连不在屏幕上
- * 的那层也是矢量驱动的。掩码坐标系沿用存储掩码，PNG 解码很贵，所以按身份缓存。
  */
 
 export interface DecodedFloorMask {
@@ -15,9 +12,6 @@ export interface DecodedFloorMask {
 	materialMap: Uint8Array | null;
 	/**
 	 * 同一像素网格上的房间类型 id；楼层没有就为 null。
-	 *
-	 * 放在这里是因为空洞是楼板上的洞，跨楼层射线穿不穿由一个点决定——见
-	 * `rf/cross-floor.ts` 里的 `slabIsVoid`。
 	 */
 	roomTypeData: Uint8Array | null;
 	width: number;
@@ -29,8 +23,6 @@ export interface DecodedFloorMask {
 
 /**
  * 存储掩码的身份标识，让缓存键能看出它被换掉了。
- *
- * data URL 有几 MB，拼进键里会把整份复制一遍；掩码被编辑时真正变的是对象引用。
  */
 const maskIds = new WeakMap<object, number>();
 let nextMaskId = 1;
@@ -48,9 +40,6 @@ const floorMaskCache = new Map<string, DecodedFloorMask>();
 
 /**
  * 楼层墙线段数组的身份标识，用来缓存推导出的掩码。
- *
- * 每次编辑（画、描摹、改材质）都会换掉这个数组，和 `mask-registry.ts` 给掩码定的规矩
- * 一样：只要改动会产生新对象，拿对象做缓存键就是安全的。
  */
 const wallsIds = new WeakMap<object, number>();
 let nextWallsId = 1;
@@ -66,18 +55,11 @@ function wallsId(walls: object | null | undefined): number {
 
 /**
  * 取某个楼层解码后的墙体掩码。
- *
- * **线段才是模型。** 楼层有矢量墙时，掩码在这里从线段推导：所有用掩码的地方都走这个口子，
- * 所以连不在屏幕上的楼层也是矢量驱动的，还省了 PNG 解码。
- * 坐标系沿用存储掩码（采样、纹理、室内都按图纸定位）；缓存键必须带原点，因为对齐只挪原点、
- * 不动像素，键里没有原点就会一直返回旧原点，之后世界坐标换算全会读错位置。
  */
 export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | null> {
 	const floor = floorState.floors.find((f) => f.id === floorId);
 
 	/*
-	 * 墙是线段的楼层：从线段推导掩码。
-	 *
 	 * 有存储掩码就沿用它的坐标系；没有就用线段自己的包围盒，那是这种没有图纸的楼层最早
 	 * 写掩码时用的坐标系。
 	 */
@@ -137,10 +119,6 @@ export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | 
 
 	/*
 	 * 墙不是线段的楼层，用它存着的掩码。
-	 *
-	 * 这里以前对当前楼层单开一个分支，读 `wallState` 的副本，理由是它「总是最新」，而楼层
-	 * 只在切换时才同步。现在 `wallState` *就是*当前楼层（见 `wall-state.ts`），两个分支
-	 * 其实是同一份代码、同一个对象。
 	 */
 	if (!floor?.wallMask) return null;
 	const wm = floor.wallMask;
@@ -167,9 +145,7 @@ export async function getFloorMask(floorId: string): Promise<DecodedFloorMask | 
 }
 
 /**
- * 解码存储的房间类型掩码，前提是它和墙掩码在同一张网格上。
- *
- * 不满足就当成「没有房间数据」：尺寸不对的掩码会按错误的步长读，而它只喂给空洞判定。
+ * 解码存储的房间类型掩码，前提是它和墙掩码在同一张网格上。不满足就当成「没有房间数据」。
  */
 async function decodeRoomTypes(
 	rtMask: { dataUrl: string; width: number; height: number } | null | undefined,

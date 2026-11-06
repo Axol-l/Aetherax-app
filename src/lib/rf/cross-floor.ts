@@ -1,41 +1,15 @@
 /**
- * Where a cross-floor ray has to change floors.
+ * 跨层射线在何处换层。
  *
- * A ray from an AP to a client on another floor is not attenuated by one floor's
- * walls. It travels through the AP's own storey down to the slab it penetrates,
- * and then through the storey below to the client — so the horizontal run has to
- * be split at the crossing, each half charged against the wall mask of the floor
- * it is actually passing through.
- *
- * The model this replaces charged the whole run against the *client's* floor. On a
- * three-metre storey with a client at 1.5 m, an AP on the floor above is 4.5 m
- * above the client and the slab is crossed two thirds of the way along the ray,
- * so two thirds of the wall attenuation came from the wrong plan — a bedroom wall
- * upstairs cost the same as a wall downstairs that the ray never passes.
- *
- * Walls are still treated as full-height within their storey (the 2D-mask
- * premise), so this needs nothing but the two masks that already exist.
+ * 射线从接入点所在楼层穿到客户端所在楼层，水平段需在楼板穿越处拆分，两段分别按各自楼层的墙体掩码计算。
  */
 
 import { isVoidRoomType } from '$lib/domain/room-types.js';
 
 /**
- * Fractions along the AP -> client ray at which the path changes floor.
+ * AP -> 客户端射线上发生换层的比例位置。
  *
- * `sourceT` is where the ray leaves the AP's own storey (the *first* plane it
- * crosses) and `targetT` is where it enters the client's floor (the *last* one).
- * With one storey between the two floors they are equal, which is the common case.
- * With more, the storeys in between still have no wall model, but they are no
- * longer invisible: `floorPlaneCrossings` lists every plane, which is what the
- * per-slab void waiver needs.
- *
- * Both are 0 when the ray never leaves the client's floor's volume — the AP is on
- * the same floor, or sits on the floor below at the plane itself — in which case
- * the whole run belongs to the client's mask and nothing is split.
- *
- * @param apZ     AP height above the lowest floor's plane, in metres.
- * @param clientZ Client height above the lowest floor's plane, in metres.
- * @param planes  Height of every floor plane (each floor's walking surface), metres.
+ * `sourceT`、`targetT` 分别为离开接入点楼层与进入客户端楼层的比例，未跨层时均为 0；`apZ`、`clientZ` 为相对最低楼层的高度，`planes` 为各层行走面高度，单位均为米。
  */
 export function crossFloorSplit(
 	apZ: number,
@@ -48,37 +22,21 @@ export function crossFloorSplit(
 }
 
 /**
- * One floor plane the ray crosses, as geometry rather than as a pair of endpoints.
+ * 射线穿过的一个楼层平面，以几何量而非端点对表示。
  *
- * `t` is the fraction along the AP -> client ray, `planeZ` the elevation of the
- * plane, and `owner` the index of the floor whose slab it is — the floor *below*
- * the plane, which is the floor material `getFloorSlabAttenuation` charges for
- * that storey boundary.
- *
- * Both the ray split and the slab-loss waiver need this list; the split only ever
- * asked for its first and last entry, which is why a taller gap used to be
- * indistinguishable from a one-storey one.
+ * `t` 为沿 AP -> 客户端射线的比例，`planeZ` 为平面高度，`planeIndex` 为该平面在 `planes` 中的索引。
  */
 export interface FloorPlaneCrossing {
 	t: number;
 	planeZ: number;
-	/** Index into `planes` of the plane crossed. */
+	/** 所穿平面在 `planes` 中的索引。 */
 	planeIndex: number;
 }
 
 /**
- * Every floor plane the AP -> client ray crosses **strictly between** its endpoints,
- * ordered from the AP outward.
+ * AP -> 客户端射线**严格在两端点之间**穿过的所有楼层平面，按从接入点向外的顺序排列。
  *
- * The ray's height is a linear interpolation between the two endpoints, so the crossing
- * of the plane at `z` sits at `t = (z - apZ) / (clientZ - apZ)`.
- *
- * This is the list of planes a run is **split** at, which is why the endpoints are
- * excluded. A ceiling-mounted AP does sit under the slab above it, so a plane at
- * `t = 0` is genuinely in the path — but it splits the run into nothing, and the whole
- * run already belongs to the client's floor. The slab-loss waiver therefore does not
- * read this list; it derives the charged planes from the floor range, which is the only
- * way an upward path's `t = 0` slab gets its hole tested. See `rf/slab-crossings.ts`.
+ * 射线高度在两端点间线性插值，平面 `z` 的穿越位置为 `t = (z - apZ) / (clientZ - apZ)`；端点不含在内，因为端点处不拆分路径。
  */
 export function floorPlaneCrossings(
 	apZ: number,
@@ -86,25 +44,23 @@ export function floorPlaneCrossings(
 	planes: readonly number[]
 ): FloorPlaneCrossing[] {
 	const dz = clientZ - apZ;
-	// An AP and a client at the same height are on one plane: nothing is crossed.
+	// 接入点与客户端等高时位于同一平面，不穿越任何平面。
 	if (Math.abs(dz) < 1e-9) return [];
 
 	const out: FloorPlaneCrossing[] = [];
 	for (let i = 0; i < planes.length; i++) {
 		const planeZ = planes[i]!;
 		const t = (planeZ - apZ) / dz;
-		// Strictly between, so an endpoint on a plane is not a split.
+		// 严格位于两端点之间，端点落在平面上时不算拆分。
 		if (t <= 0 || t >= 1) continue;
 		out.push({ t, planeZ, planeIndex: i });
 	}
-	// Ordered from the AP outward rather than by elevation, because that is the
-	// order the ray meets them — downwards the AP starts high, upwards it starts
-	// low — and `sourceT`/`targetT` are its ends in this order.
+	// 按射线遇到的先后排序（而不是按高度），`sourceT`/`targetT` 取该顺序的首尾。
 	out.sort((a, b) => a.t - b.t);
 	return out;
 }
 
-/** Point at fraction `t` of the segment from (ax, ay) to (bx, by). */
+/** 线段 (ax, ay) 到 (bx, by) 上比例 `t` 处的点。 */
 export function pointAlong(
 	ax: number,
 	ay: number,
@@ -121,25 +77,16 @@ export interface Segment {
 }
 
 export interface CrossFloorSegments {
-	/** On the AP's floor: the AP to the point where the ray drops through the slab. */
+	/** 接入点楼层上：从接入点到射线穿过楼板处。 */
 	source: Segment;
-	/** On the client's floor: from where the ray emerges to the client. */
+	/** 客户端楼层上：从射线穿出楼板处到客户端。 */
 	target: Segment;
 }
 
 /**
- * The two runs a cross-floor path is made of.
+ * 跨层路径的两段水平路径。
  *
- * Split into segments rather than "the whole run minus a prefix" on purpose. The
- * ray marcher divides a segment into a fixed number of steps, so its sampling
- * lattice depends on the segment's length: the prefix of a march is not the march
- * of the prefix, and subtracting two of them can move a thin wall across a step
- * boundary and produce a difference that is off by a whole wall. Marching each
- * segment directly avoids that entirely — and a loss field, which is sampled by
- * angle and distance, gives the same answer either way.
- *
- * Returns null when the path stays inside the client's floor, so callers keep
- * their single-floor path unchanged.
+ * 路径保持在客户端楼层内时返回 null，调用方沿用单层路径。
  */
 export function crossFloorSegments(
 	sourceT: number,
@@ -159,11 +106,9 @@ export function crossFloorSegments(
 }
 
 /**
- * Wall loss for a path that changes floors, given how to measure one floor.
+ * 跨层路径的墙体损耗，按单层测量函数分别计算两段。
  *
- * `lossOn(floor, from, to)` is the wall loss along a straight run on one floor's
- * mask. Callers pass a ray march, or a field lookup difference, so the geometry
- * lives here and the discretisation stays with the consumer that already has one.
+ * `lossOn(floor, from, to)` 返回某层掩码上直线段的墙体损耗，几何拆分由本模块负责。
  */
 export function crossFloorLoss(
 	segments: CrossFloorSegments,
@@ -180,16 +125,9 @@ export function crossFloorLoss(
 }
 
 /**
- * Whether the floor slab is missing where the ray crosses it.
+ * 射线穿过楼板处是否存在空洞。
  *
- * A `Void / Atrium` label means a hole in *that floor's* slab, so a ray passing
- * through the crossing there meets no concrete and pays no slab loss. The slab
- * between two storeys belongs to the upper one — that is the material and
- * thickness `getFloorSlabAttenuation` charges — so the caller has to hand over the
- * room-type mask of the **upper** floor, not the client's.
- *
- * Coordinates are world (or any one consistent frame): the mask origin is
- * subtracted here.
+ * `Void / Atrium` 表示该层楼板开洞，此处不计楼板损耗；楼板属于上方楼层，调用方需传入**上层**的房间类型掩码，坐标原点在此减去。
  */
 export function slabIsVoid(
 	roomType: Uint8Array | null,
@@ -207,21 +145,17 @@ export function slabIsVoid(
 	return isVoidRoomType(roomType[y * width + x]!);
 }
 
-/** One storey boundary a cross-floor ray passes through. */
+/** 跨层射线经过的一个楼层边界。 */
 export interface SlabCrossing {
-	/** Fraction along the AP -> client ray where the ray meets the slab. */
+	/** 射线与楼板相交处沿 AP -> 客户端射线的比例。 */
 	t: number;
 	/**
-	 * Share of this path's aggregate slab loss charged at this boundary.
+	 * 该边界分摊的路径总楼板损耗比例。
 	 *
-	 * The aggregate is not "one slab per storey": `getFloorSlabAttenuation` charges
-	 * the first boundary in full and caps every later one at `ADDITIONAL_FLOOR_DB`,
-	 * because ITU-R P.1238 measures multi-slab isolation levelling off (signal
-	 * escapes around the building). The shares come from there and sum to 1, so
-	 * waiving a subset scales the whole figure by exactly the fraction waived.
+	 * 各边界比例按 `getFloorSlabAttenuation` 的计费方式得出，总损耗大于 0 时总和为 1；豁免部分边界时按比例缩减总损耗。
 	 */
 	lossShare: number;
-	/** Room-type mask of the floor that owns this slab — the upper of the two. */
+	/** 该楼板所属楼层的房间类型掩码，即两层中的上层。 */
 	roomTypes: Uint8Array | null;
 	width: number;
 	height: number;
@@ -230,16 +164,9 @@ export interface SlabCrossing {
 }
 
 /**
- * Slab-loss multiplier for a cross-floor path, one value per sample.
+ * 跨层路径的楼板损耗系数，每个采样点一个值。
  *
- * `slabIsVoid` decides *whether* one crossing is a hole; this decides how much of
- * the aggregate that is worth. A three-storey atrium whose middle storey is void
- * waives that boundary's share and pays the rest, instead of the all-or-nothing
- * `{0, 1}` a one-storey gap could express.
- *
- * The result is always in `[0, 1]` because the shares sum to 1, so this can only
- * ever reduce the loss. Returning 1 for an empty crossing list is what keeps the
- * single-storey and same-floor cases byte-identical to the model before this.
+ * `slabIsVoid` 判断单个穿越点是否为空洞，本函数按各边界的分摊比例扣减；结果始终在 `[0, 1]`，只能降低损耗，穿越列表为空时返回 1。
  */
 export function slabLossFactor(
 	crossings: readonly SlabCrossing[],
@@ -255,8 +182,6 @@ export function slabLossFactor(
 			factor -= c.lossShare;
 		}
 	}
-	// Clamped at both ends: the shares sum to 1 for any sane building, but they are built
-	// from material thicknesses that a user can type, and a negative one would otherwise
-	// *amplify* the slab loss at a hole. A multiplier is only ever allowed to waive.
+	// 两端截断：比例本应合计为 1，但厚度可由用户输入，负值会在空洞处放大损耗；系数只允许降低损耗。
 	return factor < 0 ? 0 : factor > 1 ? 1 : factor;
 }

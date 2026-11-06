@@ -1,8 +1,5 @@
 /**
- * 工程持久化：把工程存进浏览器存储，以及启动时读回来。
- *
- * 自动保存是防抖的，关页面前还有一次同步兜底；底板图按楼层各存一个键。
- * 文档本身的结构和迁移都在 `project-document.ts`，这里只管存到哪、什么时候存。
+ * 工程持久化：把工程存进浏览器存储，以及启动时读回来
  */
 import { debug } from '$lib/log.js';
 import { floorCoverage as floorCoverageState } from './optimizer.svelte.js';
@@ -47,9 +44,6 @@ const floorplanKey = (floorId: string) => `${FLOORPLAN_KEY}:${floorId}`;
 
 /**
  * 每个楼层已经编码并写过的底板图 URL，按楼层 id 记。
- *
- * 楼层的 `floorplanUrl` 从导入到刷新一直是 `blob:`，所以没法从楼层本身判断「还要不要写」；
- * 以前每次自动保存都把每张图重新 `canvas.toDataURL` 一遍。记住 URL 就等于记住了答案。
  */
 const encodedUnderlays = new Map<string, string>();
 

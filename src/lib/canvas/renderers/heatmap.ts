@@ -2,37 +2,26 @@ import { debug } from '$lib/log.js';
 import type { Layer, RenderContext } from '../types.js';
 import type { AccessPoint } from '$state/ap-state.svelte.js';
 
-/** AP with optional cross-floor parameters for 3D propagation. */
+/** 带可选跨楼层参数的接入点，用于三维传播计算。 */
 type HeatmapAp = AccessPoint & {
-	verticalOffset?: number; // meters — ceiling height × floor distance
-	floorDbPerMeter?: number; // dB/m through the slab material
-	floorThickness?: number; // slab thickness in meters
+	verticalOffset?: number; // 单位米：层高 × 间隔楼层数
+	floorDbPerMeter?: number; // 单位 dB/m：穿过楼板材料的损耗
+	floorThickness?: number; // 楼板厚度，单位米
 	/**
-	 * The AP's own floor, for splitting the path at the slab.
-	 *
-	 * A cross-floor path is not attenuated by one floor's walls: the ray leaves the
-	 * AP through its own storey, drops through the slab, and finishes in the storey
-	 * below. Charging the whole horizontal run against this floor — which is what
-	 * the heatmap did — puts two thirds of a typical run (an AP 4.5 m above its
-	 * client, slab crossed two thirds along) against the wrong plan.
-	 *
-	 * Null or absent when the AP is on this floor, or when no mask is available for
-	 * its floor; the path is then the single run it always was.
+	 * 接入点所在楼层，用于在楼板处拆分跨楼层路径。
+	 * 为 null 或缺失时表示接入点在本层，或该楼层没有可用掩码，路径按单段处理。
 	 */
 	crossFloor?: {
 		mask: DecodedWallMask;
 		materialMap: Uint8Array | null;
 		defaultMaterial: WallMaterialId;
-		/** Fraction along the ray where it leaves the AP's own floor. */
+		/** 射线离开接入点本层的位置，取射线长度的比例。 */
 		sourceT: number;
-		/** Fraction along the ray where it enters this floor. */
+		/** 射线进入当前楼层的位置，取射线长度的比例。 */
 		targetT: number;
 		/**
-		 * Room types of the floor whose slab this path crosses — the upper of the two.
-		 *
-		 * A `Void / Atrium` label there is a hole in that slab, so a ray crossing at
-		 * that point meets no concrete and pays no slab loss. Null leaves the loss in
-		 * place everywhere, which is the conservative reading.
+		 * 楼板所跨楼层（两层中的上层）的房间类型栅格。
+		 * `Void / Atrium` 表示楼板开洞，射线穿过该处不计楼板损耗；为 null 时处处计入。
 		 */
 		slabRoomType?: {
 			data: Uint8Array;
@@ -41,7 +30,7 @@ type HeatmapAp = AccessPoint & {
 			originX: number;
 			originY: number;
 		} | null;
-		/** Fraction along the ray at which the slab is crossed. */
+		/** 射线穿过楼板的位置，取射线长度的比例。 */
 		slabT?: number;
 	} | null;
 };
@@ -71,74 +60,34 @@ import { maskSignature } from '../mask-registry.js';
 import { antennaProfileFor } from '$state/ap-state.svelte.js';
 
 /**
- * World units per heatmap texel.
- *
- * The heatmap used to be generated in SCREEN space: one cell per 6 screen
- * pixels, with every cell's world position recovered through the inverse camera
- * transform. That made the camera part of the cache key, so every pan and every
- * zoom step re-ran the whole per-cell physics and rewrote every canvas pixel —
- * and the drag-time "fast mode" only reduced the cell count, not the rewrite.
- *
- * Generating in WORLD space instead means the image is a function of the APs
- * and the walls only. Panning and zooming become a single `drawImage` under the
- * camera transform, exactly as the wall layer already does.
- *
- * The trade is resolution: the image is upscaled when zoomed in rather than
- * recomputed, so a coarse texel shows as a staircase along the coverage contour —
- * which is what a 4-world-unit grid did at 100 % zoom. One unit is a screen pixel at
- * 1:1, so the contour is as smooth as the projector allows; the budget below is what
- * keeps the cost of that on a large plan. COARSE is used while an AP is dragged so
- * the rebuild stays inside a frame.
+ * 热力图每个纹素对应的世界坐标单位数。
+ * 在世界坐标中生成，平移和缩放只需按相机变换绘制一次图像。
  */
 /**
- * World units per heatmap texel.
- *
- * This was 1 — one world unit per texel — which is a screen pixel at 1:1 zoom and gave the
- * smoothest contour, but the cost of a texel is now a **wall march** rather than a field lookup
- * (the polar field's angular slices were what drew spikes, so the heatmap marches each texel's
- * own ray). At one unit a 900 × 700 plan is 630 000 texels and two APs is 1.3 M marches; at three
- * it is 70 000 and the level grid is blurred anyway (see `boxBlurLevels`), so the contour is
- * smoother rather than rougher for the same picture.
+ * 热力图每个纹素对应的世界坐标单位数。
+ * 单个纹素的代价是一次沿墙体的步进计算，因此取值需在轮廓平滑度与耗时之间折中。
  */
 const TEXEL_FINE = 3;
 const TEXEL_COARSE = 12;
 /**
- * Upper bound on the number of texels one regeneration may fill.
- *
- * The displayed image is a smooth ramp, so its resolution only has to be fine
- * enough to look continuous — and the per-texel work is the bulk of the cost.
- * A million cells keeps the full `TEXEL_FINE` spacing on a plan up to ~2000 × 2000
- * world units (~28 m square here) and widens the texel beyond that rather than
- * cropping. The rebuild is cached and only runs when the APs or the walls change.
+ * 一次重建允许填充的纹素数量上限。
+ * 超过该值后按比例放宽纹素间距，而不是裁剪图像。
  */
 const MAX_TEXELS = 1_000_000;
 
 /**
- * How far past each AP's association radius its attenuation field is marched.
- *
- * The field has to cover every texel the image can draw plus the crossing points
- * a split cross-floor path reads, so it is sized from the radius rather than from
- * the image's own (smaller) rectangle. That over-covers on purpose: `lookupAtten`
- * returns the field's far-edge value beyond its last bucket, so a field that
- * stopped inside the drawn area would silently flatten the outer rings.
+ * 衰减场在接入点关联半径之外额外延伸的倍数。
+ * 衰减场需覆盖图像可绘制的全部纹素以及跨楼层路径在楼板处的切分点。
  */
 const FIELD_MARGIN_FACTOR = 1.65;
 
 /**
- * Default lowest received level the ramp shows, in dBm.
- *
- * -85 dBm is the receiver sensitivity the range model already uses
- * (`RECEIVER_SENSITIVITY_DBM` in rf/propagation.ts), so the default shows
- * exactly the region where a link could still be established — which is the
- * same extent as the coverage circle drawn around each AP.
- *
- * This replaced an abstract "dB window below the 1 m reference". That number
- * had no physical meaning on its own: a 20 dB window sounds modest but is only
- * a 3.2 m radius, and it bore no visible relation to the AP's coverage circle.
+ * 色阶默认显示的最低接收电平，单位 dBm。
+ * 与范围模型使用的接收灵敏度 `RECEIVER_SENSITIVITY_DBM` 一致，因此显示范围与覆盖圆相同。
  */
 const DEFAULT_RSSI_FLOOR = -85;
 
-// Color LUT — 256 entries, built once, from the shared ramp (`canvas/heatmap-ramp.ts`).
+// 颜色查找表：256 项，启动时由共享色阶（`canvas/heatmap-ramp.ts`）构建一次。
 function packColor(r: number, g: number, b: number, a: number): number {
 	return ((a & 0xff) << 24) | ((b & 0xff) << 16) | ((g & 0xff) << 8) | (r & 0xff);
 }
@@ -148,26 +97,18 @@ for (let i = 0; i < 256; i++) {
 	const c = rampColorAt(i / 255);
 	LUT[i] = packColor(c.r, c.g, c.b, c.a);
 }
-// LUT[0] must be exactly 0 so the `!color` skip works for transparent pixels
+// LUT[0] 必须为 0，这样透明像素才会被 `!color` 判断跳过
 LUT[0] = 0;
 
 /**
- * How wide one colour band is, in dB.
- *
- * Five is the step survey tools use: wide enough that a band is a readable area rather than a
- * stripe, narrow enough that two bands apart is a real difference (3 dB is a doubling of power, and
- * the difference between a comfortable signal and a marginal one). The number of bands follows from
- * the ramp's own span, so changing the legend's floor or the AP power does not change the mapping.
+ * 单个色带的宽度，单位 dB。
+ * 色带数量由色阶自身跨度决定，调整门限或接入点功率不改变映射关系。
  */
 const BAND_DB = 5;
 
 /**
- * Drop enclosed regions smaller than `minPixels`.
- *
- * The interior is whatever the walls enclose, and a drawing encloses more than rooms: the sliver
- * between a wall's two strokes, a chase, the pocket behind a door frame. Each of those became a
- * few painted texels *outside* the room — the small patches at wall ends and just beyond the wall
- * line. A room is thousands of pixels; anything an order of magnitude smaller is not one.
+ * 删除小于 `minPixels` 的封闭区域。
+ * 墙体双线之间的缝隙、门框后的空腔等会被围成小块，需剔除以免在房间外画出色斑。
  */
 function dropSmallRegions(mask: Uint8Array, width: number, height: number, minPixels: number): void {
 	const seen = new Uint8Array(mask.length);
@@ -208,10 +149,8 @@ function dropSmallRegions(mask: Uint8Array, width: number, height: number, minPi
 }
 
 /**
- * Point in a closed polygon, by the crossing-number test.
- *
- * The clip is a floor's outline — a handful of corners — so the linear scan is the right
- * algorithm: a spatial index would cost more than it saves at this vertex count.
+ * 用交叉数法判断点是否在闭合多边形内。
+ * 多边形只是一层的轮廓，顶点数很少，直接线性扫描即可。
  */
 function pointInPolygon(
 	x: number,
@@ -231,14 +170,8 @@ function pointInPolygon(
 }
 
 /**
- * Separable 3×3 box blur over a level grid, twice, ignoring missing texels.
- *
- * The field the loop computes is exact per texel, which also means its shadow boundaries are
- * exact lines and its colouring is piecewise constant: on a plan that reads as hard wedges and a
- * staircase along every contour. Smoothing the levels — not the colours, which would blend
- * across the ramp's hue wheel — is what makes the picture continuous, and NaN (a texel below the
- * ramp floor) is skipped rather than averaged in as a level, so no bright fringe appears around
- * the covered area.
+ * 对电平栅格做两次可分离 3×3 均值模糊，并跳过缺失的纹素。
+ * 平滑的是电平而非颜色；低于色阶门限的 NaN 不参与平均，避免覆盖区外出现亮边。
  */
 function boxBlurLevels(levels: Float32Array, cols: number, rows: number): Float32Array {
 	let source = levels;
@@ -271,15 +204,11 @@ function boxBlurLevels(levels: Float32Array, cols: number, rows: number): Float3
 }
 
 /**
- * Heatmap layer — synchronous main-thread rendering.
- *
- * Wall attenuation uses precomputed fields from rf/propagation.ts (O(1) lookup).
- * No Web Worker, no async state. Renders in the same frame as everything else.
- * Typical render time: 2-7ms (well within 16ms frame budget).
+ * 热力图图层，在主线程同步渲染。
+ * 墙体衰减取自 rf/propagation.ts 的预计算场，读取为 O(1)。
  */
 /**
- * Everything `generateWorld` reads off the layer, so a generation can be run for
- * a floor other than the one the layer is currently showing.
+ * `generateWorld` 从图层读取的全部输入，因此可为当前未显示的楼层生成图像。
  */
 export interface HeatmapInput {
 	aps: HeatmapAp[];
@@ -288,22 +217,16 @@ export interface HeatmapInput {
 	defaultMaterial: WallMaterialId;
 	worldUnitsPerMeter: number;
 	rssiFloor: number;
-	/** Identity of `wallMask` for the attenuation-field cache. See `maskTag`. */
+	/** `wallMask` 的身份标识，用于衰减场缓存，见 `maskTag`。 */
 	maskTag?: string;
 	/**
-	 * Raised walking surfaces on this floor: a mezzanine, a stair, a ramp.
-	 *
-	 * The level a client receives depends on the vertical gap to the AP, and a client
-	 * two metres up a mezzanine is two metres closer to a ceiling-mounted one. Each
-	 * texel reads this field, so a raised area is coloured as the raised place it is
-	 * rather than as the slab underneath it.
+	 * 本层的抬高行走面：夹层、楼梯、坡道。
+	 * 接收电平取决于客户端与接入点的垂直间距，抬高区域按其实际高度着色。
 	 */
 	surfaces?: ElevatableSurface[];
 	/**
-	 * The outline this floor's field is clipped to, and whether it is authoritative.
-	 *
-	 * A tile for another floor must use **that** floor's planning area, not the selected
-	 * floor's — the layer's own `clipPolygon` belongs to whatever is on screen.
+	 * 本层衰减场裁剪所用的轮廓，以及该轮廓是否为唯一依据。
+	 * 其他楼层的瓦片必须使用该楼层自己的规划区域。
 	 */
 	clipPolygon?: Array<{ x: number; y: number }> | null;
 	clipStrict?: boolean;
@@ -314,9 +237,8 @@ export class HeatmapLayer implements Layer {
 	visible = false;
 	aps: HeatmapAp[] = [];
 	/**
-	 * Retained for API compatibility but no longer affects the heatmap: the ramp
-	 * is a signal-level (dB) scale now, so a throughput cap has nothing to clamp.
-	 * The throughput panel still uses it.
+	 * 仅为兼容 API 保留，已不影响热力图：色阶是信号电平（dB）标度。
+	 * 吞吐量面板仍在使用它。
 	 */
 	ispSpeed = 0;
 	wallMask: DecodedWallMask | null = null;
@@ -324,81 +246,49 @@ export class HeatmapLayer implements Layer {
 	materialMap: Uint8Array | null = null;
 	materialVersion = 0;
 	defaultMaterial: WallMaterialId = 0;
-	/** Raised walking surfaces on the floor this image is for. See `HeatmapInput`. */
+	/** 本图对应楼层的抬高行走面，见 `HeatmapInput`。 */
 	surfaces: ElevatableSurface[] = [];
 	/**
-	 * Wall segments, for the one specular reflection this renderer carries.
-	 *
-	 * Separate from `wallMask` on purpose: the mask is what blocks, the segments are what
-	 * reflects, and a reflection needs the segment's own line (a mask pixel has no normal).
-	 * Empty means no reflection, which is what a floor whose walls are still only a detected
-	 * raster gets — and what a drag gets, since a coarse image does not need the term.
+	 * 墙体线段，供本渲染器计算镜面反射。
+	 * 与 `wallMask` 分开：掩码只表达遮挡，反射需要线段自身的走向。
 	 */
 	reflectingWalls: ReflectingWall[] = [];
 	/**
-	 * The interior the clip uses, cached against the mask it was derived from.
-	 *
-	 * It is a function of the wall mask alone, and a drag or an AP move regenerates the image
-	 * dozens of times without touching the mask — so recomputing the flood fill and the
-	 * small-region filter every generation was pure waste. Keyed on the mask's signature, so a
-	 * re-derived mask (walls edited) invalidates it exactly when it should.
+	 * 裁剪所用的建筑内部区域，按生成它的掩码缓存。
+	 * 该结果只取决于墙体掩码，掩码签名变化时失效。
 	 */
 	private interiorCache: { key: string; data: Uint8Array } | null = null;
 	/**
-	 * The building's outline, when the plan has one, so the picture stops at the walls.
-	 *
-	 * Without it the field is painted over the whole sheet: every interior wall throws its shadow
-	 * across the margin *outside* the building, which reads as a row of dark spikes leaving the
-	 * plan — the wedges that were reported. A planning tool clips its coverage to the floor it is
-	 * about, and this is that clip: the detected boundary at import, or the planning area when the
-	 * user has drawn one.
+	 * 建筑轮廓（如果平面图中有），使图像止于墙体。
+	 * 为 null 时不裁剪，衰减场会画到图纸边缘之外。
 	 */
 	clipPolygon: Array<{ x: number; y: number }> | null = null;
 	/**
-	 * Whether the polygon is the whole answer, or one of two regions to union.
-	 *
-	 * A **drawn** planning area is the user stating where the floor is, so the picture is
-	 * clipped to it exactly — redrawing it larger or smaller has to change the picture, and
-	 * a small area inside a larger room has to shrink the field. The detected boundary is
-	 * only a guess about the plan, and is unioned with the walls' interior so a doorway does
-	 * not cut the field short.
+	 * 轮廓是唯一依据，还是需要与墙体内部区域合并。
+	 * 用户手绘的规划区域按精确裁剪，检测出的边界与墙体内部区域取并集。
 	 */
 	clipStrict = false;
 	isDragging = false;
 	/**
-	 * A wall mask is on its way for the floor now showing.
-	 *
-	 * Set when a floor switch clears `wallMask` because the incoming floor's stored
-	 * mask still has to be decoded. Generating in that window marches every field and
-	 * fills every texel against no walls at all, and the decode throws the result away
-	 * — a whole generation of work, on the main thread, for nothing.
+	 * 当前楼层的墙体掩码正在加载。
+	 * 切换楼层后掩码尚未解码完成时置位，避免在无墙数据下做一次无效重建。
 	 */
 	maskPending = false;
 	/**
-	 * Identity of the wall mask currently loaded, for the attenuation-field cache.
-	 *
-	 * `getAttenField`'s key is position, radius and this tag — the mask *contents*
-	 * are not in it. Without a per-mask tag two floors that have an AP in the same
-	 * 4-unit cell (stacked APs, the normal case) share one field, so whichever
-	 * floor is generated second is marched against the **other** floor's walls.
-	 * In the tiled overview that is the card that is not selected: the selected
-	 * floor warms the cache first and the other card inherits its walls.
+	 * 当前已加载墙体掩码的身份标识，用于衰减场缓存。
+	 * 缓存键含位置、半径和该标识而不含掩码内容，缺少它时不同楼层会共用同一衰减场。
 	 */
 	maskTag = '';
-	worldUnitsPerMeter = 32.8; // updated from getEffectiveWupm()
+	worldUnitsPerMeter = 32.8; // 由 getEffectiveWupm() 更新
 	/**
-	 * Lowest received level the ramp shows, in dBm. Anything below is transparent.
-	 *
-	 * The ramp runs from this floor up to the strongest AP's level at 1 m
-	 * (`P_tx - PL0` for its band), so the whole colour range always spans the
-	 * usable coverage band and raising the floor both narrows the visible area
-	 * and increases contrast.
+	 * 色阶显示的最低接收电平，单位 dBm；低于该值的像素透明。
+	 * 色阶从该值延伸到最强接入点 1 m 处的电平（`P_tx - PL0`）。
 	 */
 	rssiFloor = DEFAULT_RSSI_FLOOR;
 
 	private cache: HTMLCanvasElement | null = null;
 	private cacheKey = '';
-	/** Where `cache` sits in world space, and its world units per texel. */
+	/** `cache` 在世界坐标中的原点位置，以及每个纹素对应的世界坐标单位数。 */
 	private cacheX0 = 0;
 	private cacheY0 = 0;
 	private cacheTexel = TEXEL_FINE;
@@ -409,16 +299,8 @@ export class HeatmapLayer implements Layer {
 	}
 
 	/**
-	 * Build the cached world-space image if the inputs have changed.
-	 *
-	 * Split out of `render` so the tiled floor overview can obtain the image
-	 * without this layer drawing itself. That view hides this layer, and a hidden
-	 * layer is never asked to render, so its cache would otherwise stay empty and
-	 * the tile would have nothing to show.
-	 *
-	 * Synchronous and identical in cost to what a single-floor render already
-	 * pays, so calling it from the tile view does not add a second generation
-	 * per frame — the cache key absorbs it.
+	 * 输入发生变化时重建世界坐标下的缓存图像。
+	 * 从 `render` 中拆出，使平铺楼层总览无需本图层绘制也能取得图像。
 	 */
 	ensureGenerated(): void {
 		if (this.aps.length === 0) {
@@ -435,20 +317,13 @@ export class HeatmapLayer implements Layer {
 		this.cacheX0 = generated?.x0 ?? 0;
 		this.cacheY0 = generated?.y0 ?? 0;
 		this.cacheTexel = generated?.texel ?? TEXEL_FINE;
-		// Timed: a generation is a full field sweep over the plan, and it runs on the frame a
-		// gesture ends — the one place a stall is felt as "the app froze when I let go".
+		// 计时：一次生成会遍历整个平面，且发生在手势结束的那一帧，卡顿最易被感知。
 		debug(`[heatmap] ${generated ? 'generated' : 'skipped'} in ${Math.round(performance.now() - started)} ms`);
 	}
 
 	/**
-	 * Generate a world-space coverage image for an arbitrary floor.
-	 *
-	 * The tiled overview needs one image per floor, and writing a second coverage
-	 * renderer for it would guarantee the two drift apart. So this swaps the
-	 * layer's inputs for the duration of one generation and restores them.
-	 *
-	 * Safe because `generateWorld` neither awaits nor touches the layer's own
-	 * cache — it only reads these inputs — so nothing can observe the swap.
+	 * 为任意楼层生成世界坐标下的覆盖图像。
+	 * 生成期间临时替换图层的输入并在结束后恢复，因此不会影响图层自身的缓存。
 	 */
 	generateFor(
 		input: HeatmapInput
@@ -474,13 +349,13 @@ export class HeatmapLayer implements Layer {
 			this.defaultMaterial = input.defaultMaterial;
 			this.worldUnitsPerMeter = input.worldUnitsPerMeter;
 			this.rssiFloor = input.rssiFloor;
-			// Which floor's walls these are, so the field cache cannot hand this
-			// floor's APs another floor's attenuation. See `maskTag`.
+			// 指明这些墙体属于哪一层，避免衰减场缓存把其他楼层的衰减结果给到本层接入点。
+			// 见 `maskTag`。
 			this.maskTag = input.maskTag ?? '';
 			this.surfaces = input.surfaces ?? [];
 			this.clipPolygon = input.clipPolygon ?? null;
 			this.clipStrict = input.clipStrict ?? false;
-			// Full resolution: a tile is a still comparison, never a drag.
+			// 使用完整分辨率：瓦片是静态对比图，不涉及拖拽。
 			this.isDragging = false;
 			return this.generateWorld();
 		} finally {
@@ -502,14 +377,12 @@ export class HeatmapLayer implements Layer {
 		this.ensureGenerated();
 		if (!this.cache) return;
 
-		// Blit under the camera transform: this is the whole per-frame cost now,
-		// and it is independent of how many APs or cells the image contains.
+		// 在相机变换下直接绘制图像，这是每帧的全部开销，与接入点数量或纹素数量无关。
 		const { ctx, camera, dpr } = rc;
 		const [a, b, c, d, e, f] = camera.getTransform();
 		ctx.save();
 		ctx.setTransform(a * dpr, b * dpr, c * dpr, d * dpr, e * dpr, f * dpr);
-		// The image is generated in world space and upscaled here; the default filter is
-		// the cheapest one, and this layer is the only one that is upscaled at all.
+		// 图像在世界坐标中生成后在此放大，此处启用高质量采样；本图层是唯一会被放大的图层。
 		const smoothing = ctx.imageSmoothingEnabled;
 		ctx.imageSmoothingEnabled = true;
 		ctx.imageSmoothingQuality = 'high';
@@ -525,22 +398,12 @@ export class HeatmapLayer implements Layer {
 	}
 
 	/**
-	 * Cache key for the generated heatmap.
-	 *
-	 * The camera is deliberately absent: the image lives in world space, so pan
-	 * and zoom do not invalidate it. `texel` is present because drag mode
-	 * regenerates at a coarser resolution.
-	 *
-	 * NOTE: the heatmap renders *coverage* only — a per-pixel max over APs of
-	 * (path loss + wall loss + slab loss). It does NOT model co-channel
-	 * interference, so `assignedChannel` deliberately does not appear here.
+	 * 生成热力图的缓存键。
+	 * 相机不参与：图像位于世界坐标，平移和缩放不会使其失效；`texel` 参与，因为拖拽时使用更粗的分辨率。
+	 * 热力图只渲染覆盖（各接入点路径损耗、墙体损耗与楼板损耗的最大值），不建模同频干扰。
 	 */
 	private getCacheKey(): string {
-		// While dragging, positions are quantised to the coarse texel. The image's
-		// origin snaps to that lattice anyway, so a step of a few pixels cannot change
-		// the picture — but an exact key regenerated for every one of them, and each
-		// regeneration is the whole cost of the drag. The drop lands on the fine key and
-		// redraws exactly.
+		// 拖拽时位置按粗纹素量化：图像原点本就对齐该栅格，几个像素的位移不会改变画面。
 		const step = this.isDragging ? TEXEL_COARSE : 1;
 		const snap = (v: number) => Math.round(v / step) * step;
 		return (
@@ -548,13 +411,9 @@ export class HeatmapLayer implements Layer {
 				.map(
 					(ap) =>
 						`${ap.id}:${snap(ap.x)}:${snap(ap.y)}:${ap.interferenceRadius}:${ap.band}:${ap.channelWidth}:${ap.power}:${ap.verticalOffset ?? 0}:${ap.floorDbPerMeter ?? 0}:${ap.floorThickness ?? 0}:` +
-						// The whole pattern, from the one function that lists what a pattern
-						// depends on: a wall mount's facing changes the picture without moving
-						// the AP, and a change of mounting adds or removes the horizontal cut
-						// entirely. See `antennaSignature`.
+						// 完整的天线方向图，由 `antennaSignature` 统一列明其依赖：安装朝向变化会改变画面。
 						antennaSignature(ap) +
-						// The AP's own floor's mask, when the path is split at the slab:
-						// editing that floor's walls changes this image too.
+						// 路径在楼板处拆分时还需接入点本层的掩码：编辑该层墙体同样会改变本图。
 						(ap.crossFloor
 							? `:cf${ap.crossFloor.mask.width}x${ap.crossFloor.mask.height}@${ap.crossFloor.mask.originX},${ap.crossFloor.mask.originY}:${ap.crossFloor.sourceT.toFixed(4)},${ap.crossFloor.targetT.toFixed(4)}:${ap.crossFloor.defaultMaterial}`
 							: '')
@@ -562,51 +421,39 @@ export class HeatmapLayer implements Layer {
 				.join('|') +
 			`|floor:${this.rssiFloor}|t:${this.isDragging ? 'c' : 'f'}` +
 			`|wm:${this.wallMask?.width ?? 0}x${this.wallMask?.height ?? 0}:${this.wallMask?.originX ?? 0},${this.wallMask?.originY ?? 0}` +
-			// The mask *objects*, not only their geometry: replacing a floor's mask with one of
-			// the same size — deriving it from the drawn walls, or undoing an edit — otherwise
-			// left every cached field showing the previous geometry, which reads as a redraw
-			// that never happened.
+			// 掩码对象本身，而不仅是其几何尺寸：同尺寸替换掩码时，缓存中的衰减场也会随之失效。
 			`|wms:${maskSignature(this.wallMask)}:${maskSignature(this.materialMap)}` +
 			`|mat:${this.defaultMaterial}|mv:${this.materialVersion}|wupm:${this.worldUnitsPerMeter}` +
-			// Raised surfaces move the client, not the AP: the same plan with a mezzanine
-			// added is a different picture.
+			// 抬高面移动的是客户端而非接入点：同一平面加入夹层后画面不同。
 			`|surf:${this.surfaces
 				.map((s) => `${s.kind}:${s.ax},${s.ay},${s.bx},${s.by}:${s.heightM}/${s.topHeightM}`)
 				.join(';')}` +
-			// The reflecting segments: their lines decide the bounce, so an edit moves the
-			// reflected term even when the derived mask happens to keep the same frame.
+			// 反射线段：其走向决定反射项，编辑线段即使掩码框不变也会移动反射项。
 			`|rw:${this.reflectingWalls
 				.map((w) => `${w.ax},${w.ay},${w.bx},${w.by}:${w.material}`)
 				.join(';')}` +
-			// The clip decides which texels exist at all, so it is part of the picture.
+			// 裁剪决定哪些纹素存在，因此属于图像的一部分。
 			`|clip:${this.clipPolygon?.map((p) => `${p.x},${p.y}`).join(';') ?? ''}` +
 			`|clipstrict:${this.clipStrict ? 1 : 0}`
 		);
 	}
 
 	/**
-	 * Generate the heatmap as a world-space image.
-	 *
-	 * Returns the canvas together with the world rectangle it covers, so the
-	 * renderer can blit it under the camera transform without recomputing
-	 * anything. Nothing here depends on the camera or the viewport.
+	 * 把热力图生成为世界坐标下的图像。
+	 * 返回画布及其覆盖的世界坐标矩形；无接入点或墙体掩码尚未就绪时返回 null。
 	 */
 	private generateWorld(): { canvas: HTMLCanvasElement; x0: number; y0: number; texel: number } | null {
 		const n = this.aps.length;
 		if (n === 0) return null;
-		// A mask is on its way (the floor's stored mask is being decoded), so
-		// generating now would march every field and fill every texel against no walls
-		// at all — a full generation, thrown away the moment the decode lands. A floor
-		// switch did exactly that: three to four generations, one of them wasted.
+		// 墙体掩码正在解码，此时生成会在无墙数据下遍历全部纹素，结果随后被丢弃。
 		if (!this.wallMask && this.maskPending) return null;
 
 		const wupm = this.worldUnitsPerMeter;
 		const metersPerWorldUnit = wupm > 0 ? 1 / wupm : 0;
 		const fast = this.isDragging;
 
-		// Region to cover: the plan, plus everywhere this AP set can put colour —
-		// see `heatmapRegion`. Sized from the ramp floor rather than from the
-		// association radius, which is what used to force the texel to be widened.
+		// 覆盖范围：平面本身，加上这组接入点可能着色的全部区域，见 `heatmapRegion`。
+		// 按色阶门限而非关联半径计算，避免被迫放粗纹素。
 		const wm = this.wallMask;
 		const region = heatmapRegion(
 			this.aps,
@@ -617,22 +464,14 @@ export class HeatmapLayer implements Layer {
 			wupm,
 			this.isDragging ? TEXEL_COARSE : TEXEL_FINE,
 			MAX_TEXELS,
-			// The drawn area can extend past the mask's frame; the image has to reach it.
+			// 手绘区域可以超出掩码范围，图像必须覆盖到它。
 			this.isDragging ? null : this.clipPolygon
 		);
 		if (!region) return null;
 		/*
-		 * Shrink the image to the floor's own bounds.
-		 *
-		 * The region is built around the access points and their reach, so on a plan whose floor is
-		 * a corner of the sheet most of the image is texels the clip would discard one by one. The
-		 * mask's frame is the floor's frame: intersecting with it costs nothing and the whole
-		 * discarded area stops being iterated — the per-texel loop is a march, and a march the
-		 * picture never paints is the one kind of work that can be removed without changing it.
-		 *
-		 * A drawn planning area is the exception: it can be larger than the mask's frame, and
-		 * shrinking to the mask is what kept the field inside the plan rectangle while the area
-		 * (and the report) said the floor extended further. The outline's box joins the bounds.
+		 * 把图像收缩到楼层自身的范围。
+		 * 掩码框即楼层范围，与区域求交可跳过裁剪会逐个丢弃的纹素。
+		 * 手绘规划区域是例外，它可能超出掩码框，此时并入轮廓的外接框。
 		 */
 		let bounds = wm
 			? {
@@ -676,8 +515,7 @@ export class HeatmapLayer implements Layer {
 		const cols = clipped ? Math.max(1, Math.ceil((clipped.x1 - x0) / texel)) : region.cols;
 		const rows = clipped ? Math.max(1, Math.ceil((clipped.y1 - y0) / texel)) : region.rows;
 
-		// Wall attenuation is band dependent, so build one material table per band
-		// actually in use instead of a single 5 GHz table for every AP.
+		// 墙体衰减与频段相关，因此按实际用到的频段各建一份材料表。
 		const matDbByBand = new Map<Band, number[]>();
 		const defaultDbByBand = new Map<Band, number>();
 		for (const ap of this.aps) {
@@ -686,36 +524,27 @@ export class HeatmapLayer implements Layer {
 			defaultDbByBand.set(ap.band, getFlatAttenuation(this.defaultMaterial, ap.band));
 		}
 
-		// Per-AP cross-floor parameters
-		/** The vertical offset in world units, for the antenna's elevation angle. */
+		// 各接入点的跨楼层参数
+		/** 垂直偏移，单位世界坐标单位，用于计算天线仰角。 */
 		const vertWu = new Float64Array(n);
-		/** Each AP's vertical antenna pattern. See `rf/antenna.ts`. */
+		/** 各接入点的垂直天线方向图，见 `rf/antenna.ts`。 */
 		const apProfiles: AntennaProfile[] = [];
-		const floorDbThickness = new Float64Array(n); // ITU aggregate floor isolation (dB)
+		const floorDbThickness = new Float64Array(n); // ITU 楼板总隔离度，单位 dB
 		const apX = new Float64Array(n);
 		const apY = new Float64Array(n);
 		/**
-		 * Level at 1 m from each AP, in dBm: P_tx - PL0(band).
-		 *
-		 * The heatmap previously ignored AP power entirely and coloured cells by
-		 * path loss relative to 1 m, so a 30 dBm AP and a 10 dBm AP painted an
-		 * identical picture even though their coverage differs by 20 dB. Anchoring
-		 * each AP's contribution at its own 1 m level makes the cell value an
-		 * actual received level, so power and band affect the result as they
-		 * should, and the colour floor can be expressed in dBm.
+		 * 各接入点 1 m 处的电平，单位 dBm：P_tx - PL0(band)。
+		 * 以此为各接入点的贡献基准，使功率与频段体现在结果中，色阶门限可用 dBm 表示。
 		 */
 		const apRefDb = new Float64Array(n);
-		/** Each AP's band, for the reflection coefficient's frequency. */
+		/** 各接入点的频段，用于反射系数的频率。 */
 		const bands: Band[] = [];
 		let rampTop = -Infinity;
 
 		const fields: (AttenField | null)[] = [];
 		/**
-		 * Field for the AP's *own* floor, when its path is split at the slab.
-		 *
-		 * Only the run from the AP down to the crossing is charged against it, which
-		 * is a field lookup at the crossing point — the same polar field the client's
-		 * floor uses, built from the other floor's mask.
+		 * 路径在楼板处拆分时，接入点本层对应的衰减场。
+		 * 只计算从接入点到楼板下穿点的一段，即在切分点处查表。
 		 */
 		const sourceFields: (AttenField | null)[] = [];
 		for (let i = 0; i < n; i++) {
@@ -724,31 +553,15 @@ export class HeatmapLayer implements Layer {
 			apY[i] = ap.y;
 			const vo = ap.verticalOffset ?? 0;
 			vertWu[i] = vo * wupm;
-			// The antenna's vertical cut. It is a function of the ray's elevation, which
-			// is per texel, so only the profile is resolved here.
+			// 天线的垂直方向图取决于射线仰角，而仰角逐纹素计算，因此这里只解析方向图。
 			apProfiles.push(antennaProfileFor(ap));
 			bands.push(ap.band);
 			floorDbThickness[i] = (ap.floorDbPerMeter ?? 0) * (ap.floorThickness ?? 0);
-			// pathLossDb(band, 1) is the 1 m reference loss PL0 for the band.
+			// pathLossDb(band, 1) 即该频段 1 m 处的参考损耗 PL0。
 			apRefDb[i] = ap.power - pathLossDb(ap.band, 1);
 			if (apRefDb[i]! > rampTop) rampTop = apRefDb[i]!;
-			// interferenceRadius still sets how far the wall attenuation field is
-			// marched, so it is kept even though the signal model no longer uses it
-			// directly — but only as far as this image can read (`FIELD_MARGIN_FACTOR`,
-			// just past the drawn margin). The default march is twice that.
-			//
-			// The cache tag carries the band, the role, and which mask was marched.
-			// Fields are built from material tables and *a* mask, while the cache key
-			// is position and radius alone — so without a tag two APs on different
-			// bands close enough to quantise to the same cell shared one AP's
-			// attenuation, and a cross-floor AP's two fields (its own floor's and this
-			// one's) shared a single entry, which made the split read this floor's
-			// walls from *both* sides and cancel out to no change at all.
-			//
-			// `maskTag` is the same problem one level up: two floors with an AP in the
-			// same cell share the entry unless the mask is in the tag, and the second
-			// one generated — in the tiled view, whichever card is not selected — is
-			// then drawn from the other floor's walls.
+			// interferenceRadius 仍决定墙体衰减场的推进范围，但只推进到本图可读取的位置（`FIELD_MARGIN_FACTOR`）。
+			// 缓存标签包含频段、用途和所用掩码：缓存键只有位置与半径，缺少标签时不同频段或不同楼层会共用衰减。
 			const bandTag = `${ap.band}:tgt:${this.maskTag}`;
 			fields.push(
 				this.wallMask
@@ -793,8 +606,7 @@ export class HeatmapLayer implements Layer {
 			);
 		}
 
-		// The ramp spans from the floor up to the strongest AP's 1 m level. If
-		// every AP sits at or below the floor there is nothing to draw at all.
+		// 色阶从门限延伸到最强接入点 1 m 处的电平；所有接入点都不高于门限时无需绘制。
 		const span = rampTop - this.rssiFloor;
 		if (!(span > 0)) return null;
 
@@ -805,29 +617,21 @@ export class HeatmapLayer implements Layer {
 		const cctx = canvas.getContext('2d')!;
 		const imgData = cctx.createImageData(cols, rows);
 		const u32 = new Uint32Array(imgData.data.buffer);
-		/** Received level per texel, in dBm; NaN where the texel is below the ramp floor. */
+		/** 每个纹素的接收电平，单位 dBm；低于色阶门限处为 NaN。 */
 		const levels = new Float32Array(cols * rows).fill(Number.NaN);
-		// The raised-surface field, in the units this loop works in. Resolved once so the
-		// inner loop is a multiply and a lookup rather than a conversion per texel.
+		// 抬高面场，采用本循环使用的单位；只解析一次，使内层循环只需一次乘法和一次查表。
 		const surfaces = this.surfaces;
 		const surfaceScale = this.worldUnitsPerMeter;
 		/*
-		 * Where the picture is allowed to paint.
-		 *
-		 * A polygon outline when the plan has one, and — whether or not it does — the **interior
-		 * the walls enclose**, worked out here exactly as the "is this point inside" guard does
-		 * it. The polygon alone was not enough: a plan whose boundary was never detected (or was
-		 * rejected) had no clip at all, and every interior wall then threw its shadow across the
-		 * margin outside the building, which is the fan of dark wedges that keeps being reported
-		 * as spikes. The interior is derived from the wall mask, so it exists for any floor that
-		 * has walls at all.
+		 * 图像允许绘制的区域。
+		 * 有轮廓多边形时使用多边形，并始终加上墙体围出的内部区域。
+		 * 内部区域由墙体掩码推导，因此任何有墙体的楼层都有裁剪。
 		 */
 		const outline =
 			this.clipPolygon && this.clipPolygon.length >= 3 && !this.isDragging
 				? this.clipPolygon
 				: null;
-		// A drawn area is authoritative: the union below would let the walls' interior
-		// paint outside it, which is exactly the "redrew it and nothing changed" report.
+		// 手绘区域具有权威性：下面取并集会允许墙体内部画到区域之外。
 		const strictOutline = this.clipStrict && !this.isDragging ? outline : null;
 		let interior: Uint8Array | null = null;
 		const maskForClip = this.wallMask;
@@ -843,35 +647,28 @@ export class HeatmapLayer implements Layer {
 					{ maxDim: 400, dilateRatio: 0.04, minDilateR: 4, trimWallAdjacent: true }
 				).interior;
 				/*
-				 * Only if it actually encloses something.
-				 *
-				 * A plan whose walls do not close has no interior, and clipping to an empty region
-				 * would erase the picture instead of trimming its margin. Two percent of the mask is
-				 * a floor's worth of pixels and far more than a mis-detected outline produces.
+				 * 仅在确实围合出区域时使用。
+				 * 墙体未闭合的平面没有内部区域，裁剪到空区域会擦掉整幅图。
 				 */
 				let enclosed = 0;
 				for (let i = 0; i < computed.length; i++) if (computed[i]) enclosed++;
 				if (enclosed > maskForClip.width * maskForClip.height * 0.02) {
-					// Rooms, not the slivers a drawing encloses by accident: those were the small
-					// patches painted just outside the wall line and at wall ends.
+					// 保留房间，剔除图形意外围成的小块：它们会被画在墙线外和墙体端部。
 					dropSmallRegions(computed, maskForClip.width, maskForClip.height, 400);
 					interior = computed;
 				}
 				this.interiorCache = { key, data: interior ?? new Uint8Array(0) };
 			}
 		}
-		// An empty cached array means "this mask has no usable interior", not "no data".
+		// 缓存为空数组表示该掩码没有可用内部区域，而不是没有数据。
 		if (interior && interior.length === 0) interior = null;
 		/*
-		 * One specular reflection per access point, as a power term.
-		 *
-		 * Off while dragging: the coarse image a drag draws is about where the colour is, and
-		 * the reflection pass is the most expensive thing in this loop. Off too when the floor
-		 * has no segments — a mask-only floor has no wall lines to reflect off.
+		 * 每个接入点一次镜面反射，作为功率项。
+		 * 拖拽时关闭：反射是本循环开销最大的一步；楼层没有线段时也关闭。
 		 */
 		const walls = this.isDragging ? [] : this.reflectingWalls;
 		const reflectionReach = 24 * this.worldUnitsPerMeter;
-		// Every wall end is a knife edge; computed once per image.
+		// 每个墙体端点都是一条刃边；每幅图计算一次。
 		const edges: DiffractionEdge[] = walls.length > 0 ? edgesOf(walls) : [];
 
 		for (let ty = 0; ty < rows; ty++) {
@@ -881,14 +678,8 @@ export class HeatmapLayer implements Layer {
 			for (let tx = 0; tx < cols; tx++) {
 				const wx = x0 + (tx + 0.5) * texel;
 				/*
-				 * Paint where either region says the floor is.
-				 *
-				 * The clip used to be an AND: inside the outline **and** inside the walls. That
-				 * clipped a plan with an opening — the interior then stops at the doorway — and it
-				 * clipped the wall bands and the area between them, so the picture stopped short of
-				 * the plan the user was looking at. It is a union now: inside the drawn planning
-				 * area, or inside the walls, or the only one of the two that exists. Outside both is
-				 * the paper, and that is what the clip is for.
+				 * 只要任一区域表明此处属于楼层就绘制。
+				 * 裁剪取并集：在规划区域内、墙体内部区域内，或两者中存在的那个之内；两者之外即图纸外。
 				 */
 				if (strictOutline) {
 					if (!pointInPolygon(wx, wy, strictOutline)) continue;
@@ -908,17 +699,12 @@ export class HeatmapLayer implements Layer {
 				}
 
 				/*
-				 * How high the client is here, in world units. Zero on the floor; a
-				 * mezzanine's height over one; interpolated across a stair or a ramp. Only
-				 * computed when the floor has any, so a flat plan pays nothing for the
-				 * feature.
+				 * 此处客户端所在的高度，单位世界坐标单位。
+				 * 地面为零，夹层为层高，楼梯或坡道内按比例插值；楼层无抬高面时直接为零。
 				 */
 				const liftWu = surfaces.length > 0 ? surfaceHeightAt(surfaces, wx, wy) * surfaceScale : 0;
 
-				// Strongest received level at this texel, in dBm. Every term is
-				// already in dB so they simply add; there is no conversion to a
-				// linear power ratio anywhere in this loop — except for the reflected
-				// term below, which is a power *sum* and has to be converted once.
+				// 该纹素处的最强接收电平，单位 dBm。各项都是 dB 可直接相加，仅下方的反射项需换算一次功率。
 				let bestDb = -Infinity;
 				let reflectedMw = 0;
 				let wallLoss = 0;
@@ -926,78 +712,50 @@ export class HeatmapLayer implements Layer {
 					wallLoss = 0;
 					const dx = wx - apX[i]!;
 					const dy = wy - apY[i]!;
-					// The AP–client gap, less what the client stands on. Signed: a client
-					// up a mezzanine can be above a desk-mounted AP.
+					// 接入点与客户端的高度差，减去客户端所处抬高面的高度；可为负值。
 					const gap = vertWu[i]! - liftWu;
 					const dWu = Math.sqrt(dx * dx + dy * dy + gap * gap);
-					// Start from this AP's 1 m level and subtract the excess path
-					// loss. relativePathLossDb clamps distances below 1 m, where the
-					// log-distance model is not valid.
+					// 从该接入点 1 m 处的电平起算，减去超出的路径损耗；1 m 以内会被
+					// relativePathLossDb 截断，因为对数距离模型在该范围内不成立。
 					let level = apRefDb[i]! - relativePathLossDb(dWu * metersPerWorldUnit);
 
 					/*
-					 * The antenna's own cuts, from the geometry of this ray.
-					 *
-					 * The vertical cut: an upright omni is peaked near the horizon, so a
-					 * texel 10 m out is close to its peak and one almost under the AP is
-					 * at the weak end of the doughnut — which is the whole reason this
-					 * term exists. The horizontal cut is added for a wall-mounted unit,
-					 * whose pattern has a front and a back; one call, so neither can be
-					 * applied without the other.
+					 * 由本射线的几何关系得到天线方向图的切割。
+					 * 垂直切割：全向天线在水平方向最强，正下方最弱。
+					 * 壁挂设备另外叠加水平切割，一次调用同时应用两者。
 					 */
 					level -= antennaRayLossDb(apProfiles[i]!, gap, dx, dy);
 
-					// A deck between the AP and a client standing on it: the path from below
-					// has to pass through the slab, and that is what the surface's own
-					// attenuation figure is for. Guarded on `liftWu` because a texel off any
-					// deck cannot cross one, and that is most of the plan — the contains test
-					// per surface per texel per AP was measurable in a drag.
+					// 接入点与站在甲板上的客户端之间隔着楼板时，路径需穿过该板，按板自身的衰减计算。
+					// 以 `liftWu` 为前置条件，因为大多数纹素不在任何甲板上。
 					if (liftWu > 0) {
 						const deck = deckCrossing(surfaces, wx, wy, gap / surfaceScale);
 						if (deck) level -= deck.lossDb;
 					}
 
 					/*
-					 * No point marching a ray that cannot reach this texel.
-					 *
-					 * `level` at this moment is the free-space level: path loss and the antenna's
-					 * cuts, with no wall, no deck and no reflection in it. Every term still to come
-					 * only *subtracts* — walls, the slab, a reflection's own coefficient plus its
-					 * longer path, diffraction's knife-edge loss — so an access point that is already
-					 * below the ramp's floor here cannot paint this texel however the walls fall. The
-					 * march is the expensive part of the loop, and this skips it for the far half of
-					 * a large plan instead of walking a ray to a colour that is then discarded.
+					 * 不可能到达该纹素的射线无需推进。
+					 * 此时 `level` 只含自由空间损耗与天线切割，后续各项只会使其减小。
+					 * 已低于色阶门限的接入点无法着色该纹素，因此跳过最耗时的推进。
 					 */
 					if (level <= this.rssiFloor) continue;
 
-					// Wall attenuation (precomputed field, O(1) lookup).
+					// 墙体衰减（预计算场，O(1) 查表）。
 					const field = fields[i];
 					const crossFloor = this.aps[i]!.crossFloor;
 					if (field) {
-						// Kept separate from `level`: it is also the test for whether this ray is
-						// blocked, which is when diffraction has something to fill.
+						// 与 `level` 分开保存：它也用于判断该射线是否被遮挡，遮挡时由绕射项补足。
 						/*
-						 * Exact march, not the polar lookup, for a same-floor path.
-						 *
-						 * The polar field stores attenuation per 0.5° slice, so a wall shadow's
-						 * boundary is quantised to slices: at a hundred metres out a slice is
-						 * several metres wide, and the interpolated result is the tapered spike
-						 * out of every corner that no amount of smoothing removed. Marching this
-						 * texel's own ray costs a pixel walk instead of a lookup, and it has no
-						 * angular quantisation at all. Cross-floor paths keep the field: their
-						 * split needs the prefix at the crossing, which is the field's own value.
+						 * 同楼层路径使用精确步进而非极坐标查表。
+						 * 极坐标场按 0.5° 切片存储衰减，远距离时切片跨度大，插值会在拐角处产生尖刺。
+						 * 跨楼层路径仍用该场，因为拆分需要切分点处的前缀值。
 						 */
 						const mask = this.wallMask;
 						if (mask && !this.isDragging) {
 							const band = bands[i]!;
 							/*
-							 * Two pixels per step, not one.
-							 *
-							 * The walls are a six-pixel band, so a two-pixel stride cannot step
-							 * over one, and it halves the cost of what is now a per-texel walk:
-							 * a 40 000-texel image with two APs is 80 000 marches, which at one
-							 * pixel per step is half a second on the frame the pointer is
-							 * released in.
+							 * 每步两个像素而不是一个。
+							 * 墙体是六像素宽的带状区域，两步的步长不会跨过它，同时把步进开销减半。
 							 */
 							wallLoss = wallRunLoss(
 								{
@@ -1021,11 +779,8 @@ export class HeatmapLayer implements Layer {
 						}
 						level -= wallLoss;
 						if (crossFloor) {
-							// Split at the slab: undo the part of this floor's run that
-							// happens above the crossing, and charge that part to the
-							// AP's own floor instead. The crossing lies *on* this ray,
-							// so the field lookup at that distance is exactly the prefix
-							// being removed.
+							// 在楼板处拆分：撤回本层射线在切分点以上的部分，改计入接入点本层。
+							// 切分点就在该射线上，因此在该距离处查表所得正是要撤回的前缀。
 							const seg = crossFloorSegments(
 								crossFloor.sourceT,
 								crossFloor.targetT,
@@ -1044,14 +799,8 @@ export class HeatmapLayer implements Layer {
 						}
 					}
 
-					// Floor slab attenuation (ITU-R P.1238 empirical model): measured
-					// aggregate floor isolation covering direct penetration,
-					// diffraction and multipath, applied as flat dB. The 3D distance
-					// above already captures the oblique geometry.
-					//
-					// Unless the slab is missing where this ray crosses it: an atrium or
-					// stairwell is a hole in the upper floor's slab, and a hole costs
-					// nothing.
+					// 楼板衰减（ITU-R P.1238 经验模型）：覆盖直接穿透、绕射与多径的总隔离度，按固定 dB 计。
+					// 三维距离已体现斜入射几何；射线穿过处楼板缺失时（中庭、楼梯井）不计该项。
 					let slabDb = floorDbThickness[i]!;
 					const slabTypes = crossFloor?.slabRoomType;
 					if (slabTypes) {
@@ -1075,23 +824,14 @@ export class HeatmapLayer implements Layer {
 					if (level > bestDb) bestDb = level;
 
 					/*
-					 * The wall's mirror image: one specular bounce, added as power.
-					 *
-					 * The reflected ray travels access point → wall → texel, so it pays the
-					 * path loss of that longer distance and the wall's own reflection
-					 * coefficient (already a power ratio, ≤ 1). It does **not** pay the walls
-					 * between: both legs are on the same side of the reflecting wall by
-					 * construction, and charging crossings here would double-count the wall
-					 * the ray bounced off.
+					 * 墙体的镜像反射：一次镜面反射，按功率叠加。
+					 * 反射路径为接入点 → 墙体 → 纹素，因此计入更长路径的损耗与墙体反射系数（功率比，≤ 1）。
+					 * 不计中间的其他墙体：按构造两段路径位于反射墙的同侧。
 					 */
 					if (walls.length > 0) {
 						/*
-						 * Every return that reaches here, not just the strongest.
-						 *
-						 * "Strongest only" switched walls across a line in the room and left a
-						 * crease there, plus a ring where the distance cull began; summing what
-						 * exists is continuous where the physics is continuous and only costs
-						 * a memoised coefficient per wall.
+						 * 累加所有到达此处的反射，而不只取最强的一条。
+						 * 只取最强会在房间内留下折痕与距离裁剪边界的环，求和则保持连续。
 						 */
 						const returns = reflections(
 							{ x: apX[i]!, y: apY[i]! },
@@ -1116,12 +856,8 @@ export class HeatmapLayer implements Layer {
 					}
 
 					/*
-					 * Diffraction, ramped in as the wall blocks more.
-					 *
-					 * A hard "blocked at 6 dB" gate drew the contour where it flipped as a
-					 * visible notch: on one side the shadow was filled, on the other it was
-					 * not. The weight ramps from nothing at 3 dB to full at 9 dB, so the term
-					 * grows where the wall starts to occlude instead of appearing at a line.
+					 * 绕射项随墙体遮挡程度渐入。
+					 * 权重从 3 dB 处的 0 线性升到 9 dB 处的 1，避免阈值处出现可见缺口。
 					 */
 					const diffractionGate = Math.min(1, Math.max(0, (wallLoss - 3) / 6));
 					if (diffractionGate > 0 && edges.length > 0) {
@@ -1142,53 +878,33 @@ export class HeatmapLayer implements Layer {
 					}
 				}
 
-				// Power sum: the texel hears the direct ray and the reflected one.
+				// 功率求和：该纹素同时收到直达射线与反射射线。
 				const totalDb =
 					reflectedMw > 0 ? 10 * Math.log10(10 ** (bestDb / 10) + reflectedMw) : bestDb;
 				/*
-				 * The level is stored, not coloured, so it can be smoothed first.
-				 *
-				 * A per-texel field is piecewise constant and its shadow boundaries are exact
-				 * lines: colouring it directly gives the hard wedges and steps the picture showed.
-				 * Blurring the *levels* (below) is what turns those into gradients, and it is
-				 * what a planning tool's image looks like — no staircase, no seam between two
-				 * neighbouring slices of the same shadow.
+				 * 这里保存电平而非颜色，以便先做平滑。
+				 * 逐纹素的场是分段常数，直接着色会得到硬楔形与阶梯，平滑电平后才转为渐变。
 				 */
 				levels[rowOff + tx] = totalDb;
 			}
 		}
 
 		/*
-		 * Two box-blur passes over the level grid.
-		 *
-		 * Separable and small: a 3×3 kernel twice is nine reads per texel, which is nothing next
-		 * to the field march, and it removes the texel staircase as well as the seams between
-		 * adjacent angular slices. Missing levels (below the ramp floor) are left out of the
-		 * averages rather than treated as zero dBm, which would draw a bright fringe around the
-		 * covered area.
+		 * 对电平网格做两遍 3×3 均值模糊。
+		 * 可分离且核很小，能消除纹素阶梯与相邻切片之间的接缝。
+		 * 低于色阶门限的缺失电平不参与平均，否则会在覆盖区外产生亮边。
 		 */
 		const smooth = boxBlurLevels(levels, cols, rows);
 
 		/*
-		 * Contour bands, not a continuous ramp.
-		 *
-		 * A smooth gradient makes a planner read colour, and one colour next to another is a
-		 * judgement call; a band is a statement — "this area is between −65 and −60 dBm" — and it is
-		 * what a survey tool shows. The level is quantised into `BAND_DB` steps after the smoothing,
-		 * so each band is bounded by a smooth iso-line rather than by the texel grid.
-		 *
-		 * The colour is taken from the middle of each band on the same ramp the gradient used, so
-		 * the palette (and the legend beside it) keeps its meaning: same hues, same order, same
-		 * signal levels — the only change is that neighbouring texels inside a band are identical.
+		 * 使用等值色带而非连续渐变。
+		 * 电平在平滑后按 `BAND_DB` 量化，因此每段边界是平滑的等值线。
+		 * 颜色取各色带中点在同一色阶上的值，保持色板与图例的含义一致。
 		 */
 		const levelBands = new Int16Array(cols * rows).fill(-1);
 		/*
-		 * How many bands the ramp covers *here*.
-		 *
-		 * Derived from the span rather than fixed: the span is `rampTop − rssiFloor`, so a 20 dBm
-		 * access point and a 5 dBm one with the same floor get different counts and the *same*
-		 * colour for the same dBm. A constant would have put every level above 16 × 5 dB at the top
-		 * of the ramp, which is why a first attempt painted the whole plan in the last colour.
+		 * 色阶在当前参数下覆盖的色带数量。
+		 * 由 span 推导而非固定值，使相同 dBm 在不同发射功率下对应同一颜色。
 		 */
 		const bandCount = Math.max(1, Math.ceil(span / BAND_DB));
 		for (let i = 0; i < levelBands.length; i++) {
@@ -1207,12 +923,8 @@ export class HeatmapLayer implements Layer {
 				const color = LUT[colourAt]!;
 				if (!color) continue;
 				/*
-				 * No drawn contour line.
-				 *
-				 * A one-texel outline on every band edge was the "mosaic, and messy" report: at a
-				 * three-world-unit texel the line is a staircase, and upscaled it breaks into dashes.
-				 * The band change itself is the contour — crisp, per band, and smooth once the level
-				 * grid is blurred — so the picture is left to the colour step.
+				 * 不绘制等值线描边。
+				 * 每个色带边缘描一像素的线在放大后会断裂成虚线；色带本身的跳变即构成轮廓。
 				 */
 				u32[rowOff + tx] = color;
 			}

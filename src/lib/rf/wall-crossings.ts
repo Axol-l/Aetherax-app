@@ -1,4 +1,4 @@
-/** Ray-versus-segment crossings: the wall loss of the vector model. */
+/** 射线与线段的交叉：矢量模型的穿墙损耗。 */
 import type { Band } from '@aetherax/channels';
 import { getFlatAttenuation, type WallMaterialId } from '$lib/domain/materials.js';
 
@@ -8,24 +8,21 @@ export interface WallSegment {
 	bx: number;
 	by: number;
 	material: WallMaterialId;
-	/** Set by `rayWallCrossings`, so callers can identify which wall was hit. */
+	/** 由 `rayWallCrossings` 填入，便于调用方识别命中的墙。 */
 	id?: string;
 }
 
 export interface WallCrossing {
 	wall: WallSegment;
-	/** Position along the ray, 0 at `from` and 1 at `to`. */
+	/** 沿射线的位置，`from` 处为 0，`to` 处为 1。 */
 	t: number;
 	x: number;
 	y: number;
 }
 
 /**
- * Where a ray crosses one segment, or null.
- *
- * Standard parametric intersection with a tolerance on the *ray* end so a wall that ends
- * exactly on the ray line still counts: a segment touching the ray at its own endpoint is a
- * wall the ray grazes, and treating that as a miss is how a corner develops a leak.
+ * 射线与一条线段的交点，无交点时返回 null。
+ * 采用参数化求交，并在线段与射线两端各留容差，使恰好落在端点上的接触也算命中。
  */
 export function raySegmentIntersection(
 	from: { x: number; y: number },
@@ -38,8 +35,7 @@ export function raySegmentIntersection(
 	const sy = wall.by - wall.ay;
 
 	const denominator = rx * sy - ry * sx;
-	// Parallel: no crossing, and a collinear overlap is not a crossing either — a ray running
-	// along a wall does not pass through it.
+	// 平行则无交点；共线重叠也不算交点，沿墙行进的射线并不穿过墙。
 	if (Math.abs(denominator) < 1e-12) return null;
 
 	const qpx = wall.ax - from.x;
@@ -48,8 +44,7 @@ export function raySegmentIntersection(
 	const t = (qpx * sy - qpy * sx) / denominator;
 	const u = (qpx * ry - qpy * rx) / denominator;
 
-	// `u` on [0,1] is "on the segment"; `t` on [0,1] is "between the ray's ends". A small
-	// margin on both so an endpoint hit is a hit.
+	// `u` 落在 [0, 1] 表示位于线段上，`t` 落在 [0, 1] 表示位于射线两端之间；两者都留少量容差，使端点命中算命中。
 	const margin = 1e-9;
 	if (t < -margin || t > 1 + margin) return null;
 	if (u < -margin || u > 1 + margin) return null;
@@ -62,7 +57,7 @@ export function raySegmentIntersection(
 	};
 }
 
-/** Every wall the ray crosses, nearest first. */
+/** 射线穿过的所有墙，由近到远排序。 */
 export function rayWallCrossings(
 	from: { x: number; y: number },
 	to: { x: number; y: number },
@@ -78,11 +73,8 @@ export function rayWallCrossings(
 }
 
 /**
- * Total wall loss along the ray, in dB.
- *
- * One figure per crossing, from the material's own row. A virtual partition contributes
- * nothing because its row is zero — which is exactly the behaviour the raster model needed a
- * special case for.
+ * 射线沿途的墙体总损耗，单位 dB。
+ * 每个交点按其材质对应的损耗计一次。
  */
 export function rayWallLossDb(
 	from: { x: number; y: number },
@@ -97,7 +89,7 @@ export function rayWallLossDb(
 	return total;
 }
 
-/** The crossings with their loss, for a report that has to show its working. */
+/** 交点及其对应损耗，供需要展示计算过程的报告使用。 */
 export function rayWallBreakdown(
 	from: { x: number; y: number },
 	to: { x: number; y: number },

@@ -1,21 +1,6 @@
 /**
- * The canvas gesture state machine: pointer, touch, orbit and alignment drags.
- *
- * Every one of these is a small state machine with the same shape — "record where the
- * pointer went down, decide on release whether it was a click or a drag, and route the
- * click to whatever mode is armed". They were interleaved with the view's forty effects
- * and its editing helpers, which made a gesture change a change to the largest file in
- * the app.
- *
- * The component keeps the *actions* (what a click on a wall means, what committing a
- * surface means); this class owns when they happen. `GestureHost` is the seam: eighteen
- * small functions the view provides, most of them one line forwarding to an existing
- * helper. Everything else — the thresholds, the long-press timer, the pinch baseline, the
- * orbit angles, the alignment deltas — lives here, where it can be read in one place.
- *
- * Three fields are `$state` because the renderer draws from them: the wall cursor, its
- * snap target and the planning cursor are rubber bands, and they have to repaint without
- * a gesture event.
+ * 画布手势状态机：指针、触摸、环绕视角与楼层对齐拖拽；每个手势都是同构的小状态机，释放时判定点击还是拖拽。
+ * `GestureHost` 是视图提供的动作接缝；阈值、长按计时器、捏合基准、环绕角度与对齐增量都集中在这里。
  */
 import type { CanvasEngine } from './engine.js';
 import type { DragHandler } from './interactions/drag.js';
@@ -52,7 +37,7 @@ interface Point {
 	y: number;
 }
 
-/** The actions a gesture can end in, provided by the view. */
+/** 手势可以回落的动作集合，由视图提供。 */
 export interface GestureHost {
 	engine(): CanvasEngine | undefined;
 	select(): SelectHandler;
@@ -61,11 +46,11 @@ export interface GestureHost {
 	stacked(): StackedFloorsLayer | undefined;
 	tiles(): FloorTilesLayer | undefined;
 	reference(): ReferenceFloorLayer | undefined;
-	/** A click on the wall/room raster, in canvas pixels; true when handled. */
+	/** 墙面/房间栅格上的点击，单位为画布像素；已处理时返回 true。 */
 	wallClick(screenX: number, screenY: number): boolean;
-	/** A right-click or long-press context action, in canvas pixels; true when a popup opened. */
+	/** 右键或长按触发的上下文动作，单位为画布像素；弹窗打开时返回 true。 */
 	contextAction(screenX: number, screenY: number): boolean;
-	/** Close the planning loop being drawn and make it the floor's area. */
+	/** 闭合正在绘制的规划回路，并使其成为当前楼层的区域。 */
 	commitPlanningDraft(): void;
 	commitSurface(world: Point): void;
 	vectorWallClick(world: Point, shiftKey: boolean): void;
@@ -75,23 +60,23 @@ export interface GestureHost {
 	currentNotes(): ReadonlyArray<{ id: string; x: number; y: number; text: string }>;
 	snapTolerance(): number;
 	noteTolerance(): number;
-	/** Apply a finished alignment drag, in world units. */
+	/** 应用一次结束的楼层对齐拖拽，单位为世界坐标。 */
 	commitAlign(dxWorld: number, dyWorld: number): void;
 }
 
-/** How far a pointer may move and still count as a click rather than a drag, in pixels. */
+/** 指针移动仍算点击而不算拖拽的最大距离，单位为像素。 */
 const DRAG_THRESHOLD = 5;
-/** Long-press delay for a touch context action, in milliseconds. */
+/** 触摸上下文动作的长按延迟，单位为毫秒。 */
 const LONG_PRESS_MS = 500;
-/** Degrees of view rotation per pointer pixel in the stacked / 3D overviews. */
+/** 堆叠/3D 总览中每指针像素对应的视图旋转角度，单位为度。 */
 const ORBIT_DEG_PER_PX = 0.4;
 
 export class CanvasGestures {
-	/** Pointer position while drawing a wall, for the rubber band. */
+	/** 绘制墙体时的指针位置，用于橡皮筋预览。 */
 	vectorCursor = $state<Point | null>(null);
-	/** The endpoint a click would snap to, ringed while the pointer is near it. */
+	/** 点击会吸附到的端点，指针靠近时以描边环标出。 */
 	vectorSnap = $state<Point | null>(null);
-	/** Pointer position while drawing the planning area; drives the rubber band. */
+	/** 绘制规划区域时的指针位置，用于驱动橡皮筋预览。 */
 	planningCursor = $state<Point | null>(null);
 
 	private pendingPlace = false;
@@ -100,23 +85,23 @@ export class CanvasGestures {
 	private pointerStartY = 0;
 	private activeTouches = 0;
 
-	// Single-finger state
+	// 单指状态
 	private touchStartX = 0;
 	private touchStartY = 0;
 	private touchMoved = false;
 	private touchStartedOnAp = false;
 
-	// Two-finger pinch state
+	// 双指捏合状态
 	private pinchLastDist = 0;
 	private pinchLastCx = 0;
 	private pinchLastCy = 0;
 	private pinchFrames = 0;
 
-	// Long-press state
+	// 长按状态
 	private longPressTimer: ReturnType<typeof setTimeout> | null = null;
 	private longPressFired = false;
 
-	// Viewpoint drag for the stacked overview
+	// 堆叠总览的视角拖拽
 	private orbitPointerId: number | null = null;
 	private orbitStartX = 0;
 	private orbitStartY = 0;
@@ -126,9 +111,8 @@ export class CanvasGestures {
 	private orbitPitch = 0;
 	private orbitMoved = false;
 
-	// Floor-alignment drag. Screen-space deltas are kept because the camera works in
-	// screen space while `translateFloor` works in world units; the zoom is the conversion,
-	// and it can change mid-drag if the user scrolls.
+	// 楼层对齐拖拽。屏幕坐标增量被保留，因为相机在屏幕空间工作而 translateFloor 使用世界坐标；
+	// 缩放即换算系数，且可能在拖拽途中因滚轮而改变。
 	private alignDragging = false;
 	private alignStartClientX = 0;
 	private alignStartClientY = 0;
@@ -137,12 +121,12 @@ export class CanvasGestures {
 	private alignDxScreen = 0;
 	private alignDyScreen = 0;
 
-	/** True once the current eraser stroke has pushed its undo state. */
+	/** 当前橡皮擦笔画是否已压入撤销状态。 */
 	private eraserStrokePushed = false;
 
 	constructor(private readonly host: GestureHost) {}
 
-	/** Abandon an alignment drag without moving the floor. */
+	/** 放弃楼层对齐拖拽，不移动楼层。 */
 	cancelAlignDrag(): void {
 		const engine = this.host.engine();
 		if (!this.alignDragging) return;
@@ -162,10 +146,9 @@ export class CanvasGestures {
 	}
 
 	/**
-	 * The pointer left the canvas.
+	 * 指针离开画布。
 	 *
-	 * A pointer move that would clear the stack highlight or the wall cursor never arrives,
-	 * so both are dropped here.
+	 * 清除堆叠高亮和墙体光标，因为本应触发清除的指针移动不会到达。
 	 */
 	handlePointerLeave(): void {
 		const stacked = this.host.stacked();
@@ -176,7 +159,7 @@ export class CanvasGestures {
 		if (this.vectorCursor) {
 			this.vectorCursor = null;
 			this.vectorSnap = null;
-			// A stroke that leaves the canvas has ended; the next one is its own undo step.
+			// 离开画布的笔画已结束；下一笔是独立的撤销步骤。
 			this.eraserStrokePushed = false;
 			this.host.engine()?.markDirty();
 		}
@@ -194,7 +177,7 @@ export class CanvasGestures {
 			this.pendingPan = false;
 			this.longPressFired = false;
 
-			// Start long-press timer for contextual wall/room actions
+			// 启动长按计时器，用于墙面/房间的上下文动作
 			if (this.longPressTimer) clearTimeout(this.longPressTimer);
 			const lpX = t.clientX;
 			const lpY = t.clientY;
@@ -210,7 +193,7 @@ export class CanvasGestures {
 			}, LONG_PRESS_MS);
 		} else if (this.activeTouches >= 2) {
 			e.preventDefault();
-			// Cancel long-press and single-finger state
+			// 取消长按与单指状态
 			if (this.longPressTimer) {
 				clearTimeout(this.longPressTimer);
 				this.longPressTimer = null;
@@ -219,7 +202,7 @@ export class CanvasGestures {
 			this.touchStartedOnAp = false;
 			this.touchMoved = true;
 			this.host.drag().handlePointerUp();
-			// Initialize pinch
+			// 初始化捏合
 			this.pinchFrames = 0;
 			this.pinchLastDist = 0;
 		}
@@ -229,7 +212,7 @@ export class CanvasGestures {
 		const engine = this.host.engine();
 		if (!engine) return;
 
-		// Two-finger: pinch zoom + pan
+		// 双指：捏合缩放 + 平移
 		if (e.touches.length === 2) {
 			e.preventDefault();
 			const t0 = e.touches[0]!;
@@ -240,21 +223,21 @@ export class CanvasGestures {
 
 			this.pinchFrames++;
 			if (this.pinchFrames <= 2) {
-				// Baseline frames: record, don't apply
+				// 基准帧：只记录，不应用
 				this.pinchLastDist = dist;
 				this.pinchLastCx = cx;
 				this.pinchLastCy = cy;
 				return;
 			}
 
-			// Zoom
+			// 缩放
 			if (this.pinchLastDist > 0) {
 				const factor = dist / this.pinchLastDist;
 				const rect = engine.canvas.getBoundingClientRect();
 				engine.camera.zoomAt({ x: cx - rect.left, y: cy - rect.top }, factor);
 			}
 
-			// Pan
+			// 平移
 			engine.camera.pan(
 				(cx - this.pinchLastCx) / engine.camera.state.zoom,
 				(cy - this.pinchLastCy) / engine.camera.state.zoom
@@ -267,7 +250,7 @@ export class CanvasGestures {
 			return;
 		}
 
-		// Single-finger
+		// 单指
 		if (e.touches.length !== 1) return;
 		const t = e.touches[0]!;
 
@@ -333,7 +316,7 @@ export class CanvasGestures {
 		}
 
 		if (this.activeTouches === 1 && e.touches.length === 0) {
-			// Skip tap action if long-press already fired a contextual popup
+			// 长按已弹出上下文菜单时跳过点按动作
 			if (!this.touchMoved && !this.longPressFired && engine) {
 				const rect = engine.canvas.getBoundingClientRect();
 				const sx = this.touchStartX - rect.left;
@@ -353,7 +336,7 @@ export class CanvasGestures {
 						})
 					);
 				} else if (appState.apPlaceMode) {
-					// Touch follows the mouse: a tap while placing is an AP, including on a wall.
+					// 触摸跟随鼠标：放置模式下点按即放置一个 AP，点按墙面也一样。
 					this.host.place().handlePointerDown(
 						new PointerEvent('pointerdown', {
 							clientX: this.touchStartX,
@@ -378,10 +361,9 @@ export class CanvasGestures {
 	handlePointerDown(e: PointerEvent): void {
 		const engine = this.host.engine();
 		if (!engine) return;
-		if (e.button !== 0) return; // Only handle primary (left) button
+		if (e.button !== 0) return; // 仅处理主（左）键
 		if (e.pointerType === 'touch') return;
-		// In the overview views a click picks a floor; nothing edits geometry there,
-		// and a *drag* turns the view rather than picking.
+		// 在总览视图中，点击用于选择楼层；那里不编辑几何，而拖拽会旋转视图而不是选择。
 		if (appState.floorView !== 'single') {
 			this.orbitPointerId = e.pointerId;
 			this.orbitStartX = e.clientX;
@@ -393,7 +375,7 @@ export class CanvasGestures {
 			this.orbitMoved = false;
 			return;
 		}
-		// Drawing vector walls: the first click starts a segment, the second commits it.
+		// 绘制矢量墙：第一次点击开始一段，第二次点击提交该段。
 		if (appState.wallVectorMode) {
 			const rect = engine.canvas.getBoundingClientRect();
 			const world = engine.camera.screenToWorld({
@@ -405,9 +387,8 @@ export class CanvasGestures {
 			e.preventDefault();
 			return;
 		}
-		// A note pin is a small target and it sits above everything: it takes the click before
-		// the selection logic, whether or not note mode is on, because clicking a pin to read
-		// it is the obvious gesture.
+		// 注释图钉目标很小且位于最上层：无论注释模式是否开启，它都先于选择逻辑接收点击，
+		// 因为点击图钉查看内容是最直接的操作。
 		{
 			const rect = engine.canvas.getBoundingClientRect();
 			const world = engine.camera.screenToWorld({
@@ -429,33 +410,29 @@ export class CanvasGestures {
 				e.preventDefault();
 				return;
 			}
-			// A click on the plan itself drops the note selection, like every other selection.
+			// 点击平面本身会清除注释选中，与其他选中行为一致。
 			if (appState.noteSelectedId) appState.noteSelectedId = null;
 		}
-		// Drawing the planning area intercepts the primary click: each click is a corner of
-		// the loop the user is stating, and nothing else uses that gesture while it is on.
+		// 绘制规划区域会拦截主键点击：每次点击都是正在勾勒的回路的一个角点，
+		// 该手势开启时没有其他逻辑使用它。
 		if (appState.planningDrawMode) {
 			const rect = engine.canvas.getBoundingClientRect();
 			const world = engine.camera.screenToWorld({
 				x: e.clientX - rect.left,
 				y: e.clientY - rect.top
 			});
-			// The shape is closed and waiting for the bar's confirm: further clicks must not
-			// add corners behind the confirm's back.
+			// 图形已闭合并等待工具条确认：此后的点击不得绕过确认继续添加角点。
 			if (appState.planningDraftClosed) {
 				e.preventDefault();
 				return;
 			}
-			// A corner snaps to the drawn walls, and the snapped point is placed at once:
-			// there is no second click or confirm button between aiming and committing it.
+			// 角点会吸附到已绘制的墙体，吸附后的点立即落位：瞄准与提交之间没有第二次点击或确认按钮。
 			const point = this.planningPoint(world);
 			const draft = appState.planningDraft;
 			/*
-			 * Clicking the first corner closes the loop — the shape, not the decision.
+			 * 点击第一个角点会闭合回路：只闭合图形，不代表确认。
 			 *
-			 * The bar stays up with the green confirm, so the area can still be undone or
-			 * cancelled before it replaces the floor's. Committing here used to hide the
-			 * bar mid-gesture, which left no way to confirm and the old outline on screen.
+			 * 工具条与绿色确认按钮仍然保留，因此区域在被替换前仍可撤销或取消。
 			 */
 			const closes =
 				draft.length >= 3 &&
@@ -468,9 +445,8 @@ export class CanvasGestures {
 			e.preventDefault();
 			return;
 		}
-		// Drawing a raised surface: two clicks, opposite corners. The first states where it
-		// starts and the second commits it, exactly like a wall — the two gestures that
-		// shape the model should feel the same.
+		// 绘制抬升表面：两次点击确定一对对角。第一次指定起点，第二次提交，
+		// 与墙体绘制的手感保持一致。
 		if (appState.surfaceMode) {
 			const rect = engine.canvas.getBoundingClientRect();
 			const world = engine.camera.screenToWorld({
@@ -482,9 +458,8 @@ export class CanvasGestures {
 			e.preventDefault();
 			return;
 		}
-		// Calibrating by measurement intercepts the primary click, before placement and
-		// before selection: while the mode is on, a click is a point of the measured line
-		// and nothing else.
+		// 测量校准会拦截主键点击，先于放置和选中：该模式开启时，
+		// 点击只是测量线的一个点，不触发其他操作。
 		if (appState.calibrateMode) {
 			const rect = engine.canvas.getBoundingClientRect();
 			const world = engine.camera.screenToWorld({
@@ -496,8 +471,7 @@ export class CanvasGestures {
 			e.preventDefault();
 			return;
 		}
-		// Align mode intercepts the primary pointer. PanZoomHandler only pans on
-		// the middle button, so a left drag here does not fight it.
+		// 对齐模式拦截主指针。PanZoomHandler 仅在中键平移，因此这里的左键拖拽不会与之冲突。
 		if (appState.floorAlignMode) {
 			this.alignDragging = true;
 			this.alignDxScreen = 0;
@@ -537,24 +511,18 @@ export class CanvasGestures {
 			this.pendingPan = false;
 		} else if (appState.apPlaceMode) {
 			/*
-			 * Placement owns the bare-canvas click, including the wall band.
+			 * 放置模式接管空白画布上的点击，包括墙体附近区域。
 			 *
-			 * Wall and column selection used to run first, so a click near a wall selected
-			 * that wall and returned before `pendingPlace` was set. A wall mount has to be
-			 * clicked within a metre of a wall, so the one gesture the mode exists for was
-			 * the one gesture it could never reach.
+			 * 墙体安装点必须点在靠近墙的位置，因此该手势不能先被墙体或柱的选择拦截。
 			 */
 			this.pointerStartX = e.clientX;
 			this.pointerStartY = e.clientY;
 			this.pendingPlace = true;
 			this.pendingPan = false;
 		} else {
-			// A drawn wall is an object: a click near one selects it — Delete removes it,
-			// right-click changes its material — instead of starting a marquee. Without
-			// this the only way to reach a wall was to have just drawn it.
+			// 已绘制的墙体是对象：在其附近点击会选中它，而不是开始框选；Delete 删除，右键更改材质。
 			const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-			// A surface edge first: the outline is the only part of a mezzanine that is
-			// unambiguous, and the canvas inside it stays free for placing access points.
+			// 先判断表面边缘：轮廓是夹层中唯一明确的部分，其内部画布仍留给放置接入点。
 			if (floor?.surfaces?.length) {
 				const world = engine.camera.screenToWorld(screenPoint);
 				const surface = surfaceEdgeNear(
@@ -606,9 +574,8 @@ export class CanvasGestures {
 				appState.surfaceSelected = null;
 				engine.markDirty();
 			}
-			// A click on empty canvas adds an AP only in placement mode; otherwise it is
-			// a selection gesture (click to clear, drag to marquee), which is the same
-			// thing Shift+click does.
+			// 空白画布上的点击仅在放置模式添加 AP；否则它是选择手势（点击清除，拖拽框选），
+			// 与 Shift+点击相同。
 			this.pointerStartX = e.clientX;
 			this.pointerStartY = e.clientY;
 			this.pendingPan = false;
@@ -622,11 +589,9 @@ export class CanvasGestures {
 	}
 
 	/**
-	 * The point a planning click means.
+	 * 规划点击所代表的点。
 	 *
-	 * Corners snap to the drawn walls — an endpoint first, then an edge, the same rule the
-	 * wall tool uses — so a planning area can follow a room that was traced rather than
-	 * clicked by eye. The snapped point is what gets placed: no confirm step.
+	 * 角点会吸附到已绘制的墙体（先端点后边，与墙体工具规则相同），吸附后的点直接落位，没有确认步骤。
 	 */
 	private planningPoint(world: Point): Point {
 		const walls = this.host.currentWalls();
@@ -637,8 +602,7 @@ export class CanvasGestures {
 	handlePointerMove(e: PointerEvent): void {
 		const engine = this.host.engine();
 		if (!engine) return;
-		// Hovering a note pin shows its text, in every mode: reading a note is never the
-		// gesture the current mode is about.
+		// 悬停注释图钉会显示其文本，所有模式下都是如此：查看注释从来不是当前模式的主手势。
 		if (appState.showNotes && appState.floorView === 'single') {
 			const rect = engine.canvas.getBoundingClientRect();
 			const world = engine.camera.screenToWorld({
@@ -658,9 +622,9 @@ export class CanvasGestures {
 				y: e.clientY - rect.top
 			});
 			/*
-			 * The eraser works as a stroke, not a click: whatever the brush passes over goes,
-			 * and one undo puts the whole stroke back. `buttons` is what says the pointer is
-			 * down — a move without it is a hover and must not delete anything.
+			 * 橡皮擦按笔画工作而非按点击：笔刷经过的墙体都会被删除，一次撤销恢复整笔。
+			 *
+			 * `buttons` 指示指针是否按下；没有按下时的移动只是悬停，不得删除任何东西。
 			 */
 			if (appState.wallTool === 'eraser') {
 				if ((e.buttons & 1) !== 0) {
@@ -675,7 +639,7 @@ export class CanvasGestures {
 				return;
 			}
 			if (appState.wallTool === 'line') {
-				// Where the click would land, so the ring can say "this will meet that wall".
+				// 点击将落到的位置，使圆环能提示将与哪面墙相接。
 				const snapped = snapToWalls(
 					this.vectorCursor,
 					this.host.currentWalls(),
@@ -687,7 +651,7 @@ export class CanvasGestures {
 						: null;
 			} else {
 				this.vectorSnap = null;
-				// The pier or column follows the pointer from the first click, like a wall.
+				// 墩柱或柱从第一次点击起跟随指针，与墙体一致。
 				if (appState.columnDraft) {
 					appState.columnDraft = {
 						...appState.columnDraft,
@@ -700,8 +664,7 @@ export class CanvasGestures {
 			return;
 		}
 		if (appState.noteMode) return;
-		// Drawing a raised surface: the second corner follows the pointer, so the rectangle
-		// can be judged before the click that commits it.
+		// 绘制抬升表面：第二个角点跟随指针，便于在提交点击前判断矩形。
 		if (appState.surfaceMode) {
 			const rect = engine.canvas.getBoundingClientRect();
 			const world = engine.camera.screenToWorld({
@@ -714,10 +677,9 @@ export class CanvasGestures {
 			}
 			return;
 		}
-		// While drawing the planning area the pointer drives the rubber band: the next edge
-		// and the closing edge are previewed, so the shape can be judged before it is closed.
+		// 绘制规划区域时指针驱动橡皮筋：预览下一条边与闭合边，便于在闭合前判断形状。
 		if (appState.planningDrawMode) {
-			// A closed loop has no rubber band: there is no next corner until it is undone.
+			// 闭合回路没有橡皮筋：在撤销之前没有下一个角点。
 			if (appState.planningDraftClosed) {
 				if (this.planningCursor !== null) {
 					this.planningCursor = null;
@@ -730,20 +692,16 @@ export class CanvasGestures {
 				x: e.clientX - rect.left,
 				y: e.clientY - rect.top
 			});
-			// The rubber band ends on the wall the click would snap to, so the corner is
-			// previewed where it will actually land.
+			// 橡皮筋终止于点击将吸附到的墙体，因此角点会预览在它实际落位上。
 			this.planningCursor = this.planningPoint(world);
 			engine.markDirty();
 			return;
 		}
 		if (e.pointerType === 'touch') return;
-		// Turning the viewpoint of an overview, and which slab is under the pointer in the
-		// stacked one. Read-only and cheap: the layout is a few floors of arithmetic, and
-		// only a *change* marks the canvas dirty, so a moving pointer does not repaint per
-		// pixel.
+		// 旋转总览视角，并确定堆叠视图中指针下方的楼层板。只读且开销很小；
+		// 只有发生变化时才标记画布脏，移动指针不会逐像素重绘。
 		if (appState.floorView === 'stacked' || appState.floorView === 'floor3d') {
-			// While the view is being dragged there is no hovering to report: the
-			// pointer is holding the camera, not pointing at a floor.
+			// 视图拖拽期间没有可报告的悬停：指针正握住相机，而不是指向某个楼层。
 			if (this.orbitPointerId === e.pointerId) {
 				const dx = e.clientX - this.orbitStartX;
 				const dy = e.clientY - this.orbitStartY;
@@ -751,9 +709,8 @@ export class CanvasGestures {
 					this.orbitMoved = true;
 					const stacked = this.host.stacked();
 					if (stacked) stacked.hoverFloorId = null;
-					// Start accumulating from here, not from where the drag began:
-					// otherwise the threshold distance itself is applied as a turn on
-					// the first step, which reads as a small jump.
+					// 从这里开始累积，而不是从拖拽起点：否则阈值距离本身会在第一步被当作转动，
+					// 看起来像小跳变。
 					this.orbitLastX = e.clientX;
 					this.orbitLastY = e.clientY;
 				}
@@ -790,10 +747,8 @@ export class CanvasGestures {
 			}
 		}
 		if (this.alignDragging) {
-			// The camera carries the current floor, and the ghost is pushed back by
-			// the same amount so it stays anchored to the floor it belongs to. On
-			// release the camera returns and the floor's own coordinates take over
-			// the movement, so nothing jumps.
+			// 相机承载当前楼层，参考层以相同量反向偏移，保持锚定在所属楼层；
+			// 释放时相机复位，由楼层自身坐标接管位移，避免跳变。
 			this.alignDxScreen = e.clientX - this.alignStartClientX;
 			this.alignDyScreen = e.clientY - this.alignStartClientY;
 			const cam = engine.camera;
@@ -819,10 +774,10 @@ export class CanvasGestures {
 			const dx = e.clientX - this.pointerStartX;
 			const dy = e.clientY - this.pointerStartY;
 			if (dx * dx + dy * dy > DRAG_THRESHOLD * DRAG_THRESHOLD) {
-				// Moved beyond threshold: this is a pan, not a tap-to-place
+				// 超出阈值：这是平移，而不是点按放置
 				this.pendingPlace = false;
 				this.pendingPan = true;
-				// Start panning from the original position
+				// 从原始位置开始平移
 				engine.canvas.style.cursor = 'grabbing';
 			}
 		}
@@ -843,10 +798,10 @@ export class CanvasGestures {
 	handlePointerUp(e: PointerEvent): void {
 		const engine = this.host.engine();
 		if (!engine) return;
-		if (e.button !== 0) return; // Only handle primary (left) button
-		// An eraser stroke ends with the pointer: the next one is its own undo step.
+		if (e.button !== 0) return; // 仅处理主（左）键
+		// 橡皮擦笔画随指针抬起而结束：下一笔是独立的撤销步骤。
 		this.eraserStrokePushed = false;
-		// The overview's drag-vs-click decision, made on release.
+		// 总览视图的拖拽与点击判定，在释放时完成。
 		if (this.orbitPointerId === e.pointerId) {
 			this.orbitPointerId = null;
 			if (!this.orbitMoved && appState.floorView !== 'single') {
@@ -868,9 +823,8 @@ export class CanvasGestures {
 			const zoom = engine.camera.state.zoom || 1;
 			const dxWorld = this.alignDxScreen / zoom;
 			const dyWorld = this.alignDyScreen / zoom;
-			// Restore the camera before moving the floor. The floor is about to
-			// carry the movement in its own coordinates, and the camera has been
-			// carrying it until now — leaving both in place would double it.
+			// 移动楼层前先复位相机：楼层即将以自身坐标承载位移，而相机此前已承载同一位移，
+			// 两者叠加会造成双倍移动。
 			engine.camera.pan(
 				this.alignStartX - engine.camera.state.x,
 				this.alignStartY - engine.camera.state.y
@@ -886,9 +840,8 @@ export class CanvasGestures {
 		}
 		if (this.pendingPlace) {
 			this.pendingPlace = false;
-			// Placement owns the click: a wall under the pointer is where a wall mount goes,
-			// not a material popup. The mount test inside PlaceHandler rejects a wall mount
-			// that is too far from a wall.
+			// 放置模式接管点击：指针下的墙是挂墙件的落点，而不是材质弹窗；
+			// PlaceHandler 内部会拒绝离墙过远的挂墙点。
 			this.host.place().handlePointerDown(e);
 		}
 
@@ -902,7 +855,7 @@ export class CanvasGestures {
 	}
 }
 
-/** Clamp to a range, for the orbit drag's per-step limits. */
+/** 把值限制到区间内，用于环绕拖拽的每步限幅。 */
 function clamp(value: number, lo: number, hi: number): number {
 	return Math.max(lo, Math.min(hi, value));
 }

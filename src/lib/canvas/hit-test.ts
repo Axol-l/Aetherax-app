@@ -11,7 +11,7 @@ export function hitTest(screenPoint: Point, camera: Camera, aps: AccessPoint[]):
 	const worldPoint = camera.screenToWorld(screenPoint);
 	const hitRadius = 12 / camera.state.zoom;
 
-	// Test in reverse order (topmost first)
+	// 逆序检测，最上层的优先
 	for (let i = aps.length - 1; i >= 0; i--) {
 		const ap = aps[i]!;
 		const dx = worldPoint.x - ap.x;

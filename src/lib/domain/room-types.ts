@@ -1,15 +1,6 @@
 /**
- * Room type definitions with device density for capacity-aware optimization.
- *
- * Default density values sourced from:
- *   - Cisco Wireless High Client Density Design Guide (8.7)
- *   - Aruba VHD VRD Planning Guide
- *   - IBC Table 1004.5 (occupancy load factors)
- *   - Parks Associates CES 2024 (17 devices/US household)
- *   - Deloitte Connected Consumer Survey 2023
- *
- * Density = expected concurrent WiFi devices per square meter.
- * Users can override the default density per room via the popup.
+ * 房间类型定义与设备密度，供按容量加权的优化使用。
+ * 密度是每平方米的并发 WiFi 设备数，默认值参考 Cisco、Aruba 设计指南与 IBC 表 1004.5。
  */
 
 export type BuildingCategory =
@@ -23,27 +14,23 @@ export type BuildingCategory =
 export interface RoomType {
 	id: number;
 	name: string;
-	shortName: string; // canvas label pill
-	categories: BuildingCategory[]; // which building types this room appears in
-	defaultDensity: number; // devices per sqm (user-overridable per room)
-	color: [number, number, number]; // RGB for canvas tint (rendered at ~15% alpha)
+	shortName: string; // 画布标签用的短名
+	categories: BuildingCategory[]; // 该房间出现的建筑类型
+	defaultDensity: number; // 每平方米设备数，可按房间覆盖
+	color: [number, number, number]; // 画布着色用的 RGB，按 15% 透明度绘制
 	/**
-	 * A space with no floor: an atrium, a stairwell, a double-height lobby.
-	 *
-	 * It is a room type rather than a drawing tool so it reuses the labelling flow
-	 * that already exists. What makes it special is that it is *outside* the
-	 * building for placement purposes — an AP cannot be mounted over a hole — so
-	 * `computeBuildingInterior` consumers exclude it.
+	 * 没有地板的区域：中庭、楼梯井、挑空大堂。
+	 * 它在布点时不算建筑内部，`computeBuildingInterior` 的使用方会排除它。
 	 */
 	isVoid?: boolean;
 }
 
 /**
- * Room types. ID 0 = unassigned (not in this array).
- * Colors follow a cool→warm gradient by density within each category.
+ * 房间类型表。id 0 表示未指定，不在表内。
+ * 颜色按同一分类内的密度从冷到暖排列。
  */
 export const ROOM_TYPES: readonly RoomType[] = [
-	// ─── Default ─────────────────────────────────────────────────
+	// ─── 默认 ─────────────────────────────────────────────────
 	{
 		id: 1,
 		name: 'Custom',
@@ -60,7 +47,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		color: [150, 150, 155]
 	},
 
-	// ─── Low traffic ─────────────────────────────────────────────
+	// ─── 低人流 ─────────────────────────────────────────────
 	{
 		id: 2,
 		name: 'Hallway',
@@ -118,7 +105,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		color: [110, 130, 160]
 	},
 
-	// IBC Group A-3; congregants with phones. ~0.1 dev/sqm
+	// 按 IBC A-3 组估算，约 0.1 台/㎡。
 	{
 		id: 9,
 		name: 'Place of Worship',
@@ -128,7 +115,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		color: [135, 135, 155]
 	},
 
-	// ─── Medium traffic ──────────────────────────────────────────
+	// ─── 中等人流 ──────────────────────────────────────────
 	{
 		id: 10,
 		name: 'Private Office',
@@ -210,7 +197,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		color: [160, 155, 100]
 	},
 
-	// 2-4 people in tiny room + display. ~0.5 dev/sqm
+	// 小房间 2-4 人加显示设备，约 0.5 台/㎡。
 	{
 		id: 40,
 		name: 'Huddle Room',
@@ -219,7 +206,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		defaultDensity: 0.5,
 		color: [150, 165, 110]
 	},
-	// FICM 830; workstations, wireless-on-wheels. ~0.35 dev/sqm
+	// FICM 830：工作站与移动终端，约 0.35 台/㎡。
 	{
 		id: 41,
 		name: 'Nurse Station',
@@ -228,7 +215,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		defaultDensity: 0.35,
 		color: [120, 165, 160]
 	},
-	// FICM 810; patient devices + 5-8 medical IoT. ~0.5 dev/sqm
+	// FICM 810：患者设备加 5-8 台医疗 IoT，约 0.5 台/㎡。
 	{
 		id: 42,
 		name: 'Patient Room',
@@ -237,7 +224,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		defaultDensity: 0.5,
 		color: [140, 160, 150]
 	},
-	// 15-20 connected medical devices per ICU room. ~0.7 dev/sqm
+	// ICU 每间 15-20 台联网设备，约 0.7 台/㎡。
 	{
 		id: 43,
 		name: 'ICU',
@@ -246,7 +233,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		defaultDensity: 0.7,
 		color: [180, 140, 90]
 	},
-	// 1-2 guests x 3 devices + smart TV + IoT. ~0.2 dev/sqm
+	// 1-2 位住客各 3 台设备，加电视与 IoT，约 0.2 台/㎡。
 	{
 		id: 44,
 		name: 'Guest Room',
@@ -255,7 +242,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		defaultDensity: 0.2,
 		color: [140, 145, 160]
 	},
-	// Aruba: 1 AP/400sqm; cameras + IoT. ~0.01 dev/sqm
+	// 摄像头与 IoT，约 0.01 台/㎡。
 	{
 		id: 45,
 		name: 'Parking Garage',
@@ -264,7 +251,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		defaultDensity: 0.01,
 		color: [110, 110, 120]
 	},
-	// FICM 525; phones + wearables. ~0.1 dev/sqm
+	// FICM 525：手机与穿戴设备，约 0.1 台/㎡。
 	{
 		id: 46,
 		name: 'Locker Room',
@@ -273,7 +260,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		defaultDensity: 0.1,
 		color: [130, 140, 145]
 	},
-	// POS + customer phones. ~0.15 dev/sqm
+	// 收银机与顾客手机，约 0.15 台/㎡。
 	{
 		id: 47,
 		name: 'Food Court',
@@ -283,7 +270,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		color: [165, 150, 95]
 	},
 
-	// ─── High traffic ────────────────────────────────────────────
+	// ─── 高人流 ────────────────────────────────────────────
 	{
 		id: 20,
 		name: 'Conference Room',
@@ -349,7 +336,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		color: [185, 155, 85]
 	},
 
-	// Similar to classroom; all on laptops. ~0.4 dev/sqm
+	// 类似教室，人手一台笔记本，约 0.4 台/㎡。
 	{
 		id: 28,
 		name: 'Training Room',
@@ -358,7 +345,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		defaultDensity: 0.4,
 		color: [195, 155, 75]
 	},
-	// Events: 1 person/1.5sqm x 1.5 devices. ~0.6 dev/sqm
+	// 宴会场景人均 1.5 台设备，约 0.6 台/㎡。
 	{
 		id: 29,
 		name: 'Banquet Hall',
@@ -368,7 +355,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		color: [195, 130, 75]
 	},
 
-	// ─── Residential ─────────────────────────────────────────────
+	// ─── 住宅 ─────────────────────────────────────────────
 	{
 		id: 30,
 		name: 'Living Room',
@@ -450,7 +437,7 @@ export const ROOM_TYPES: readonly RoomType[] = [
 		color: [120, 150, 135]
 	},
 
-	// ─── No floor ────────────────────────────────────────────────
+	// ─── 无地板 ────────────────────────────────────────────────
 	{
 		id: 48,
 		name: 'Void / Atrium',
@@ -469,28 +456,24 @@ export const ROOM_TYPES: readonly RoomType[] = [
 	}
 ];
 
-/** Look up a room type by ID. Returns undefined for ID 0 (unassigned). */
+/** 按 id 查房间类型；id 0（未指定）返回 undefined。 */
 export function getRoomType(id: number): RoomType | undefined {
 	return ROOM_TYPES.find((t) => t.id === id);
 }
 
 /**
- * True for spaces with no floor — see `RoomType.isVoid`.
- *
- * Callers use this to drop the region from the building interior, so the
- * placement optimiser does not hang an AP over an atrium. It says nothing about
- * propagation: a void still has to be told to the RF models separately, which is
- * a different change.
+ * 是否为无地板区域（见 `RoomType.isVoid`）。
+ * 布点时会把这些区域排除在建筑内部之外。
  */
 export function isVoidRoomType(id: number): boolean {
 	const t = ROOM_TYPES.find((r) => r.id === id);
 	return t?.isVoid === true;
 }
 
-/** The default room type — used when users don't know the room function yet. */
+/** 默认房间类型，用户还没确定房间用途时使用。 */
 export const DEFAULT_ROOM_TYPE_ID = 1;
 
-/** Get room types filtered by building category. */
+/** 按建筑类型筛选房间类型。 */
 export function getRoomTypesForCategory(category: BuildingCategory): RoomType[] {
 	return ROOM_TYPES.filter((t) => t.categories.includes(category));
 }

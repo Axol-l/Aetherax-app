@@ -1,19 +1,10 @@
 /**
- * The colour ramp the interface uses for signal strength.
- *
- * It lives on its own because two very different drawings now speak with it: the heatmap
- * paints the floor with it, and the access point panel's antenna bars are coloured by it.
- * A second copy of these stops would drift, and then the panel would be describing the
- * same radio in a different language from the map it sits next to.
- *
- * The stops are the heatmap's own, moved here unchanged: cold red at the weak end,
- * through orange and yellow, to green where the signal is strong. The alpha column is the
- * heatmap's too — it fades the bottom of the ramp out rather than colouring it — so a
- * caller that wants a solid colour reads the red/green/blue part and ignores it.
+ * 界面用于表示信号强度的色阶：热力图底色与接入点面板的天线柱共用，避免两处各自维护而出现偏差。
+ * 弱端为红，经橙、黄过渡到强端的绿；alpha 列用于淡出弱端，需要纯色时忽略它。
  */
 export type RampColor = { r: number; g: number; b: number; a: number };
 
-/** Position 0-1, red, green, blue, alpha. The positions must ascend. */
+/** 位置 0-1、红、绿、蓝、alpha；位置必须递增。 */
 export const RAMP_STOPS: ReadonlyArray<readonly [number, number, number, number, number]> = [
 	[0.0, 100, 35, 35, 0],
 	[0.15, 220, 120, 20, 115],
@@ -24,8 +15,7 @@ export const RAMP_STOPS: ReadonlyArray<readonly [number, number, number, number,
 ];
 
 /**
- * The ramp's colour at a 0-1 position, interpolated between the two stops it falls
- * between and clamped outside them.
+ * 取 0-1 位置处的色阶颜色，在相邻色标之间插值，超出范围时取端点值。
  */
 export function rampColorAt(ratio: number): RampColor {
 	const position = Number.isFinite(ratio) ? Math.min(Math.max(ratio, 0), 1) : 0;
@@ -46,7 +36,7 @@ export function rampColorAt(ratio: number): RampColor {
 	return { r: last[1], g: last[2], b: last[3], a: last[4] };
 }
 
-/** The same colour as a CSS `rgb()`, for the drawings that are SVG rather than pixels. */
+/** 同一颜色以 CSS 颜色字符串表示，供 SVG 绘制使用。 */
 export function rampCss(ratio: number, alpha = 1): string {
 	const c = rampColorAt(ratio);
 	return `rgba(${Math.round(c.r)}, ${Math.round(c.g)}, ${Math.round(c.b)}, ${alpha})`;

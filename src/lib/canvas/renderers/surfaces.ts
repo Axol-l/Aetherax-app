@@ -1,12 +1,6 @@
 /**
- * Raised surfaces, drawn on the plan: a mezzanine, a stair, a ramp.
- *
- * The layer exists to make a thing that is invisible in a plan visible: a rectangle of
- * floor whose walking surface is *not* the slab. That is a fact the model now uses — every
- * client inside it is closer to the ceiling — and a fact nobody can check if it is only in
- * the model. So the shape is drawn where it is, at a tint that deepens with height, with
- * the rise written on it: `0 → 3.0 m` on a stair says at once which way it climbs and how
- * far, which is the pair of things a reader gets wrong from a rectangle alone.
+ * 抬升面在平面图上的绘制：夹层、楼梯、坡道。
+ * 这类区域的地面行走标高不是楼板，图上用随高度加深的底色与行程标注表示。
  */
 import type { Layer, RenderContext } from '../types.js';
 import {
@@ -19,11 +13,8 @@ import {
 } from '$lib/rf/surface-height.js';
 
 /**
- * The tint of a surface, from its material and its height.
- *
- * The hue is the material's — a steel deck reads blue-grey, a timber one brown — so the plan
- * shows what the card says. Height still shows: a taller deck is mixed slightly towards
- * white, which keeps the old "this one is higher" read without taking the colour over.
+ * 抬升面的底色：由材质与高度决定。
+ * 色相来自材质，高度越高越偏向白色。
  */
 function tintFor(
 	material: SurfaceMaterialId | undefined,
@@ -40,15 +31,15 @@ export class SurfacesLayer implements Layer {
 	id = 'surfaces';
 	visible = true;
 	surfaces: ElevatedSurface[] = [];
-	/** The one under the pointer or just drawn. Selected surfaces can be edited or deleted. */
+	/** 指针所指或刚绘制的那个；选中的抬升面可编辑或删除。 */
 	selectedId: string | null = null;
-	/** The rectangle being drawn, as two opposite corners, in world units. */
+	/** 正在绘制的矩形，以世界坐标下的两个对角点表示。 */
 	draft: { ax: number; ay: number; bx: number; by: number } | null = null;
-	/** What the draft will become, so the preview says it before it exists. */
+	/** 草稿将生成的内容类型，供预览提前显示。 */
 	draftKind: SurfaceKind = 'platform';
 	draftHeightM = 2;
 	draftTopHeightM = 3;
-	/** The material the next surface will be drawn in, for the preview's colour. */
+	/** 下一个抬升面使用的材质，用于预览配色。 */
 	draftMaterial: SurfaceMaterialId | null = null;
 
 	render(rc: RenderContext): void {
@@ -57,13 +48,8 @@ export class SurfacesLayer implements Layer {
 		const zoom = camera.state.zoom || 1;
 		ctx.save();
 		/*
-		 * Into world space first, like every other layer that draws on the plan.
-		 *
-		 * Without this the shapes are drawn at raw world coordinates in *screen* pixels:
-		 * they stay put when the plan is panned, do not grow with the zoom, and the label —
-		 * sized `11 / zoom` for a screen-constant 11 px — grows as the plan is zoomed in.
-		 * The draft cursor is the same bug seen while drawing: the rectangle follows the
-		 * pan, not the pointer.
+		 * 先进入世界坐标，与其他绘制平面图的图层一致。
+		 * 否则图形会按世界坐标以屏幕像素绘制：平移时不动、缩放时不放大，标签尺寸也会随缩放变化。
 		 */
 		const [m0, m1, m2, m3, m4, m5] = camera.getTransform();
 		ctx.transform(m0, m1, m2, m3, m4, m5);
@@ -117,15 +103,14 @@ export class SurfacesLayer implements Layer {
 		ctx.stroke();
 		ctx.setLineDash([]);
 
-		// The run: an arrow along the longer side, low end to high end, so a ramp reads as
-		// one rather than as a platform with a label on it.
+		// 行程箭头：沿较长边从低端指向高端，使坡道不会只被读成带标签的平台。
 		if (surface.heightM !== surface.topHeightM) {
 			const low = this.runEnd(surface, 0);
 			const high = this.runEnd(surface, 1);
 			this.arrow(ctx, low, high, zoom, selected);
 		}
 
-		// The label, in the drawing plane so it stays readable at any zoom.
+		// 标签位于绘图平面内，保证任意缩放下都清晰可读。
 		const { x0, y0, x1, y1 } = surfaceBox(surface);
 		const cx = (x0 + x1) / 2;
 		const cy = (y0 + y1) / 2;
@@ -136,7 +121,7 @@ export class SurfacesLayer implements Layer {
 		ctx.font = `${11 / zoom}px sans-serif`;
 		ctx.textAlign = 'center';
 		ctx.textBaseline = 'middle';
-		// A dark plate behind it: the tint is pale and the plan underneath is not.
+		// 标签下垫深色底板：底色偏浅，而下方平面图不是。
 		const width = ctx.measureText(text).width;
 		ctx.fillStyle = 'rgba(12,14,20,0.72)';
 		ctx.fillRect(cx - width / 2 - 3 / zoom, cy - 8 / zoom, width + 6 / zoom, 16 / zoom);
@@ -144,11 +129,11 @@ export class SurfacesLayer implements Layer {
 		ctx.fillText(text, cx, cy);
 	}
 
-	/** The centre of the surface's low (fraction 0) or high (1) edge, in world units. */
+	/** 抬升面低端（fraction 为 0）或高端（为 1）边缘的中点，单位为世界坐标。 */
 	private runEnd(surface: ElevatedSurface, fraction: number): { x: number; y: number } {
 		const { x0, y0, x1, y1, width, height } = surfaceBox(surface);
 		if (width >= height) {
-			// A horizontal run climbs left-to-right, or right-to-left if drawn that way.
+			// 水平行程从左向右升高，若绘制方向相反则从右向左。
 			const forward = surface.bx >= surface.ax;
 			const t = forward ? fraction : 1 - fraction;
 			return { x: x0 + width * t, y: (y0 + y1) / 2 };
@@ -178,7 +163,7 @@ export class SurfacesLayer implements Layer {
 		ctx.moveTo(low.x, low.y);
 		ctx.lineTo(high.x, high.y);
 		ctx.stroke();
-		// Only the far end carries a head: the pair of ends is the direction.
+		// 只在远端画箭头：两端的位置即表示方向。
 		ctx.beginPath();
 		ctx.moveTo(high.x, high.y);
 		ctx.lineTo(high.x - ux * head - uy * head * 0.55, high.y - uy * head + ux * head * 0.55);
@@ -192,13 +177,13 @@ export class SurfacesLayer implements Layer {
 	}
 }
 
-/** True when a world point is inside a surface, for selecting one. */
+/** 世界坐标点位于某个抬升面内时返回 true，用于选中。 */
 export function surfaceAtPoint(
 	surfaces: readonly ElevatedSurface[],
 	x: number,
 	y: number
 ): ElevatedSurface | null {
-	// Last drawn wins, which is the one the user just placed when they overlap.
+	// 后绘制的优先，重叠时即用户刚放置的那个。
 	for (let i = surfaces.length - 1; i >= 0; i--) {
 		const surface = surfaces[i]!;
 		const { x0, y0, x1, y1 } = surfaceBox(surface);
@@ -208,12 +193,8 @@ export function surfaceAtPoint(
 }
 
 /**
- * The surface whose *edge* is nearest, within `tolerance`.
- *
- * Selecting by the edge rather than the area is deliberate: a mezzanine covers a room's
- * worth of plan, and making every click inside it a selection would take the canvas away
- * from placing access points on the very floor the mezzanine is on. Its outline is the
- * part that means "this shape", and it is a small target that nothing else wants.
+ * 边缘距离在 `tolerance` 以内的最近抬升面。
+ * 按边缘而非面积选择，避免夹层覆盖整块地面时抢走在其上放置访问点的点击。
  */
 export function surfaceEdgeNear(
 	surfaces: readonly ElevatedSurface[],

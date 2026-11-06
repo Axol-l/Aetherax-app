@@ -2,20 +2,11 @@ import { describe, expect, it } from 'vitest';
 import { computeBuildingInterior, fillParallelGaps } from './morphology.js';
 
 /**
- * The mask's edge is not a wall.
- *
- * A reported plan had its outer wall drawn 36 px from the edge of a 1027x790 mask, while
- * the morphological close at the working resolution used a radius of 16 — so the whole
- * margin strip along the top and left was swallowed by the close, no passable border pixel
- * was left to seed the flood fill there, and the strip came back as *interior*. The
- * consequences were not cosmetic: 11 % of the "interior" was outside the building, the
- * optimiser parked its only AP in the corner of it, and the coverage estimator counted that
- * strip as floor area — 90 % coverage on a floor the heatmap showed mostly uncovered.
- *
- * These cases pin the geometry, at both working resolutions the app uses.
+ * 掩码边缘不是墙：闭运算半径可能吞掉图纸外边距，使边界上没有可通行像素为洪水填充播种、外边距被判为内部。
+ * 以下用例在两个工作分辨率下固定这一几何约定。
  */
 
-/** A closed rectangular outline: one wall pixel wide, `margin` px in from the mask edge. */
+/** 一个闭合矩形轮廓：墙体一像素宽，位于掩码边缘内 `margin` 像素处。 */
 function roomMask(
 	w: number,
 	h: number,
@@ -40,9 +31,8 @@ function roomMask(
 
 describe('computeBuildingInterior', () => {
 	/**
-	 * The reported geometry: margin 10 px, closing radius 12 px (`maxDim: 0`, so the radius
-	 * is `round(300 * 0.04) = 12`). Every pixel outside the outline is outside the building,
-	 * however thin the margin is.
+	 * 复现的几何：外边距小于闭运算半径（`maxDim: 0` 时半径由工作宽度与 `dilateRatio` 决定）。
+	 * 无论外边距多薄，轮廓之外的像素都属于建筑外部。
 	 */
 	it('does not call the margin outside the walls interior', () => {
 		const w = 300;
@@ -55,21 +45,19 @@ describe('computeBuildingInterior', () => {
 			minDilateR: 4
 		});
 
-		// The strip between the mask edge and the wall.
+		// 掩码边缘与墙体之间的条带。
 		expect(exterior[2 * w + 2]).toBe(1);
 		expect(interior[2 * w + 2]).toBe(0);
 		expect(exterior[2 * w + 150]).toBe(1);
 		expect(exterior[150 * w + 2]).toBe(1);
-		// ... and the room itself is still interior.
+		// 而房间本身仍然是内部。
 		expect(interior[100 * w + 150]).toBe(1);
 		expect(exterior[100 * w + 150]).toBe(0);
 	});
 
 	/**
-	 * The invariant, checked over every pixel rather than at sampled points: a region enclosed
-	 * by walls is by definition inside the walls' bounding box, so no interior pixel may lie
-	 * outside it. This is what makes "the AP is inside the building" a meaningful test, and it
-	 * is checked at both working resolutions because the coarse one is where it broke.
+	 * 对每个像素而非采样点检查该不变量：被墙体围合的区域必然位于墙体包围盒内，
+	 * 因此内部像素不得落在包围盒之外；两个工作分辨率都要检查。
 	 */
 	it('never reports interior pixels outside the wall bounding box', () => {
 		for (const maxDim of [0, 400]) {
@@ -81,7 +69,7 @@ describe('computeBuildingInterior', () => {
 				maxDim,
 				dilateRatio: 0.04,
 				minDilateR: 4,
-				// The placement and sampling domain, as the optimiser and the estimator ask for it.
+				// 优化器与覆盖率估算器所请求的放置域与采样域。
 				trimWallAdjacent: true
 			});
 
@@ -108,19 +96,16 @@ describe('computeBuildingInterior', () => {
 					if (x < minX || x > maxX || y < minY || y > maxY) outside++;
 				}
 			}
-			// The room is found at both resolutions...
+			// 两个分辨率下都能找到房间……
 			expect(interiorPixels).toBeGreaterThan(0);
-			// ... and none of what was found is outside the walls.
+			// ……且找到的像素都不在墙体之外。
 			expect(outside).toBe(0);
 		}
 	});
 
 	/**
-	 * The opposite contract, and it has to be a test: `wall-detect`'s exterior-blob filter
-	 * keeps a wall blob only when an interior pixel touches it, so the margin off the walls
-	 * must stay opt-in. Making it unconditional deleted **every wall on the plan** — 21 e2e
-	 * failures, walls invisible after loading a floorplan — because no blob had an interior
-	 * neighbour any more.
+	 * 相反的约定：`wall-detect` 的外部块过滤仅在内部像素接触墙体时保留该块，
+	 * 因此向外收缩必须是可选项；默认行为下墙体邻接的内部像素必须保留。
 	 */
 	it('leaves interior touching the walls unless the caller asks for the margin', () => {
 		const w = 300;
@@ -146,9 +131,9 @@ describe('computeBuildingInterior', () => {
 			return false;
 		};
 
-		// Default: the wall detector's filter can find an interior neighbour for a wall blob...
+		// 默认情况下，墙体检测器的过滤能为墙块找到内部邻居……
 		expect(touchesWall(computeBuildingInterior(mask, w, h, options).interior)).toBe(true);
-		// ... and when the caller asks for the placement domain, nothing touches a wall.
+		// ……而调用方要求放置域时，没有任何内部像素接触墙体。
 		expect(
 			touchesWall(
 				computeBuildingInterior(mask, w, h, { ...options, trimWallAdjacent: true }).interior
@@ -156,12 +141,12 @@ describe('computeBuildingInterior', () => {
 		).toBe(false);
 	});
 
-	/** A gap in the outline is still sealed, which is the reason the close exists at all. */
+	/** 轮廓上的缺口仍会被封闭，这正是闭运算存在的目的。 */
 	it('still seals a door-sized gap in the outline', () => {
 		const w = 300;
 		const h = 200;
 		const mask = roomMask(w, h, 20, 20);
-		// A 6 px doorway in the top wall.
+		// 顶墙上 6 px 的门口。
 		for (let x = 140; x < 146; x++) mask[20 * w + x] = 0;
 		const { interior } = computeBuildingInterior(mask, w, h, {
 			maxDim: 0,
@@ -174,9 +159,8 @@ describe('computeBuildingInterior', () => {
 
 describe('fillParallelGaps', () => {
 	/**
-	 * Two long parallel lines with a gap between them, which is how a window is drawn.
-	 * Both earlier attempts fail on exactly this shape: a 2-D closing thickens the band,
-	 * and filling the outline's interior does nothing because the ends are open.
+	 * 两条长平行线之间留缝，即窗户的画法。
+	 * 二维闭运算会加粗条带，而填充轮廓内部因两端敞开而无效。
 	 */
 	function band(gap: number, length = 40) {
 		const w = length;
@@ -195,7 +179,7 @@ describe('fillParallelGaps', () => {
 		expect(filled[(2 + 1 + Math.floor(gap / 2)) * w + 20]).toBe(1);
 		expect(filled[2 * w + 20]).toBe(1);
 		expect(filled[(2 + gap + 1) * w + 20]).toBe(1);
-		// The band did not grow: the rows outside the strokes are still background.
+		// 条带没有外扩：笔画之外的行仍然是背景。
 		expect(filled[1 * w + 20]).toBe(0);
 		expect(filled[(2 + gap + 2) * w + 20]).toBe(0);
 	});
@@ -223,23 +207,21 @@ describe('fillParallelGaps', () => {
 
 describe('minRegionRadius', () => {
 	/**
-	 * A room with a wall cavity beside it, both enclosed.
+	 * 一个房间，旁边有一个同样封闭的墙体空腔。
 	 *
-	 * Two parallel lines with a 16 px gap between them are exactly what a plan drawn with
-	 * a doubled facade produces, and the flood fill cannot enter either space: to the
-	 * interior they are both "inside". Only one of them is a room.
+	 * 双线立面会画出两条平行线并留出间隙，洪水填充无法进入任一空间：两者都被判为内部，但只有一个是房间。
 	 */
 	function roomWithCavity(w = 120, h = 100) {
 		const mask = new Uint8Array(w * h);
 		const line = (x0: number, y0: number, x1: number, y1: number) => {
 			for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) mask[y * w + x] = 1;
 		};
-		// The building: a closed box, 4 px thick.
+		// 建筑：一个 4 px 厚的闭合方框。
 		line(4, 4, w - 5, 8);
 		line(4, h - 9, w - 5, h - 5);
 		line(4, 4, 8, h - 5);
 		line(w - 9, 4, w - 5, h - 5);
-		// The cavity: two lines with a 16 px gap, closed at both ends, inside the box.
+		// 空腔：两条相距 16 px 的平行线，两端封闭，位于方框内。
 		line(20, 20, 100, 22);
 		line(20, 39, 100, 41);
 		line(20, 20, 22, 41);
@@ -253,7 +235,7 @@ describe('minRegionRadius', () => {
 			maxDim: 0,
 			dilateRatio: 0.04,
 			minDilateR: 4,
-			// A 16 px gap has an inscribed radius of ~8, the room's is ~45.
+			// 16 px 的缝隙内切半径约 8，房间的约 45。
 			minRegionRadius: 20
 		});
 		expect(interior[cavity.y * w + cavity.x]).toBe(0);
@@ -261,8 +243,7 @@ describe('minRegionRadius', () => {
 	});
 
 	it('keeps every enclosed region when no threshold is given', () => {
-		// The behaviour before cavities were understood to be a placement bug: the domain
-		// was "everything the fill could not reach", cavity included.
+		// 未设置阈值时，空腔也属于“填充无法到达”的区域，会一并保留。
 		const { mask, w, h, cavity } = roomWithCavity();
 		const { interior } = computeBuildingInterior(mask, w, h, {
 			maxDim: 0,
@@ -273,9 +254,7 @@ describe('minRegionRadius', () => {
 	});
 
 	it('keeps a narrow space when the threshold is below its radius', () => {
-		// The threshold is a radius, and the cavity's is about 8: at 5 it stays, which is
-		// what keeps a genuinely narrow room — a 1.2 m corridor — out of the filter's way
-		// at the real threshold of 0.3 m.
+		// 阈值是半径，空腔的半径约为 8：阈值取 5 时它会被保留，真正狭窄的房间不会被误删。
 		const { mask, w, h, cavity, room } = roomWithCavity();
 		const { interior } = computeBuildingInterior(mask, w, h, {
 			maxDim: 0,

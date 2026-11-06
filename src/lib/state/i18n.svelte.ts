@@ -7,24 +7,24 @@ export const i18nState = $state<{ locale: Locale }>({ locale: 'en' });
 /** 中文译文表：键是英文原文，值是对应的中文。 */
 const zh: Record<string, string> = {
 	// ── 界面框架：工具栏、侧栏、状态栏 ─────────────────────────────
-	File: '文件',
+	File: '项目',
 	'New Project': '新建工程',
-	'Open Project...': '打开工程…',
+	'Open Project...': '打开工程',
 	'Save Project': '保存工程',
-	'Export Project File...': '导出工程文件…',
+	'Export Project File...': '导出工程文件',
 	'Export as PNG': '导出 PNG',
 	'Export as PDF': '导出 PDF',
-	'Click the two ends of a distance you know': '点击图上一条你已知长度的线段两端',
-	'First point: click on the plan.': '第一点：在图上点击。',
-	'Second point: click the other end.': '第二点：点击另一端。',
-	'Now type the real length of that line.': '现在输入这条线的实际长度。',
+	'Click the two ends of a distance you know': '选择一条已知长度的线段两点',
+	'First point: click on the plan.': '在图上点击。',
+	'Second point: click the other end.': '点击另一个端点。',
+	'Now type the real length of that line.': '输入这条线的实际长度。',
 	'or measure a distance on the plan': '或在图上量一段距离',
 	'or measure a distance instead': '或改用量一段距离',
 	'That line has no length — click two different points.': '这条线没有长度——请点击两个不同的点。',
 	'Set by the ft/m switch in the toolbar.': '单位跟随工具栏的 m/ft 开关。',
 	'e.g. 12': '例如 12',
 	'Signal strength': '信号强度',
-	'Click the corners of this floor (at least three), then press Enter.': '依次点击本层的各个角点（至少三个），然后按 Enter 闭合。',
+	'Click the corners of this floor (at least three), then press Enter.': '依次点击本层的各个角点（至少三个）。',
 	'{count} corners — the next click continues the loop; press Enter to close it.': '已有 {count} 个角点——继续点击可延伸轮廓，按 Enter 闭合。',
 	'Confirm area': '确认范围',
 	'Planning area': '规划范围',
@@ -126,9 +126,9 @@ const zh: Record<string, string> = {
 	'Find the best positions for the access points on this floor, keeping how many you placed. The score trades coverage against co-channel interference; both weights are in the optimiser settings.':
 		'在保持 AP 数量不变的前提下，为本层 AP 找最佳位置。评分在覆盖率与同信道干扰之间权衡，权重在优化器设置里。',
 	'Optimise every floor in turn with the others held fixed, and repeat until the building-wide coverage stops improving. Each floor\'s APs stay on their own storey.':
-		'逐层轮流优化（其他层固定不动），重复到整栋覆盖率不再提升。每层的 AP 留在自己那一层。',
+		'逐层轮流优化，重复到整栋覆盖率不再提升。每层的 AP 留在自己那一层。',
 	'Optimise only the floor on screen, leaving every other storey exactly where it is. Cheaper than the all-floor run, but its result is scored without the floors it cannot see.':
-		'只优化屏幕上这一层，其他层一动不动。比整栋运行便宜，但它的结果是在看不见其他层的情况下评分的。',
+		'只优化屏幕上这一层。',
 	'While this is on, a click on the canvas adds an access point. Escape stops.':
 		'打开时，在画布上点一下就会落一个 AP。按 Esc 退出。',
 	'Allow APs outside rooms': '允许 AP 放在房间外',
@@ -136,19 +136,19 @@ const zh: Record<string, string> = {
 		'默认关闭：优化时 AP 只落在识别出的建筑内部。打开后可以落在任何位置，包括墙上。',
 	'Min signal': '最低信号',
 	'Signal below this is left transparent, so the coloured area lines up with the coverage circle around each AP. Raise it (e.g. -70 dBm) to show only the strong core.':
-		'低于这个电平的区域保持透明，所以涂色范围与每个 AP 的覆盖圆一致。调高（例如 −70 dBm）只看强信号核心。',
+		'低于这个电平的区域保持透明。',
 	Interference: '干扰权重',
 	'How much co-channel interference the optimiser trades against coverage: the score is coverage minus this weight times the share of the floor whose best access point is degraded by a co-channel second one. 0 scores coverage alone — the behaviour before the term existed — so it doubles as the A/B switch.':
-		'目标函数里同信道干扰项的权重：分数 = 覆盖率效用 − 权重 × 同信道干扰占比。0 就是「只看覆盖」，也就是这一项存在之前的行为，所以它同时是 A/B 开关。',
+		'目标函数里同信道干扰项的权重：分数 = 覆盖率效用 − 权重 × 同信道干扰占比。',
 	'Min coverage': '最低覆盖率',
 	'ε-constraint: the minimum share of the floor the optimiser\'s result must cover. 0 is no constraint, which is the plain coverage-minus-interference trade. Setting a floor makes the requirement explicit — a weighted sum can only walk the convex part of the coverage/interference front, so a floor is how a non-convex stretch, or a guarantee like \'no less than 90%\', gets expressed.':
-		'ε-约束：优化结果至少要覆盖的楼面占比。0 表示不约束，就是普通的「覆盖率 − 干扰」加权和。设了下限就等于把要求写明——加权和只能走出前沿的凸的部分，要求「不低于 90%」这种话只能靠下限表达。',
+		'优化结果至少要覆盖的楼面占比。',
 	'Client height': '客户端高度',
 	'Height of the client devices above the floor. APs are modelled as ceiling-mounted, so this is the other end of every cross-floor path: it changes both the vertical distance and, through it, the cross-floor loss.':
-		'客户端设备离地高度。AP 按吸顶安装建模，所以它是每条跨楼层路径的另一端：既改变垂直距离，也通过距离改变跨层损耗。',
+		'客户端设备离地高度。',
 	Restarts: '重跑次数',
 	'How many times to run the optimiser on this floor, keeping the best result. Each run starts from a different seed. 1 is fastest; the browser console prints the spread across runs, which says whether the extra ones are buying anything.':
-		'在本层重复跑几次，取最好的一次。每次用不同的随机种子。1 最快；浏览器控制台会打印多次运行之间的离散度，用来说明多跑几次值不值。',
+		'在本层重复跑几次，取最好的一次。每次用不同的随机种子。',
 	'run(s)': '次',
 	Weakest: '最弱',
 	floors: '层',
@@ -172,9 +172,9 @@ const zh: Record<string, string> = {
 		'覆盖率 {coverage}%，目标是 {target}%——大约再加 {count} 个 AP 就能补上差距。',
 	'One access point currently covers {area} on average.': '目前平均每个 AP 覆盖 {area}。',
 	'Coverage {coverage}%, well past the {target}% target — {count} AP(s) look redundant. Remove one and re-run to confirm the figure holds.':
-		'覆盖率 {coverage}%，已经远超 {target}% 的目标——有 {count} 个 AP 可能是多余的。可以先删掉一个再跑一次，确认数值还站得住。',
+		'覆盖率 {coverage}%，已经远超 {target}% 的目标——有 {count} 个 AP 可能是多余的。',
 	'No channel assigned to {count} AP(s) yet — run the channel solver so the interference figure describes this plan.':
-		'还有 {count} 个 AP 没有分配信道——先跑一次信道求解，干扰数据才是在描述当前这套方案。',
+		'还有 {count} 个 AP 没有分配信道。',
 	'Co-channel interference {interference}% and contended airtime {contention}% — lower TX power on the overlapping APs, or space them further apart.':
 		'同信道干扰 {interference}%，争用的空口时间 {contention}%——可以调低重叠 AP 的发射功率，或者把它们拉开一些。',
 	'The building average is {building}% but {floor} is at {coverage}% — move an access point there, or run Optimize all floors with the per-floor minimum enabled.':
@@ -197,11 +197,9 @@ const zh: Record<string, string> = {
 	'The vector reader found nothing wall-shaped in this drawing.':
 		'矢量识别在这张图里没有找到任何墙形的元素。',
 	'The vector reader could not handle this drawing.': '矢量识别无法处理这张图。',
-	'You chose the pixel detector for this plan.': '这张图是你手动选择用像素方式识别的。',
-	'Text masking is unavailable, so labels are being read as walls. Re-detect when the text model can be downloaded.':
-		'文字屏蔽不可用（文字识别模型没能加载），所以图纸上的文字标注会被当成墙。等能下载模型后重新识别一次。',
+	'You chose the pixel detector for this plan.': '手动选择用像素方式识别。',
 	'PDF plans are not supported yet — export the page as a PNG and drop that.':
-		'还不支持 PDF 图纸——请先把那一页导出成 PNG 再拖进来。',
+		'还不支持PDF。',
 	'That file type is not supported — use a PNG, JPEG or SVG.':
 		'不支持这种文件格式——请使用 PNG、JPEG 或 SVG。',
 	'Check the openings and anything unclassified': '核对门窗和未分类的元素',
@@ -246,7 +244,7 @@ const zh: Record<string, string> = {
 	'Timber': '木材',
 	'Steel': '钢材',
 	'{attenuation} dB through the deck': '穿过面层衰减 {attenuation} dB',
-	'Hide the area field': '收起面积输入',
+	'Hide the area field': '收起',
 	'State the total area instead': '改为填写总面积',
 	Line: '直线',
 	Rectangle: '矩形',
@@ -318,6 +316,7 @@ const zh: Record<string, string> = {
 	// ── 画布：图层、工具、房间类型 ───────────────────────────────
 	Layers: '图层',
 	'Signal heatmap': '信号热力图',
+	Heatmap: '热力图',
 	'Walls': '墙体',
 	'Access points': 'AP',
 	'Room labels': '房间标签',
@@ -327,7 +326,7 @@ const zh: Record<string, string> = {
 	Floor: '楼层',
 	'Floor above': '上一层',
 	'The current floor in 3D: walls at their real height, in their material colours. Drag to turn the view.':
-		'当前楼层的三维视图：墙体按真实高度与材质颜色显示，拖动可旋转视角。',
+		'当前楼层的三维视图。',
 	'Plan opacity': '底图不透明度',
 	'Floor plan opacity': '底图不透明度',
 	'Stack rotation': '堆叠旋转',
@@ -353,44 +352,9 @@ const zh: Record<string, string> = {
 	'Clear label': '清除标签',
 
 	PROPERTIES: '属性',
-	'What is the total area of the floorplan?': '平面图的总面积是多少？',
 	'click the canvas': '在画布上点击',
 	'or try a sample:': '或者试试样例：',
-
-	// ── 收集器扫出来的其余所有键 ───────────────
-	// ── 帮助 ────────────────────────────────────────────
-	SHORTCUTS: '快捷键',
-	'GETTING STARTED': '上手',
-	'THE NUMBERS': '读数',
-	SETTINGS: '设置',
-	SOURCES: '出处',
-	Heatmap: '热力图',
-	'Remove selected APs (Backspace too)': '删除选中的 AP（Backspace 也可以）',
-	'Leave place or align mode': '退出放置 / 对齐模式',
-	'Place APs': '放置 AP',
-	'Place APs is a mode, off by default: turn it on (top of the sidebar), click the plan, Esc to leave.':
-		'「放置 AP」是一个模式，默认关闭：打开它（侧栏顶部），在图上点一下落一个，按 Esc 退出。',
-	'Click a wall for its material; right-click a room for its type and density.':
-		'左键点墙改材质；右键点房间设置类型与密度。',
-	'Tap a wall for its material; long-press a room for its type.':
-		'点墙改材质；长按房间设置类型。',
-	'Detect Walls turns the imported plan into a wall mask; Re-detect replaces it and clears every material you painted, so it asks first.':
-		'「识别墙体」把导入的图变成墙体掩码；「重新识别」会替换它并清掉你刷过的材质，所以会先问一次。',
-	'Add floors in the Floorplan tab. The status bar holds zoom, Fit and the single / tiled / stacked views.':
-		'在「平面图」标签页里加楼层。状态栏有缩放、适配，以及单层 / 平铺 / 堆叠三种视图。',
-	'Optimize placement works on the floor on screen; Optimize all floors does every storey and moves the building figure; Export PDF writes the report.':
-		'「优化放置」只管屏幕上这一层；「优化全部楼层」逐层都做，会改动整栋数字；「导出 PDF」生成报告。',
-	'Coverage — the panel\'s one reading: floor share inside some access point\'s coverage circle.':
-		'覆盖率——面板上唯一的读数：落在某个 AP 覆盖圆内的楼面占比。',
-	'Co-channel — floor share whose best access point is within 10 dB of a same-channel second one. The score trades this against coverage, at the Interference weight.':
-		'同信道——最强 AP 与同信道次强 AP 相差 10 dB 以内的楼面占比。目标函数按「干扰权重」拿它和覆盖率做权衡。',
-	'Share airtime (clear-channel assessment) — floor share where two overlapping-channel access points are both above ≈ −82 dBm, so stations defer to one another. Reported, never optimised; a plan can read 0% and 100%, and that pair is the honest picture.':
-		'共享空口时间（CCA）——两个信道重叠的 AP 都强于约 −82 dBm 的楼面占比，此时站点会互相退避。只报告、不优化：一份方案可以读 0% 与 100%，这一对数字才是诚实的全貌。',
-	'Both are off the panel on purpose: they describe a run, so each run prints them (co-channel interference … %, contended (CCA) … %) and the PDF cover repeats them — before a run scores the plan, the line calls the figure an all-co-channel bound.':
-		'这两个数字有意不放在面板上：它们描述的是一次运行，所以每次运行都会打印（co-channel interference … %, contended (CCA) … %），PDF 封面也会重复一遍——还没跑过之前，那行会把它标成「所有 AP 同信道」的上界。',
-	'Behind the gear next to Placement optimiser: Interference (how much co-channel is traded against coverage; 0 scores coverage alone) · Min coverage (ε-constraint: the result must cover at least this much; 0 = off) · Restarts (how many seeds to try, best kept) · Min signal (heatmap floor; below it stays transparent) · Client height and Allow APs outside rooms.':
-		'在「放置优化器」旁边的齿轮里：干扰权重（拿多少同信道去换覆盖率；0 = 只看覆盖）·最低覆盖率（ε-约束：结果至少覆盖这么多；0 = 关闭）·重跑次数（试几个种子，取最好）·最低信号（热力图下限，低于它保持透明）·客户端高度、允许 AP 放在房间外。',
-
+	
 	// ── 帮助对话框的其余部分 ─────────────────────────────────────────
 	'Add floors': '添加楼层',
 	'Click a wall': '点墙',
@@ -495,7 +459,7 @@ const zh: Record<string, string> = {
 	'Editing the selected raised area': '正在编辑选中的抬升面',
 	'Delete raised area': '删除抬升面',
 	'A client on a raised area is measured from its own floor, not the slab. Click an outline to select it; Delete removes it.':
-		'抬升面上的终端以其自身高度（而非楼板）计算。单击轮廓可选中，按 Delete 删除。',
+		'抬升面上的终端以其自身高度计算。单击轮廓可选中，按 Delete 删除。',
 	'Store': '储藏',
 	'WC': '卫',
 	'Elev': '电梯',
@@ -567,7 +531,7 @@ const zh: Record<string, string> = {
 	'Pinned in place': '已固定位置',
 	'Pin position': '固定位置',
 	'The optimiser leaves this access point exactly where it is. It still counts for coverage, interference and channel planning — it is only its position that is fixed.': '优化器不会移动这个 AP；它照常参与覆盖、干扰与信道规划，只是位置被固定。',
-	'Every access point on this floor is pinned in place: there is nothing for the optimiser to move.': '本层所有 AP 都固定了位置：优化器没有可移动的目标。',
+	'Every access point on this floor is pinned in place: there is nothing for the optimiser to move.': '本层所有 AP 都固定了位置，优化器没有可移动的目标。',
 	'Pick a model to fill in band, power and range.': '选择型号可自动填入频段、功率与范围。',
 	'A label for this access point.': '给这个 AP 起个名字。',
 	'2.4 GHz reaches further; 5 and 6 GHz have more channels.': '2.4 GHz 传得更远；5 / 6 GHz 信道更多。',
@@ -597,6 +561,7 @@ const zh: Record<string, string> = {
 	'Detecting…': '识别中…',
 	'Detect walls from the floorplan, or import one first': '从平面图识别墙体，或先导入一张平面图',
 	'Click the canvas to place access points': '在画布上点击以放置 AP',
+	'Place APs': '放置 AP',
 	'Turn on Place APs, then click the canvas': '打开「放置 AP」，然后在画布上点击',
 
 	// ── 帮助对话框与面板里的说明文字 ─────────────────────────────────────

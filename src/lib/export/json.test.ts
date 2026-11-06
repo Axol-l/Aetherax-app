@@ -1,12 +1,6 @@
 /**
- * The file path specifically: `serialize` → text → `deserialize`.
- *
- * `project-document.test.ts` proves the document itself is lossless; this proves the two
- * functions a **file** goes through do not lose anything on the way. They are separate
- * assertions because the bug that prompted them was exactly a gap between the two: the
- * document could hold the vector walls, but the file's own copy of the schema did not
- * mention them, so writing the file dropped them and reading it back could not restore
- * what was never written.
+ * 只测文件往返：`serialize` → 文本 → `deserialize`。
+ * 确认画出的几何、标注和规划区域能写进文件并原样读回。
  */
 import { describe, expect, it } from 'vitest';
 import { deserialize, serialize } from './json.js';
@@ -25,7 +19,7 @@ const PLANNING_AREA = [
 	{ x: 100, y: 100 }
 ];
 
-/** A project with the four things the file format used to drop. */
+/** 带有需要往返校验字段的工程数据。 */
 function project(): Record<string, unknown> {
 	return {
 		version: 3,
@@ -63,7 +57,7 @@ function project(): Record<string, unknown> {
 	};
 }
 
-/** Somewhere else entirely, so nothing can survive the import by accident. */
+/** 内容完全不同的工程，用来确认导入会整体替换。 */
 function blankProject(): Record<string, unknown> {
 	return {
 		version: 3,
@@ -106,7 +100,7 @@ describe('project file', () => {
 		applyDocument(migrate(project())!);
 		const text = await serialize();
 
-		// The file itself has to name the fields; a reader cannot restore what is absent.
+		// 文件里必须写出这些字段，读回时才有内容可恢复。
 		const written = JSON.parse(text) as { floors: Array<Record<string, unknown>> };
 		expect(written.floors[0]!.walls).toEqual(WALLS);
 		expect(written.floors[0]!.columns).toEqual(COLUMNS);
