@@ -5,12 +5,15 @@
 		text,
 		position = 'top',
 		wrap = false,
+		block = false,
 		children
 	}: {
 		text: string;
 		position?: 'top' | 'bottom' | 'left' | 'right';
 		/** Allow multi-line text. Default is single-line (nowrap). */
 		wrap?: boolean;
+		/** Fill the parent instead of shrinking to the child (for full-width buttons). */
+		block?: boolean;
 		children: Snippet;
 	} = $props();
 
@@ -58,6 +61,7 @@
 
 <div
 	class="tooltip-wrapper"
+	class:block
 	role="group"
 	onmouseenter={show}
 	onmouseleave={hide}
@@ -80,6 +84,11 @@
 		   stretched: the wrapper's own inline-flex made the taller of the two the
 		   row's height, so a small icon sat high beside its text. */
 		align-items: center;
+	}
+
+	.tooltip-wrapper.block {
+		display: flex;
+		width: 100%;
 	}
 
 	.tooltip {

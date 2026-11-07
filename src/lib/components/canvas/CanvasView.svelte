@@ -322,8 +322,46 @@ import { wallState } from '$state/wall-state.svelte.js';
 		return true;
 	}
 
+	/**
+	 * Right-click / long-press on a half-finished drawing cancels the draft and stays in the
+	 * tool, so the next click starts a new shape.
+	 */
+	function cancelDrawingDraft(): boolean {
+		if (appState.wallVectorMode) {
+			if (appState.wallVectorDraft) {
+				appState.wallVectorDraft = null;
+				engine?.markDirty();
+			}
+			return true;
+		}
+		if (appState.planningDrawMode) {
+			if (appState.planningDraft.length > 0 || appState.planningDraftClosed) {
+				appState.planningDraft = [];
+				appState.planningDraftClosed = false;
+				engine?.markDirty();
+			}
+			return true;
+		}
+		if (appState.surfaceMode) {
+			if (appState.surfaceDraft) {
+				appState.surfaceDraft = null;
+				engine?.markDirty();
+			}
+			return true;
+		}
+		if (appState.calibrateMode) {
+			if (appState.calibrationPoints.length > 0) {
+				appState.calibrationPoints = [];
+				engine?.markDirty();
+			}
+			return true;
+		}
+		return false;
+	}
+
 	/** Right-click / long-press contextual handler: wall, column, raster or room popup. */
 	function handleContextAction(screenX: number, screenY: number): boolean {
+		if (cancelDrawingDraft()) return true;
 		if (handleVectorColumnContext(screenX, screenY)) return true;
 		if (handleVectorWallContext(screenX, screenY)) return true;
 		if (handleWallClick(screenX, screenY)) return true;

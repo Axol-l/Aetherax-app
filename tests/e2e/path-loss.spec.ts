@@ -66,7 +66,7 @@ test('offers the environments and keeps the choice', async ({ page }) => {
 	await page.goto('/');
 	await page.waitForSelector('canvas');
 	await page.waitForTimeout(3000);
-	await page.getByTitle('Placement optimiser settings').click();
+	await page.getByRole('button', { name: 'Placement optimiser settings' }).click();
 	const select = page.locator('.env-select');
 	await expect(select).toBeVisible();
 	await expect(select).toHaveValue('closedPlan');

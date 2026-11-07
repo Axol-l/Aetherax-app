@@ -66,6 +66,21 @@ test.describe('Raised surfaces', () => {
 		await page.waitForTimeout(300);
 	});
 
+	test('right-click cancels a half-drawn surface and leaves the tool armed', async ({ page }) => {
+		await page.getByRole('button', { name: 'Draw raised area' }).click();
+		const canvas = page.locator('canvas');
+		const box = (await canvas.boundingBox())!;
+		await canvas.click({ position: { x: box.width * 0.35, y: box.height * 0.3 } });
+		await expect(page.getByText('Click the opposite corner. Escape cancels.')).toBeVisible();
+
+		await canvas.click({
+			button: 'right',
+			position: { x: box.width * 0.35, y: box.height * 0.3 }
+		});
+		await expect(page.getByText('Click one corner of the raised area, then the other.')).toBeVisible();
+		expect((await savedFloor(page)).surfaces?.length ?? 0).toBe(0);
+	});
+
 	test('a platform is drawn, saved and counted', async ({ page }) => {
 		await drawSurface(page);
 

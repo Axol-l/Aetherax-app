@@ -128,19 +128,24 @@
 </script>
 
 {#if !optimizerState.isRunning && appState.floorView === 'single'}
-	<button
-		class="place-toggle"
-		class:active={appState.apPlaceMode}
-		aria-pressed={appState.apPlaceMode}
-		title={t('While this is on, a click on the canvas adds an access point. Escape stops.')}
-		onclick={() => setApPlaceMode(!appState.apPlaceMode)}
+	<Tooltip
+		text={t('While this is on, a click on the canvas adds an access point. Escape stops.')}
+		position="top"
+		block
 	>
-		<Icon name="plus" size={14} />
-		{t('Place APs')}
-		{#if appState.apPlaceMode}
-			<span class="place-hint">{t('click the canvas')}</span>
-		{/if}
-	</button>
+		<button
+			class="place-toggle"
+			class:active={appState.apPlaceMode}
+			aria-pressed={appState.apPlaceMode}
+			onclick={() => setApPlaceMode(!appState.apPlaceMode)}
+		>
+			<Icon name="plus" size={14} />
+			{t('Place APs')}
+			{#if appState.apPlaceMode}
+				<span class="place-hint">{t('click the canvas')}</span>
+			{/if}
+		</button>
+	</Tooltip>
 {/if}
 
 <div class="coverage-panel">
@@ -233,16 +238,17 @@
 	{:else}
 		<div class="settings-head">
 			<span class="settings-title">{t('Placement optimiser')}</span>
-			<button
-				class="settings-btn"
-				class:active={settingsOpen}
-				onclick={() => (settingsOpen = !settingsOpen)}
-				title={t('Placement optimiser settings')}
-				aria-label={t('Placement optimiser settings')}
-				aria-expanded={settingsOpen}
-			>
-				<Icon name="settings" size={14} />
-			</button>
+			<Tooltip text={t('Placement optimiser settings')} position="top">
+				<button
+					class="settings-btn"
+					class:active={settingsOpen}
+					onclick={() => (settingsOpen = !settingsOpen)}
+					aria-label={t('Placement optimiser settings')}
+					aria-expanded={settingsOpen}
+				>
+					<Icon name="settings" size={14} />
+				</button>
+			</Tooltip>
 		</div>
 
 		{#if apState.aps.length >= 1}
