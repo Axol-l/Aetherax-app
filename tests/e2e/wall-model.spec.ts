@@ -245,6 +245,43 @@ test.describe('Walls as segments', () => {
 		expect(after!.height).toBe(before.height);
 	});
 
+	test('the eraser clears the derived mask when it removes the last wall', async ({ page }) => {
+		await seedSegments(page);
+		await page.goto('/');
+		await page.waitForSelector('canvas');
+		await page.getByRole('tab', { name: 'Floorplan' }).click();
+		await expect.poll(() => savedWallPixels(page), { timeout: 20_000 }).toBeGreaterThan(200);
+
+		await page.getByRole('button', { name: 'Draw wall' }).click();
+		await page
+			.getByRole('toolbar', { name: 'Wall tools' })
+			.getByRole('button', { name: 'Erase' })
+			.click();
+		const canvas = page.locator('canvas');
+		const box = (await canvas.boundingBox())!;
+		// The seeded room sits at world 100..200 × 100..180; the fitted camera puts it
+		// around x 100..202, y 116..199 inside the canvas at this viewport.
+		const at = (x: number, y: number) => ({ x: box.x + x, y: box.y + y });
+		for (const [from, to] of [
+			[at(97, 116), at(205, 116)],
+			[at(202, 112), at(202, 203)],
+			[at(205, 199), at(97, 199)],
+			[at(100, 203), at(100, 112)]
+		] as const) {
+			await page.mouse.move(from.x, from.y);
+			await page.mouse.down();
+			await page.mouse.move(to.x, to.y, { steps: 12 });
+			await page.mouse.up();
+		}
+		await page
+			.getByRole('toolbar', { name: 'Wall tools' })
+			.getByRole('button', { name: 'Done' })
+			.click();
+
+		await expect.poll(() => savedWallPixels(page), { timeout: 20_000 }).toBe(0);
+		expect((await saved(page)).floors[0]?.walls?.length ?? 0).toBe(0);
+	});
+
 	test('a drawn segment is saved and becomes the mask', async ({ page }) => {
 		await setupCleanState(page);
 		await page.goto('/');

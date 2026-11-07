@@ -1408,9 +1408,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const signature = `${wallsSig}|${colsSig}`;
 		const sameFloor = lastWallsKey.floorId === floor.id;
 		const hadWalls = sameFloor && lastWallsKey.signature !== '|';
-		lastWallsKey = { floorId: floor.id, signature };
-		if (signature === '|' && !hadWalls) return;
+		/*
+		 * While the wall tool is open the drawing can be many strokes long; the mask is
+		 * derived when the tool closes. Do not move `lastWallsKey` forward here: if the
+		 * eraser removes the last wall and the effect records an empty signature, closing
+		 * the tool would see "it was already empty" and leave the old mask on screen.
+		 */
 		if (appState.wallVectorMode) return;
+		if (signature === '|' && !hadWalls) return;
+		if (sameFloor && signature === lastWallsKey.signature) return;
+		lastWallsKey = { floorId: floor.id, signature };
 		if (wallsSyncTimer) clearTimeout(wallsSyncTimer);
 		const emptied = hadWalls && signature === '|';
 		wallsSyncTimer = setTimeout(() => {
@@ -1522,6 +1529,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 		}
 		if (!keptColumns.some((column) => column.id === appState.wallColumnSelected)) {
 			appState.wallColumnSelected = null;
+		}
+		// Clear the derived mask at the moment the last obstruction goes, rather than
+		// waiting for the wall tool to close and leaving stale walls visible in the meantime.
+		if (keptWalls.length === 0 && keptColumns.length === 0) {
+			syncVectorWallsToMask(true);
 		}
 		return true;
 	}
