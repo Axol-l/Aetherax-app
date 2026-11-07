@@ -415,7 +415,6 @@
 
 		<div class="field">
 			<Tooltip
-				wrap
 				text={t('How high the AP is above this floor.')}
 				position="top"
 			>
@@ -439,7 +438,6 @@
 
 		<div class="field">
 			<Tooltip
-				wrap
 				text={t('Beam: the -3 dB width of the pattern. Aim: where its peak points — positive down, negative up, 0 level.')}
 				position="top"
 			>
@@ -477,7 +475,6 @@
 				-->
 				<div class="facing-row">
 					<Tooltip
-						wrap
 						position="top"
 						text={t('Which way the unit looks in the plan: 0° is +x (right), 90° is +y (down). A wall mount radiates forwards and is attenuated behind, so this is the direction its coverage goes.')}
 					>
@@ -533,7 +530,6 @@
 				}}
 			>
 				<Tooltip
-					wrap
 					position="top"
 					text={t('The optimiser leaves this access point exactly where it is. It still counts for coverage, interference and channel planning — it is only its position that is fixed.')}
 				>

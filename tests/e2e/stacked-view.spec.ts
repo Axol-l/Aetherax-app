@@ -196,7 +196,7 @@ async function drawnPixels(page: Page): Promise<number> {
 
 async function stackView(page: Page): Promise<void> {
 	await openFloorplanTab(page);
-	await page.locator('.view-btn[title^="Stack every floor"]').click();
+	await page.locator('.view-btn[aria-label^="Stack every floor"]').click();
 	// The layout is handed to the layer by an effect and the fit runs on the next
 	// frame.
 	await page.waitForTimeout(1200);
@@ -254,12 +254,12 @@ test.describe('Stacked floor overview', () => {
 
 	test('is offered, and frames the whole stack', async ({ page }) => {
 		await openFloorplanTab(page);
-		const button = page.locator('.view-btn[title^="Stack every floor"]');
+		const button = page.locator('.view-btn[aria-label^="Stack every floor"]');
 		await expect(button).toBeVisible();
 		await expect(button).toHaveAttribute('aria-pressed', 'false');
 
 		// One floor on its own, for the ratio below.
-		await page.locator('.view-btn[title^="Show the current floor only"]').click();
+		await page.locator('.view-btn[aria-label^="Show the current floor only"]').click();
 		await page.waitForTimeout(1500);
 		const single = await drawnBounds(page);
 		const singleAspect = single.h / single.w;
@@ -383,7 +383,7 @@ test.describe('Stacked floor overview', () => {
 	test('per-floor coverage is drawn in the stack', async ({ page }) => {
 		await openFloorplanTab(page);
 		await page.locator('.layer-row').filter({ hasText: 'Signal heatmap' }).click();
-		await page.locator('.view-btn[title^="Stack every floor"]').click();
+		await page.locator('.view-btn[aria-label^="Stack every floor"]').click();
 		// Tiles warm one floor per frame.
 		await page.waitForTimeout(6000);
 

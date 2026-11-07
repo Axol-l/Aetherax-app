@@ -231,12 +231,14 @@ test('placement is offered only in the single-floor view', async ({ page }) => {
 	// and the floating bar go away rather than leaving an invisible armed mode.
 	await place.click();
 	await expect(toolbar).toBeVisible();
-	await page.getByTitle('Tile every floor side by side. Click a floor to select it.').click();
+	await page
+		.getByRole('button', { name: 'Tile every floor side by side. Click a floor to select it.' })
+		.click();
 	await expect(place).toHaveCount(0);
 	await expect(toolbar).toHaveCount(0);
 
 	// Back to the plan: the toggle is back, and the mode did not survive the trip.
-	await page.getByTitle('Show the current floor only').click();
+	await page.getByRole('button', { name: 'Show the current floor only' }).click();
 	await expect(place).toBeVisible();
 	await expect(place).toHaveAttribute('aria-pressed', 'false');
 	await expect(toolbar).toHaveCount(0);

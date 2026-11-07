@@ -129,7 +129,7 @@ test('the stacked view exports as an image', async ({ page }) => {
 	await page.waitForSelector('canvas');
 	await page.waitForTimeout(3000);
 
-	await page.locator('.view-btn[title^="Stack every floor"]').click();
+	await page.locator('.view-btn[aria-label^="Stack every floor"]').click();
 	await page.waitForTimeout(1500);
 
 	// The exporter renders at 2x the *canvas* — which is the viewport minus the
@@ -161,7 +161,7 @@ test('the stacked view exports in the PDF report', async ({ page }) => {
 	await page.waitForSelector('canvas');
 	await page.waitForTimeout(3000);
 
-	await page.locator('.view-btn[title^="Stack every floor"]').click();
+	await page.locator('.view-btn[aria-label^="Stack every floor"]').click();
 	await page.waitForTimeout(1500);
 
 	await page.getByRole('button', { name: 'File' }).click();

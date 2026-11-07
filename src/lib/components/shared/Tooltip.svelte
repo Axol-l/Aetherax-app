@@ -4,14 +4,11 @@
 	let {
 		text,
 		position = 'top',
-		wrap = false,
 		block = false,
 		children
 	}: {
 		text: string;
 		position?: 'top' | 'bottom' | 'left' | 'right';
-		/** Allow multi-line text. Default is single-line (nowrap). */
-		wrap?: boolean;
 		/** Fill the parent instead of shrinking to the child (for full-width buttons). */
 		block?: boolean;
 		children: Snippet;
@@ -70,7 +67,7 @@
 >
 	{@render children()}
 	{#if visible}
-		<div class="tooltip tooltip-{position}" class:wrap role="tooltip" bind:this={tooltipEl}>
+		<div class="tooltip tooltip-{position}" role="tooltip" bind:this={tooltipEl}>
 			{displayText}
 		</div>
 	{/if}
@@ -101,16 +98,14 @@
 		padding: var(--space-1) var(--space-2);
 		border-radius: var(--radius-sm);
 		box-shadow: var(--shadow-md);
-		white-space: nowrap;
-		max-width: 220px;
-		pointer-events: none;
-	}
-
-	/* Multi-line variant: allow wrapping and keep the bubble near the anchor. */
-	.tooltip.wrap {
-		white-space: normal;
+		/*
+		 * 宽度取内容的自然宽度，到上限再折行。原先的 `white-space: nowrap` 配上
+		 * `max-width` 不会截断也不会换行，长句会直接画出气泡外，单位切换的注释就是这样。
+		 */
 		width: max-content;
-		max-width: 240px;
+		max-width: 220px;
+		white-space: normal;
+		pointer-events: none;
 	}
 
 	@media (max-width: 768px) {

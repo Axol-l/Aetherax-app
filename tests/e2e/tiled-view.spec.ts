@@ -310,7 +310,7 @@ async function openTiledWithHeatmap(page: Page): Promise<void> {
 	await openFloorplanTab(page);
 	await page.locator('.layer-row').filter({ hasText: 'Signal heatmap' }).click();
 	await page.waitForTimeout(2500);
-	await page.locator('.view-btn[title^="Tile every floor"]').click();
+	await page.locator('.view-btn[aria-label^="Tile every floor"]').click();
 	// Tiles warm one floor per frame.
 	await page.waitForTimeout(6000);
 }
@@ -322,7 +322,7 @@ test('clicking a floor card does not re-frame the tiled overview', async ({ page
 	await page.waitForTimeout(2000);
 	await openFloorplanTab(page);
 
-	await page.locator('.view-btn[title^="Tile every floor"]').click();
+	await page.locator('.view-btn[aria-label^="Tile every floor"]').click();
 	await page.waitForTimeout(800);
 	expect(await activeFloor(page)).toBe('Floor 1');
 	const zoomBefore = await page.locator('.status-item.zoom').innerText();
@@ -458,7 +458,7 @@ test('the sheet colours walls by material, not as a white silhouette', async ({ 
 	await page.waitForSelector('canvas');
 	await page.waitForTimeout(2000);
 	await openFloorplanTab(page);
-	await page.locator('.view-btn[title^="Tile every floor"]').click();
+	await page.locator('.view-btn[aria-label^="Tile every floor"]').click();
 	await page.waitForTimeout(2500);
 
 	expect(await wallTintPixels(page, 'brick')).toBeGreaterThan(500);
@@ -474,7 +474,7 @@ test('the sheet colours walls by material, not as a white silhouette', async ({ 
 	await page.waitForSelector('canvas');
 	await page.waitForTimeout(2000);
 	await openFloorplanTab(page);
-	await page.locator('.view-btn[title^="Tile every floor"]').click();
+	await page.locator('.view-btn[aria-label^="Tile every floor"]').click();
 	await page.waitForTimeout(2500);
 	expect(await wallTintPixels(page, 'brick')).toBeLessThan(200);
 });

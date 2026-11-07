@@ -259,7 +259,6 @@
 		{#if apState.aps.length >= 1}
 			{#if multiFloor}
 				<Tooltip
-					wrap
 					position="top"
 					text={t('Optimise every floor in turn with the others held fixed, and repeat until the building-wide coverage stops improving. Each floor\'s APs stay on their own storey.')}
 				>
@@ -269,7 +268,6 @@
 					</Button>
 				</Tooltip>
 				<Tooltip
-					wrap
 					position="top"
 					text={t('Optimise only the floor on screen, leaving every other storey exactly where it is. Cheaper than the all-floor run, but its result is scored without the floors it cannot see.')}
 				>
@@ -280,7 +278,6 @@
 				</Tooltip>
 			{:else}
 				<Tooltip
-					wrap
 					position="top"
 					text={t('Find the best positions for the access points on this floor, keeping how many you placed. The score trades coverage against co-channel interference; both weights are in the optimiser settings.')}
 				>
@@ -295,7 +292,6 @@
 		{#if settingsOpen}
 			<div class="settings-popup">
 				<Tooltip
-					wrap
 					position="top"
 					text={t('Off by default: optimised APs stay inside the detected building interior. Turn on to let them land anywhere, walls included.')}
 				>
@@ -313,7 +309,6 @@
 				</Tooltip>
 
 				<Tooltip
-					wrap
 					position="top"
 					text={t('Signal below this is left transparent, so the coloured area lines up with the coverage circle around each AP. Raise it (e.g. -70 dBm) to show only the strong core.')}
 				>
@@ -335,7 +330,6 @@
 				</Tooltip>
 
 				<Tooltip
-					wrap
 					position="top"
 					text={t('The signal level used to decide whether a sample counts as covered. It is separate from Min signal, which only controls what the heatmap paints. Raise it to −65 or −60 for high-density offices.')}
 				>
@@ -354,7 +348,6 @@
 				</Tooltip>
 
 				<Tooltip
-					wrap
 					position="top"
 					text={t('How much co-channel interference the optimiser trades against coverage: the score is coverage minus this weight times the share of the floor whose best access point is degraded by a co-channel second one. 0 scores coverage alone — the behaviour before the term existed — so it doubles as the A/B switch.')}
 				>
@@ -376,7 +369,6 @@
 				</Tooltip>
 
 				<Tooltip
-					wrap
 					position="top"
 					text={t('ε-constraint: the minimum share of the floor the optimiser\'s result must cover. 0 is no constraint, which is the plain coverage-minus-interference trade. Setting a floor makes the requirement explicit — a weighted sum can only walk the convex part of the coverage/interference front, so a floor is how a non-convex stretch, or a guarantee like \'no less than 90%\', gets expressed.')}
 				>
@@ -404,7 +396,6 @@
 
 				{#if multiFloor && projectMeta.coverageFloorPct > 0}
 					<Tooltip
-						wrap
 						position="top"
 						text={t('Apply the floor to every storey, not just the one you optimise: an all-floors run gives the weakest floor that falls short one more pass with the floor as its own constraint. A1\'s "no floor below X%", which a weighted sum cannot express.')}
 					>
@@ -423,7 +414,6 @@
 				{/if}
 
 				<Tooltip
-					wrap
 					position="top"
 					text={t('Height of the client devices above the floor. APs are modelled as ceiling-mounted, so this is the other end of every cross-floor path: it changes both the vertical distance and, through it, the cross-floor loss.')}
 				>
@@ -446,7 +436,6 @@
 				</Tooltip>
 
 				<Tooltip
-					wrap
 					position="top"
 					text={t('How many times to run the optimiser on this floor, keeping the best result. Each run starts from a different seed. 1 is fastest; the browser console prints the spread across runs, which says whether the extra ones are buying anything.')}
 				>
@@ -472,7 +461,6 @@
 				</Tooltip>
 
 				<Tooltip
-					wrap
 					position="top"
 					text={t('How much wall loss the distance model already contains. The tabulated value does include a wall allowance and this app also charges every wall the ray crosses, so the more completely the walls are drawn, the lower the value should be: too high makes coverage radii too small and the plan look like it needs more APs.')}
 				>

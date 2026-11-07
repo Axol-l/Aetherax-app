@@ -150,12 +150,10 @@
 				onkeydown={handleNameKeydown}
 			/>
 		{:else}
-			<!-- svelte-ignore a11y_no_static_element_interactions -->
-			<span
-				class="project-name"
-				ondblclick={startRename}
-				title={t('Double-click to rename')}
-			>{projectMeta.name}</span>
+			<Tooltip text={t('Double-click to rename')} position="bottom">
+				<!-- svelte-ignore a11y_no_static_element_interactions -->
+				<span class="project-name" ondblclick={startRename}>{projectMeta.name}</span>
+			</Tooltip>
 		{/if}
 
 		<Dropdown items={fileMenuItems}>

@@ -352,13 +352,13 @@ test.describe('Multi-floor', () => {
 		await alignBtn.click();
 		await expect(page.getByRole('button', { name: 'Drag on canvas…' })).toBeVisible();
 
-		await page.locator('.view-btn[title^="Tile every floor"]').click();
+		await page.locator('.view-btn[aria-label^="Tile every floor"]').click();
 		await page.waitForTimeout(500);
 		await expect(alignX).toBeHidden();
 
 		// Leaving the tiled view brings the control back — and it comes back
 		// *ready*, not stuck in a mode the user can no longer see or leave.
-		await page.locator('.view-btn[title^="Show the current floor only"]').click();
+		await page.locator('.view-btn[aria-label^="Show the current floor only"]').click();
 		await page.waitForTimeout(500);
 		await expect(alignX).toBeVisible();
 		await expect(page.getByRole('button', { name: 'Drag to align' })).toBeVisible();

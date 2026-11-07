@@ -5,6 +5,7 @@
 	import { fitCanvasToContent } from '$canvas/fit.js';
 	import { viewTransition } from '$state/view-transition.svelte.js';
 	import Icon from '$components/shared/Icon.svelte';
+	import Tooltip from '$components/shared/Tooltip.svelte';
 	import { t } from '$state/i18n.svelte';
 
 	function handleFit() {
@@ -49,46 +50,57 @@
 		>
 		<button class="zoom-btn" onclick={handleFit} aria-label={t('Fit to view')}>{t('Fit')}</button>
 		<div class="view-switch" role="group" aria-label={t('Floor view')}>
-			<button
-				class="view-btn"
-				class:active={appState.floorView === 'single'}
-				aria-pressed={appState.floorView === 'single'}
-				disabled={viewTransition.active}
-				title={t('Show the current floor only')}
-				onclick={() => setView('single')}
+			<Tooltip text={t('Show the current floor only')} position="top">
+				<button
+					class="view-btn"
+					class:active={appState.floorView === 'single'}
+					aria-pressed={appState.floorView === 'single'}
+					aria-label={t('Show the current floor only')}
+					disabled={viewTransition.active}
+					onclick={() => setView('single')}
+				>
+					<Icon name="square" size={12} />
+				</button>
+			</Tooltip>
+			<Tooltip text={t('Tile every floor side by side. Click a floor to select it.')} position="top">
+				<button
+					class="view-btn"
+					class:active={appState.floorView === 'tiled'}
+					aria-pressed={appState.floorView === 'tiled'}
+					aria-label={t('Tile every floor side by side. Click a floor to select it.')}
+					disabled={viewTransition.active}
+					onclick={() => setView('tiled')}
+				>
+					<Icon name="grid" size={12} />
+				</button>
+			</Tooltip>
+			<Tooltip text={t('Stack every floor by its height. Click a floor to select it.')} position="top">
+				<button
+					class="view-btn"
+					class:active={appState.floorView === 'stacked'}
+					aria-pressed={appState.floorView === 'stacked'}
+					aria-label={t('Stack every floor by its height. Click a floor to select it.')}
+					disabled={viewTransition.active}
+					onclick={() => setView('stacked')}
+				>
+					<Icon name="stack" size={12} />
+				</button>
+			</Tooltip>
+			<Tooltip
+				text={t('The current floor in 3D: walls at their real height, in their material colours. Drag to turn the view.')}
+				position="top"
 			>
-				<Icon name="square" size={12} />
-			</button>
-			<button
-				class="view-btn"
-				class:active={appState.floorView === 'tiled'}
-				aria-pressed={appState.floorView === 'tiled'}
-				disabled={viewTransition.active}
-				title={t('Tile every floor side by side. Click a floor to select it.')}
-				onclick={() => setView('tiled')}
-			>
-				<Icon name="grid" size={12} />
-			</button>
-			<button
-				class="view-btn"
-				class:active={appState.floorView === 'stacked'}
-				aria-pressed={appState.floorView === 'stacked'}
-				disabled={viewTransition.active}
-				title={t('Stack every floor by its height. Click a floor to select it.')}
-				onclick={() => setView('stacked')}
-			>
-				<Icon name="stack" size={12} />
-			</button>
-			<button
-				class="view-btn"
-				class:active={appState.floorView === 'floor3d'}
-				aria-pressed={appState.floorView === 'floor3d'}
-				disabled={viewTransition.active}
-				title={t('The current floor in 3D: walls at their real height, in their material colours. Drag to turn the view.')}
-				onclick={() => setView('floor3d')}
-			>
-				<Icon name="cube" size={12} />
-			</button>
+				<button
+					class="view-btn"
+					class:active={appState.floorView === 'floor3d'}
+					aria-pressed={appState.floorView === 'floor3d'}
+					aria-label={t('The current floor in 3D: walls at their real height, in their material colours. Drag to turn the view.')}
+					disabled={viewTransition.active}
+					onclick={() => setView('floor3d')}
+				>
+					<Icon name="cube" size={12} />
+				</button>
+			</Tooltip>
 		</div>
 	</div>
 	<div class="status-right"></div>
