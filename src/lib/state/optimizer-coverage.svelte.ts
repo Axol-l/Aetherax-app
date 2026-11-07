@@ -21,7 +21,7 @@ import { decodeMask, type DecodedWallMask } from '$canvas/mask-codec.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
 import { getMaterialDbTable } from '$lib/domain/materials.js';
 import { buildRoomDomain } from '$canvas/rooms.js';
-import { COVERAGE_MARGIN_DB, coverageMarginDb, coverageHorizontalReach, slabDbOf } from '$lib/rf/propagation.js';
+import { coverageMarginDb, coverageThresholdMarginDb, coverageHorizontalReach, slabDbOf } from '$lib/rf/propagation.js';
 import { violatesAt } from '$lib/rf/interference.js';
 import { slabLossFactor, type SlabCrossing } from '$lib/rf/cross-floor.js';
 import { splitWallRunLoss, wallRunLoss, type WallRun } from '$lib/rf/link-budget.js';
@@ -47,6 +47,7 @@ let cachedMaskOriginY = 0;
 let cachedMask: DecodedWallMask | null = null;
 let cachedSamples: Array<{ x: number; y: number }> | null = null;
 let cachedSamplePixelIdx: number[] | null = null;
+let cachedInteriorPixelCount = 0;
 /**
  * 密度图和它的输入。为什么缓存见使用处；缓存安不安全全靠这个 key。
  */
@@ -139,6 +140,7 @@ async function ensureCoverageCache(): Promise<boolean> {
 	 * 实时覆盖在多少个点上采样
 	 */
 	const sampleCount = Math.min(140, interiorPixels.length);
+	cachedInteriorPixelCount = interiorPixels.length;
 	const step = interiorPixels.length / sampleCount;
 	cachedSamples = [];
 	cachedSamplePixelIdx = [];
@@ -469,7 +471,7 @@ export async function updateCoverage(): Promise<void> {
 			}
 		}
 		const w = sampleDensity[i] ?? 1;
-		if (bestMargin >= COVERAGE_MARGIN_DB) coveredWeight += w;
+		if (bestMargin >= coverageThresholdMarginDb()) coveredWeight += w;
 		for (let k = 0; k < margins.length; k++) {
 			if (!(margins[k]! > 0)) margins[k] = -Infinity;
 		}
@@ -489,9 +491,17 @@ export async function updateCoverage(): Promise<void> {
 	// );
 
 	// 缓存每层的覆盖率（用采样点数当面积权重）
+	const pixelsPerSample =
+		cachedSamples.length > 0 ? cachedInteriorPixelCount / cachedSamples.length : 0;
+	const devices = densityResult
+		? sampleDensity.reduce((sum, value) => sum + value, 0) *
+			pixelsPerSample *
+			(1 / (wupmForGap * wupmForGap))
+		: 0;
 	floorCoverage.set(curFloorId, {
 		coverage: optimizerState.coverage,
 		samples: cachedSamples.length,
+		devices: Math.round(devices),
 		basis: coverageBasis(curFloorId)
 	});
 }

@@ -6,17 +6,19 @@ import { buildRoomDomain } from '../canvas/rooms.js';
 import { clipInteriorToPlanningArea } from '../state/planning-area.js';
 import { isVoidRoomType } from '$lib/domain/room-types.js';
 import {
-	COVERAGE_MARGIN_DB,
 	COVERAGE_THRESHOLD_DBM,
 	DEFAULT_COVERAGE_SOFTNESS_DB,
 	DEFAULT_PATH_LOSS_SCENARIO,
 	coverageHorizontalReach,
 	coverageMarginDb,
+	coverageThresholdDbm,
+	coverageThresholdMarginDb,
 	ccaThresholdDbm,
 	coverageUtilityAboveThreshold,
 	rangeFromPower,
 	reachAtMargin,
 	slabDbOf,
+	setCoverageThresholdDbm,
 	setPathLossScenario
 } from '../rf/propagation.js';
 import { slabLossFactor } from '../rf/cross-floor.js';
@@ -341,7 +343,7 @@ function sourceMargin(
 	// `dist` 只是水平距离；可达范围按 3D 算，所以需要竖直高度差。
 	if (dist >= coverageHorizontalReach(radius, lossDb, verticalGap, horizonDb)) return -Infinity;
 	const d3 = verticalGap > 0 ? Math.hypot(dist, verticalGap) : dist;
-	return coverageMarginDb(d3, radius) - lossDb - COVERAGE_MARGIN_DB;
+	return coverageMarginDb(d3, radius) - lossDb - coverageThresholdMarginDb();
 }
 
 /**
@@ -590,7 +592,7 @@ const CCA_BELOW_THRESHOLD_DB = 12;
  * 本次运行的终端会让路到覆盖阈值以下多少 dB。
  */
 function ccaBelowCoverageDb(ctx: EvalContext): number {
-	return COVERAGE_THRESHOLD_DBM - ccaThresholdDbm(ctx.minChannelWidthMhz);
+	return coverageThresholdDbm() - ccaThresholdDbm(ctx.minChannelWidthMhz);
 }
 
 /**
@@ -785,6 +787,7 @@ async function runOptimization(
 	if (msg.payloadVersion !== undefined) assertApPayload(aps as unknown as Array<Record<string, unknown>>);
 
 	setPathLossScenario(msg.pathLossScenario ?? DEFAULT_PATH_LOSS_SCENARIO);
+	setCoverageThresholdDbm(msg.coverageThresholdDbm ?? COVERAGE_THRESHOLD_DBM);
 
 	// 用户自定义材质要在打分之前注册：墙的走线通过 `getMaterialDbTable` 读表
 	registerCustomMaterials(

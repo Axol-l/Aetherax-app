@@ -8,6 +8,7 @@ import { defaultAntenna } from '../rf/antenna.js';
 import {
 	DEFAULT_COVERAGE_SOFTNESS_DB,
 	DEFAULT_PATH_LOSS_SCENARIO,
+	setCoverageThresholdDbm,
 	setPathLossScenario,
 	type PathLossScenario
 } from '../rf/propagation.js';
@@ -106,6 +107,8 @@ export interface ProjectDocumentV3 {
 	targetThroughput: number;
 	allowOutsideRooms: boolean;
 	heatmapRssiFloor: number;
+	coverageThresholdDbm: number;
+	clientsPerAp: number;
 	clientHeight: number;
 	interferenceWeight: number;
 	coverageSoftnessDb: number;
@@ -192,6 +195,8 @@ export function toDocument(options: ToDocumentOptions = {}): ProjectDocumentV3 {
 		targetThroughput: projectMeta.targetThroughput,
 		allowOutsideRooms: projectMeta.allowOutsideRooms,
 		heatmapRssiFloor: projectMeta.heatmapRssiFloor,
+		coverageThresholdDbm: projectMeta.coverageThresholdDbm,
+		clientsPerAp: projectMeta.clientsPerAp,
 		clientHeight: projectMeta.clientHeight,
 		interferenceWeight: projectMeta.interferenceWeight,
 		coverageSoftnessDb: projectMeta.coverageSoftnessDb,
@@ -340,6 +345,8 @@ export function migrate(raw: unknown): ProjectDocumentV3 | null {
 		targetThroughput: data.targetThroughput ?? 25,
 		allowOutsideRooms: data.allowOutsideRooms ?? false,
 		heatmapRssiFloor: data.heatmapRssiFloor ?? -70,
+		coverageThresholdDbm: data.coverageThresholdDbm ?? -70,
+		clientsPerAp: data.clientsPerAp ?? 25,
 		clientHeight: data.clientHeight ?? 1.5,
 		interferenceWeight: data.interferenceWeight ?? 0.2,
 		coverageSoftnessDb: data.coverageSoftnessDb ?? DEFAULT_COVERAGE_SOFTNESS_DB,
@@ -483,6 +490,8 @@ export function applyDocument(
 	projectMeta.targetThroughput = doc.targetThroughput;
 	projectMeta.allowOutsideRooms = doc.allowOutsideRooms;
 	projectMeta.heatmapRssiFloor = doc.heatmapRssiFloor;
+	projectMeta.coverageThresholdDbm = doc.coverageThresholdDbm;
+	projectMeta.clientsPerAp = doc.clientsPerAp;
 	projectMeta.clientHeight = doc.clientHeight;
 	projectMeta.interferenceWeight = doc.interferenceWeight;
 	projectMeta.coverageSoftnessDb = doc.coverageSoftnessDb;
@@ -505,6 +514,7 @@ export function applyDocument(
 
 	// 存下来的半径是按写文档时的传播模型算的，所以先选模型，再把半径重新推一遍。
 	setPathLossScenario(projectMeta.pathLossScenario);
+	setCoverageThresholdDbm(projectMeta.coverageThresholdDbm);
 	refreshApRanges();
 
 	/*

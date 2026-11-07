@@ -7,7 +7,8 @@
 		optimizeAllFloors,
 		cancelOptimizer,
 		floorCoverage,
-		getBuildingCoverage
+		getBuildingCoverage,
+		updateCoverage
 	} from '$state/optimizer.svelte';
 	import { floorState } from '$state/floor-state.svelte';
 	import { appState, setApPlaceMode } from '$state/app.svelte';
@@ -24,6 +25,7 @@
 	import {
 		PATH_LOSS_SCENARIOS,
 		pathLossScenario,
+		setCoverageThresholdDbm,
 		type PathLossScenario
 	} from '$lib/rf/propagation.js';
 	import {
@@ -69,7 +71,29 @@
 	const lengthDisplayUnit = $derived(lengthUnit(floorplanState.unitSystem));
 	const clientHeightHints = $derived(lengthInputHints(0.5, 3, 0.1, lengthDisplayUnit));
 
+	function applyCoverageThreshold(value: number): void {
+		const threshold = Math.min(-55, Math.max(-85, Number(value)));
+		if (!Number.isFinite(threshold)) return;
+		projectMeta.coverageThresholdDbm = threshold;
+		setCoverageThresholdDbm(threshold);
+		scheduleSave();
+		void updateCoverage();
+	}
+
+	function applyClientsPerAp(value: number): void {
+		const clients = Math.min(200, Math.max(0, Math.round(Number(value))));
+		if (!Number.isFinite(clients)) return;
+		projectMeta.clientsPerAp = clients;
+		scheduleSave();
+	}
+
 	const buildingPct = $derived(getBuildingCoverage());
+	const deviceLoad = $derived(floorCoverage.get(floorState.currentFloorId)?.devices ?? 0);
+	const capacityAps = $derived(
+		projectMeta.clientsPerAp > 0 && deviceLoad > 0
+			? Math.ceil(deviceLoad / projectMeta.clientsPerAp)
+			: 0
+	);
 
 	const worstFloor = $derived.by(() => {
 		let worst: { id: string; name: string; coverage: number } | null = null;
@@ -131,6 +155,16 @@
 						style="width: {optimizerState.coverage}%"
 					></div>
 				</div>
+			</div>
+		{/if}
+
+		{#if capacityAps > 0}
+			<div class="capacity-line">
+				{t('{devices} devices · {required} APs needed at {perAp}/AP', {
+					devices: deviceLoad,
+					required: capacityAps,
+					perAp: projectMeta.clientsPerAp
+				})}
 			</div>
 		{/if}
 
@@ -273,6 +307,44 @@
 								))}
 						/>
 						<span class="setting-value">{projectMeta.heatmapRssiFloor} dBm</span>
+					</label>
+				</Tooltip>
+
+				<Tooltip
+					wrap
+					position="top"
+					text={t('The signal level used to decide whether a sample counts as covered. It is separate from Min signal, which only controls what the heatmap paints. Raise it to −65 or −60 for high-density offices.')}
+				>
+					<label class="setting-row slider-row">
+						<span class="setting-title">{t('Coverage threshold')}</span>
+						<input
+							type="number"
+							min="-85"
+							max="-55"
+							step="1"
+							value={projectMeta.coverageThresholdDbm}
+							onchange={(e) => applyCoverageThreshold(Number(e.currentTarget.value))}
+						/>
+						<span class="setting-value">{projectMeta.coverageThresholdDbm} dBm</span>
+					</label>
+				</Tooltip>
+
+				<Tooltip
+					wrap
+					position="top"
+					text={t('Concurrent clients one access point is planned to carry. The floor\'s room densities estimate the device count; the advice then checks that the AP count is at least that many clients divided by this figure. Set 0 to turn the capacity check off.')}
+				>
+					<label class="setting-row slider-row">
+						<span class="setting-title">{t('Clients per AP')}</span>
+						<input
+							type="number"
+							min="0"
+							max="200"
+							step="1"
+							value={projectMeta.clientsPerAp}
+							onchange={(e) => applyClientsPerAp(Number(e.currentTarget.value))}
+						/>
+						<span class="setting-value">{projectMeta.clientsPerAp || t('Off')}</span>
 					</label>
 				</Tooltip>
 
@@ -476,6 +548,12 @@
 		display: flex;
 		flex-direction: column;
 		gap: 4px;
+	}
+
+	.capacity-line {
+		margin-top: 2px;
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
 	}
 
 	.metric-head {

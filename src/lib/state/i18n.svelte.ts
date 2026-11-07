@@ -137,6 +137,15 @@ const zh: Record<string, string> = {
 	'Min signal': '最低信号',
 	'Signal below this is left transparent, so the coloured area lines up with the coverage circle around each AP. Raise it (e.g. -70 dBm) to show only the strong core.':
 		'低于这个电平的区域保持透明。',
+	'Coverage threshold': '覆盖门限',
+	'The signal level used to decide whether a sample counts as covered. It is separate from Min signal, which only controls what the heatmap paints. Raise it to −65 or −60 for high-density offices.':
+		'判定一个采样点是否被覆盖的信号电平。它和 Min signal 分开：后者只控制热力图着色。高密度办公区可以提高到 −65 或 −60 dBm。',
+	'Clients per AP': '每个 AP 的终端数',
+	'Concurrent clients one access point is planned to carry. The floor\'s room densities estimate the device count; the advice then checks that the AP count is at least that many clients divided by this figure. Set 0 to turn the capacity check off.':
+		'规划中每个 AP 承载的并发终端数。房间密度会估算本层终端数，建议会检查 AP 数量是否达到“终端数 ÷ 这个值”。设为 0 可关闭容量约束。',
+	Off: '关闭',
+	'{devices} devices · {required} APs needed at {perAp}/AP':
+		'{devices} 个终端 · 按每 AP {perAp} 个计算，需要 {required} 个 AP',
 	Interference: '干扰权重',
 	'How much co-channel interference the optimiser trades against coverage: the score is coverage minus this weight times the share of the floor whose best access point is degraded by a co-channel second one. 0 scores coverage alone — the behaviour before the term existed — so it doubles as the A/B switch.':
 		'目标函数里同信道干扰项的权重：分数 = 覆盖率效用 − 权重 × 同信道干扰占比。',
@@ -160,6 +169,9 @@ const zh: Record<string, string> = {
 	'Placement advice': '放置建议',
 	Dismiss: '关闭',
 	'Set the scale': '先设置比例',
+	'Client capacity': '终端容量',
+	'About {devices} concurrent devices at {perAp} per AP need {required} access points; this floor has {current}. Add {count} more.':
+		'约 {devices} 个并发终端，每个 AP 承载 {perAp} 个，需要 {required} 个 AP；本层现有 {current} 个，还需要增加 {count} 个。',
 	'Add access points': '增加 AP',
 	'Remove access points': '减少 AP',
 	'Assign channels': '分配信道',

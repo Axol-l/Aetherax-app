@@ -128,6 +128,10 @@ export interface OptimizeMessage {
 	 */
 	pathLossScenario?: PathLossScenario;
 	/**
+	 * 覆盖门限，单位 dBm。不传就用默认的 −70 dBm。
+	 */
+	coverageThresholdDbm?: number;
+	/**
 	 * 这次运行允许给每个 AP 的发射功率档位，单位 dBm，降序；按消息里 AP 的顺序，一个 AP 一个列表（见 `ApInput`）。
 	 *
 	 * 不传就表示功率不是决策变量，每个 AP 保留消息里给的半径。

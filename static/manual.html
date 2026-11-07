@@ -31,7 +31,7 @@
 </head>
 <body>
 <h1>Aetherax 使用说明书</h1>
-<p>适用版本：Windows 桌面版 0.2.0。本手册按 English 界面编写。</p>
+<p>适用版本：Windows 桌面版 0.1.0。本手册按 English 界面编写；点击工具栏右侧的 EN/中 可以切换中文界面。</p>
 <h2>目录</h2>
 <ol>
 <li>启动与界面</li>
@@ -367,7 +367,8 @@
 <li>多楼层工程显示 Whole building 平均值、最弱楼层和已测量楼层数。</li>
 <li>点击 Whole building 标题可以展开计算说明。</li>
 </ol>
-<p>覆盖率按密度加权，房间类型和密度会影响结果。</p>
+<p>覆盖率按密度加权，房间类型和密度会影响结果。它回答的是“多少比例的加权采样点达到覆盖门限”，不是终端容量；覆盖门限默认 −70 dBm，可在优化器设置里修改。</p>
+<p>Coverage 下方还会按房间密度估算本层并发终端数，并按“每个 AP 的终端数”给出建议 AP 数量。例如 86 个终端、每 AP 25 个时，建议至少 4 个 AP。</p>
 <h3>10.2 优化放置</h3>
 <p>单层工程：</p>
 <ol>
@@ -386,7 +387,9 @@
 <p>点击 Placement optimiser 右侧的齿轮：</p>
 <ol>
 <li>Allow APs outside rooms：允许 AP 落在房间外，默认关闭。</li>
-<li>Min signal：热力图最低信号门限，-95 到 -55 dBm，步长 5。</li>
+<li>Min signal：热力图最低信号门限，-95 到 -55 dBm，步长 5。只影响热力图着色。</li>
+<li>Coverage threshold：覆盖率判定门限，默认 -70 dBm；高密度办公区可提高到 -65 或 -60。</li>
+<li>Clients per AP：每个 AP 计划承载的并发终端数，默认 25；设为 0 关闭容量约束。</li>
 <li>Interference：同信道干扰在评分中的权重，0 到 1，步长 0.05。</li>
 <li>Min coverage：最低覆盖率约束，0 表示不约束。</li>
 <li>Every floor：多楼层时把最低覆盖率约束应用到每一层。</li>
@@ -394,9 +397,9 @@
 <li>Restarts：优化重启次数，1 到 8。</li>
 <li>Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。</li>
 </ol>
-<p>影响优化评分的设置需要重新运行优化才会生效；Min signal 会立即改变热力图。</p>
+<p>影响优化评分的设置需要重新运行优化才会生效；Min signal 会立即改变热力图，Coverage threshold 会立即重算覆盖率。</p>
 <h3>10.4 放置建议</h3>
-<p>Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。点击 Dismiss 关闭。</p>
+<p>Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。容量约束触发时会单独显示“Client capacity”，说明按房间密度估算的终端数和建议 AP 数；此时不会仅因为覆盖率高就提示删除 AP。点击 Dismiss 关闭。</p>
 <h3>10.5 信道分配</h3>
 <p>信道由求解器自动分配。需要固定某个 AP 的信道时，在 AP 编辑页把 Channel 从 Auto 改为具体信道。固定后该 AP 不再参与信道重分配。</p>
 <h2>11. 热力图与图层</h2>
@@ -603,7 +606,8 @@
 <li>检查墙体是否识别完整，墙洞是否过大。</li>
 <li>检查规划范围是否覆盖真实楼层。</li>
 <li>检查房间类型和密度是否合理。</li>
-<li>检查 Min signal 是否与评估标准一致。</li>
+<li>检查 Coverage threshold 是否与评估标准一致（默认 −70 dBm，不是 Min signal）。</li>
+<li>检查 Propagation 是否按墙体绘制程度选择；墙体已完整绘制时用 Walls drawn in full。高密度办公区还要检查 Clients per AP 和本层终端估算。</li>
 </ol>
 <h3>18.4 优化器没有改变布局</h3>
 <ol>

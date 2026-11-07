@@ -3,6 +3,7 @@
 /** What a finding is about. The renderer owns the wording, this owns the rule. */
 export type AdviceKind =
 	| 'calibrate'
+	| 'capacity'
 	| 'add-aps'
 	| 'remove-aps'
 	| 'assign-channels'
@@ -48,6 +49,10 @@ export interface AdviceContext {
 	interference: number;
 	/** Contended airtime share, 0..100. */
 	contention: number;
+	/** Estimated concurrent devices on the floor, from room density. 0 when unknown. */
+	devices: number;
+	/** Concurrent clients one AP is planned to carry. 0 disables the capacity check. */
+	clientsPerAp: number;
 	/** The requirement: the ε-constraint when set, otherwise the default target. */
 	target: number;
 	/** Access points with no channel from the solver. */
@@ -86,9 +91,25 @@ export function evaluateApAdvice(ctx: AdviceContext): AdviceFinding[] {
 	const findings: AdviceFinding[] = [];
 	const target = ctx.target > 0 ? ctx.target : DEFAULT_COVERAGE_TARGET;
 	const base = { coverage: Math.round(ctx.coverage), target: Math.round(target) };
+	const requiredAps =
+		ctx.clientsPerAp > 0 && ctx.devices > 0 ? Math.ceil(ctx.devices / ctx.clientsPerAp) : 0;
+	const capacityShortfall = requiredAps > ctx.apsOnFloor;
 
 	if (!ctx.calibrated) {
 		findings.push({ kind: 'calibrate', severity: 'info', params: {} });
+	}
+
+	if (capacityShortfall) {
+		findings.push({
+			kind: 'capacity',
+			severity: 'action',
+			params: {
+				devices: Math.round(ctx.devices),
+				perAp: ctx.clientsPerAp,
+				required: requiredAps,
+				current: ctx.apsOnFloor
+			}
+		});
 	}
 
 	if (ctx.apsOnFloor > 0 && ctx.coverage < target) {
@@ -100,6 +121,8 @@ export function evaluateApAdvice(ctx: AdviceContext): AdviceFinding[] {
 		}
 		findings.push({ kind: 'add-aps', severity: 'action', params });
 	} else if (
+		!capacityShortfall &&
+		(requiredAps === 0 || ctx.apsOnFloor > requiredAps) &&
 		ctx.apsOnFloor >= 2 &&
 		ctx.coverage - target >= SURPLUS_FOR_REMOVAL &&
 		ctx.coverage > 0

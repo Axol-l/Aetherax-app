@@ -272,6 +272,7 @@ async function optimizeFloor(
 					regulatoryDomain: apState.regulatoryDomain,
 					coverageSoftnessDb: projectMeta.coverageSoftnessDb,
 					pathLossScenario: projectMeta.pathLossScenario,
+					coverageThresholdDbm: projectMeta.coverageThresholdDbm,
 					// 求解器配色的图必须和运行计分时用的是同一个客户高度，
 					// 所以这部分几何也得传，不然有夹层的地方两边就会对不上。
 					surfaces: (floor.surfaces ?? []).map((surface) => ({
@@ -389,6 +390,8 @@ async function optimizeFloor(
 				coverageSoftnessDb: projectMeta.coverageSoftnessDb,
 				// 距离项用的传播环境。Worker 读不到项目状态，所以每次运行都得带上。
 				pathLossScenario: projectMeta.pathLossScenario,
+				// 覆盖门限同理：改变了这一项，运行结果和面板的那根条才会一致。
+				coverageThresholdDbm: projectMeta.coverageThresholdDbm,
 				// 把监管域传过去，Worker 才会重新配色：它由此知道各频段的信道表和所有钉死的信道，
 				// 于是每个布局都按它自己当时最优的分配来评分，而不是沿用搜索挪动之前的旧分配。
 				regulatoryDomain: apState.regulatoryDomain

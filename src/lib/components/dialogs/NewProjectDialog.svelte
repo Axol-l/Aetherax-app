@@ -6,7 +6,7 @@
 	import { clearHistory } from '$state/history.svelte';
 	import { clearSavedState } from '$state/persistence.svelte';
 	import { floorState } from '$state/floor-state.svelte';
-	import { DEFAULT_COVERAGE_SOFTNESS_DB } from '../../rf/propagation.js';
+	import { DEFAULT_COVERAGE_SOFTNESS_DB, setCoverageThresholdDbm } from '../../rf/propagation.js';
 	import { t } from '$state/i18n.svelte';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
 	import { projectMeta } from '$state/project-meta.svelte.js';
@@ -44,6 +44,9 @@
 		projectMeta.targetThroughput = 25;
 		projectMeta.allowOutsideRooms = false;
 		projectMeta.heatmapRssiFloor = -70;
+		projectMeta.coverageThresholdDbm = -70;
+		projectMeta.clientsPerAp = 25;
+		setCoverageThresholdDbm(-70);
 		// Default weight of the co-channel interference term in the objective.
 		projectMeta.interferenceWeight = 0.2;
 		// And the objective's threshold softness, back to the shipped default.

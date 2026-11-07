@@ -17,6 +17,8 @@ function context(overrides: Partial<AdviceContext> = {}): AdviceContext {
 		coverage: 85,
 		interference: 5,
 		contention: 5,
+		devices: 0,
+		clientsPerAp: 25,
 		target: DEFAULT_COVERAGE_TARGET,
 		unassigned: 0,
 		calibrated: true,
@@ -92,6 +94,30 @@ describe('coverage surplus', () => {
 		// 90% clears the default target, and is short against a 95% requirement.
 		expect(kinds(context({ coverage: 90, target: 80 }))).toEqual(['meets-target']);
 		expect(kinds(context({ coverage: 90, target: 95 }))).toContain('add-aps');
+	});
+});
+
+describe('client capacity', () => {
+	it('asks for enough APs to carry the estimated devices', () => {
+		const finding = evaluateApAdvice(
+			context({ devices: 100, clientsPerAp: 25, apsOnFloor: 2, coverage: 98 })
+		).find((f) => f.kind === 'capacity');
+		expect(finding?.severity).toBe('action');
+		expect(finding?.params.required).toBe(4);
+		expect(finding?.params.current).toBe(2);
+	});
+
+	it('does not call APs redundant while the capacity requirement still needs them', () => {
+		const findings = evaluateApAdvice(
+			context({ devices: 100, clientsPerAp: 25, apsOnFloor: 4, coverage: 98 })
+		);
+		expect(findings.map((f) => f.kind)).not.toContain('remove-aps');
+	});
+
+	it('turns the check off when clientsPerAp is zero', () => {
+		expect(
+			kinds(context({ devices: 500, clientsPerAp: 0, apsOnFloor: 1, coverage: 85 }))
+		).not.toContain('capacity');
 	});
 });
 

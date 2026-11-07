@@ -392,7 +392,9 @@ Allow APs outside rooms 关闭时，手动点击范围外会拒绝放置并给�
 3. 多楼层工程显示 Whole building 平均值、最弱楼层和已测量楼层数。
 4. 点击 Whole building 标题可以展开计算说明。
 
-覆盖率按密度加权，房间类型和密度会影响结果。
+覆盖率按密度加权，房间类型和密度会影响结果。它回答的是“多少比例的加权采样点达到覆盖门限”，不是终端容量；覆盖门限默认 −70 dBm，可在优化器设置里修改。
+
+Coverage 下方还会按房间密度估算本层并发终端数，并按“每个 AP 的终端数”给出建议 AP 数量。例如 86 个终端、每 AP 25 个时，建议至少 4 个 AP。
 
 ### 10.2 优化放置
 
@@ -415,19 +417,21 @@ Allow APs outside rooms 关闭时，手动点击范围外会拒绝放置并给�
 点击 Placement optimiser 右侧的齿轮：
 
 1. Allow APs outside rooms：允许 AP 落在房间外，默认关闭。
-2. Min signal：热力图最低信号门限，-95 到 -55 dBm，步长 5。
-3. Interference：同信道干扰在评分中的权重，0 到 1，步长 0.05。
-4. Min coverage：最低覆盖率约束，0 表示不约束。
-5. Every floor：多楼层时把最低覆盖率约束应用到每一层。
-6. Client height：客户端离地高度。
-7. Restarts：优化重启次数，1 到 8。
-8. Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。
+2. Min signal：热力图最低信号门限，-95 到 -55 dBm，步长 5。只影响热力图着色。
+3. Coverage threshold：覆盖率判定门限，默认 -70 dBm；高密度办公区可提高到 -65 或 -60。
+4. Clients per AP：每个 AP 计划承载的并发终端数，默认 25；设为 0 关闭容量约束。
+5. Interference：同信道干扰在评分中的权重，0 到 1，步长 0.05。
+6. Min coverage：最低覆盖率约束，0 表示不约束。
+7. Every floor：多楼层时把最低覆盖率约束应用到每一层。
+8. Client height：客户端离地高度。
+9. Restarts：优化重启次数，1 到 8。
+10. Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。
 
-影响优化评分的设置需要重新运行优化才会生效；Min signal 会立即改变热力图。
+影响优化评分的设置需要重新运行优化才会生效；Min signal 会立即改变热力图，Coverage threshold 会立即重算覆盖率。
 
 ### 10.4 放置建议
 
-Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。点击 Dismiss 关闭。
+Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。容量约束触发时会单独显示“Client capacity”，说明按房间密度估算的终端数和建议 AP 数；此时不会仅因为覆盖率高就提示删除 AP。点击 Dismiss 关闭。
 
 ### 10.5 信道分配
 
@@ -615,7 +619,8 @@ Layers 面板底部显示信号强度色标。色标范围随 Min signal 变化�
 2. 检查墙体是否识别完整，墙洞是否过大。
 3. 检查规划范围是否覆盖真实楼层。
 4. 检查房间类型和密度是否合理。
-5. 检查 Min signal 是否与评估标准一致。
+5. 检查 Coverage threshold 是否与评估标准一致（默认 −70 dBm，不是 Min signal）。
+6. 检查 Propagation 是否按墙体绘制程度选择；墙体已完整绘制时用 Walls drawn in full。高密度办公区还要检查 Clients per AP 和本层终端估算。
 
 ### 18.4 优化器没有改变布局
 

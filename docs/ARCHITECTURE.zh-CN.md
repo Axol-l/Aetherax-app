@@ -111,7 +111,7 @@ docs/             架构、手册、测量与修复计划
 | `app.css` | 全局样式、布局变量、滚动条、通用控件基础样式。 |
 | `src/lib/log.ts` | 调试日志开关；构建时默认静默，e2e 构建开启。 |
 | `src/lib/units.ts` | 米/英尺显示与输入换算、长度单位提示。 |
-| `src/lib/ap-advice.ts` | 根据覆盖率、AP 数量、干扰生成放置建议。 |
+| `src/lib/ap-advice.ts` | 根据覆盖率、终端容量、AP 数量、干扰生成放置建议。 |
 | `src/lib/ap-advice.test.ts` | 验证放置建议的阈值与文案分支。 |
 | `src/lib/motion.ts` | 动画时长与 `prefers-reduced-motion` 判定，供弹窗过渡使用。 |
 | `src/lib/units.test.ts` | 验证长度单位选择、显示与输入换算。 |
@@ -378,7 +378,7 @@ docs/             架构、手册、测量与修复计划
 | `path-loss-state.svelte.ts` | 传播场景切换，同时重算所有 AP 半径。 |
 | `optimizer-state.svelte.ts` | 优化器可观察状态、每层覆盖率缓存与失效。 |
 | `optimizer-support.ts` | payload 转换、密度图、跨层楼板列表、功率级别。 |
-| `optimizer-coverage.svelte.ts` | 实时覆盖率估计：采样、跨层虚拟 AP、抬升面。 |
+| `optimizer-coverage.svelte.ts` | 实时覆盖率估计：采样、跨层虚拟 AP、抬升面、终端数估算。 |
 | `optimizer.svelte.ts` | 优化运行、worker 调用、多 seed、结果写回、取消。 |
 | `solver.svelte.ts` | 信道求解运行、冲突图、比较与自动求解。 |
 | `i18n.svelte.ts` | 语言状态、英文字符串键、中文目录。 |

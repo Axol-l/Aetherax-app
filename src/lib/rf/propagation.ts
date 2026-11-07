@@ -603,6 +603,30 @@ export const COVERAGE_THRESHOLD_DBM = -70;
 export const COVERAGE_MARGIN_DB = COVERAGE_THRESHOLD_DBM - SENSITIVITY;
 
 /**
+ * The coverage threshold currently used by the distance model.
+ *
+ * `COVERAGE_MARGIN_DB` stays the default (and the value the unit tests pin); the project can
+ * raise or lower the design threshold, and both the app and the optimizer worker apply the
+ * setting before they measure. This is module state for the same reason as the path-loss
+ * scenario: the hot loops should not carry another number through every call.
+ */
+let currentCoverageThresholdDbm = COVERAGE_THRESHOLD_DBM;
+
+export function setCoverageThresholdDbm(thresholdDbm: number): void {
+	if (!Number.isFinite(thresholdDbm)) return;
+	currentCoverageThresholdDbm = Math.min(-30, Math.max(-100, thresholdDbm));
+}
+
+export function coverageThresholdDbm(): number {
+	return currentCoverageThresholdDbm;
+}
+
+/** The threshold's headroom over receiver sensitivity, in dB. */
+export function coverageThresholdMarginDb(): number {
+	return currentCoverageThresholdDbm - SENSITIVITY;
+}
+
+/**
  * 覆盖门限高于热噪声底的量，单位 dB，取 15。
  *
  * 以 SNR 表述是本模型的设计基准，也便于核对。
@@ -642,7 +666,7 @@ export const DEFAULT_COVERAGE_SOFTNESS_DB = 10;
  */
 export function coverageReach(radius: number, lossDb = 0): number {
 	if (radius <= 0) return 0;
-	return distanceForRelativeLoss(relativePathLossDb(radius) - COVERAGE_MARGIN_DB - lossDb);
+	return distanceForRelativeLoss(relativePathLossDb(radius) - coverageThresholdMarginDb() - lossDb);
 }
 
 
@@ -670,7 +694,7 @@ export function coverageHorizontalReach(
 export function reachAtMargin(radius: number, lossDb = 0, marginDb = 0): number {
 	if (radius <= 0) return 0;
 	return distanceForRelativeLoss(
-		relativePathLossDb(radius) - COVERAGE_MARGIN_DB - marginDb - lossDb
+		relativePathLossDb(radius) - coverageThresholdMarginDb() - marginDb - lossDb
 	);
 }
 
@@ -690,7 +714,10 @@ export function reachAtLevel(referenceDbm: number, floorDbm: number): number {
  * 覆盖阈值的偏移在此处统一扣除；按 dB 线性，使优化目标、覆盖百分比与热图度量同一量。
  */
 export function coverageUtility(marginAboveSensitivityDb: number, softnessDb = 0): number {
-	return coverageUtilityAboveThreshold(marginAboveSensitivityDb - COVERAGE_MARGIN_DB, softnessDb);
+	return coverageUtilityAboveThreshold(
+		marginAboveSensitivityDb - coverageThresholdMarginDb(),
+		softnessDb
+	);
 }
 
 /**

@@ -162,6 +162,8 @@ export class OptimizerBridge {
 			coverageSoftnessDb?: number;
 			/** 距离项用的 ITU-R P.1238 环境类型。 */
 			pathLossScenario?: PathLossScenario;
+			/** 覆盖门限，单位 dBm；不传用默认 −70。 */
+			coverageThresholdDbm?: number;
 			/**
 			 * 只按消息数据里的现有位置算冲突图，不做布点。
 			 */
@@ -309,6 +311,7 @@ export class OptimizerBridge {
 				regulatoryDomain: options?.regulatoryDomain,
 				coverageSoftnessDb: options?.coverageSoftnessDb,
 				pathLossScenario: options?.pathLossScenario,
+				coverageThresholdDbm: options?.coverageThresholdDbm,
 				graphOnly: options?.graphOnly,
 				powerLevelsDbm: options?.powerLevelsDbm,
 				worldUnitsPerMeter: options?.worldUnitsPerMeter,
