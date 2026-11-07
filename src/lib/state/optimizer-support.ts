@@ -113,10 +113,16 @@ export async function buildDensityMap(
 	if (Object.keys(overrides).length > 0) {
 		const labels = await getDensityRoomLabels(maskWidth, maskHeight, floor.wallMask, floor.id);
 		if (labels) {
+			/*
+			 * 先按数字建表。逐像素 `overrides[String(regionId)]` 会为六十多万个像素各分配一个
+			 * 字符串，一次切到带密度覆盖的楼层就会多花上百毫秒。
+			 */
+			const overrideByRegion = new Map<number, number>();
+			for (const [key, value] of Object.entries(overrides)) overrideByRegion.set(Number(key), value);
 			for (let i = 0; i < labels.length; i++) {
 				const regionId = labels[i]!;
 				if (regionId < 0) continue;
-				const override = overrides[String(regionId)];
+				const override = overrideByRegion.get(regionId);
 				if (override === undefined) continue;
 				const prev = densityMap[i]!;
 				if (prev >= 0) counts.set(prev, (counts.get(prev) ?? 0) - 1);

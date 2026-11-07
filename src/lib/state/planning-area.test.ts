@@ -90,4 +90,55 @@ describe('clipInteriorToPlanningArea', () => {
 		]);
 		expect(kept).toBe(0);
 	});
+
+	/*
+	 * 裁剪按扫描线批量处理，而不是逐像素调用 `pointInPlanningArea`。
+	 * 这条测试把两种算法在同一张掩码上逐像素比对，保证批量处理没有改变语义。
+	 */
+	it('matches point-in-polygon for every pixel, including a concave area and an offset mask', () => {
+		const area: PlanningArea = [
+			{ x: 12, y: 7 },
+			{ x: 51, y: 3 },
+			{ x: 58, y: 34 },
+			{ x: 31, y: 30 },
+			{ x: 22, y: 55 },
+			{ x: 5, y: 40 }
+		];
+		const width = 64;
+		const height = 61;
+		const originX = -3;
+		const originY = -2;
+
+		const interior = new Uint8Array(width * height).fill(1);
+		const expected = interior.slice();
+		let expectedKept = 0;
+		for (let y = 0; y < height; y++) {
+			for (let x = 0; x < width; x++) {
+				const index = y * width + x;
+				if (pointInPlanningArea({ x: originX + x, y: originY + y }, area)) expectedKept++;
+				else expected[index] = 0;
+			}
+		}
+
+		const kept = clipInteriorToPlanningArea(interior, width, height, originX, originY, area);
+		expect(kept).toBe(expectedKept);
+		expect([...interior]).toEqual([...expected]);
+	});
+
+	it('clears the whole notch of a concave area, not just its edge', () => {
+		const l: PlanningArea = [
+			{ x: 0, y: 0 },
+			{ x: 40, y: 0 },
+			{ x: 40, y: 40 },
+			{ x: 100, y: 40 },
+			{ x: 100, y: 100 },
+			{ x: 0, y: 100 }
+		];
+		const interior = new Uint8Array(100 * 100).fill(1);
+		const kept = clipInteriorToPlanningArea(interior, 100, 100, 0, 0, l);
+		expect(kept).toBe(40 * 40 + 100 * 60);
+		// 凹口 (x 40..100, y 0..40) 里一点都不能留。
+		expect(interior[20 * 100 + 70]).toBe(0);
+		expect(interior[70 * 100 + 70]).toBe(1);
+	});
 });
