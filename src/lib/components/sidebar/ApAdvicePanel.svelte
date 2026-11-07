@@ -29,6 +29,12 @@
 	);
 
 	const deviceLoad = $derived(floorCoverage.get(floorState.currentFloorId)?.devices ?? 0);
+	const clientCapacity = $derived(
+		apsOnFloor.reduce(
+			(sum, ap) => sum + (ap.clients ?? projectMeta.clientsPerAp),
+			0
+		)
+	);
 
 	const floorAreaSqm = $derived.by(() => {
 		const polygon = currentFloor()?.floorplanBoundary;
@@ -59,6 +65,7 @@
 			interference: optimizerState.interference,
 			contention: optimizerState.contention,
 			devices: deviceLoad,
+			clientCapacity,
 			clientsPerAp: projectMeta.clientsPerAp,
 			target,
 			unassigned: apState.aps.filter((ap) => ap.assignedChannel === null).length,
@@ -137,12 +144,11 @@
 						{#if finding.kind === 'calibrate'}
 							{t('Until the plan has a scale, every distance here and every AP range is in world units. Set the floorplan area in the Floorplan tab.')}
 						{:else if finding.kind === 'capacity'}
-							{t('About {devices} concurrent devices at {perAp} per AP need {required} access points; this floor has {current}. Add {count} more.', {
+							{t('Capacity covers {capacity} of {devices} clients — add {count} AP(s) at about {perAp} clients each.', {
+								capacity: param(finding, 'capacity'),
 								devices: param(finding, 'devices'),
-								perAp: param(finding, 'perAp'),
-								required: param(finding, 'required'),
-								current: param(finding, 'current'),
-								count: Number(param(finding, 'required')) - Number(param(finding, 'current'))
+								count: param(finding, 'count'),
+								perAp: param(finding, 'perAp')
 							})}
 						{:else if finding.kind === 'add-aps'}
 							{t('Coverage {coverage}% against a {target}% target — about {count} more AP(s) would close the gap.', {

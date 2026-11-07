@@ -39,6 +39,19 @@ export function findModel(id: string): ApModel | undefined {
 	return AP_MODELS.find((m) => m.id === id);
 }
 
+/**
+ * A planning default for how many concurrent clients this model can carry.
+ *
+ * Vendors quote different figures for different traffic mixes, so this is only a starting
+ * point: the AP editor exposes the value and the project setting remains the fallback.
+ */
+export function recommendedClients(model: ApModel): number {
+	const wifi = Number(model.wifiStandard.match(/WiFi\s+(\d)/)?.[1] ?? 5);
+	const streams = Math.max(1, ...model.bands.map((band) => band.streams));
+	const perStream = wifi >= 7 ? 25 : wifi >= 6 ? 20 : 15;
+	return Math.min(150, Math.max(10, streams * perStream));
+}
+
 /** Search models by query (fuzzy match on vendor + model + wifi standard) */
 export function searchModels(query: string): ApModel[] {
 	if (!query.trim()) return [...AP_MODELS];

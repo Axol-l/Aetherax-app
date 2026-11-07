@@ -20,7 +20,7 @@
 	import { getAvailableChannels } from '@aetherax/channels';
 	import type { Band, ChannelWidth } from '@aetherax/channels';
 	import { solverState, edgeSignals } from '$state/solver.svelte.js';
-	import { findModel, getBandSpec, type ApModel } from '$lib/data/ap-models.js';
+	import { findModel, getBandSpec, recommendedClients, type ApModel } from '$lib/data/ap-models.js';
 	import Select from '$components/shared/Select.svelte';
 	import Button from '$components/shared/Button.svelte';
 	import Icon from '$components/shared/Icon.svelte';
@@ -261,11 +261,17 @@
 		updateAp(singleAp.id, { fixedChannel, assignedChannel: fixedChannel });
 	}
 
+	function handleClientsChange(value: number) {
+		if (!singleAp) return;
+		pushState();
+		updateAp(singleAp.id, { clients: value > 0 ? value : null });
+	}
+
 	function handleModelChange(model: ApModel | null) {
 		pushState();
 		if (!singleAp) return;
 		if (!model) {
-			updateAp(singleAp.id, { modelId: null, modelLabel: null });
+			updateAp(singleAp.id, { modelId: null, modelLabel: null, clients: null });
 			return;
 		}
 		const spec =
@@ -281,7 +287,8 @@
 			power: spec.maxTxPower,
 			interferenceRadius: radiusFromPower(spec.maxTxPower, spec.band),
 			fixedChannel: null,
-			assignedChannel: null
+			assignedChannel: null,
+			clients: recommendedClients(model)
 		});
 	}
 
@@ -387,6 +394,19 @@
 				max={36}
 				step={1}
 				label="dBm"
+			/>
+		</div>
+
+		<div class="field">
+			<Tooltip text={t('Concurrent clients this AP is planned to carry.')} position="top">
+				<span class="field-label">{t('Clients')}</span>
+			</Tooltip>
+			<NumberInput
+				value={singleAp.clients ?? projectMeta.clientsPerAp}
+				min={1}
+				max={500}
+				step={1}
+				onchange={handleClientsChange}
 			/>
 		</div>
 

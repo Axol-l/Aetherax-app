@@ -357,18 +357,19 @@ Wall mount 必须点击在距墙 1 米以内。AP 会自动吸附到墙面，并
 
 选中 AP 后，Properties 区域可以修改：
 
-1. Model：选择设备型号，自动填入频段、功率和范围。
+1. Model：选择设备型号，自动填入频段、功率、范围和该型号的建议终端数。
 2. Name：AP 名称。
 3. Band：2.4 GHz、5 GHz 或 6 GHz。
 4. Channel Width：信道宽度。
 5. Channel：Auto 由求解器分配，选择具体数字则固定该信道。
 6. TX Power：发射功率，单位 dBm。
-7. Mounting：安装方式。
-8. 安装高度：Mounting 右侧的数值框。
-9. Antenna：Vertical beamwidth 和 Aim，分别控制垂直波束宽度和指向。
-10. Facing：仅 Wall mount 显示，平面内的朝向角。
-11. Position：显示当前 X、Y 坐标，不可直接输入；拖动 AP 移动位置。
-12. Pin position：固定该 AP 的位置，优化器不会移动它。
+7. Clients：该 AP 计划承载的并发终端数；选择型号时自动填入建议值，也可以单独修改。
+8. Mounting：安装方式。
+9. 安装高度：Mounting 右侧的数值框。
+10. Antenna：Vertical beamwidth 和 Aim，分别控制垂直波束宽度和指向。
+11. Facing：仅 Wall mount 显示，平面内的朝向角。
+12. Position：显示当前 X、Y 坐标，不可直接输入；拖动 AP 移动位置。
+13. Pin position：固定该 AP 的位置，优化器不会移动它。
 
 修改后覆盖率自动重算。CO-CHANNEL CONFLICTS 区域列出同信道冲突的 AP。
 
@@ -394,7 +395,7 @@ Allow APs outside rooms 关闭时，手动点击范围外会拒绝放置并给�
 
 覆盖率按密度加权，房间类型和密度会影响结果。它回答的是“多少比例的加权采样点达到覆盖门限”，不是终端容量；覆盖门限默认 −70 dBm，可在优化器设置里修改。
 
-Coverage 下方还会按房间密度估算本层并发终端数，并按“每个 AP 的终端数”给出建议 AP 数量。例如 86 个终端、每 AP 25 个时，建议至少 4 个 AP。
+Coverage 下方有一条 Capacity 容量条：显示本层当前 AP 数 / 按房间密度和每台 AP 的 Client 容量估算需要的 AP 数。容量不足时条变红；每台 AP 的 Client 数量可以在 AP 编辑页单独修改，型号会给出一个建议初始值。
 
 ### 10.2 优化放置
 
@@ -431,7 +432,7 @@ Coverage 下方还会按房间密度估算本层并发终端数，并按“每�
 
 ### 10.4 放置建议
 
-Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。容量约束触发时会单独显示“Client capacity”，说明按房间密度估算的终端数和建议 AP 数；此时不会仅因为覆盖率高就提示删除 AP。点击 Dismiss 关闭。
+Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。容量约束触发时会单独显示“Client capacity”，说明容量覆盖的终端数和建议增加的 AP 数；此时不会仅因为覆盖率高就提示删除 AP。点击 Dismiss 关闭。
 
 ### 10.5 信道分配
 

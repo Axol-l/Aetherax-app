@@ -89,6 +89,10 @@ export interface AccessPoint {
 	 * 优化器是否必须让这个 AP 原地不动
 	 */
 	pinned: boolean;
+	/**
+	 * 这个 AP 计划承载的并发终端数。null 表示沿用工程默认值。
+	 */
+	clients?: number | null;
 }
 
 let nextApNumber = 1;
@@ -275,7 +279,8 @@ export function addAp(
 		facingDeg: normaliseBearing(
 			mount.mount === 'wall' && facingDeg !== 0 ? facingDeg : antenna.facingDeg
 		),
-		pinned: false
+		pinned: false,
+		clients: prev?.clients ?? null
 	};
 	apState.aps.push(ap);
 	scheduleSave();

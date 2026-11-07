@@ -169,8 +169,8 @@ const zh: Record<string, string> = {
 	Dismiss: '关闭',
 	'Set the scale': '先设置比例',
 	'Client capacity': '终端容量',
-	'About {devices} concurrent devices at {perAp} per AP need {required} access points; this floor has {current}. Add {count} more.':
-		'约 {devices} 个并发终端，每个 AP 承载 {perAp} 个，需要 {required} 个 AP；本层现有 {current} 个，还需要增加 {count} 个。',
+	'Capacity covers {capacity} of {devices} clients — add {count} AP(s) at about {perAp} clients each.':
+		'当前容量可承载 {devices} 个终端中的 {capacity} 个——大约还需要增加 {count} 个 AP（每个约 {perAp} 个终端）。',
 	'Add access points': '增加 AP',
 	'Remove access points': '减少 AP',
 	'Assign channels': '分配信道',
@@ -549,6 +549,8 @@ const zh: Record<string, string> = {
 	'Wider is faster, but more prone to interference.': '信道越宽越快，但更容易受干扰。',
 	'Auto lets the solver choose.': '自动：由求解器选择。',
 	'Transmit power, in dBm.': '发射功率，单位 dBm。',
+	'Concurrent clients this AP is planned to carry.': '这个 AP 计划承载的并发终端数。',
+	Clients: '终端数',
 	'How high the AP is above this floor.': '这个 AP 离本层地面多高。',
 	'Beam: the -3 dB width of the pattern. Aim: where its peak points — positive down, negative up, 0 level.': 'beam：方向图的 −3 dB 宽度。aim：主瓣峰值方向——正朝下、负朝上、0 为水平。',
 	'Antenna': '天线',

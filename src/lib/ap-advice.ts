@@ -51,7 +51,9 @@ export interface AdviceContext {
 	contention: number;
 	/** Estimated concurrent devices on the floor, from room density. 0 when unknown. */
 	devices: number;
-	/** Concurrent clients one AP is planned to carry. 0 disables the capacity check. */
+	/** Sum of the client capacities of the APs on this floor. */
+	clientCapacity: number;
+	/** Fallback concurrent clients per AP when one has no explicit figure. */
 	clientsPerAp: number;
 	/** The requirement: the ε-constraint when set, otherwise the default target. */
 	target: number;
@@ -91,9 +93,14 @@ export function evaluateApAdvice(ctx: AdviceContext): AdviceFinding[] {
 	const findings: AdviceFinding[] = [];
 	const target = ctx.target > 0 ? ctx.target : DEFAULT_COVERAGE_TARGET;
 	const base = { coverage: Math.round(ctx.coverage), target: Math.round(target) };
+	const perAp =
+		ctx.apsOnFloor > 0 && ctx.clientCapacity > 0
+			? Math.max(1, Math.round(ctx.clientCapacity / ctx.apsOnFloor))
+			: ctx.clientsPerAp;
 	const requiredAps =
-		ctx.clientsPerAp > 0 && ctx.devices > 0 ? Math.ceil(ctx.devices / ctx.clientsPerAp) : 0;
-	const capacityShortfall = requiredAps > ctx.apsOnFloor;
+		ctx.clientsPerAp > 0 && ctx.devices > 0 && perAp > 0 ? Math.ceil(ctx.devices / perAp) : 0;
+	const capacityShortfall =
+		ctx.devices > 0 && ctx.clientCapacity > 0 && ctx.devices > ctx.clientCapacity;
 
 	if (!ctx.calibrated) {
 		findings.push({ kind: 'calibrate', severity: 'info', params: {} });
@@ -105,9 +112,11 @@ export function evaluateApAdvice(ctx: AdviceContext): AdviceFinding[] {
 			severity: 'action',
 			params: {
 				devices: Math.round(ctx.devices),
-				perAp: ctx.clientsPerAp,
+				perAp,
+				capacity: Math.round(ctx.clientCapacity),
 				required: requiredAps,
-				current: ctx.apsOnFloor
+				current: ctx.apsOnFloor,
+				count: Math.max(1, requiredAps - ctx.apsOnFloor)
 			}
 		});
 	}

@@ -89,14 +89,20 @@
 
 	const buildingPct = $derived(getBuildingCoverage());
 	const deviceLoad = $derived(floorCoverage.get(floorState.currentFloorId)?.devices ?? 0);
+	const clientCapacity = $derived(
+		(floorState.floors.length <= 1
+			? apState.aps
+			: apState.aps.filter((ap) => ap.floorId === floorState.currentFloorId)
+		).reduce((sum, ap) => sum + (ap.clients ?? projectMeta.clientsPerAp), 0)
+	);
 	const apsOnFloor = $derived(
 		floorState.floors.length <= 1
 			? apState.aps.length
 			: apState.aps.filter((ap) => ap.floorId === floorState.currentFloorId).length
 	);
 	const capacityAps = $derived(
-		projectMeta.clientsPerAp > 0 && deviceLoad > 0
-			? Math.ceil(deviceLoad / projectMeta.clientsPerAp)
+		deviceLoad > 0 && clientCapacity > 0 && apsOnFloor > 0
+			? Math.ceil(deviceLoad / (clientCapacity / apsOnFloor))
 			: 0
 	);
 
@@ -338,7 +344,7 @@
 							value={projectMeta.coverageThresholdDbm}
 							onchange={(e) => applyCoverageThreshold(Number(e.currentTarget.value))}
 						/>
-						<span class="setting-value">{projectMeta.coverageThresholdDbm} dBm</span>
+						<span class="setting-value">dBm</span>
 					</label>
 				</Tooltip>
 
@@ -357,7 +363,6 @@
 							value={projectMeta.clientsPerAp}
 							onchange={(e) => applyClientsPerAp(Number(e.currentTarget.value))}
 						/>
-						<span class="setting-value">{projectMeta.clientsPerAp || t('Off')}</span>
 					</label>
 				</Tooltip>
 

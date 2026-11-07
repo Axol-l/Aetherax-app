@@ -336,12 +336,13 @@
 <h3>9.3 编辑 AP</h3>
 <p>选中 AP 后，Properties 区域可以修改：</p>
 <ol>
-<li>Model：选择设备型号，自动填入频段、功率和范围。</li>
+<li>Model：选择设备型号，自动填入频段、功率、范围和该型号的建议终端数。</li>
 <li>Name：AP 名称。</li>
 <li>Band：2.4 GHz、5 GHz 或 6 GHz。</li>
 <li>Channel Width：信道宽度。</li>
 <li>Channel：Auto 由求解器分配，选择具体数字则固定该信道。</li>
 <li>TX Power：发射功率，单位 dBm。</li>
+<li>Clients：该 AP 计划承载的并发终端数；选择型号时自动填入建议值，也可以单独修改。</li>
 <li>Mounting：安装方式。</li>
 <li>安装高度：Mounting 右侧的数值框。</li>
 <li>Antenna：Vertical beamwidth 和 Aim，分别控制垂直波束宽度和指向。</li>
@@ -368,7 +369,7 @@
 <li>点击 Whole building 标题可以展开计算说明。</li>
 </ol>
 <p>覆盖率按密度加权，房间类型和密度会影响结果。它回答的是“多少比例的加权采样点达到覆盖门限”，不是终端容量；覆盖门限默认 −70 dBm，可在优化器设置里修改。</p>
-<p>Coverage 下方还会按房间密度估算本层并发终端数，并按“每个 AP 的终端数”给出建议 AP 数量。例如 86 个终端、每 AP 25 个时，建议至少 4 个 AP。</p>
+<p>Coverage 下方有一条 Capacity 容量条：显示本层当前 AP 数 / 按房间密度和每台 AP 的 Client 容量估算需要的 AP 数。容量不足时条变红；每台 AP 的 Client 数量可以在 AP 编辑页单独修改，型号会给出一个建议初始值。</p>
 <h3>10.2 优化放置</h3>
 <p>单层工程：</p>
 <ol>
@@ -399,7 +400,7 @@
 </ol>
 <p>影响优化评分的设置需要重新运行优化才会生效；Min signal 会立即改变热力图，Coverage threshold 会立即重算覆盖率。</p>
 <h3>10.4 放置建议</h3>
-<p>Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。容量约束触发时会单独显示“Client capacity”，说明按房间密度估算的终端数和建议 AP 数；此时不会仅因为覆盖率高就提示删除 AP。点击 Dismiss 关闭。</p>
+<p>Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。容量约束触发时会单独显示“Client capacity”，说明容量覆盖的终端数和建议增加的 AP 数；此时不会仅因为覆盖率高就提示删除 AP。点击 Dismiss 关闭。</p>
 <h3>10.5 信道分配</h3>
 <p>信道由求解器自动分配。需要固定某个 AP 的信道时，在 AP 编辑页把 Channel 从 Auto 改为具体信道。固定后该 AP 不再参与信道重分配。</p>
 <h2>11. 热力图与图层</h2>
