@@ -87,6 +87,7 @@ describe('bestReflection', () => {
 		expect(concrete).not.toBeNull();
 		expect(glass).not.toBeNull();
 		expect(concrete.powerRatio).toBeGreaterThan(glass.powerRatio);
+		expect(concrete.wallIndex).toBe(0);
 	});
 
 	it('honours the distance cull the caller passes', () => {

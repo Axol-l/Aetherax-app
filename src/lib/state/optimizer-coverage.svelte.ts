@@ -14,7 +14,8 @@ import { scaleBetween } from './floor-scale.js';
 import { antennaRayLossDb } from '$lib/rf/antenna.js';
 import { surfaceHeightAt, deckCrossing } from '$lib/rf/surface-height.js';
 import { bestReflection } from '$lib/rf/reflection.js';
-import { diffractionLossDb, edgesOf } from '$lib/rf/diffraction.js';
+import { bestDiffraction, bandWavelengthM, edgesOf } from '$lib/rf/diffraction.js';
+import { rayWallLossDb } from '$lib/rf/wall-crossings.js';
 import type { Band } from '@aetherax/channels';
 import { decodeMask, type DecodedWallMask } from '$canvas/mask-codec.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
@@ -435,19 +436,38 @@ export async function updateCoverage(): Promise<void> {
 			 */
 			const diffractionGate = Math.min(1, Math.max(0, (wallLossDb - 3) / 6));
 			if (diffractionGate > 0 && diffractionEdges.length > 0) {
-				const loss = diffractionLossDb(
+				const best = bestDiffraction(
 					{ x: ap.x - ox, y: ap.y - oy },
 					{ x: sample.x, y: sample.y },
 					diffractionEdges,
-					ap.band as '2.4ghz' | '5ghz' | '6ghz',
+					bandWavelengthM(ap.band as '2.4ghz' | '5ghz' | '6ghz'),
 					undefined,
 					undefined,
 					1 / wupmForGap
 				);
-				if (loss > 0) {
+				if (
+					best &&
+					best.lossDb > 0 &&
+					rayWallLossDb(
+						{ x: ap.x - ox, y: ap.y - oy },
+						{ x: best.x, y: best.y },
+						reflectingWalls,
+						ap.band as Band,
+						best.edge.wallIndices ?? []
+					) <= 1e-9 &&
+					rayWallLossDb(
+						{ x: best.x, y: best.y },
+						{ x: sample.x, y: sample.y },
+						reflectingWalls,
+						ap.band as Band,
+						best.edge.wallIndices ?? []
+					) <= 1e-9
+				) {
+					const d1 = Math.hypot(best.x - (ap.x - ox), best.y - (ap.y - oy));
+					const d2 = Math.hypot(sample.x - best.x, sample.y - best.y);
 					const diffractedMargin =
-						coverageMarginDb(dist, ap.interferenceRadius) -
-						(wallLossDb + loss) +
+						coverageMarginDb((d1 + d2) * wupmForGap, ap.interferenceRadius) -
+						(wallLossDb + best.lossDb) +
 						(dbLoss - wallLossDb);
 					const blended = margin + diffractionGate * (diffractedMargin - margin);
 					if (blended > bestMargin) bestMargin = blended;
@@ -464,9 +484,25 @@ export async function updateCoverage(): Promise<void> {
 					reflectionReach
 				);
 				if (bounce) {
+					const legLoss =
+						rayWallLossDb(
+							{ x: ap.x - ox, y: ap.y - oy },
+							{ x: bounce.x, y: bounce.y },
+							reflectingWalls,
+							ap.band as Band,
+							[bounce.wallIndex]
+						) +
+						rayWallLossDb(
+							{ x: bounce.x, y: bounce.y },
+							{ x: sample.x, y: sample.y },
+							reflectingWalls,
+							ap.band as Band,
+							[bounce.wallIndex]
+						);
 					const reflectedMargin =
 						coverageMarginDb(bounce.length, ap.interferenceRadius) +
-						10 * Math.log10(bounce.powerRatio);
+						10 * Math.log10(bounce.powerRatio) -
+						legLoss;
 					if (reflectedMargin > bestMargin) bestMargin = reflectedMargin;
 					if (reflectedMargin > margins[index]!) margins[index] = reflectedMargin;
 				}

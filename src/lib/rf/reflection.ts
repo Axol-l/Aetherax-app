@@ -28,6 +28,8 @@ export interface Reflection {
 	cosTheta: number;
 	/** 反射功率占入射功率的比例，不超过 1。 */
 	powerRatio: number;
+	/** 产生这次反射的墙在 `walls` 数组中的下标，用于排除反射面自身的墙损。 */
+	wallIndex: number;
 }
 
 /**
@@ -135,7 +137,8 @@ export function reflections(
 	const midX = (from.x + to.x) / 2;
 	const midY = (from.y + to.y) / 2;
 
-	for (const wall of walls) {
+	for (let wallIndex = 0; wallIndex < walls.length; wallIndex++) {
+		const wall = walls[wallIndex]!;
 		// 按墙中心到路径中点的距离剔除过远的墙。
 		const reach = Math.hypot((wall.ax + wall.bx) / 2 - midX, (wall.ay + wall.by) / 2 - midY);
 		if (reach > maxDistance) continue;
@@ -144,7 +147,7 @@ export function reflections(
 		if (!hit) continue;
 		const ratio = reflectionPowerRatio(wall, band, hit.cosTheta);
 		if (ratio <= minRatio) continue;
-		out.push({ ...hit, powerRatio: ratio });
+		out.push({ ...hit, powerRatio: ratio, wallIndex });
 	}
 	out.sort((a, b) => b.powerRatio - a.powerRatio);
 	return out;

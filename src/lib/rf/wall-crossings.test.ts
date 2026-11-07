@@ -93,6 +93,11 @@ describe('loss', () => {
 		expect(rayWallLossDb({ x: 0, y: 0 }, { x: 10, y: 0 }, [], BAND)).toBe(0);
 	});
 
+	it('can exclude the reflecting surface from a reflected leg', () => {
+		const walls = [wall(3, -5, 3, 5, 0), wall(7, -5, 7, 5, 0)];
+		expect(rayWallLossDb({ x: 0, y: 0 }, { x: 10, y: 0 }, walls, BAND, [0])).toBeCloseTo(5.6, 1);
+	});
+
 	it('reports the breakdown in the order the signal meets the walls', () => {
 		const walls = [wall(3, -5, 3, 5, 0), wall(7, -5, 7, 5, 4)];
 		const breakdown = rayWallBreakdown({ x: 0, y: 0 }, { x: 10, y: 0 }, walls, BAND);

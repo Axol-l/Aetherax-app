@@ -84,12 +84,18 @@ describe('bestDiffraction', () => {
 		expect(scaled.lossDb).toBeCloseTo(plain.lossDb, 6);
 	});
 
-	it('finds both ends of every wall', () => {
+	it('finds both ends of every wall, and remembers which walls meet there', () => {
 		const edgesOfWalls = edgesOf([
 			{ ax: 0, ay: 0, bx: 10, by: 0, material: 0 },
 			{ ax: 20, ay: 5, bx: 20, by: 25, material: 3 }
 		]);
 		expect(edgesOfWalls).toHaveLength(4);
-		expect(edgesOfWalls[2]).toMatchObject({ x: 20, y: 5, material: 3 });
+		expect(edgesOfWalls[2]).toMatchObject({ x: 20, y: 5, material: 3, wallIndices: [1] });
+
+		const shared = edgesOf([
+			{ ax: 0, ay: 0, bx: 10, by: 0, material: 0 },
+			{ ax: 10, ay: 0, bx: 10, by: 10, material: 0 }
+		]);
+		expect(shared.find((edge) => edge.x === 10 && edge.y === 0)?.wallIndices).toEqual([0, 1]);
 	});
 });

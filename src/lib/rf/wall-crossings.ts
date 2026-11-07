@@ -7,7 +7,7 @@ export interface WallSegment {
 	ay: number;
 	bx: number;
 	by: number;
-	material: WallMaterialId;
+	material: number;
 	/** 由 `rayWallCrossings` 填入，便于调用方识别命中的墙。 */
 	id?: string;
 }
@@ -80,11 +80,15 @@ export function rayWallLossDb(
 	from: { x: number; y: number },
 	to: { x: number; y: number },
 	walls: readonly WallSegment[],
-	band: Band
+	band: Band,
+	skipIndices: readonly number[] = []
 ): number {
+	const skip = new Set(skipIndices);
 	let total = 0;
-	for (const hit of rayWallCrossings(from, to, walls)) {
-		total += getFlatAttenuation(hit.wall.material, band);
+	for (let i = 0; i < walls.length; i++) {
+		if (skip.has(i)) continue;
+		const hit = raySegmentIntersection(from, to, walls[i]!);
+		if (hit) total += getFlatAttenuation(hit.wall.material as WallMaterialId, band);
 	}
 	return total;
 }
@@ -99,6 +103,6 @@ export function rayWallBreakdown(
 	return rayWallCrossings(from, to, walls).map((hit) => ({
 		wall: hit.wall,
 		at: hit.t,
-		db: getFlatAttenuation(hit.wall.material, band)
+		db: getFlatAttenuation(hit.wall.material as WallMaterialId, band)
 	}));
 }

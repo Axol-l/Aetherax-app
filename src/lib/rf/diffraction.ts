@@ -10,16 +10,28 @@ export interface DiffractionEdge {
 	y: number;
 	/** 所属墙体的材质编号。 */
 	material: number;
+	/** 以这个端点为端点的墙；可见性检查时排除它们，避免刃峰自身被当成遮挡。 */
+	wallIndices?: number[];
 }
 
-/** 所有线段的全部端点，每面墙两个。 */
+/** 所有线段的全部端点，每个不同的端点只出现一次。 */
 export function edgesOf(walls: readonly ReflectingWall[]): DiffractionEdge[] {
-	const edges: DiffractionEdge[] = [];
-	for (const wall of walls) {
-		edges.push({ x: wall.ax, y: wall.ay, material: wall.material });
-		edges.push({ x: wall.bx, y: wall.by, material: wall.material });
-	}
-	return edges;
+	const byPoint = new Map<string, DiffractionEdge>();
+	walls.forEach((wall, wallIndex) => {
+		for (const point of [
+			{ x: wall.ax, y: wall.ay },
+			{ x: wall.bx, y: wall.by }
+		]) {
+			const key = `${point.x},${point.y}`;
+			const edge = byPoint.get(key);
+			if (edge) {
+				edge.wallIndices?.push(wallIndex);
+			} else {
+				byPoint.set(key, { ...point, material: wall.material, wallIndices: [wallIndex] });
+			}
+		}
+	});
+	return [...byPoint.values()];
 }
 
 /**
@@ -49,8 +61,9 @@ export function bestDiffraction(
 	wavelength: number,
 	maxClearance = 40,
 	maxDistance = 60,
-	metersPerWorldUnit = 1
-): { lossDb: number; x: number; y: number } | null {
+	metersPerWorldUnit = 1,
+	visible?: (edge: DiffractionEdge) => boolean
+): { lossDb: number; x: number; y: number; edge: DiffractionEdge } | null {
 	const dx = to.x - from.x;
 	const dy = to.y - from.y;
 	const direct = Math.hypot(dx, dy);
@@ -58,8 +71,9 @@ export function bestDiffraction(
 	const ux = dx / direct;
 	const uy = dy / direct;
 
-	let best: { lossDb: number; x: number; y: number } | null = null;
+	let best: { lossDb: number; x: number; y: number; edge: DiffractionEdge } | null = null;
 	for (const edge of edges) {
+		if (visible && !visible(edge)) continue;
 		const ex = edge.x - from.x;
 		const ey = edge.y - from.y;
 		// 沿路径投影：边缘须位于两端之间。
@@ -77,7 +91,7 @@ export function bestDiffraction(
 		const clearance = side;
 		if (Math.abs(clearance) * metersPerWorldUnit > maxClearance) continue;
 		const lossDb = knifeEdgeLossDb(Math.abs(clearance) * metersPerWorldUnit, d1M, d2M, wavelength);
-		if (best === null || lossDb < best.lossDb) best = { lossDb, x: edge.x, y: edge.y };
+		if (best === null || lossDb < best.lossDb) best = { lossDb, x: edge.x, y: edge.y, edge };
 	}
 	return best;
 }
@@ -105,7 +119,8 @@ export function diffractionLossDb(
 	band: '2.4ghz' | '5ghz' | '6ghz',
 	maxClearance = 40,
 	maxDistance = 60,
-	metersPerWorldUnit = 1
+	metersPerWorldUnit = 1,
+	visible?: (edge: DiffractionEdge) => boolean
 ): number {
 	const best = bestDiffraction(
 		from,
@@ -114,7 +129,8 @@ export function diffractionLossDb(
 		bandWavelengthM(band),
 		maxClearance,
 		maxDistance,
-		metersPerWorldUnit
+		metersPerWorldUnit,
+		visible
 	);
 	return best?.lossDb ?? 0;
 }

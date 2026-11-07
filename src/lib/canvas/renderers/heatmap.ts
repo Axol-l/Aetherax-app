@@ -53,7 +53,8 @@ import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../r
 import { wallRunLoss } from '../../rf/link-budget.js';
 import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
 import { reflections, type ReflectingWall } from '../../rf/reflection.js';
-import { diffractionLossDb, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
+import { bestDiffraction, bandWavelengthM, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
+import { rayWallLossDb } from '../../rf/wall-crossings.js';
 
 import { rampColorAt } from '../heatmap-ramp.js';
 import { maskSignature } from '../mask-registry.js';
@@ -832,6 +833,9 @@ export class HeatmapLayer implements Layer {
 						/*
 						 * 累加所有到达此处的反射，而不只取最强的一条。
 						 * 只取最强会在房间内留下折痕与距离裁剪边界的环，求和则保持连续。
+						 *
+						 * 反射路径的两段也按矢量墙算一次穿墙损耗；反射面本身由反射系数表示，
+						 * 所以从墙损里排除。否则一面墙会同时按“反射系数”和“穿墙损耗”扣两次。
 						 */
 						const returns = reflections(
 							{ x: apX[i]!, y: apY[i]! },
@@ -841,6 +845,21 @@ export class HeatmapLayer implements Layer {
 							reflectionReach
 						);
 						for (const bounce of returns) {
+							const legLoss =
+								rayWallLossDb(
+									{ x: apX[i]!, y: apY[i]! },
+									{ x: bounce.x, y: bounce.y },
+									walls,
+									bands[i]!,
+									[bounce.wallIndex]
+								) +
+								rayWallLossDb(
+									{ x: bounce.x, y: bounce.y },
+									{ x: wx, y: wy },
+									walls,
+									bands[i]!,
+									[bounce.wallIndex]
+								);
 							const reflected =
 								apRefDb[i]! -
 								relativePathLossDb(bounce.length * metersPerWorldUnit) -
@@ -850,7 +869,8 @@ export class HeatmapLayer implements Layer {
 									bounce.x - apX[i]!,
 									bounce.y - apY[i]!
 								) +
-								10 * Math.log10(bounce.powerRatio);
+								10 * Math.log10(bounce.powerRatio) -
+								legLoss;
 							if (reflected > this.rssiFloor) reflectedMw += 10 ** (reflected / 10);
 						}
 					}
@@ -861,19 +881,45 @@ export class HeatmapLayer implements Layer {
 					 */
 					const diffractionGate = Math.min(1, Math.max(0, (wallLoss - 3) / 6));
 					if (diffractionGate > 0 && edges.length > 0) {
-						const loss = diffractionLossDb(
+						const best = bestDiffraction(
 							{ x: apX[i]!, y: apY[i]! },
 							{ x: wx, y: wy },
 							edges,
-							bands[i]!,
+							bandWavelengthM(bands[i]!),
 							undefined,
 							undefined,
-							1 / this.worldUnitsPerMeter
+							metersPerWorldUnit
 						);
-						if (loss > 0) {
+						if (
+							best &&
+							best.lossDb > 0 &&
+							rayWallLossDb(
+								{ x: apX[i]!, y: apY[i]! },
+								{ x: best.x, y: best.y },
+								walls,
+								bands[i]!,
+								best.edge.wallIndices ?? []
+							) <= 1e-9 &&
+							rayWallLossDb(
+								{ x: best.x, y: best.y },
+								{ x: wx, y: wy },
+								walls,
+								bands[i]!,
+								best.edge.wallIndices ?? []
+							) <= 1e-9
+						) {
+							const d1 = Math.hypot(best.x - apX[i]!, best.y - apY[i]!);
+							const d2 = Math.hypot(wx - best.x, wy - best.y);
 							const diffracted =
-								apRefDb[i]! - relativePathLossDb(dWu * metersPerWorldUnit) - loss -
-								antennaRayLossDb(apProfiles[i]!, gap, dx, dy);
+								apRefDb[i]! -
+								relativePathLossDb((d1 + d2) * metersPerWorldUnit) -
+								best.lossDb -
+								antennaRayLossDb(
+									apProfiles[i]!,
+									gap,
+									best.x - apX[i]!,
+									best.y - apY[i]!
+								);
 							if (diffracted > this.rssiFloor) {
 								reflectedMw += diffractionGate * 10 ** (diffracted / 10);
 							}
