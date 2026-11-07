@@ -44,7 +44,7 @@
 	import { ReferenceFloorLayer } from '$canvas/renderers/reference-floor.js';
 	import { FloorTilesLayer } from '$canvas/renderers/floor-tiles.js';
 	import { StackedFloorsLayer, MAX_PITCH } from '$canvas/renderers/stacked-floors.js';
-	import { Floor3DLayer } from '$canvas/renderers/floor-3d.js';
+	import { Floor3DLayer, FLOOR_SWAP_MS, type FloorScene } from '$canvas/renderers/floor-3d.js';
 	import { FloorCardCache } from '$canvas/renderers/floor-card.js';
 	import { DragHandler, type WallProbe } from '$canvas/interactions/drag.js';
 	import { PlaceHandler } from '$canvas/interactions/place.js';
@@ -561,6 +561,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 	const stackedFloorsLayer = new StackedFloorsLayer(floorCards);
 	stackedFloorsLayer.onLoad = () => engine?.markDirty();
 	const floor3DLayer = new Floor3DLayer(floorCards);
+	// 换层动画每帧画完后请求下一帧：引擎只在有脏标记时重绘。
+	floor3DLayer.onFrame = () => engine?.markDirty();
+	/** 3D 视图顶部的 ↑↓ 请求的换层动画：下一次场景同步时消费一次。 */
+	let animateFloorSwap = false;
 	const calibrationLineLayer = new CalibrationLineLayer();
 	const planningAreaLayer = new PlanningAreaLayer();
 	const surfacesLayer = new SurfacesLayer();
@@ -596,10 +600,20 @@ import { wallState } from '$state/wall-state.svelte.js';
 		if (index < 0) return;
 		const target = sorted[index + direction];
 		if (!target) return;
+		/*
+		 * The arrows play the storey change: the old floor leaves, the new one follows.
+		 * Clicking a floor in the strip stays immediate — it names the floor you want, and
+		 * animating that would make a direct jump look like a sequence of storeys.
+		 */
+		animateFloorSwap = true;
 		switchFloor(target.id);
-		// Frame the storey that just came into view; its plan may be a different size.
+		/*
+		 * Frame the storey that just came into view; its plan may be a different size.
+		 * An animated change frames itself halfway through instead — see the scene effect —
+		 * so that the zoom change lands on an empty screen rather than on the floor leaving.
+		 */
 		requestAnimationFrame(() => {
-			if (engine) fitCanvasToContent(engine);
+			if (engine && !floor3DLayer.swapping) fitCanvasToContent(engine);
 			engine?.markDirty();
 		});
 	}
@@ -1124,11 +1138,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		stackedFloorsLayer.setFloors(sources, floorState.currentFloorId, projectWupm());
 
 		const view3dFloor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-		floor3DLayer.source = sources.find((s) => s.id === floorState.currentFloorId) ?? null;
-		floor3DLayer.walls = (view3dFloor?.walls ?? []) as VectorWall[];
-		floor3DLayer.columns = (view3dFloor?.columns ?? []) as VectorColumn[];
-		floor3DLayer.surfaces = view3dFloor?.surfaces ?? [];
-		floor3DLayer.ceilingHeightM = view3dFloor?.ceilingHeight ?? 3;
+		const view3dSource = sources.find((s) => s.id === floorState.currentFloorId) ?? null;
 		floor3DLayer.planOpacity = floorplanState.floorplanScale;
 		floor3DLayer.showPlan = appState.showFloorplan;
 		floor3DLayer.showWalls = appState.showWalls;
@@ -1148,7 +1158,36 @@ import { wallState } from '$state/wall-state.svelte.js';
 			...viewAngles,
 			wupm: wupmForFloor(view3dFloor?.id ?? floorState.currentFloorId)
 		};
-		
+
+		// What the 3D view draws. Built here so the layer holds one floor, not the app's state.
+		const scene3d: FloorScene | null =
+			view3dSource && view3dFloor
+				? {
+						source: view3dSource,
+						walls: (view3dFloor.walls ?? []) as VectorWall[],
+						columns: (view3dFloor.columns ?? []) as VectorColumn[],
+						surfaces: view3dFloor.surfaces ?? [],
+						ceilingHeightM: view3dFloor.ceilingHeight ?? 3,
+						wupm: view3dSource.wupm
+					}
+				: null;
+		// Consume the arrow's request once: any other path switches floors without animating.
+		const animate = animateFloorSwap && appState.floorView === 'floor3d';
+		animateFloorSwap = false;
+		const swapping = floor3DLayer.setFloor(scene3d, { animate });
+		/*
+		 * Frame the new floor once the old one has faded out, not while it is still visible:
+		 * the zoom change then happens on an empty screen. `contentBounds` reports the floor
+		 * that is currently drawn, so this is a fit for the incoming floor. A later run of
+		 * this effect (an orbit, a layer toggle) does not disturb that pending fit, and a
+		 * second arrow press simply schedules its own.
+		 */
+		if (swapping) {
+			setTimeout(() => {
+				if (engine && appState.floorView === 'floor3d') fitCanvasToContent(engine);
+			}, FLOOR_SWAP_MS / 2);
+		}
+
 		if (stackedFloorsLayer.focus !== appState.stackFocus) {
 			stackedFloorsLayer.focus = appState.stackFocus;
 			stackedFloorsLayer.hoverFloorId = null;

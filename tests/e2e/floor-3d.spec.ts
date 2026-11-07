@@ -176,3 +176,45 @@ test.describe('3D floor view', () => {
 		await expect(page.getByText('Draw wall')).toHaveCount(0);
 	});
 });
+
+/**
+ * The arrows play the storey change instead of cutting to it: the old floor fades away,
+ * the next one fades in.
+ *
+ * Motion is pinned here rather than inherited: the suite may run with reduced motion (the
+ * dialogs settle at once either way), but this test is about the animation, so it asks for
+ * the animation explicitly.
+ * Counting distinct canvases is what separates an animation from an instant switch: an
+ * instant switch settles after one repaint (the re-fit), while an animation repaints every
+ * frame for `FLOOR_SWAP_MS`.
+ */
+test.describe('3D floor view — storey animation', () => {
+	test.use({ contextOptions: { reducedMotion: 'no-preference' } });
+
+	test('the arrows animate the change instead of cutting', async ({ page }) => {
+		await seedWalledFloor(page, { floors: 2, wallHeightM: 3 });
+		await page.goto('/');
+		await page.waitForSelector('canvas');
+		await view3d(page);
+
+		const frames = await page.evaluate(
+			() =>
+				new Promise<number>((resolve) => {
+					const canvas = document.querySelector('canvas') as HTMLCanvasElement;
+					const seen = new Set<string>();
+					const started = performance.now();
+					const tick = () => {
+						seen.add(canvas.toDataURL());
+						if (performance.now() - started < 520) requestAnimationFrame(tick);
+						else resolve(seen.size);
+					};
+					// 先挂上采样再点箭头，第一帧也不漏；点页面内的按钮，省掉一次往返延迟。
+					(document.querySelector('[aria-label="Floor above"]') as HTMLButtonElement).click();
+					requestAnimationFrame(tick);
+				})
+		);
+
+		// 瞬间切换只会出现两三种画面；动画在 400 ms 内几乎每帧都不同。
+		expect(frames).toBeGreaterThan(4);
+	});
+});

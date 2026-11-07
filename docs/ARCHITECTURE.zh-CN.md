@@ -182,7 +182,7 @@ docs/             架构、手册、测量与修复计划
 | `ap.ts` | 绘制 AP 标记、覆盖半径、名称、距离标注与选中光晕。 |
 | `boundary.ts` | 绘制自动识别的建筑轮廓。 |
 | `calibration-line.ts` | 绘制标定线的两个端点与连线。 |
-| `floor-3d.ts` | 单层 3D 视图：墙体拉伸、材质、抬升面、AP 高度。 |
+| `floor-3d.ts` | 单层 3D 视图：墙体拉伸、材质、抬升面、AP 高度、换层进退场动画。 |
 | `floor-card.ts` | 多层视图共用卡片缓存：底图、掩膜、覆盖率图、AP 点。 |
 | `floor-tiles.ts` | 平铺视图布局、卡片框、点击命中。 |
 | `floorplan.ts` | 底图渲染与透明度。 |
@@ -205,6 +205,7 @@ docs/             架构、手册、测量与修复计划
 
 | 文件 | 作用 |
 | --- | --- |
+| `floor-3d.test.ts` | 验证换层动画的时序、方向镜像、连按时的衔接与位移距离。 |
 | `heatmap-region.test.ts` | 验证热力图范围、AP 可达半径、texel 预算与规划范围。 |
 | `stacked-floors.test.ts` | 验证堆叠投影、层高、AP 标记与墙板方向。 |
 
@@ -601,7 +602,7 @@ docs/             架构、手册、测量与修复计划
 | `per-floor-floor.spec.ts` | 每层最低覆盖率约束只提升最弱层。 |
 | `path-loss.spec.ts` | 传播场景选择与持久化。 |
 | `multi-floor.spec.ts` | 添加、切换、删除楼层与逐层数据。 |
-| `floor-3d.spec.ts` | 3D 视图、旋转、楼层切换、墙体高度。 |
+| `floor-3d.spec.ts` | 3D 视图、旋转、楼层切换与换层动画、墙体高度。 |
 | `stacked-view.spec.ts` | 堆叠视图布局、旋转、楼层点击、Only this floor。 |
 | `tiled-view.spec.ts` | 平铺卡片、切换楼层、逐层比例、材质颜色。 |
 | `stacked-export.spec.ts` | 堆叠视图导出为图片。 |
