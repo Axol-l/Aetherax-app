@@ -33,4 +33,15 @@ describe('secondary path candidates', () => {
 		// 挡墙自己的端点是可见的；被它挡住的那面墙的端点不能进入候选。
 		expect(candidates.some((edge) => edge.x === 0)).toBe(false);
 	});
+
+	it('indexes many candidate walls and only returns nearby ones', () => {
+		const walls = Array.from({ length: 12 }, (_, i) =>
+			wall(i * 100, 0, i * 100, 10)
+		);
+		const set = reflectionCandidates(walls, '5ghz', 50);
+		expect(set.grid).not.toBeNull();
+		const near = set.grid!.query(0, 5, 25);
+		expect(near.length).toBeGreaterThan(0);
+		expect(near.length).toBeLessThan(walls.length);
+	});
 });

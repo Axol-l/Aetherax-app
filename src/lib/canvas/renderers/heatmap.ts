@@ -300,6 +300,15 @@ export class HeatmapLayer implements Layer {
 	private cacheX0 = 0;
 	private cacheY0 = 0;
 	private cacheTexel = TEXEL_FINE;
+	/**
+	 * 反射/绕射候选跨帧缓存。候选只取决于 AP 位置与频段、墙体几何、楼层标定；
+	 * 平移、缩放、平滑参数变化时可直接复用。
+	 */
+	private pathCandidates: {
+		key: string;
+		reflectionByAp: ReflectionCandidateSet[];
+		diffractionByAp: DiffractionEdge[][];
+	} | null = null;
 
 	markWallsDirty(): void {
 		this.cacheKey = '';
@@ -681,22 +690,41 @@ export class HeatmapLayer implements Layer {
 		/*
 		 * 二级路径候选按 AP 预计算。反射候选只排除不可能产生反射的墙；绕射候选先把
 		 * AP 一侧的可见性和距离筛掉。纹素循环里只处理这些候选，不再每像素重扫全部墙。
+		 *
+		 * 候选只取决于 AP 位置/频段、墙体几何和楼层标定；平移和缩放不会改变它们，
+		 * 因此可以跨帧复用。拖拽时墙体暂时清空，不写入缓存，避免拖拽帧覆盖静止图。
 		 */
-		const reflectionByAp: ReflectionCandidateSet[] =
-			walls.length > 0
-				? this.aps.map((ap) => reflectionCandidates(walls, ap.band))
-				: this.aps.map(() => ({ walls: [], wallIndices: [] }));
-		const diffractionByAp: DiffractionEdge[][] =
-			edges.length > 0
-				? this.aps.map((ap) =>
-						diffractionCandidatesForAp(
-							{ x: ap.x, y: ap.y },
-							walls,
-							ap.band,
-							metersPerWorldUnit
+		const candidateKey = [
+			metersPerWorldUnit,
+			this.aps.map((ap) => `${ap.x},${ap.y},${ap.band}`).join(';'),
+			walls.map((wall) => `${wall.ax},${wall.ay},${wall.bx},${wall.by},${wall.material}`).join(';')
+		].join('|');
+		const cacheable = !this.isDragging;
+		let reflectionByAp: ReflectionCandidateSet[];
+		let diffractionByAp: DiffractionEdge[][];
+		if (cacheable && this.pathCandidates?.key === candidateKey) {
+			reflectionByAp = this.pathCandidates.reflectionByAp;
+			diffractionByAp = this.pathCandidates.diffractionByAp;
+		} else {
+			reflectionByAp =
+				walls.length > 0
+					? this.aps.map((ap) => reflectionCandidates(walls, ap.band, reflectionReach))
+					: this.aps.map(() => ({ walls: [], wallIndices: [], grid: null }));
+			diffractionByAp =
+				edges.length > 0
+					? this.aps.map((ap) =>
+							diffractionCandidatesForAp(
+								{ x: ap.x, y: ap.y },
+								walls,
+								ap.band,
+								metersPerWorldUnit
+							)
 						)
-					)
-				: this.aps.map(() => []);
+					: this.aps.map(() => []);
+			if (cacheable) {
+				this.pathCandidates = { key: candidateKey, reflectionByAp, diffractionByAp };
+			}
+		}
 
 		for (let ty = 0; ty < rows; ty++) {
 			const wy = y0 + (ty + 0.5) * texel;
@@ -863,15 +891,27 @@ export class HeatmapLayer implements Layer {
 						 * 反射路径的两段也按矢量墙算一次穿墙损耗；反射面本身由反射系数表示，
 						 * 所以从墙损里排除。否则一面墙会同时按“反射系数”和“穿墙损耗”扣两次。
 						 */
-						const returns = reflections(
-							{ x: apX[i]!, y: apY[i]! },
-							{ x: wx, y: wy },
-							reflectionByAp[i]!.walls,
-							bands[i]!,
-							reflectionReach,
-							undefined,
-							reflectionByAp[i]!.wallIndices
-						);
+						const candidateSet = reflectionByAp[i]!;
+						const nearby = candidateSet.grid
+							? candidateSet.grid.query(
+									(apX[i]! + wx) / 2,
+									(apY[i]! + wy) / 2,
+									reflectionReach
+								)
+							: undefined;
+						const returns =
+							nearby && nearby.length === 0
+								? []
+								: reflections(
+										{ x: apX[i]!, y: apY[i]! },
+										{ x: wx, y: wy },
+										candidateSet.walls,
+										bands[i]!,
+										reflectionReach,
+										undefined,
+										candidateSet.wallIndices,
+										nearby
+									);
 						for (const bounce of returns) {
 							const legLoss =
 								rayWallLossDb(

@@ -19,6 +19,54 @@ export interface ReflectionCandidateSet {
 	walls: ReflectingWall[];
 	/** 每面候选墙在原始 `walls` 中的下标；反射点仍按候选墙计算。 */
 	wallIndices: number[];
+	/** 按墙中点建立的均匀网格；候选很少时为 null，直接线性扫描更便宜。 */
+	grid: WallCandidateGrid | null;
+}
+
+/**
+ * 按墙中点分格的均匀网格。反射点随客户端变化，但“哪面墙离 AP–客户端中点足够近”
+ * 可以先由网格筛一遍，避免每个纹素都扫完候选墙。
+ */
+export class WallCandidateGrid {
+	private readonly cells = new Map<string, number[]>();
+
+	constructor(
+		walls: readonly ReflectingWall[],
+		private readonly cellSize: number
+	) {
+		if (!(cellSize > 0)) return;
+		walls.forEach((wall, index) => {
+			const key = this.key(
+				Math.floor(((wall.ax + wall.bx) / 2) / cellSize),
+				Math.floor(((wall.ay + wall.by) / 2) / cellSize)
+			);
+			const cell = this.cells.get(key);
+			if (cell) cell.push(index);
+			else this.cells.set(key, [index]);
+		});
+	}
+
+	private key(ix: number, iy: number): string {
+		return `${ix},${iy}`;
+	}
+
+	/** 中点落在这个圆内的候选墙下标，已去重。 */
+	query(x: number, y: number, radius: number): number[] {
+		if (!(this.cellSize > 0)) return [];
+		const minX = Math.floor((x - radius) / this.cellSize);
+		const maxX = Math.floor((x + radius) / this.cellSize);
+		const minY = Math.floor((y - radius) / this.cellSize);
+		const maxY = Math.floor((y + radius) / this.cellSize);
+		const out = new Set<number>();
+		for (let ix = minX; ix <= maxX; ix++) {
+			for (let iy = minY; iy <= maxY; iy++) {
+				const cell = this.cells.get(this.key(ix, iy));
+				if (!cell) continue;
+				for (const index of cell) out.add(index);
+			}
+		}
+		return [...out];
+	}
 }
 
 /**
@@ -27,7 +75,8 @@ export interface ReflectionCandidateSet {
  */
 export function reflectionCandidates(
 	walls: readonly ReflectingWall[],
-	band: Band
+	band: Band,
+	cellSizeWu = 0
 ): ReflectionCandidateSet {
 	const out: ReflectingWall[] = [];
 	const indices: number[] = [];
@@ -38,7 +87,11 @@ export function reflectionCandidates(
 		out.push(wall);
 		indices.push(i);
 	}
-	return { walls: out, wallIndices: indices };
+	return {
+		walls: out,
+		wallIndices: indices,
+		grid: cellSizeWu > 0 && out.length >= 12 ? new WallCandidateGrid(out, cellSizeWu) : null
+	};
 }
 
 /**
