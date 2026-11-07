@@ -131,14 +131,15 @@ export function reflections(
 	walls: readonly ReflectingWall[],
 	band: Band,
 	maxDistance = Infinity,
-	minRatio = 1e-4
+	minRatio = 1e-4,
+	wallIndices?: readonly number[]
 ): Reflection[] {
 	const out: Reflection[] = [];
 	const midX = (from.x + to.x) / 2;
 	const midY = (from.y + to.y) / 2;
 
-	for (let wallIndex = 0; wallIndex < walls.length; wallIndex++) {
-		const wall = walls[wallIndex]!;
+	for (let localIndex = 0; localIndex < walls.length; localIndex++) {
+		const wall = walls[localIndex]!;
 		// 按墙中心到路径中点的距离剔除过远的墙。
 		const reach = Math.hypot((wall.ax + wall.bx) / 2 - midX, (wall.ay + wall.by) / 2 - midY);
 		if (reach > maxDistance) continue;
@@ -147,7 +148,7 @@ export function reflections(
 		if (!hit) continue;
 		const ratio = reflectionPowerRatio(wall, band, hit.cosTheta);
 		if (ratio <= minRatio) continue;
-		out.push({ ...hit, powerRatio: ratio, wallIndex });
+		out.push({ ...hit, powerRatio: ratio, wallIndex: wallIndices?.[localIndex] ?? localIndex });
 	}
 	out.sort((a, b) => b.powerRatio - a.powerRatio);
 	return out;

@@ -55,6 +55,13 @@ import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurfac
 import { reflections, type ReflectingWall } from '../../rf/reflection.js';
 import { bestDiffraction, bandWavelengthM, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
 import { rayWallLossDb } from '../../rf/wall-crossings.js';
+import {
+	diffractionCandidatesForAp,
+	DIFFRACTION_MAX_CLEARANCE_M,
+	DIFFRACTION_MAX_DISTANCE_M,
+	reflectionCandidates,
+	type ReflectionCandidateSet
+} from '../../rf/path-candidates.js';
 
 import { rampColorAt } from '../heatmap-ramp.js';
 import { maskSignature } from '../mask-registry.js';
@@ -671,6 +678,25 @@ export class HeatmapLayer implements Layer {
 		const reflectionReach = 24 * this.worldUnitsPerMeter;
 		// 每个墙体端点都是一条刃边；每幅图计算一次。
 		const edges: DiffractionEdge[] = walls.length > 0 ? edgesOf(walls) : [];
+		/*
+		 * 二级路径候选按 AP 预计算。反射候选只排除不可能产生反射的墙；绕射候选先把
+		 * AP 一侧的可见性和距离筛掉。纹素循环里只处理这些候选，不再每像素重扫全部墙。
+		 */
+		const reflectionByAp: ReflectionCandidateSet[] =
+			walls.length > 0
+				? this.aps.map((ap) => reflectionCandidates(walls, ap.band))
+				: this.aps.map(() => ({ walls: [], wallIndices: [] }));
+		const diffractionByAp: DiffractionEdge[][] =
+			edges.length > 0
+				? this.aps.map((ap) =>
+						diffractionCandidatesForAp(
+							{ x: ap.x, y: ap.y },
+							walls,
+							ap.band,
+							metersPerWorldUnit
+						)
+					)
+				: this.aps.map(() => []);
 
 		for (let ty = 0; ty < rows; ty++) {
 			const wy = y0 + (ty + 0.5) * texel;
@@ -840,9 +866,11 @@ export class HeatmapLayer implements Layer {
 						const returns = reflections(
 							{ x: apX[i]!, y: apY[i]! },
 							{ x: wx, y: wy },
-							walls,
+							reflectionByAp[i]!.walls,
 							bands[i]!,
-							reflectionReach
+							reflectionReach,
+							undefined,
+							reflectionByAp[i]!.wallIndices
 						);
 						for (const bounce of returns) {
 							const legLoss =
@@ -880,34 +908,26 @@ export class HeatmapLayer implements Layer {
 					 * 权重从 3 dB 处的 0 线性升到 9 dB 处的 1，避免阈值处出现可见缺口。
 					 */
 					const diffractionGate = Math.min(1, Math.max(0, (wallLoss - 3) / 6));
-					if (diffractionGate > 0 && edges.length > 0) {
+					const candidates = diffractionByAp[i]!;
+					if (diffractionGate > 0 && candidates.length > 0) {
 						const best = bestDiffraction(
 							{ x: apX[i]!, y: apY[i]! },
 							{ x: wx, y: wy },
-							edges,
+							candidates,
 							bandWavelengthM(bands[i]!),
-							undefined,
-							undefined,
-							metersPerWorldUnit
+							DIFFRACTION_MAX_CLEARANCE_M,
+							DIFFRACTION_MAX_DISTANCE_M,
+							metersPerWorldUnit,
+							(edge) =>
+								rayWallLossDb(
+									{ x: edge.x, y: edge.y },
+									{ x: wx, y: wy },
+									walls,
+									bands[i]!,
+									edge.wallIndices ?? []
+								) <= 1e-9
 						);
-						if (
-							best &&
-							best.lossDb > 0 &&
-							rayWallLossDb(
-								{ x: apX[i]!, y: apY[i]! },
-								{ x: best.x, y: best.y },
-								walls,
-								bands[i]!,
-								best.edge.wallIndices ?? []
-							) <= 1e-9 &&
-							rayWallLossDb(
-								{ x: best.x, y: best.y },
-								{ x: wx, y: wy },
-								walls,
-								bands[i]!,
-								best.edge.wallIndices ?? []
-							) <= 1e-9
-						) {
+						if (best && best.lossDb > 0) {
 							const d1 = Math.hypot(best.x - apX[i]!, best.y - apY[i]!);
 							const d2 = Math.hypot(wx - best.x, wy - best.y);
 							const diffracted =
