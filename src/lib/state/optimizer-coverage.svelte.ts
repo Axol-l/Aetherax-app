@@ -439,7 +439,10 @@ export async function updateCoverage(): Promise<void> {
 					{ x: ap.x - ox, y: ap.y - oy },
 					{ x: sample.x, y: sample.y },
 					diffractionEdges,
-					ap.band as '2.4ghz' | '5ghz' | '6ghz'
+					ap.band as '2.4ghz' | '5ghz' | '6ghz',
+					undefined,
+					undefined,
+					1 / wupmForGap
 				);
 				if (loss > 0) {
 					const diffractedMargin =

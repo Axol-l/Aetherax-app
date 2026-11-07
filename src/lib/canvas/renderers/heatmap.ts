@@ -865,7 +865,10 @@ export class HeatmapLayer implements Layer {
 							{ x: apX[i]!, y: apY[i]! },
 							{ x: wx, y: wy },
 							edges,
-							bands[i]!
+							bands[i]!,
+							undefined,
+							undefined,
+							1 / this.worldUnitsPerMeter
 						);
 						if (loss > 0) {
 							const diffracted =

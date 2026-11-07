@@ -64,6 +64,26 @@ describe('bestDiffraction', () => {
 		expect(bestDiffraction(from, to, far, lambda5, 10)).toBeNull();
 	});
 
+	it('converts world units to metres before applying the Fresnel limits', () => {
+		// The same 100 m path expressed in 0.1 m world units must give the same loss.
+		const scaled = bestDiffraction(
+			{ x: 0, y: 0 },
+			{ x: 1000, y: 0 },
+			[{ x: 500, y: 10, material: 0 }],
+			lambda5,
+			40,
+			60,
+			0.1
+		)!;
+		const plain = bestDiffraction(
+			{ x: 0, y: 0 },
+			{ x: 100, y: 0 },
+			[{ x: 50, y: 1, material: 0 }],
+			lambda5
+		)!;
+		expect(scaled.lossDb).toBeCloseTo(plain.lossDb, 6);
+	});
+
 	it('finds both ends of every wall', () => {
 		const edgesOfWalls = edgesOf([
 			{ ax: 0, ay: 0, bx: 10, by: 0, material: 0 },

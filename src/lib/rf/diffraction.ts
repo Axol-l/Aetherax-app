@@ -48,7 +48,8 @@ export function bestDiffraction(
 	edges: readonly DiffractionEdge[],
 	wavelength: number,
 	maxClearance = 40,
-	maxDistance = 60
+	maxDistance = 60,
+	metersPerWorldUnit = 1
 ): { lossDb: number; x: number; y: number } | null {
 	const dx = to.x - from.x;
 	const dy = to.y - from.y;
@@ -66,12 +67,16 @@ export function bestDiffraction(
 		if (along <= 0 || along >= direct) continue;
 		const d1 = Math.hypot(ex, ey);
 		const d2 = Math.hypot(to.x - edge.x, to.y - edge.y);
-		if (d1 > maxDistance || d2 > maxDistance) continue;
+		// The limits and the knife-edge formula are in metres; the geometry here is in
+		// world units. One conversion point keeps callers from having to scale their masks.
+		const d1M = d1 * metersPerWorldUnit;
+		const d2M = d2 * metersPerWorldUnit;
+		if (d1M > maxDistance || d2M > maxDistance) continue;
 		// 垂直偏移量，符号按接收点所在侧取正，即侵入路径为正。
 		const side = ex * uy - ey * ux;
 		const clearance = side;
-		if (Math.abs(clearance) > maxClearance) continue;
-		const lossDb = knifeEdgeLossDb(Math.abs(clearance), d1, d2, wavelength);
+		if (Math.abs(clearance) * metersPerWorldUnit > maxClearance) continue;
+		const lossDb = knifeEdgeLossDb(Math.abs(clearance) * metersPerWorldUnit, d1M, d2M, wavelength);
 		if (best === null || lossDb < best.lossDb) best = { lossDb, x: edge.x, y: edge.y };
 	}
 	return best;
@@ -99,8 +104,17 @@ export function diffractionLossDb(
 	edges: readonly DiffractionEdge[],
 	band: '2.4ghz' | '5ghz' | '6ghz',
 	maxClearance = 40,
-	maxDistance = 60
+	maxDistance = 60,
+	metersPerWorldUnit = 1
 ): number {
-	const best = bestDiffraction(from, to, edges, bandWavelengthM(band), maxClearance, maxDistance);
+	const best = bestDiffraction(
+		from,
+		to,
+		edges,
+		bandWavelengthM(band),
+		maxClearance,
+		maxDistance,
+		metersPerWorldUnit
+	);
 	return best?.lossDb ?? 0;
 }
