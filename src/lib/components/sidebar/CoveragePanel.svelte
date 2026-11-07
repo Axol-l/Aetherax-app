@@ -37,8 +37,14 @@
 	import { apState } from '$state/ap-state.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
 	import { DEFAULT_CLIENTS_PER_AP } from '$lib/domain/client-capacity.js';
+	import WarningDialog from '$components/dialogs/WarningDialog.svelte';
 
 	let settingsOpen = $state(false);
+	let optimizerErrorOpen = $state(false);
+
+	$effect(() => {
+		optimizerErrorOpen = Boolean(optimizerState.error);
+	});
 
 	let channelCount = $derived.by(() => {
 		try {
@@ -168,8 +174,7 @@
 			</div>
 		{/if}
 
-		{#if capacityAps > 0}
-			<div class="metric capacity-metric">
+		{#if capacityAps > 0}			<div class="metric capacity-metric">
 				<div class="metric-head">
 					<span class="metric-name">{t('Capacity')}</span>
 					<span class="metric-value">{apsOnFloor} / {capacityAps} APs</span>
@@ -489,12 +494,13 @@
 			</div>
 		{/if}
 	{/if}
-
-
-	{#if optimizerState.error}
-		<span class="optimize-error">{optimizerState.error}</span>
-	{/if}
 </div>
+
+<WarningDialog
+	bind:open={optimizerErrorOpen}
+	title={t('Placement warning')}
+	message={optimizerState.error ?? ''}
+/>
 
 <style>
 	/*
@@ -827,11 +833,6 @@
 		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 		font-style: italic;
-	}
-
-	.optimize-error {
-		font-size: var(--text-xs);
-		color: var(--color-error);
 	}
 
 	.action-btn {

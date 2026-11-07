@@ -231,6 +231,7 @@ docs/             架构、手册、测量与修复计划
 | `NewProjectDialog.svelte` | 新建工程：名称、清空当前布局、创建。 |
 | `WelcomeDialog.svelte` | 首次启动引导与示例入口。 |
 | `ManualDialog.svelte` | 帮助弹窗，用 iframe 加载 `static/manual.html`。 |
+| `WarningDialog.svelte` | 优化器等操作失败的警告弹窗。 |
 
 ## 10. `src/lib/components/layout`
 

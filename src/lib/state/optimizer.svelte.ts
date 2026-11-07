@@ -73,7 +73,9 @@ async function optimizeFloor(
 	const hasWalls = (floor?.walls ?? []).length > 0;
 	if (!floor || (!floor.wallMask && !hasWalls)) {
 		// 只有屏幕上这层才值得报错；全楼运行时，没有户型的楼层直接跳过就行。
-		if (floorId === floorState.currentFloorId) optimizerState.error = t('Load a floorplan first');
+		if (!opts.graphOnly && floorId === floorState.currentFloorId) {
+			optimizerState.error = t('Load a floorplan first');
+		}
 		return nothing;
 	}
 
@@ -108,7 +110,7 @@ async function optimizeFloor(
 			.map((ap) => toApInput(ap, { originX, originY, floorId: curFloorId }));
 
 		if (localAps.length === 0) {
-			if (floorId === floorState.currentFloorId) {
+			if (!opts.graphOnly && floorId === floorState.currentFloorId) {
 				optimizerState.error =
 					pinnedAps.length > 0
 						? t(
@@ -287,7 +289,9 @@ async function optimizeFloor(
 				}
 			);
 			if (graphResult.error) {
-				if (floorId === floorState.currentFloorId) optimizerState.error = graphResult.error;
+				// The graph build also runs from the automatic channel solver. A failure there
+				// is not a user-initiated placement attempt, so it must not open the placement
+				// warning; the real optimize run reports the same problem when it is asked for.
 				return nothing;
 			}
 			return {

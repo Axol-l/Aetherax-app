@@ -135,6 +135,8 @@ const zh: Record<string, string> = {
 	'Off by default: optimised APs stay inside the detected building interior. Turn on to let them land anywhere, walls included.':
 		'默认关闭：优化时 AP 只落在识别出的建筑内部。打开后可以落在任何位置，包括墙上。',
 	'Min signal': '最低信号',
+	OK: '知道了',
+	'Placement warning': '放置警告',
 	'Signal below this is left transparent, so the coloured area lines up with the coverage circle around each AP. Raise it (e.g. -70 dBm) to show only the strong core.':
 		'低于这个电平的区域保持透明。',
 	'Coverage threshold': '覆盖门限',
