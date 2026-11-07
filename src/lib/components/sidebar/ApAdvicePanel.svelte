@@ -14,6 +14,7 @@
 	import { t } from '$state/i18n.svelte';
 	import { apState } from '$state/ap-state.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
+	import { DEFAULT_CLIENTS_PER_AP } from '$lib/domain/client-capacity.js';
 
 	let dismissedRun = $state<number | null>(null);
 
@@ -31,7 +32,7 @@
 	const deviceLoad = $derived(floorCoverage.get(floorState.currentFloorId)?.devices ?? 0);
 	const clientCapacity = $derived(
 		apsOnFloor.reduce(
-			(sum, ap) => sum + (ap.clients ?? projectMeta.clientsPerAp),
+			(sum, ap) => sum + (ap.clients ?? DEFAULT_CLIENTS_PER_AP),
 			0
 		)
 	);
@@ -66,7 +67,6 @@
 			contention: optimizerState.contention,
 			devices: deviceLoad,
 			clientCapacity,
-			clientsPerAp: projectMeta.clientsPerAp,
 			target,
 			unassigned: apState.aps.filter((ap) => ap.assignedChannel === null).length,
 			calibrated: floorState.floors[0]?.calibration != null,

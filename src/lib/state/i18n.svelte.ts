@@ -140,10 +140,6 @@ const zh: Record<string, string> = {
 	'Coverage threshold': '覆盖门限',
 	'The signal level used to decide whether a sample counts as covered. It is separate from Min signal, which only controls what the heatmap paints. Raise it to −65 or −60 for high-density offices.':
 		'判定一个采样点是否被覆盖的信号电平。它和 Min signal 分开：后者只控制热力图着色。高密度办公区可以提高到 −65 或 −60 dBm。',
-	'Clients per AP': '每个 AP 的终端数',
-	'Concurrent clients one access point is planned to carry. The floor\'s room densities estimate the device count; the advice then checks that the AP count is at least that many clients divided by this figure. Set 0 to turn the capacity check off.':
-		'规划中每个 AP 承载的并发终端数。房间密度会估算本层终端数，建议会检查 AP 数量是否达到“终端数 ÷ 这个值”。设为 0 可关闭容量约束。',
-	Off: '关闭',
 	Capacity: '容量',
 	Interference: '干扰权重',
 	'How much co-channel interference the optimiser trades against coverage: the score is coverage minus this weight times the share of the floor whose best access point is degraded by a co-channel second one. 0 scores coverage alone — the behaviour before the term existed — so it doubles as the A/B switch.':

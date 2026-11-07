@@ -13,7 +13,7 @@
 	import { MAX_BEAMWIDTH_DEG, MAX_AIM_DEG, normaliseBearing } from '$lib/rf/antenna.js';
 	import AntennaDiagram from './AntennaDiagram.svelte';
 	import { wallSnapForFloor } from '$state/wall-snap.js';
-	import { projectMeta } from '$state/project-meta.svelte.js';
+	import { DEFAULT_CLIENTS_PER_AP } from '$lib/domain/client-capacity.js';
 	import { floorState } from '$state/floor-state.svelte.js';
 	import { canvasState, clearSelection, selectAp } from '$state/canvas.svelte';
 	import { pushState } from '$state/history.svelte';
@@ -402,7 +402,7 @@
 				<span class="field-label">{t('Clients')}</span>
 			</Tooltip>
 			<NumberInput
-				value={singleAp.clients ?? projectMeta.clientsPerAp}
+				value={singleAp.clients ?? DEFAULT_CLIENTS_PER_AP}
 				min={1}
 				max={500}
 				step={1}

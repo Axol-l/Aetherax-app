@@ -36,6 +36,7 @@
 	} from '$lib/units.js';
 	import { apState } from '$state/ap-state.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
+	import { DEFAULT_CLIENTS_PER_AP } from '$lib/domain/client-capacity.js';
 
 	let settingsOpen = $state(false);
 
@@ -80,20 +81,13 @@
 		void updateCoverage();
 	}
 
-	function applyClientsPerAp(value: number): void {
-		const clients = Math.min(200, Math.max(0, Math.round(Number(value))));
-		if (!Number.isFinite(clients)) return;
-		projectMeta.clientsPerAp = clients;
-		scheduleSave();
-	}
-
 	const buildingPct = $derived(getBuildingCoverage());
 	const deviceLoad = $derived(floorCoverage.get(floorState.currentFloorId)?.devices ?? 0);
 	const clientCapacity = $derived(
 		(floorState.floors.length <= 1
 			? apState.aps
 			: apState.aps.filter((ap) => ap.floorId === floorState.currentFloorId)
-		).reduce((sum, ap) => sum + (ap.clients ?? projectMeta.clientsPerAp), 0)
+		).reduce((sum, ap) => sum + (ap.clients ?? DEFAULT_CLIENTS_PER_AP), 0)
 	);
 	const apsOnFloor = $derived(
 		floorState.floors.length <= 1
@@ -345,24 +339,6 @@
 							onchange={(e) => applyCoverageThreshold(Number(e.currentTarget.value))}
 						/>
 						<span class="setting-value">dBm</span>
-					</label>
-				</Tooltip>
-
-				<Tooltip
-					wrap
-					position="top"
-					text={t('Concurrent clients one access point is planned to carry. The floor\'s room densities estimate the device count; the advice then checks that the AP count is at least that many clients divided by this figure. Set 0 to turn the capacity check off.')}
-				>
-					<label class="setting-row slider-row">
-						<span class="setting-title">{t('Clients per AP')}</span>
-						<input
-							type="number"
-							min="0"
-							max="200"
-							step="1"
-							value={projectMeta.clientsPerAp}
-							onchange={(e) => applyClientsPerAp(Number(e.currentTarget.value))}
-						/>
 					</label>
 				</Tooltip>
 

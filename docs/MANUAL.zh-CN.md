@@ -420,13 +420,14 @@ Coverage 下方有一条 Capacity 容量条：显示本层当前 AP 数 / 按房
 1. Allow APs outside rooms：允许 AP 落在房间外，默认关闭。
 2. Min signal：热力图最低信号门限，-95 到 -55 dBm，步长 5。只影响热力图着色。
 3. Coverage threshold：覆盖率判定门限，默认 -70 dBm；高密度办公区可提高到 -65 或 -60。
-4. Clients per AP：每个 AP 计划承载的并发终端数，默认 25；设为 0 关闭容量约束。
-5. Interference：同信道干扰在评分中的权重，0 到 1，步长 0.05。
-6. Min coverage：最低覆盖率约束，0 表示不约束。
-7. Every floor：多楼层时把最低覆盖率约束应用到每一层。
-8. Client height：客户端离地高度。
-9. Restarts：优化重启次数，1 到 8。
-10. Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。
+4. Interference：同信道干扰在评分中的权重，0 到 1，步长 0.05。
+5. Min coverage：最低覆盖率约束，0 表示不约束。
+6. Every floor：多楼层时把最低覆盖率约束应用到每一层。
+7. Client height：客户端离地高度。
+8. Restarts：优化重启次数，1 到 8。
+9. Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。
+
+容量不在这里设置：每台 AP 的 Clients 数量在 AP 编辑页单独修改，未设置时默认为 25。
 
 影响优化评分的设置需要重新运行优化才会生效；Min signal 会立即改变热力图，Coverage threshold 会立即重算覆盖率。
 
@@ -621,7 +622,7 @@ Layers 面板底部显示信号强度色标。色标范围随 Min signal 变化�
 3. 检查规划范围是否覆盖真实楼层。
 4. 检查房间类型和密度是否合理。
 5. 检查 Coverage threshold 是否与评估标准一致（默认 −70 dBm，不是 Min signal）。
-6. 检查 Propagation 是否按墙体绘制程度选择；墙体已完整绘制时用 Walls drawn in full。高密度办公区还要检查 Clients per AP 和本层终端估算。
+6. 检查 Propagation 是否按墙体绘制程度选择；墙体已完整绘制时用 Walls drawn in full。高密度办公区还要检查每台 AP 的 Clients 和本层终端估算。
 
 ### 18.4 优化器没有改变布局
 

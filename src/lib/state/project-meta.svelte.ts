@@ -26,10 +26,6 @@ export const projectMeta = $state({
 	 */
 	coverageThresholdDbm: -70 as number,
 	/**
-	 * 每个 AP 计划承载的并发终端数，用于容量约束。0 表示不做容量约束。
-	 */
-	clientsPerAp: 25 as number,
-	/**
 	 * 假设客户端离地多高，单位米。
 	 */
 	clientHeight: 1.5 as number,

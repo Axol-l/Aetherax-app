@@ -1,5 +1,7 @@
 // 根据优化器运行结果生成用户可操作的 AP 建议
 
+import { DEFAULT_CLIENTS_PER_AP } from '$lib/domain/client-capacity.js';
+
 /** What a finding is about. The renderer owns the wording, this owns the rule. */
 export type AdviceKind =
 	| 'calibrate'
@@ -53,8 +55,6 @@ export interface AdviceContext {
 	devices: number;
 	/** Sum of the client capacities of the APs on this floor. */
 	clientCapacity: number;
-	/** Fallback concurrent clients per AP when one has no explicit figure. */
-	clientsPerAp: number;
 	/** The requirement: the ε-constraint when set, otherwise the default target. */
 	target: number;
 	/** Access points with no channel from the solver. */
@@ -96,9 +96,9 @@ export function evaluateApAdvice(ctx: AdviceContext): AdviceFinding[] {
 	const perAp =
 		ctx.apsOnFloor > 0 && ctx.clientCapacity > 0
 			? Math.max(1, Math.round(ctx.clientCapacity / ctx.apsOnFloor))
-			: ctx.clientsPerAp;
+			: DEFAULT_CLIENTS_PER_AP;
 	const requiredAps =
-		ctx.clientsPerAp > 0 && ctx.devices > 0 && perAp > 0 ? Math.ceil(ctx.devices / perAp) : 0;
+		ctx.devices > 0 && perAp > 0 ? Math.ceil(ctx.devices / perAp) : 0;
 	const capacityShortfall =
 		ctx.devices > 0 && ctx.clientCapacity > 0 && ctx.devices > ctx.clientCapacity;
 

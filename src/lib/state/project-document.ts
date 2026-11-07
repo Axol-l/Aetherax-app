@@ -108,7 +108,6 @@ export interface ProjectDocumentV3 {
 	allowOutsideRooms: boolean;
 	heatmapRssiFloor: number;
 	coverageThresholdDbm: number;
-	clientsPerAp: number;
 	clientHeight: number;
 	interferenceWeight: number;
 	coverageSoftnessDb: number;
@@ -196,7 +195,6 @@ export function toDocument(options: ToDocumentOptions = {}): ProjectDocumentV3 {
 		allowOutsideRooms: projectMeta.allowOutsideRooms,
 		heatmapRssiFloor: projectMeta.heatmapRssiFloor,
 		coverageThresholdDbm: projectMeta.coverageThresholdDbm,
-		clientsPerAp: projectMeta.clientsPerAp,
 		clientHeight: projectMeta.clientHeight,
 		interferenceWeight: projectMeta.interferenceWeight,
 		coverageSoftnessDb: projectMeta.coverageSoftnessDb,
@@ -347,7 +345,6 @@ export function migrate(raw: unknown): ProjectDocumentV3 | null {
 		allowOutsideRooms: data.allowOutsideRooms ?? false,
 		heatmapRssiFloor: data.heatmapRssiFloor ?? -70,
 		coverageThresholdDbm: data.coverageThresholdDbm ?? -70,
-		clientsPerAp: data.clientsPerAp ?? 25,
 		clientHeight: data.clientHeight ?? 1.5,
 		interferenceWeight: data.interferenceWeight ?? 0.2,
 		coverageSoftnessDb: data.coverageSoftnessDb ?? DEFAULT_COVERAGE_SOFTNESS_DB,
@@ -493,7 +490,6 @@ export function applyDocument(
 	projectMeta.allowOutsideRooms = doc.allowOutsideRooms;
 	projectMeta.heatmapRssiFloor = doc.heatmapRssiFloor;
 	projectMeta.coverageThresholdDbm = doc.coverageThresholdDbm;
-	projectMeta.clientsPerAp = doc.clientsPerAp;
 	projectMeta.clientHeight = doc.clientHeight;
 	projectMeta.interferenceWeight = doc.interferenceWeight;
 	projectMeta.coverageSoftnessDb = doc.coverageSoftnessDb;

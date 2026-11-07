@@ -45,7 +45,6 @@
 		projectMeta.allowOutsideRooms = false;
 		projectMeta.heatmapRssiFloor = -70;
 		projectMeta.coverageThresholdDbm = -70;
-		projectMeta.clientsPerAp = 25;
 		setCoverageThresholdDbm(-70);
 		// Default weight of the co-channel interference term in the objective.
 		projectMeta.interferenceWeight = 0.2;

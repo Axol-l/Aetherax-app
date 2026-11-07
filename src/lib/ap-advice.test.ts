@@ -19,7 +19,6 @@ function context(overrides: Partial<AdviceContext> = {}): AdviceContext {
 		contention: 5,
 		devices: 0,
 		clientCapacity: 0,
-		clientsPerAp: 25,
 		target: DEFAULT_COVERAGE_TARGET,
 		unassigned: 0,
 		calibrated: true,
@@ -101,7 +100,7 @@ describe('coverage surplus', () => {
 describe('client capacity', () => {
 	it('asks for enough APs to carry the estimated devices', () => {
 		const finding = evaluateApAdvice(
-			context({ devices: 100, clientCapacity: 50, clientsPerAp: 25, apsOnFloor: 2, coverage: 98 })
+			context({ devices: 100, clientCapacity: 50, apsOnFloor: 2, coverage: 98 })
 		).find((f) => f.kind === 'capacity');
 		expect(finding?.severity).toBe('action');
 		expect(finding?.params.required).toBe(4);
@@ -110,14 +109,14 @@ describe('client capacity', () => {
 
 	it('does not call APs redundant while the capacity requirement still needs them', () => {
 		const findings = evaluateApAdvice(
-			context({ devices: 100, clientCapacity: 100, clientsPerAp: 25, apsOnFloor: 4, coverage: 98 })
+			context({ devices: 100, clientCapacity: 100, apsOnFloor: 4, coverage: 98 })
 		);
 		expect(findings.map((f) => f.kind)).not.toContain('remove-aps');
 	});
 
-	it('turns the check off when clientsPerAp is zero', () => {
+	it('does not ask for capacity when the APs carry no explicit capacity', () => {
 		expect(
-			kinds(context({ devices: 500, clientCapacity: 0, clientsPerAp: 0, apsOnFloor: 1, coverage: 85 }))
+			kinds(context({ devices: 500, clientCapacity: 0, apsOnFloor: 1, coverage: 85 }))
 		).not.toContain('capacity');
 	});
 });
