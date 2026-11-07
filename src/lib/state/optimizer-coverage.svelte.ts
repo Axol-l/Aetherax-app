@@ -363,6 +363,7 @@ export async function updateCoverage(): Promise<void> {
 			const dy = sample.y - (ap.y - oy);
 			// AP 和客户端的高度差，再减掉客户端脚下踩的东西。
 			const vertical = ap.verticalGapWu - (sampleHeightWu[i] ?? 0);
+			const verticalAbs = Math.abs(vertical);
 			const horiz = Math.sqrt(dx * dx + dy * dy);
 
 			if (horiz > coverageHorizontalReach(ap.interferenceRadius, 0, 0)) continue;
@@ -374,7 +375,7 @@ export async function updateCoverage(): Promise<void> {
 				crossings && crossings.length > 0
 					? slabDb * slabLossFactor(crossings, ap.x - ox, ap.y - oy, sample.x, sample.y)
 					: slabDb;
-			if (horiz >= coverageHorizontalReach(ap.interferenceRadius, slabLoss, vertical)) continue;
+			if (horiz >= coverageHorizontalReach(ap.interferenceRadius, slabLoss, verticalAbs)) continue;
 			const targetRun: WallRun = {
 				mask: data,
 				width,

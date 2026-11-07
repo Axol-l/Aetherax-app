@@ -104,39 +104,37 @@ describe('apHeightAboveFloor', () => {
 });
 
 describe('apVerticalOffsetTo', () => {
-	it('is the height difference to a client on the same floor', () => {
+	it('is signed: positive when the client is below the AP, negative above', () => {
 		seedFloors();
-		// 0.8 m 的 AP 对 1.5 m 的终端差 0.7 m：同层路径也不是平的。
+		// 0.8 m 的 AP 比 1.5 m 的终端低：客户端在 AP 上方，所以是负的。
 		expect(apVerticalOffsetTo({ floorId: 'f1', mountHeightM: 0.8 }, 'f1', 1.5)).toBeCloseTo(
-			0.7,
+			-0.7,
 			6
 		);
-		// 符号无所谓，只看距离。
+		// 吊顶 AP 在客户端上方。
 		expect(apVerticalOffsetTo({ floorId: 'f1', mountHeightM: 2.9 }, 'f1', 1.5)).toBeCloseTo(
 			1.4,
 			6
 		);
-		// AP 在地面、终端在它上方，还是同样的 0.7 m。
 		expect(apVerticalOffsetTo({ floorId: 'f1', mountHeightM: 2.2 }, 'f1', 1.5)).toBeCloseTo(
 			0.7,
 			6
 		);
 	});
 
-	it('is the whole geometric gap to a client on another floor', () => {
+	it('is signed across floors, so the antenna knows which side the client is on', () => {
 		seedFloors();
-		// 一层 AP 落地高 0.8 m，二层终端离二层地面 1.5 m（即离一层地面 3 m）：
-		// 3 + 1.5 - 0.8 = 3.7 m。
+		// 一层 AP 落地高 0.8 m，二层终端离二层地面 1.5 m：客户端在 AP 上方 3.7 m。
 		expect(apVerticalOffsetTo({ floorId: 'f1', mountHeightM: 0.8 }, 'f2', 1.5)).toBeCloseTo(
-			3.7,
+			-3.7,
 			6
 		);
-		// 一层吸顶：3 + 1.5 - 2.9 = 1.6 m，正是还没有高度概念时模型假设的安装高度。
+		// 一层吸顶：3 + 1.5 - 2.9 = 1.6 m，客户端在 AP 上方。
 		expect(apVerticalOffsetTo({ floorId: 'f1', mountHeightM: 2.9 }, 'f2', 1.5)).toBeCloseTo(
-			1.6,
+			-1.6,
 			6
 		);
-		// 从二层往下打到一层终端：AP 在 3 + 1.6 = 4.6，终端在 1.5。
+		// 从二层往下打到一层终端：AP 在 4.6，终端在 1.5，客户端在下方。
 		expect(apVerticalOffsetTo({ floorId: 'f2', mountHeightM: 1.6 }, 'f1', 1.5)).toBeCloseTo(
 			3.1,
 			6
@@ -213,7 +211,8 @@ describe('addAp', () => {
 		seedFloors();
 		const ap = addAp(10, 10);
 		expect(ap.beamwidthDeg).toBe(60);
-		expect(ap.aimDeg).toBe(0);
+		// A ceiling AP starts with the mild downtilt; a custom value is carried over.
+		expect(ap.aimDeg).toBe(30);
 
 		ap.beamwidthDeg = 90;
 		ap.aimDeg = 15;

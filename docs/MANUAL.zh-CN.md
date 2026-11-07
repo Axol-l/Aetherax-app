@@ -366,7 +366,7 @@ Wall mount 必须点击在距墙 1 米以内。AP 会自动吸附到墙面，并
 7. Clients：该 AP 计划承载的并发终端数；选择型号时自动填入建议值，也可以单独修改。
 8. Mounting：安装方式。
 9. 安装高度：Mounting 右侧的数值框。
-10. Antenna：Vertical beamwidth 和 Aim，分别控制垂直波束宽度和指向。
+10. Antenna：Vertical beamwidth 和 Aim，分别控制垂直波束宽度和指向；新建吊顶 AP 默认 Aim 30°，已有工程保持原值。
 11. Facing：仅 Wall mount 显示，平面内的朝向角。
 12. Position：显示当前 X、Y 坐标，不可直接输入；拖动 AP 移动位置。
 13. Pin position：固定该 AP 的位置，优化器不会移动它。

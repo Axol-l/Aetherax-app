@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		MOUNT_PRESETS,
+		CEILING_DOWNTILT_DEG,
 		apHeightAboveFloor,
 		defaultMountHeight,
 		wupmForFloor,
@@ -108,9 +109,11 @@
 		if (!singleAp) return;
 		pushState();
 		const mount = value as ApMount;
+		const wasCeiling = singleAp.mount === 'ceiling';
 		updateAp(singleAp.id, {
 			mount,
-			mountHeightM: defaultMountHeight(mount, apCeilingHeight)
+			mountHeightM: defaultMountHeight(mount, apCeilingHeight),
+			aimDeg: mount === 'ceiling' ? (wasCeiling ? singleAp.aimDeg : CEILING_DOWNTILT_DEG) : wasCeiling ? 0 : singleAp.aimDeg
 		});
 		if (mount !== 'wall') return;
 

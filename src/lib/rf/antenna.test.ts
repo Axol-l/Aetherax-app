@@ -201,6 +201,15 @@ describe('the wall mount’s horizontal cut', () => {
 	});
 });
 
+describe('directional vertical cut', () => {
+	it('is weaker above a downtilted AP than below it', () => {
+		const profile: AntennaProfile = { beamwidthDeg: 60, aimDeg: 30, floorDb: 12 };
+		const below = antennaLossDb(profile, 1.4, 5);
+		const above = antennaLossDb(profile, -1.4, 5);
+		expect(above).toBeGreaterThan(below);
+	});
+});
+
 describe('wrap180 / bearingDeg', () => {
 	it('folds any angle into (−180, 180]', () => {
 		expect(wrap180(0)).toBe(0);

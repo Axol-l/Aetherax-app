@@ -223,7 +223,8 @@ export function floorElevation(floorId: string): number {
 }
 
 /**
- * 一层楼上的 AP 到另一层客户端之间的垂直距离，米
+ * 一层楼上的 AP 到另一层客户端之间的垂直高差，米。
+ * 客户端在 AP 上方时为负，在下方时为正；调用方按需取绝对值。
  */
 export function crossFloorVerticalGap(
 	apFloorId: string,
@@ -237,7 +238,7 @@ export function crossFloorVerticalGap(
 	if (!apFloor || !clientFloor) return 0;
 	const apZ = floorElevation(apFloorId) + (apHeightM ?? apFloor.ceilingHeight);
 	const clientZ = floorElevation(clientFloorId) + clientHeight;
-	return Math.abs(apZ - clientZ);
+	return apZ - clientZ;
 }
 
 /**

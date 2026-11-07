@@ -48,6 +48,14 @@ export const MOUNT_PRESETS: readonly MountPreset[] = [
 export const CEILING_MOUNT_DROP_M = 0.1;
 
 /**
+ * 吸顶 AP 的默认垂直下倾角。
+ *
+ * 真实吸顶 AP 的方向图由天线阵列决定，并没有一个通用数值；这里取一个温和的下倾，
+ * 让正下方和斜下方都落在主瓣内，同时让上一层方向明显偏离主瓣。仍可在 AP 编辑页修改。
+ */
+export const CEILING_DOWNTILT_DEG = 30;
+
+/**
  * 某个预设在这个天花板高度的楼层上对应多高，单位米。
  */
 export function defaultMountHeight(mount: ApMount, ceilingHeightM: number): number {
@@ -154,7 +162,8 @@ export function apHeightAboveFloor(ap: Pick<AccessPoint, 'floorId' | 'mountHeigh
 }
 
 /**
- * AP 到位于 `clientFloorId` 的客户端的垂直距离，单位米。
+ * AP 到位于 `clientFloorId` 的客户端的垂直高差，米。
+ * 客户端在 AP 上方时为负，在下方时为正；距离计算取绝对值，天线方向图保留符号。
  */
 export function apVerticalOffsetTo(
 	ap: Pick<AccessPoint, 'floorId' | 'mountHeightM'>,
@@ -162,7 +171,7 @@ export function apVerticalOffsetTo(
 	clientHeight: number
 ): number {
 	if (ap.floorId === clientFloorId) {
-		return Math.abs(apHeightAboveFloor(ap) - clientHeight);
+		return apHeightAboveFloor(ap) - clientHeight;
 	}
 	return crossFloorVerticalGap(
 		ap.floorId,
@@ -249,6 +258,12 @@ export function addAp(
 		: initialMount(prev);
 	const band = prev?.band ?? apState.band;
 	const antenna = initialAntenna(prev, band);
+	const aimDeg =
+		prev && prev.mount === mount.mount
+			? prev.aimDeg
+			: mount.mount === 'ceiling'
+				? CEILING_DOWNTILT_DEG
+				: antenna.aimDeg;
 
 	const ap: AccessPoint = {
 		id: createId(),
@@ -274,7 +289,7 @@ export function addAp(
 		mount: mount.mount,
 		mountHeightM: mount.mountHeightM,
 		beamwidthDeg: antenna.beamwidthDeg,
-		aimDeg: antenna.aimDeg,
+		aimDeg,
 		// 放上去就贴着调用方测到的墙时，用那面墙的方向；否则沿用上一台的。
 		facingDeg: normaliseBearing(
 			mount.mount === 'wall' && facingDeg !== 0 ? facingDeg : antenna.facingDeg

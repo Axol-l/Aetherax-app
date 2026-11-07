@@ -340,9 +340,11 @@ function sourceMargin(
 	verticalGap = 0,
 	horizonDb = 0
 ): number {
-	// `dist` 只是水平距离；可达范围按 3D 算，所以需要竖直高度差。
-	if (dist >= coverageHorizontalReach(radius, lossDb, verticalGap, horizonDb)) return -Infinity;
-	const d3 = verticalGap > 0 ? Math.hypot(dist, verticalGap) : dist;
+	// `dist` 只是水平距离；可达范围按 3D 算，所以需要竖直高度差的绝对值。
+	// 方向本身留给后面的天线方向图，不能用绝对值。
+	const verticalDistance = Math.abs(verticalGap);
+	if (dist >= coverageHorizontalReach(radius, lossDb, verticalDistance, horizonDb)) return -Infinity;
+	const d3 = verticalDistance > 0 ? Math.hypot(dist, verticalDistance) : dist;
 	return coverageMarginDb(d3, radius) - lossDb - coverageThresholdMarginDb();
 }
 
@@ -356,9 +358,10 @@ function sourceHorizon(
 	verticalGap: number,
 	softnessDb: number
 ): number {
+	const verticalDistance = Math.abs(verticalGap);
 	const reach = reachAtMargin(radius, lossDb, -Math.max(COCHANNEL_REUSE_DB, softnessDb));
-	if (verticalGap <= 0) return reach;
-	return Math.sqrt(Math.max(0, reach * reach - verticalGap * verticalGap));
+	if (verticalDistance <= 0) return reach;
+	return Math.sqrt(Math.max(0, reach * reach - verticalDistance * verticalDistance));
 }
 
 /**
