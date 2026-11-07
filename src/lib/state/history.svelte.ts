@@ -1,4 +1,3 @@
-import { debug } from '$lib/log.js';
 import { apState } from './ap-state.svelte.js';
 import { floorState } from './floor-state.svelte.js';
 import type { AccessPoint } from './ap-state.svelte.js';
@@ -48,7 +47,6 @@ function applySnapshot(snap: Snapshot): void {
 }
 
 export function pushState(): void {
-	const started = performance.now();
 	undoStack.push(takeSnapshot());
 	if (undoStack.length > MAX_HISTORY) {
 		undoStack.shift();

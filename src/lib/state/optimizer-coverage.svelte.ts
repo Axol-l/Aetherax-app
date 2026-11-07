@@ -3,7 +3,6 @@
  * 对当前楼层按房间密度采样，报一个百分比。它的缓存
  * （解码后的掩码、采样网格、密度图）也只有这里用。
  */
-import { debug } from '$lib/log.js';
 import {
 	apHeightAboveFloor,
 	apSplitFor,
@@ -340,7 +339,6 @@ export async function updateCoverage(): Promise<void> {
 	const reflectionReach = 24 * surfaceWupm;
 	/** 每个墙头都是刀锋，用来算墙后面的阴影。 */
 	const diffractionEdges = reflectingWalls.length > 0 ? edgesOf(reflectingWalls) : [];
-	const coverageStarted = performance.now();
 	const sampleHeightWu = cachedSamples.map(
 		(sample) => surfaceHeightAt(surfaces, sample.x + ox, sample.y + oy) * surfaceWupm
 	);

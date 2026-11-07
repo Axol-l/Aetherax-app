@@ -89,6 +89,11 @@
 
 	const buildingPct = $derived(getBuildingCoverage());
 	const deviceLoad = $derived(floorCoverage.get(floorState.currentFloorId)?.devices ?? 0);
+	const apsOnFloor = $derived(
+		floorState.floors.length <= 1
+			? apState.aps.length
+			: apState.aps.filter((ap) => ap.floorId === floorState.currentFloorId).length
+	);
 	const capacityAps = $derived(
 		projectMeta.clientsPerAp > 0 && deviceLoad > 0
 			? Math.ceil(deviceLoad / projectMeta.clientsPerAp)
@@ -159,12 +164,20 @@
 		{/if}
 
 		{#if capacityAps > 0}
-			<div class="capacity-line">
-				{t('{devices} devices · {required} APs needed at {perAp}/AP', {
-					devices: deviceLoad,
-					required: capacityAps,
-					perAp: projectMeta.clientsPerAp
-				})}
+			<div class="metric capacity-metric">
+				<div class="metric-head">
+					<span class="metric-name">{t('Capacity')}</span>
+					<span class="metric-value">{apsOnFloor} / {capacityAps} APs</span>
+				</div>
+				<div class="coverage-bar-track">
+					<div
+						class="coverage-bar-fill"
+						class:low={apsOnFloor < capacityAps * 0.5}
+						class:med={apsOnFloor >= capacityAps * 0.5 && apsOnFloor < capacityAps}
+						class:high={apsOnFloor >= capacityAps}
+						style="width: {Math.min(100, (apsOnFloor / capacityAps) * 100)}%"
+					></div>
+				</div>
 			</div>
 		{/if}
 
@@ -397,11 +410,6 @@
 					</label>
 				</Tooltip>
 
-				<!--
-					Only meaningful once a floor is set, and only on a stack: it is a guarantee
-					about the building, which a single-storey project cannot have a weakest floor
-					in. Shown next to the figure it qualifies rather than in a section of its own.
-				-->
 				{#if multiFloor && projectMeta.coverageFloorPct > 0}
 					<Tooltip
 						wrap
@@ -550,10 +558,8 @@
 		gap: 4px;
 	}
 
-	.capacity-line {
+	.capacity-metric {
 		margin-top: 2px;
-		font-size: var(--text-xs);
-		color: var(--text-tertiary);
 	}
 
 	.metric-head {

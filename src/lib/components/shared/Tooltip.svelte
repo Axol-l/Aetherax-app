@@ -18,6 +18,13 @@
 	let timeout: ReturnType<typeof setTimeout> | null = null;
 	let tooltipEl: HTMLDivElement;
 
+	const displayText = $derived.by(() => {
+		const cjk = text.match(/^.*?[。！？]/s);
+		if (cjk) return cjk[0].trim();
+		const match = text.match(/^.*?[.!?](?=\s+[A-Z0-9(“"']|\s*$)/s);
+		return match ? match[0].trim() : text;
+	});
+
 	function show() {
 		timeout = setTimeout(() => {
 			visible = true;
@@ -60,7 +67,7 @@
 	{@render children()}
 	{#if visible}
 		<div class="tooltip tooltip-{position}" class:wrap role="tooltip" bind:this={tooltipEl}>
-			{text}
+			{displayText}
 		</div>
 	{/if}
 </div>
