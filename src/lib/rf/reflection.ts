@@ -3,7 +3,7 @@
  * 只处理单次反射，不做多次反射与衍射。
  */
 import type { Band } from '@aetherax/channels';
-import { getMaterial, type WallMaterialId } from '$lib/domain/materials.js';
+import { getMaterial, getScatteringCoefficient, type WallMaterialId } from '$lib/domain/materials.js';
 import {
 	BAND_FREQUENCY_GHZ,
 	ituEpsilon,
@@ -30,6 +30,8 @@ export interface Reflection {
 	powerRatio: number;
 	/** 产生这次反射的墙在 `walls` 数组中的下标，用于排除反射面自身的墙损。 */
 	wallIndex: number;
+	/** 墙面材质，供漫散射使用。 */
+	material: number;
 }
 
 /**
@@ -151,8 +153,19 @@ export function reflections(
 		const hit = specularReflection(from, to, wall);
 		if (!hit) continue;
 		const ratio = reflectionPowerRatio(wall, band, hit.cosTheta);
-		if (ratio <= minRatio) continue;
-		out.push({ ...hit, powerRatio: ratio, wallIndex: wallIndices?.[localIndex] ?? localIndex });
+		// 镜面反射很弱但材质有漫散射时，仍要保留这条墙面路径给散射项使用。
+		if (
+			ratio <= minRatio &&
+			getScatteringCoefficient(wall.material as WallMaterialId) <= 0
+		) {
+			continue;
+		}
+		out.push({
+			...hit,
+			powerRatio: ratio,
+			wallIndex: wallIndices?.[localIndex] ?? localIndex,
+			material: wall.material
+		});
 	}
 	out.sort((a, b) => b.powerRatio - a.powerRatio);
 	return out;

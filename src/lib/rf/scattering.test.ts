@@ -1,0 +1,30 @@
+import { describe, expect, it } from 'vitest';
+import { diffuseLevelDb, wallNormal } from './scattering.js';
+import { getScatteringCoefficient } from '$lib/domain/materials.js';
+
+describe('single-bounce diffuse scattering', () => {
+	it('reads the wall normal and the material coefficient', () => {
+		const normal = wallNormal({ ax: 0, ay: 0, bx: 0, by: 10 });
+		expect(Math.abs(normal.x)).toBeCloseTo(1);
+		expect(normal.y).toBeCloseTo(0);
+		expect(getScatteringCoefficient(0)).toBeGreaterThan(0);
+		expect(getScatteringCoefficient(6)).toBe(0);
+	});
+
+	it('is a finite, weaker path than the incident reference', () => {
+		const wall = { ax: 0, ay: 0, bx: 0, by: 10, material: 0 };
+		const level = diffuseLevelDb({
+			apRefDb: -26,
+			pathLengthM: 10,
+			antennaLossDb: 0,
+			wallLossDb: 0,
+			wall,
+			ap: { x: 5, y: 5 },
+			hit: { x: 0, y: 5 },
+			target: { x: -5, y: 5 },
+			material: 0
+		});
+		expect(Number.isFinite(level)).toBe(true);
+		expect(level).toBeLessThan(-26);
+	});
+});

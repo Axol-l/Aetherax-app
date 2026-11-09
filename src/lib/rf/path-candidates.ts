@@ -8,6 +8,7 @@
 import type { Band } from '@aetherax/channels';
 import { edgesOf, type DiffractionEdge } from './diffraction.js';
 import { rayWallLossDb } from './wall-crossings.js';
+import { getScatteringCoefficient, type WallMaterialId } from '$lib/domain/materials.js';
 import { reflectionPowerRatio, type ReflectingWall } from './reflection.js';
 
 /** 绕射距离和净空上限，单位米，与 `diffraction.ts` 的默认值一致。 */
@@ -83,7 +84,13 @@ export function reflectionCandidates(
 	for (let i = 0; i < walls.length; i++) {
 		const wall = walls[i]!;
 		// 正入射的反射系数是这面墙能给出的上限；为 0 时任何角度都不会有反射。
-		if (reflectionPowerRatio(wall, band, 1) <= 0) continue;
+		// 但漫散射仍可能有贡献，所以还要看材质的散射系数。
+		if (
+			reflectionPowerRatio(wall, band, 1) <= 0 &&
+			getScatteringCoefficient(wall.material as WallMaterialId) <= 0
+		) {
+			continue;
+		}
 		out.push(wall);
 		indices.push(i);
 	}

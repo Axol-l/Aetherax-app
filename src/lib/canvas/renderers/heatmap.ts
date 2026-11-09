@@ -55,6 +55,7 @@ import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurfac
 import { reflections, type ReflectingWall } from '../../rf/reflection.js';
 import { bestDiffraction, bandWavelengthM, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
 import { rayWallLossDb } from '../../rf/wall-crossings.js';
+import { diffuseLevelDb } from '../../rf/scattering.js';
 import {
 	diffractionCandidatesForAp,
 	DIFFRACTION_MAX_CLEARANCE_M,
@@ -928,18 +929,37 @@ export class HeatmapLayer implements Layer {
 									bands[i]!,
 									[bounce.wallIndex]
 								);
+							const antennaLoss = antennaRayLossDb(
+								apProfiles[i]!,
+								gap,
+								bounce.x - apX[i]!,
+								bounce.y - apY[i]!
+							);
 							const reflected =
 								apRefDb[i]! -
 								relativePathLossDb(bounce.length * metersPerWorldUnit) -
-								antennaRayLossDb(
-									apProfiles[i]!,
-									gap,
-									bounce.x - apX[i]!,
-									bounce.y - apY[i]!
-								) +
+								antennaLoss +
 								10 * Math.log10(bounce.powerRatio) -
 								legLoss;
 							if (reflected > this.rssiFloor) reflectedMw += 10 ** (reflected / 10);
+
+							/*
+							 * 单次漫散射：同一面墙、同一路径的 Lambertian 项。
+							 * 用镜面反射点作为整面墙的代表点，是实时热力图的近似；
+							 * 不额外做墙面方向采样。
+							 */
+							const scattered = diffuseLevelDb({
+								apRefDb: apRefDb[i]!,
+								pathLengthM: bounce.length * metersPerWorldUnit,
+								antennaLossDb: antennaLoss,
+								wallLossDb: legLoss,
+								wall: walls[bounce.wallIndex]!,
+								ap: { x: apX[i]!, y: apY[i]! },
+								hit: { x: bounce.x, y: bounce.y },
+								target: { x: wx, y: wy },
+								material: bounce.material
+							});
+							if (scattered > this.rssiFloor) reflectedMw += 10 ** (scattered / 10);
 						}
 					}
 

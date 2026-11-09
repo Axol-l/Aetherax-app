@@ -19,6 +19,8 @@ export interface WallMaterial {
 	/** 回退用的每米损耗，单位 dB/m，按频段给出。 */
 	dbPerMeter: Record<Band, number>;
 	typicalThickness: number; // 典型厚度，单位米，未标定时使用。
+	/** 单次漫散射系数，0 表示只有镜面反射。未填写时用内置默认值。 */
+	scatteringCoefficient?: number;
 	color: [number, number, number];
 }
 
@@ -111,6 +113,23 @@ export const ATTENUATING_MATERIAL_IDS: readonly WallMaterialId[] = WALL_MATERIAL
 export function isVirtualMaterial(id: WallMaterialId): boolean {
 	const m = WALL_MATERIALS[id];
 	return m != null && Object.values(m.dbPerMeter).every((db) => db === 0);
+}
+
+/**
+ * 默认单次漫散射系数。
+ *
+ * Sionna RT 的材质默认散射系数是 0，只有显式设置才启用；这里给常见室内表面一个
+ * 温和的非零默认值，使墙后阴影不会是完全的硬边。可在材质上覆盖
+ * `scatteringCoefficient`，设为 0 即关闭该材质的漫散射。
+ */
+export const DEFAULT_SCATTERING_COEFFICIENT = 0.15;
+
+/** 某材质的单次漫散射系数，范围 [0, 1]。 */
+export function getScatteringCoefficient(id: WallMaterialId): number {
+	const m = WALL_MATERIALS[id] ?? customMaterials.find((material) => material.id === id);
+	if (!m) return DEFAULT_SCATTERING_COEFFICIENT;
+	if (isVirtualMaterial(id)) return 0;
+	return Math.min(1, Math.max(0, m.scatteringCoefficient ?? DEFAULT_SCATTERING_COEFFICIENT));
 }
 
 /** 调用方没有 AP 频段信息时使用的默认频段。 */
