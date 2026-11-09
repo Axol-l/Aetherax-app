@@ -182,6 +182,30 @@ export function getMaterial(id: WallMaterialId): WallMaterial {
 }
 
 /**
+ * 斜入射穿越损耗。P.2040 材质用 Fresnel slab 模型；没有 ITU 参数的材质退回到
+ * 正入射的标量损耗。
+ *
+ * `cosTheta` 是入射角余弦，1 表示正入射。
+ */
+const angleLossCache = new Map<string, number>();
+export function getWallLossDbAtAngle(
+	id: WallMaterialId,
+	band: Band = DEFAULT_BAND,
+	cosTheta = 1
+): number {
+	const m = wallMaterialTable().find((material) => material.id === id);
+	if (!m?.itu) return getFlatAttenuation(id, band);
+	const cos = Math.min(1, Math.max(0.05, cosTheta));
+	const bucket = Math.round(cos * 40);
+	const key = `${id}:${band}:${bucket}`;
+	const cached = angleLossCache.get(key);
+	if (cached !== undefined) return cached;
+	const value = ituWallLossDb(m.itu, BAND_FREQUENCY_GHZ[band], m.typicalThickness, cos);
+	angleLossCache.set(key, value);
+	return value;
+}
+
+/**
  * 该材质在指定频段下一次典型穿越的损耗，单位 dB。
  * 有 P.2040 编号的按模型计算，否则用 `dbPerMeter × typicalThickness`；结果有缓存。
  */

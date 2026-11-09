@@ -52,7 +52,7 @@ import {
 import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../rf/antenna.js';
 import { wallRunLoss } from '../../rf/link-budget.js';
 import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
-import { reflections, type ReflectingWall } from '../../rf/reflection.js';
+import { reflections, secondOrderReflection, type ReflectingWall, type ReflectionPair } from '../../rf/reflection.js';
 import { diffractionPaths, bandWavelengthM, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
 import { rayWallLossDb } from '../../rf/wall-crossings.js';
 import { diffuseLevelDb } from '../../rf/scattering.js';
@@ -61,6 +61,7 @@ import {
 	DIFFRACTION_MAX_CLEARANCE_M,
 	DIFFRACTION_MAX_DISTANCE_M,
 	reflectionCandidates,
+	reflectionPairsForAp,
 	scatterSamplesForAp,
 	type ReflectionCandidateSet,
 	type ScatterSample
@@ -320,6 +321,7 @@ export class HeatmapLayer implements Layer {
 		reflectionByAp: ReflectionCandidateSet[];
 		diffractionByAp: DiffractionEdge[][];
 		scatterByAp: ScatterSample[][];
+		secondOrderByAp: ReflectionPair[][];
 	} | null = null;
 
 	markWallsDirty(): void {
@@ -744,10 +746,12 @@ export class HeatmapLayer implements Layer {
 		let reflectionByAp: ReflectionCandidateSet[];
 		let diffractionByAp: DiffractionEdge[][];
 		let scatterByAp: ScatterSample[][];
+		let secondOrderByAp: ReflectionPair[][];
 		if (cacheable && this.pathCandidates?.key === candidateKey) {
 			reflectionByAp = this.pathCandidates.reflectionByAp;
 			diffractionByAp = this.pathCandidates.diffractionByAp;
 			scatterByAp = this.pathCandidates.scatterByAp;
+			secondOrderByAp = this.pathCandidates.secondOrderByAp;
 		} else {
 			reflectionByAp =
 				walls.length > 0
@@ -777,12 +781,17 @@ export class HeatmapLayer implements Layer {
 							)
 						)
 					: this.aps.map(() => []);
+			secondOrderByAp =
+				walls.length > 0
+					? this.aps.map((ap) => reflectionPairsForAp(walls, ap.band, 8))
+					: this.aps.map(() => []);
 			if (cacheable) {
 				this.pathCandidates = {
 					key: candidateKey,
 					reflectionByAp,
 					diffractionByAp,
-					scatterByAp
+					scatterByAp,
+					secondOrderByAp
 				};
 			}
 		}
@@ -1003,6 +1012,55 @@ export class HeatmapLayer implements Layer {
 								legLoss;
 							if (reflected > this.rssiFloor) reflectedMw += 10 ** (reflected / 10);
 						}
+					}
+
+					/*
+					 * 二次镜面反射：AP → wall(first) → wall(second) → 客户端。
+					 * 候选墙对已按正入射功率比预筛，避免逐像素 O(W²)。
+					 */
+					for (const pair of secondOrderByAp[i]!) {
+						const second = secondOrderReflection(
+							{ x: apX[i]!, y: apY[i]! },
+							{ x: wx, y: wy },
+							walls,
+							pair,
+							bands[i]!
+						);
+						if (!second) continue;
+						const legLoss =
+							rayWallLossDb(
+								{ x: apX[i]!, y: apY[i]! },
+								{ x: second.x, y: second.y },
+								walls,
+								bands[i]!,
+								[second.wallIndex]
+							) +
+							rayWallLossDb(
+								{ x: second.x, y: second.y },
+								{ x: second.x2, y: second.y2 },
+								walls,
+								bands[i]!,
+								[second.wallIndex, second.wallIndex2]
+							) +
+							rayWallLossDb(
+								{ x: second.x2, y: second.y2 },
+								{ x: wx, y: wy },
+								walls,
+								bands[i]!,
+								[second.wallIndex2]
+							);
+						const reflected =
+							apRefDb[i]! -
+							relativePathLossDb(second.length * metersPerWorldUnit) -
+							antennaRayLossDb(
+								apProfiles[i]!,
+								gap,
+								second.x - apX[i]!,
+								second.y - apY[i]!
+							) +
+							10 * Math.log10(second.powerRatio * second.powerRatio2) -
+							legLoss;
+						if (reflected > this.rssiFloor) reflectedMw += 10 ** (reflected / 10);
 					}
 
 					/*

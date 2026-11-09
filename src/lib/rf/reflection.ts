@@ -184,3 +184,84 @@ export function bestReflection(
 	const all = reflections(from, to, walls, band, maxDistance);
 	return all.length > 0 ? all[0]! : null;
 }
+
+/** 二次反射的墙对；第一个是靠近 AP 的反射面，第二个是靠近客户端的。 */
+export interface ReflectionPair {
+	first: number;
+	second: number;
+}
+
+/** 二次反射路径的额外几何和功率。 */
+export interface SecondOrderReflection extends Reflection {
+	x2: number;
+	y2: number;
+	wallIndex2: number;
+	material2: number;
+	/** 两次反射的功率比乘积。 */
+	powerRatio2: number;
+}
+
+/**
+ * 一次二次镜面反射：AP → 墙 first → 墙 second → 客户端。
+ *
+ * 镜像法：先把 AP 对 first 镜像，再对 second 镜像；从客户端反推两个反射点。
+ * 只返回两段反射点都落在线段内的路径，墙损计算仍由调用方完成。
+ */
+export function secondOrderReflection(
+	from: { x: number; y: number },
+	to: { x: number; y: number },
+	walls: readonly ReflectingWall[],
+	pair: ReflectionPair,
+	band: Band
+): SecondOrderReflection | null {
+	const wall1 = walls[pair.first];
+	const wall2 = walls[pair.second];
+	if (!wall1 || !wall2 || pair.first === pair.second) return null;
+
+	const image1 = imageOf(from, wall1);
+	if (!image1) return null;
+	// 从 image1 经第二面墙到客户端，得到第二个反射点。
+	const hit2 = specularReflection(image1, to, wall2);
+	if (!hit2) return null;
+	// 再从第一面墙反推第一个反射点。
+	const hit1 = specularReflection(from, { x: hit2.x, y: hit2.y }, wall1);
+	if (!hit1) return null;
+
+	const r1 = reflectionPowerRatio(wall1, band, hit1.cosTheta);
+	const r2 = reflectionPowerRatio(wall2, band, hit2.cosTheta);
+	if (r1 <= 1e-4 || r2 <= 1e-4) return null;
+	const length =
+		Math.hypot(hit1.x - from.x, hit1.y - from.y) +
+		Math.hypot(hit2.x - hit1.x, hit2.y - hit1.y) +
+		Math.hypot(to.x - hit2.x, to.y - hit2.y);
+	return {
+		x: hit1.x,
+		y: hit1.y,
+		length,
+		cosTheta: hit1.cosTheta,
+		powerRatio: r1,
+		wallIndex: pair.first,
+		material: wall1.material,
+		x2: hit2.x,
+		y2: hit2.y,
+		wallIndex2: pair.second,
+		material2: wall2.material,
+		powerRatio2: r2
+	};
+}
+
+/** 点关于墙所在直线的镜像点。 */
+function imageOf(
+	point: { x: number; y: number },
+	wall: ReflectingWall
+): { x: number; y: number } | null {
+	const dx = wall.bx - wall.ax;
+	const dy = wall.by - wall.ay;
+	const lenSq = dx * dx + dy * dy;
+	if (lenSq < 1e-9) return null;
+	const len = Math.sqrt(lenSq);
+	const nx = -dy / len;
+	const ny = dx / len;
+	const side = (point.x - wall.ax) * nx + (point.y - wall.ay) * ny;
+	return { x: point.x - 2 * side * nx, y: point.y - 2 * side * ny };
+}

@@ -98,6 +98,19 @@ describe('loss', () => {
 		expect(rayWallLossDb({ x: 0, y: 0 }, { x: 10, y: 0 }, walls, BAND, [0])).toBeCloseTo(5.6, 1);
 	});
 
+	it('charges more at an oblique incidence than head-on', () => {
+		const target = wall(3, -5, 3, 5, 0);
+		const normal = rayWallLossDb({ x: 0, y: 0 }, { x: 6, y: 0 }, [target], BAND);
+		const oblique = rayWallLossDb({ x: 0, y: 0 }, { x: 6, y: 6 }, [target], BAND);
+		expect(oblique).toBeGreaterThan(normal);
+	});
+
+	it('can be forced back to the flat material table', () => {
+		const target = wall(3, -5, 3, 5, 0);
+		const flat = rayWallLossDb({ x: 0, y: 0 }, { x: 6, y: 6 }, [target], BAND, [], false);
+		expect(flat).toBeCloseTo(rayWallLossDb({ x: 0, y: 0 }, { x: 6, y: 0 }, [target], BAND), 6);
+	});
+
 	it('reports the breakdown in the order the signal meets the walls', () => {
 		const walls = [wall(3, -5, 3, 5, 0), wall(7, -5, 7, 5, 4)];
 		const breakdown = rayWallBreakdown({ x: 0, y: 0 }, { x: 10, y: 0 }, walls, BAND);

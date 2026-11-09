@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { diffractionCandidatesForAp, reflectionCandidates, scatterSamplesForAp } from './path-candidates.js';
+import {
+	diffractionCandidatesForAp,
+	reflectionCandidates,
+	scatterSamplesForAp,
+	scatteringSegmentLengthM
+} from './path-candidates.js';
 import type { ReflectingWall } from './reflection.js';
 
 const wall = (ax: number, ay: number, bx: number, by: number, material = 0): ReflectingWall => ({
@@ -51,5 +56,14 @@ describe('secondary path candidates', () => {
 		expect(samples.length).toBeGreaterThan(1);
 		expect(samples[0]!.areaM2).toBeGreaterThan(0);
 		expect(samples[0]!.d1M).toBeGreaterThan(0);
+	});
+
+	it('scales scattering segments with band and distance', () => {
+		expect(scatteringSegmentLengthM('2.4ghz', 10)).toBeGreaterThan(
+			scatteringSegmentLengthM('6ghz', 10)
+		);
+		expect(scatteringSegmentLengthM('5ghz', 2)).toBeLessThan(
+			scatteringSegmentLengthM('5ghz', 30)
+		);
 	});
 });

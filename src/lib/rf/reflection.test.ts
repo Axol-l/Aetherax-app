@@ -2,7 +2,7 @@
  * 校验镜像源几何：选取无需运行即可直接判断结果的情形。
  */
 import { describe, expect, it } from 'vitest';
-import { bestReflection, reflectionPowerRatio, reflections, specularReflection } from './reflection.js';
+import { bestReflection, reflectionPowerRatio, reflections, secondOrderReflection, specularReflection } from './reflection.js';
 
 /** x = 100 处、y ∈ [0, 200] 的竖直混凝土墙（材质 id 4）。 */
 const wall = { ax: 100, ay: 0, bx: 100, by: 200, material: 4 };
@@ -100,6 +100,23 @@ describe('bestReflection', () => {
 
 	it('finds nothing when there are no walls', () => {
 		expect(bestReflection({ x: 0, y: 100 }, { x: 60, y: 100 }, [], '5ghz')).toBeNull();
+	});
+
+	it('composes a two-wall reflection through the image method', () => {
+		const walls = [
+			{ ax: 0, ay: 0, bx: 0, by: 10, material: 0 },
+			{ ax: 10, ay: 0, bx: 10, by: 10, material: 0 }
+		];
+		const second = secondOrderReflection(
+			{ x: 5, y: 5 },
+			{ x: 5, y: 5 },
+			walls,
+			{ first: 0, second: 1 },
+			'5ghz'
+		);
+		expect(second).not.toBeNull();
+		expect(second!.length).toBeGreaterThan(0);
+		expect(second!.powerRatio2).toBeGreaterThan(0);
 	});
 
 	/**

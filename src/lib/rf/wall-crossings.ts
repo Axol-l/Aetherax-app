@@ -1,6 +1,6 @@
 /** 射线与线段的交叉：矢量模型的穿墙损耗。 */
 import type { Band } from '@aetherax/channels';
-import { getFlatAttenuation, type WallMaterialId } from '$lib/domain/materials.js';
+import { getFlatAttenuation, getWallLossDbAtAngle, type WallMaterialId } from '$lib/domain/materials.js';
 
 export interface WallSegment {
 	ax: number;
@@ -81,14 +81,33 @@ export function rayWallLossDb(
 	to: { x: number; y: number },
 	walls: readonly WallSegment[],
 	band: Band,
-	skipIndices: readonly number[] = []
+	skipIndices: readonly number[] = [],
+	angleAware = true
 ): number {
 	const skip = new Set(skipIndices);
 	let total = 0;
+	const rx = to.x - from.x;
+	const ry = to.y - from.y;
+	const rayLength = Math.hypot(rx, ry);
 	for (let i = 0; i < walls.length; i++) {
 		if (skip.has(i)) continue;
-		const hit = raySegmentIntersection(from, to, walls[i]!);
-		if (hit) total += getFlatAttenuation(hit.wall.material as WallMaterialId, band);
+		const wall = walls[i]!;
+		const hit = raySegmentIntersection(from, to, wall);
+		if (!hit) continue;
+		let cosTheta = 1;
+		if (angleAware && rayLength > 1e-9) {
+			const wx = wall.bx - wall.ax;
+			const wy = wall.by - wall.ay;
+			const wallLength = Math.hypot(wx, wy);
+			if (wallLength > 1e-9) {
+				const nx = -wy / wallLength;
+				const ny = wx / wallLength;
+				cosTheta = Math.abs((rx * nx + ry * ny) / rayLength);
+			}
+		}
+		total += angleAware
+			? getWallLossDbAtAngle(wall.material as WallMaterialId, band, cosTheta)
+			: getFlatAttenuation(wall.material as WallMaterialId, band);
 	}
 	return total;
 }

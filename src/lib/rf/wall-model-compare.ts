@@ -38,7 +38,7 @@ export function compareWallModels(input: {
 
 	for (const point of points) {
 		const raster = rasterLoss(from, point);
-		const vector = rayWallLossDb(from, point, walls, band);
+		const vector = rayWallLossDb(from, point, walls, band, [], false);
 		const difference = Math.abs(vector - raster);
 		sumAbs += difference;
 		rasterSum += raster;

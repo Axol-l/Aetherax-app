@@ -9,7 +9,7 @@ import type { Band } from '@aetherax/channels';
 import { edgesOf, type DiffractionEdge } from './diffraction.js';
 import { rayWallLossDb } from './wall-crossings.js';
 import { getScatteringCoefficient, type WallMaterialId } from '$lib/domain/materials.js';
-import { reflectionPowerRatio, type ReflectingWall } from './reflection.js';
+import { reflectionPowerRatio, type ReflectingWall, type ReflectionPair } from './reflection.js';
 import { directiveNormalization, wallNormal } from './scattering.js';
 
 /** 绕射距离和净空上限，单位米，与 `diffraction.ts` 的默认值一致。 */
@@ -123,6 +123,18 @@ export const SCATTER_SEGMENT_M = 1;
 export const MAX_SCATTER_SAMPLES_PER_WALL = 16;
 
 /**
+ * 随频段和 AP 距离缩放的散射面元长度。
+ *
+ * 高频、近场需要更细的面元；低频、远场可以用更粗的面元。这是采样分辨率规则，
+ * 不是电磁波长本身的严格推导。
+ */
+export function scatteringSegmentLengthM(band: Band, distanceM: number): number {
+	const frequencyFactor = band === '2.4ghz' ? 1.4 : band === '6ghz' ? 0.85 : 1;
+	const distanceFactor = Math.min(2, Math.max(0.6, distanceM / 10));
+	return Math.min(2.5, Math.max(0.4, SCATTER_SEGMENT_M * frequencyFactor * distanceFactor));
+}
+
+/**
  * 把墙按长度切成面元，保留 AP 一侧可见、且材质有散射系数的面元。
  * 客户端一侧的可见性仍由调用方逐纹素判断。
  */
@@ -141,9 +153,13 @@ export function scatterSamplesForAp(
 		const lengthWu = Math.hypot(wall.bx - wall.ax, wall.by - wall.ay);
 		const lengthM = lengthWu * metersPerWorldUnit;
 		if (!(lengthM > 0)) continue;
+		const midDistanceM =
+			Math.hypot((wall.ax + wall.bx) / 2 - ap.x, (wall.ay + wall.by) / 2 - ap.y) *
+			metersPerWorldUnit;
+		const segmentM = scatteringSegmentLengthM(band, midDistanceM);
 		const count = Math.min(
 			MAX_SCATTER_SAMPLES_PER_WALL,
-			Math.max(1, Math.ceil(lengthM / SCATTER_SEGMENT_M))
+			Math.max(1, Math.ceil(lengthM / segmentM))
 		);
 		const areaM2 = (lengthM / count) * wallHeightM;
 		for (let i = 0; i < count; i++) {
@@ -171,6 +187,32 @@ export function scatterSamplesForAp(
 		}
 	}
 	return out;
+}
+
+/**
+ * 二次反射的候选墙对，按正入射功率比乘积取前 `limit` 对。
+ *
+ * 墙对顺序有意义：first 是 AP 侧反射面，second 是客户端侧反射面。
+ * 这是候选剪枝，不代替逐像素的镜像几何。
+ */
+export function reflectionPairsForAp(
+	walls: readonly ReflectingWall[],
+	band: Band,
+	limit = 8
+): ReflectionPair[] {
+	const scored: Array<{ pair: ReflectionPair; score: number }> = [];
+	for (let first = 0; first < walls.length; first++) {
+		const r1 = reflectionPowerRatio(walls[first]!, band, 1);
+		if (r1 <= 1e-4) continue;
+		for (let second = 0; second < walls.length; second++) {
+			if (first === second) continue;
+			const r2 = reflectionPowerRatio(walls[second]!, band, 1);
+			if (r2 <= 1e-4) continue;
+			scored.push({ pair: { first, second }, score: r1 * r2 });
+		}
+	}
+	scored.sort((a, b) => b.score - a.score);
+	return scored.slice(0, Math.max(0, limit)).map((item) => item.pair);
 }
 
 /**
