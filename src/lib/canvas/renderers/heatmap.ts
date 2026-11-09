@@ -44,6 +44,7 @@ import { heatmapRegion } from './heatmap-region.js';
 import {
 	pathLossDb,
 	relativePathLossDb,
+	thermalNoiseFloorDbm,
 	getAttenField,
 	lookupAtten,
 	invalidateAttenCache,
@@ -53,7 +54,7 @@ import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../r
 import { wallRunLoss } from '../../rf/link-budget.js';
 import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
 import { reflections, secondOrderReflection, reflectionCoefficients, type ReflectingWall, type ReflectionPair } from '../../rf/reflection.js';
-import { cMul, cPower, pathPhase, type Complex } from '../../rf/field.js';
+import { cMul, cPower, pathPhase, sinrDb, type Complex } from '../../rf/field.js';
 import { BAND_FREQUENCY_GHZ } from '../../rf/material-itu.js';
 import { diffractionPaths, bandWavelengthM, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
 import { rayWallLossDb } from '../../rf/wall-crossings.js';
@@ -303,6 +304,8 @@ export class HeatmapLayer implements Layer {
 	 * 色阶从该值延伸到最强接入点 1 m 处的电平（`P_tx - PL0`）。
 	 */
 	rssiFloor = DEFAULT_RSSI_FLOOR;
+	/** 显示指标；SINR 使用固定的 -5..30 dB 色阶。 */
+	metric: 'rssi' | 'sinr' = 'rssi';
 
 	private cache: HTMLCanvasElement | null = null;
 	private cacheKey = '';
@@ -481,7 +484,7 @@ export class HeatmapLayer implements Layer {
 							: '')
 				)
 				.join('|') +
-			`|floor:${this.rssiFloor}|t:${this.isDragging ? 'c' : 'f'}` +
+			`|floor:${this.rssiFloor}|metric:${this.metric}|t:${this.isDragging ? 'c' : 'f'}` +
 			`|wm:${this.wallMask?.width ?? 0}x${this.wallMask?.height ?? 0}:${this.wallMask?.originX ?? 0},${this.wallMask?.originY ?? 0}` +
 			// 掩码对象本身，而不仅是其几何尺寸：同尺寸替换掩码时，缓存中的衰减场也会随之失效。
 			`|wms:${maskSignature(this.wallMask)}:${maskSignature(this.materialMap)}` +
@@ -602,13 +605,16 @@ export class HeatmapLayer implements Layer {
 			index: number,
 			power: number,
 			phase: number,
-			coefficient: Complex = { re: 1, im: 0 }
+			coefficientV: Complex = { re: 1, im: 0 },
+			coefficientH: Complex = { re: 0, im: 0 }
 		) => {
 			const amplitude = Math.sqrt(Math.max(0, power));
-			const re = amplitude * (coefficient.re * Math.cos(phase) - coefficient.im * Math.sin(phase));
-			const im = amplitude * (coefficient.re * Math.sin(phase) + coefficient.im * Math.cos(phase));
-			fieldV[index]!.re += re;
-			fieldV[index]!.im += im;
+			const cos = Math.cos(phase);
+			const sin = Math.sin(phase);
+			fieldV[index]!.re += amplitude * (coefficientV.re * cos - coefficientV.im * sin);
+			fieldV[index]!.im += amplitude * (coefficientV.re * sin + coefficientV.im * cos);
+			fieldH[index]!.re += amplitude * (coefficientH.re * cos - coefficientH.im * sin);
+			fieldH[index]!.im += amplitude * (coefficientH.re * sin + coefficientH.im * cos);
 		};
 		/**
 		 * 各接入点 1 m 处的电平，单位 dBm：P_tx - PL0(band)。
@@ -685,7 +691,9 @@ export class HeatmapLayer implements Layer {
 		}
 
 		// 色阶从门限延伸到最强接入点 1 m 处的电平；所有接入点都不高于门限时无需绘制。
-		const span = rampTop - this.rssiFloor;
+		const levelFloor = this.metric === 'sinr' ? -5 : this.rssiFloor;
+		const levelTop = this.metric === 'sinr' ? 30 : rampTop;
+		const span = levelTop - levelFloor;
 		if (!(span > 0)) return null;
 
 		const startedAt = performance.now();
@@ -862,6 +870,9 @@ export class HeatmapLayer implements Layer {
 				let wallLoss = 0;
 				for (let i = 0; i < n; i++) {
 					wallLoss = 0;
+					const polarAngle = ((this.aps[i]!.polarizationAngleDeg ?? 0) * Math.PI) / 180;
+					const polarV = Math.cos(polarAngle);
+					const polarH = Math.sin(polarAngle);
 					const dx = wx - apX[i]!;
 					const dy = wy - apY[i]!;
 					// 接入点与客户端的高度差，减去客户端所处抬高面的高度；可为负值。
@@ -977,7 +988,9 @@ export class HeatmapLayer implements Layer {
 						addField(
 							i,
 							10 ** (level / 10),
-							pathPhase(dWu * metersPerWorldUnit, BAND_FREQUENCY_GHZ[bands[i]!] * 1e9)
+							pathPhase(dWu * metersPerWorldUnit, BAND_FREQUENCY_GHZ[bands[i]!] * 1e9),
+							{ re: polarV, im: 0 },
+							{ re: polarH, im: 0 }
 						);
 					}
 
@@ -1065,7 +1078,14 @@ export class HeatmapLayer implements Layer {
 										bounce.length * metersPerWorldUnit,
 										BAND_FREQUENCY_GHZ[bands[i]!] * 1e9
 									),
-									coefficients.te
+									{
+										re: coefficients.te.re * polarV,
+										im: coefficients.te.im * polarV
+									},
+									{
+										re: coefficients.tm.re * polarH,
+										im: coefficients.tm.im * polarH
+									}
 								);
 							}
 						}
@@ -1146,7 +1166,14 @@ export class HeatmapLayer implements Layer {
 									second.length * metersPerWorldUnit,
 									BAND_FREQUENCY_GHZ[bands[i]!] * 1e9
 								),
-								cMul(c1.te, c2.te)
+								(() => {
+									const v = cMul(c1.te, c2.te);
+									return { re: v.re * polarV, im: v.im * polarV };
+								})(),
+								(() => {
+									const h = cMul(c1.tm, c2.tm);
+									return { re: h.re * polarH, im: h.im * polarH };
+								})()
 							);
 						}
 					}
@@ -1168,13 +1195,21 @@ export class HeatmapLayer implements Layer {
 						) {
 							continue;
 						}
-						const d2M = Math.hypot(wx - sample.x, wy - sample.y) * metersPerWorldUnit;
+						const d1M =
+							Math.hypot(
+								sample.x - apX[i]!,
+								sample.y - apY[i]!,
+								sample.z - gap
+							) * metersPerWorldUnit;
+						const d2M =
+							Math.hypot(wx - sample.x, wy - sample.y, sample.z) *
+							metersPerWorldUnit;
 						const scattered = diffuseLevelDb({
 							apRefDb: apRefDb[i]!,
-							pathLengthM: sample.d1M + d2M,
+							pathLengthM: d1M + d2M,
 							antennaLossDb: antennaRayLossDb(
 								apProfiles[i]!,
-								gap,
+								sample.z - gap,
 								sample.x - apX[i]!,
 								sample.y - apY[i]!
 							),
@@ -1195,9 +1230,11 @@ export class HeatmapLayer implements Layer {
 									i,
 									10 ** (scattered / 10),
 									pathPhase(
-										sample.d1M + d2M,
+										d1M + d2M,
 										BAND_FREQUENCY_GHZ[bands[i]!] * 1e9
-									)
+									),
+									{ re: polarV, im: 0 },
+									{ re: polarH, im: 0 }
 								);
 							}
 						}
@@ -1250,7 +1287,9 @@ export class HeatmapLayer implements Layer {
 										pathPhase(
 											(path.d1 + path.d2) * metersPerWorldUnit,
 											BAND_FREQUENCY_GHZ[bands[i]!] * 1e9
-										)
+										),
+										{ re: polarV, im: 0 },
+										{ re: polarH, im: 0 }
 									);
 								}
 							}
@@ -1274,11 +1313,23 @@ export class HeatmapLayer implements Layer {
 					totalDb =
 						reflectedMw > 0 ? 10 * Math.log10(10 ** (bestDb / 10) + reflectedMw) : bestDb;
 				}
+				let value = totalDb;
+				if (this.metric === 'sinr' && this.coherent) {
+					let strongest = 0;
+					let total = 0;
+					for (let i = 0; i < n; i++) {
+						const p = apPowers[i]!;
+						total += p;
+						if (p > strongest) strongest = p;
+					}
+					const interference = Math.max(0, total - strongest);
+					value = sinrDb(strongest, interference, thermalNoiseFloorDbm(20));
+				}
 				/*
 				 * 这里保存电平而非颜色，以便先做平滑。
 				 * 逐纹素的场是分段常数，直接着色会得到硬楔形与阶梯，平滑电平后才转为渐变。
 				 */
-				levels[rowOff + tx] = totalDb;
+				levels[rowOff + tx] = value;
 			}
 		}
 
@@ -1302,8 +1353,8 @@ export class HeatmapLayer implements Layer {
 		const bandCount = Math.max(1, Math.ceil(span / BAND_DB));
 		for (let i = 0; i < levelBands.length; i++) {
 			const level = smooth[i]!;
-			if (!Number.isFinite(level) || level < this.rssiFloor) continue;
-			const index = Math.floor((level - this.rssiFloor) / BAND_DB);
+			if (!Number.isFinite(level) || level < levelFloor) continue;
+			const index = Math.floor((level - levelFloor) / BAND_DB);
 			levelBands[i] = Math.max(0, Math.min(bandCount - 1, index));
 		}
 

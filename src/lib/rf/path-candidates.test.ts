@@ -56,6 +56,16 @@ describe('secondary path candidates', () => {
 		expect(samples.length).toBeGreaterThan(1);
 		expect(samples[0]!.areaM2).toBeGreaterThan(0);
 		expect(samples[0]!.d1M).toBeGreaterThan(0);
+		expect(samples[0]!.z).toBe(0);
+	});
+
+	it('adds height samples only above the 2D threshold', () => {
+		const walls = [wall(0, 0, 0, 100)];
+		const low = scatterSamplesForAp({ x: 50, y: 50 }, walls, '5ghz', 1, 3);
+		const tall = scatterSamplesForAp({ x: 50, y: 50 }, walls, '5ghz', 1, 5);
+		expect(low[0]!.z).toBe(0);
+		expect(tall.length).toBeGreaterThan(low.length);
+		expect(tall.some((sample) => sample.z > 0)).toBe(true);
 	});
 
 	it('scales scattering segments with band and distance', () => {

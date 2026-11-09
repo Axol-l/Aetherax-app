@@ -898,6 +898,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	$effect(() => {
 		heatmapLayer.ispSpeed = projectMeta.ispSpeed;
 		heatmapLayer.rssiFloor = projectMeta.heatmapRssiFloor;
+		heatmapLayer.metric = appState.heatmapMetric;
 		engine.markDirty();
 	});
 

@@ -40,6 +40,8 @@ export const appState = $state({
 	showGrid: true,
 	showLabels: true,
 	showHeatmap: false,
+	/** 热力图指标：RSSI 或 SINR。 */
+	heatmapMetric: 'rssi' as 'rssi' | 'sinr',
 	showNotes: true,
 	/**
 	 * 当前启用的编辑工具。

@@ -51,3 +51,13 @@ export const emptyPolarized = (): PolarizedField => ({
 	vertical: { re: 0, im: 0 },
 	horizontal: { re: 0, im: 0 }
 });
+
+/**
+ * 逐点 SINR，dB。输入都是线性功率，噪声以 dBm 给出。
+ * 没有信号时返回 -Infinity。
+ */
+export function sinrDb(signalMw: number, interferenceMw: number, noiseDbm: number): number {
+	if (!(signalMw > 0)) return -Infinity;
+	const noiseMw = 10 ** (noiseDbm / 10);
+	return 10 * Math.log10(signalMw / (noiseMw + Math.max(0, interferenceMw)));
+}

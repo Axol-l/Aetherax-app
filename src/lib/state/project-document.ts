@@ -266,6 +266,7 @@ function toDocumentAp(ap: AccessPoint): AccessPoint {
 		beamwidthDeg: ap.beamwidthDeg,
 		aimDeg: ap.aimDeg,
 		facingDeg: ap.facingDeg,
+		polarizationAngleDeg: ap.polarizationAngleDeg ?? 0,
 		pinned: ap.pinned,
 		clients: ap.clients ?? null
 	};
@@ -463,6 +464,7 @@ function normalizeAp(
 		aimDeg: stored.aimDeg ?? antenna.aimDeg,
 		// 朝 +x。壁挂出现之前的文档说不出设备朝哪，而频段自带的天线是全向的，根本没有方向。
 		facingDeg: stored.facingDeg ?? 0,
+		polarizationAngleDeg: stored.polarizationAngleDeg ?? 0,
 		// 固定位置出现之前的文档，描述的 AP 都是优化器可以随便挪的。
 		pinned: stored.pinned ?? false,
 		clients: stored.clients ?? null

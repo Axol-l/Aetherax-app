@@ -94,6 +94,10 @@ export interface AccessPoint {
 	 */
 	facingDeg: number;
 	/**
+	 * 发射极化角：0 为垂直，90° 为水平。
+	 */
+	polarizationAngleDeg?: number;
+	/**
 	 * 优化器是否必须让这个 AP 原地不动
 	 */
 	pinned: boolean;
@@ -295,6 +299,7 @@ export function addAp(
 			mount.mount === 'wall' && facingDeg !== 0 ? facingDeg : antenna.facingDeg
 		),
 		pinned: false,
+		polarizationAngleDeg: 0,
 		clients: prev?.clients ?? null
 	};
 	apState.aps.push(ap);

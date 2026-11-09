@@ -114,6 +114,8 @@ export interface ScatterSample {
 	d1M: number;
 	/** 该面元等效面积，平方米。 */
 	areaM2: number;
+	/** 面元中心高度，世界坐标；一维时地面为 0。 */
+	z: number;
 	/** 该面元在 AP 入射角下的 Directive 归一化因子，预计算避免逐像素循环。 */
 	directiveNorm: number;
 }
@@ -121,6 +123,8 @@ export interface ScatterSample {
 /** 一维墙面积分的面元长度和每面墙的最大采样数。 */
 export const SCATTER_SEGMENT_M = 1;
 export const MAX_SCATTER_SAMPLES_PER_WALL = 16;
+/** 超过这个净高才在高度方向也采样（二维墙面积分）。 */
+export const SCATTER_2D_HEIGHT_THRESHOLD_M = 4;
 
 /**
  * 随频段和 AP 距离缩放的散射面元长度。
@@ -161,7 +165,11 @@ export function scatterSamplesForAp(
 			MAX_SCATTER_SAMPLES_PER_WALL,
 			Math.max(1, Math.ceil(lengthM / segmentM))
 		);
-		const areaM2 = (lengthM / count) * wallHeightM;
+		const rows =
+			wallHeightM > SCATTER_2D_HEIGHT_THRESHOLD_M
+				? Math.min(3, Math.max(2, Math.ceil(wallHeightM / segmentM)))
+				: 1;
+		const areaM2 = (lengthM / count) * (wallHeightM / rows);
 		for (let i = 0; i < count; i++) {
 			const t = (i + 0.5) / count;
 			const x = wall.ax + (wall.bx - wall.ax) * t;
@@ -175,15 +183,20 @@ export function scatterSamplesForAp(
 			const inLen = Math.hypot(inX, inY);
 			const cosIn =
 				inLen > 1e-9 ? Math.abs((inX * normal.x + inY * normal.y) / inLen) : 0;
-			out.push({
-				wall,
-				wallIndex,
-				x,
-				y,
-				d1M,
-				areaM2,
-				directiveNorm: directiveNormalization(cosIn)
-			});
+			const directiveNorm = directiveNormalization(cosIn);
+			for (let row = 0; row < rows; row++) {
+				const z = rows === 1 ? 0 : ((row + 0.5) / rows) * wallHeightM * metersPerWorldUnit;
+				out.push({
+					wall,
+					wallIndex,
+					x,
+					y,
+					d1M,
+					areaM2,
+					z,
+					directiveNorm
+				});
+			}
 		}
 	}
 	return out;

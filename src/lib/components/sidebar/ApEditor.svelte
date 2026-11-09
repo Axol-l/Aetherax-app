@@ -171,6 +171,16 @@
 		});
 	}
 
+	/** 0° is vertical, 90° is horizontal. */
+	function handlePolarizationChange(e: Event): void {
+		if (!singleAp) return;
+		pushState();
+		const typed = Number((e.target as HTMLInputElement).value);
+		updateAp(singleAp.id, {
+			polarizationAngleDeg: Math.min(90, Math.max(0, typed))
+		});
+	}
+
 	$effect(() => {
 		if (selectedAps.length > 0) {
 			batchPower = selectedAps[0]?.power ?? 20;
@@ -474,6 +484,22 @@
 					onchange={handleAimChange}
 				/>
 				<span class="mount-unit">{t('° aim')}</span>
+			</div>
+			<div class="mount-row">
+				<Tooltip position="top" text={t('Transmit polarization: 0° is vertical, 90° is horizontal.')}>
+					<span class="field-label">{t('Polarization')}</span>
+				</Tooltip>
+				<input
+					class="mount-height"
+					type="number"
+					aria-label={t('Polarization')}
+					value={singleAp.polarizationAngleDeg ?? 0}
+					min="0"
+					max="90"
+					step={5}
+					onchange={handlePolarizationChange}
+				/>
+				<span class="mount-unit">{t('°')}</span>
 			</div>
 			{#if singleAp.mount === 'wall'}
 				<!--

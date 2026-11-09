@@ -198,6 +198,7 @@ export function antennaSignature(ap: {
 	aimDeg?: number | null;
 	mount?: string | null;
 	facingDeg?: number | null;
+	polarizationAngleDeg?: number | null;
 }): string {
-	return `${ap.beamwidthDeg ?? 0}/${ap.aimDeg ?? 0}/${ap.mount ?? ''}/${ap.facingDeg ?? 0}`;
+	return `${ap.beamwidthDeg ?? 0}/${ap.aimDeg ?? 0}/${ap.mount ?? ''}/${ap.facingDeg ?? 0}/${ap.polarizationAngleDeg ?? 0}`;
 }

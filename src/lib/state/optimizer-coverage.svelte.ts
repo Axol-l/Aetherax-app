@@ -537,7 +537,9 @@ export async function updateCoverage(): Promise<void> {
 					) {
 						continue;
 					}
-					const d2M = Math.hypot(sample.x - scatter.x, sample.y - scatter.y) / surfaceWupm;
+					const horizontal = Math.hypot(sample.x - scatter.x, sample.y - scatter.y);
+					const d1M = Math.hypot(horizontal, scatter.z - vertical) / surfaceWupm;
+					const d2M = Math.hypot(horizontal, scatter.z) / surfaceWupm;
 					const factor =
 						scatteringFactor({
 							wall: scatter.wall,
@@ -551,7 +553,7 @@ export async function updateCoverage(): Promise<void> {
 					if (factor <= 0) continue;
 					const scatteredMargin =
 						coverageMarginDb(
-							(scatter.d1M + d2M) * surfaceWupm,
+							(d1M + d2M) * surfaceWupm,
 							ap.interferenceRadius
 						) +
 						10 * Math.log10(factor);

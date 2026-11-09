@@ -31,18 +31,23 @@
 	);
 
 	const floorDb = $derived(projectMeta.heatmapRssiFloor ?? -85);
+	const legendFloor = $derived(appState.heatmapMetric === 'sinr' ? -5 : floorDb);
+	const legendTop = $derived(appState.heatmapMetric === 'sinr' ? 30 : 0);
 	const LEGEND_BAND_DB = 5;
 	const legendBands = $derived.by(() => {
-		const span = Math.max(LEGEND_BAND_DB, 0 - floorDb);
+		const span = Math.max(LEGEND_BAND_DB, legendTop - legendFloor);
 		const count = Math.max(1, Math.ceil(span / LEGEND_BAND_DB));
 		return Array.from({ length: count }, (_, i) => ({
 			key: i,
 			color: rampCss((i + 0.5) / count),
-			from: Math.round(floorDb + i * LEGEND_BAND_DB)
+			from: Math.round(legendFloor + i * LEGEND_BAND_DB)
 		}));
 	});
 	const legendTicks = $derived(
-		[0, 0.25, 0.5, 0.75, 1].map((r) => ({ key: r, label: Math.round(floorDb + r * (0 - floorDb)) }))
+		[0, 0.25, 0.5, 0.75, 1].map((r) => ({
+			key: r,
+			label: Math.round(legendFloor + r * (legendTop - legendFloor))
+		}))
 	);
 
 	function toggleLayer(key: typeof layers[number]['key']) {
@@ -71,6 +76,20 @@
 					<span class="layer-label">{t(layer.label)}</span>
 				</button>
 			{/each}
+
+			{#if appState.showHeatmap}
+				<button
+					class="layer-row"
+					onclick={() =>
+						(appState.heatmapMetric =
+							appState.heatmapMetric === 'rssi' ? 'sinr' : 'rssi')}
+				>
+					<span class="eye-icon"><Icon name="sparkles" size={14} /></span>
+					<span class="layer-label">
+						{appState.heatmapMetric === 'rssi' ? t('Show SINR') : t('Show RSSI')}
+					</span>
+				</button>
+			{/if}
 
 			<!-- Underlay opacity for the tiled overview. -->
 			{#if appState.floorView === 'tiled'}

@@ -5,7 +5,8 @@ import {
 	cMul,
 	cPower,
 	emptyPolarized,
-	pathPhase
+	pathPhase,
+	sinrDb
 } from './field.js';
 
 describe('complex field primitives', () => {
@@ -25,5 +26,11 @@ describe('complex field primitives', () => {
 	it('produces a negative propagation phase', () => {
 		expect(pathPhase(1, 5e9)).toBeLessThan(0);
 		expect(emptyPolarized().vertical.re).toBe(0);
+	});
+
+	it('computes SINR from signal, interference and noise', () => {
+		// 0.5 mW signal against 0 dBm (1 mW) noise => -3.01 dB.
+		expect(sinrDb(0.5, 0, 0)).toBeCloseTo(-3.0103, 3);
+		expect(sinrDb(0, 1, -100)).toBe(-Infinity);
 	});
 });

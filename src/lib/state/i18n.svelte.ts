@@ -325,6 +325,11 @@ const zh: Record<string, string> = {
 	// ── 画布：图层、工具、房间类型 ───────────────────────────────
 	Layers: '图层',
 	'Signal heatmap': '信号热力图',
+	'Show SINR': '显示 SINR',
+	'Show RSSI': '显示 RSSI',
+	Polarization: '极化角',
+	'°': '°',
+	'Transmit polarization: 0° is vertical, 90° is horizontal.': '发射极化：0° 为垂直，90° 为水平。',
 	Heatmap: '热力图',
 	'Walls': '墙体',
 	'Access points': 'AP',
