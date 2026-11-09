@@ -73,6 +73,20 @@ describe('bestDiffraction', () => {
 		expect(diffractionPaths(from, to, many, lambda5, 40, 60, 1, undefined, 2)).toHaveLength(2);
 	});
 
+	it('chooses a point along a vertical edge when AP and client differ in height', () => {
+		const edge: DiffractionEdge[] = [{ x: 50, y: 1, material: 0, heightWu: 10 }];
+		const low = diffractionPaths({ x: 0, y: 0, z: 0 }, { x: 100, y: 0, z: 0 }, edge, lambda5)[0]!;
+		expect(low.z).toBeCloseTo(0, 6);
+		const high = diffractionPaths(
+			{ x: 0, y: 0, z: 0 },
+			{ x: 100, y: 0, z: 10 },
+			edge,
+			lambda5
+		)[0]!;
+		expect(high.z).toBeGreaterThan(0);
+		expect(high.z).toBeLessThan(10);
+	});
+
 	it('honours the clearance cull', () => {
 		const far: DiffractionEdge[] = [{ x: 50, y: 30, material: 0 }];
 		expect(bestDiffraction(from, to, far, lambda5, 10)).toBeNull();

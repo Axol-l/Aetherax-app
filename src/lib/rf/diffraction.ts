@@ -12,10 +12,12 @@ export interface DiffractionEdge {
 	material: number;
 	/** 以这个端点为端点的墙；可见性检查时排除它们，避免刃峰自身被当成遮挡。 */
 	wallIndices?: number[];
+	/** 竖直刃边从地面到墙顶的高度，单位世界坐标；0 表示旧版二维端点。 */
+	heightWu?: number;
 }
 
 /** 所有线段的全部端点，每个不同的端点只出现一次。 */
-export function edgesOf(walls: readonly ReflectingWall[]): DiffractionEdge[] {
+export function edgesOf(walls: readonly ReflectingWall[], heightWu = 0): DiffractionEdge[] {
 	const byPoint = new Map<string, DiffractionEdge>();
 	walls.forEach((wall, wallIndex) => {
 		for (const point of [
@@ -27,7 +29,12 @@ export function edgesOf(walls: readonly ReflectingWall[]): DiffractionEdge[] {
 			if (edge) {
 				edge.wallIndices?.push(wallIndex);
 			} else {
-				byPoint.set(key, { ...point, material: wall.material, wallIndices: [wallIndex] });
+				byPoint.set(key, {
+					...point,
+					material: wall.material,
+					wallIndices: [wallIndex],
+					heightWu: heightWu > 0 ? heightWu : undefined
+				});
 			}
 		}
 	});
@@ -53,7 +60,45 @@ export interface DiffractionPath {
 	lossDb: number;
 	x: number;
 	y: number;
+	/** 沿竖直刃边的绕射点高度，世界坐标。 */
+	z: number;
+	/** AP → 绕射点，世界坐标长度。 */
+	d1: number;
+	/** 绕射点 → 客户端，世界坐标长度。 */
+	d2: number;
 	edge: DiffractionEdge;
+}
+
+/**
+ * 竖直刃边上的绕射点：最小化 AP → 刃边点 → 客户端的总路程。
+ *
+ * 刃边是一段从地面到墙顶的竖直线。两端高度相同时，最短路在客户端高度；
+ * 高度不同时用三分搜索在 [0, height] 内求凸函数的最小值。这是三维刃边的
+ * 最小路程近似，不建立完整楔形。
+ */
+function edgePointZ(
+	a: number,
+	b: number,
+	fromZ: number,
+	toZ: number,
+	height: number
+): number {
+	if (!(height > 0)) return 0;
+	if (a < 1e-9) return Math.min(height, Math.max(0, fromZ));
+	if (b < 1e-9) return Math.min(height, Math.max(0, toZ));
+	if (Math.abs(fromZ - toZ) < 1e-9) {
+		return Math.min(height, Math.max(0, fromZ));
+	}
+	const distance = (z: number) => Math.hypot(a, z - fromZ) + Math.hypot(b, z - toZ);
+	let lo = 0;
+	let hi = height;
+	for (let i = 0; i < 28; i++) {
+		const m1 = lo + (hi - lo) / 3;
+		const m2 = hi - (hi - lo) / 3;
+		if (distance(m1) <= distance(m2)) hi = m2;
+		else lo = m1;
+	}
+	return (lo + hi) / 2;
 }
 
 /**
@@ -63,8 +108,8 @@ export interface DiffractionPath {
  * 调用方应以功率和累加这些路径，而不是只取最强的一条。
  */
 export function diffractionPaths(
-	from: { x: number; y: number },
-	to: { x: number; y: number },
+	from: { x: number; y: number; z?: number },
+	to: { x: number; y: number; z?: number },
 	edges: readonly DiffractionEdge[],
 	wavelength: number,
 	maxClearance = 40,
@@ -79,6 +124,8 @@ export function diffractionPaths(
 	if (direct < 1e-6) return [];
 	const ux = dx / direct;
 	const uy = dy / direct;
+	const fromZ = from.z ?? 0;
+	const toZ = to.z ?? 0;
 
 	const out: DiffractionPath[] = [];
 	for (const edge of edges) {
@@ -88,8 +135,11 @@ export function diffractionPaths(
 		// 沿路径投影：边缘须位于两端之间。
 		const along = ex * ux + ey * uy;
 		if (along <= 0 || along >= direct) continue;
-		const d1 = Math.hypot(ex, ey);
-		const d2 = Math.hypot(to.x - edge.x, to.y - edge.y);
+		const a = Math.hypot(ex, ey);
+		const b = Math.hypot(to.x - edge.x, to.y - edge.y);
+		const z = edgePointZ(a, b, fromZ, toZ, edge.heightWu ?? 0);
+		const d1 = Math.hypot(a, z - fromZ);
+		const d2 = Math.hypot(b, z - toZ);
 		// The limits and the knife-edge formula are in metres; the geometry here is in
 		// world units. One conversion point keeps callers from having to scale their masks.
 		const d1M = d1 * metersPerWorldUnit;
@@ -100,7 +150,7 @@ export function diffractionPaths(
 		const clearance = side;
 		if (Math.abs(clearance) * metersPerWorldUnit > maxClearance) continue;
 		const lossDb = knifeEdgeLossDb(Math.abs(clearance) * metersPerWorldUnit, d1M, d2M, wavelength);
-		out.push({ lossDb, x: edge.x, y: edge.y, edge });
+		out.push({ lossDb, x: edge.x, y: edge.y, z, d1, d2, edge });
 	}
 	out.sort((a, b) => a.lossDb - b.lossDb);
 	return Number.isFinite(limit) ? out.slice(0, Math.max(0, limit)) : out;
@@ -112,8 +162,8 @@ export function diffractionPaths(
  * 只考虑位于两端之间、且偏离直连线的边缘。
  */
 export function bestDiffraction(
-	from: { x: number; y: number },
-	to: { x: number; y: number },
+	from: { x: number; y: number; z?: number },
+	to: { x: number; y: number; z?: number },
 	edges: readonly DiffractionEdge[],
 	wavelength: number,
 	maxClearance = 40,

@@ -760,7 +760,8 @@ export class HeatmapLayer implements Layer {
 								{ x: ap.x, y: ap.y },
 								walls,
 								ap.band,
-								metersPerWorldUnit
+								metersPerWorldUnit,
+								this.wallHeightM * this.worldUnitsPerMeter
 							)
 						)
 					: this.aps.map(() => []);
@@ -1052,8 +1053,8 @@ export class HeatmapLayer implements Layer {
 					const candidates = diffractionByAp[i]!;
 					if (diffractionGate > 0 && candidates.length > 0) {
 						const paths = diffractionPaths(
-							{ x: apX[i]!, y: apY[i]! },
-							{ x: wx, y: wy },
+							{ x: apX[i]!, y: apY[i]!, z: gap },
+							{ x: wx, y: wy, z: 0 },
 							candidates,
 							bandWavelengthM(bands[i]!),
 							DIFFRACTION_MAX_CLEARANCE_M,
@@ -1072,15 +1073,13 @@ export class HeatmapLayer implements Layer {
 						let diffractedMw = 0;
 						for (const path of paths) {
 							if (!(path.lossDb > 0)) continue;
-							const d1 = Math.hypot(path.x - apX[i]!, path.y - apY[i]!);
-							const d2 = Math.hypot(wx - path.x, wy - path.y);
 							const diffracted =
 								apRefDb[i]! -
-								relativePathLossDb((d1 + d2) * metersPerWorldUnit) -
+								relativePathLossDb((path.d1 + path.d2) * metersPerWorldUnit) -
 								path.lossDb -
 								antennaRayLossDb(
 									apProfiles[i]!,
-									gap,
+									path.z - gap,
 									path.x - apX[i]!,
 									path.y - apY[i]!
 								);

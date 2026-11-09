@@ -341,7 +341,10 @@ export async function updateCoverage(): Promise<void> {
 	}));
 	const reflectionReach = 24 * surfaceWupm;
 	/** 每个墙头都是刀锋，用来算墙后面的阴影。 */
-	const diffractionEdges = reflectingWalls.length > 0 ? edgesOf(reflectingWalls) : [];
+	const diffractionEdges =
+		reflectingWalls.length > 0
+			? edgesOf(reflectingWalls, (currentFloor()?.ceilingHeight ?? 3) * wupmForGap)
+			: [];
 	const sampleHeightWu = cachedSamples.map(
 		(sample) => surfaceHeightAt(surfaces, sample.x + ox, sample.y + oy) * surfaceWupm
 	);
@@ -449,8 +452,8 @@ export async function updateCoverage(): Promise<void> {
 			const diffractionGate = Math.min(1, Math.max(0, (wallLossDb - 3) / 6));
 			if (diffractionGate > 0 && diffractionEdges.length > 0) {
 				const paths = diffractionPaths(
-					{ x: ap.x - ox, y: ap.y - oy },
-					{ x: sample.x, y: sample.y },
+					{ x: ap.x - ox, y: ap.y - oy, z: vertical },
+					{ x: sample.x, y: sample.y, z: 0 },
 					diffractionEdges,
 					bandWavelengthM(ap.band as '2.4ghz' | '5ghz' | '6ghz'),
 					undefined,
@@ -476,10 +479,8 @@ export async function updateCoverage(): Promise<void> {
 				let diffractedMw = 0;
 				for (const path of paths) {
 					if (!(path.lossDb > 0)) continue;
-					const d1 = Math.hypot(path.x - (ap.x - ox), path.y - (ap.y - oy));
-					const d2 = Math.hypot(sample.x - path.x, sample.y - path.y);
 					const diffractedMargin =
-						coverageMarginDb((d1 + d2) * wupmForGap, ap.interferenceRadius) -
+						coverageMarginDb((path.d1 + path.d2) * wupmForGap, ap.interferenceRadius) -
 						(wallLossDb + path.lossDb) +
 						(dbLoss - wallLossDb);
 					diffractedMw += 10 ** (diffractedMargin / 10);

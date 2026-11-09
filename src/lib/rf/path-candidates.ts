@@ -181,9 +181,10 @@ export function diffractionCandidatesForAp(
 	ap: { x: number; y: number },
 	walls: readonly ReflectingWall[],
 	band: Band,
-	metersPerWorldUnit: number
+	metersPerWorldUnit: number,
+	wallHeightWu = 0
 ): DiffractionEdge[] {
-	const edges = edgesOf(walls);
+	const edges = edgesOf(walls, wallHeightWu);
 	const out: DiffractionEdge[] = [];
 	for (const edge of edges) {
 		const d1 = Math.hypot(edge.x - ap.x, edge.y - ap.y);
