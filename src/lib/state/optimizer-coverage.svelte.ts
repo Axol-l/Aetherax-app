@@ -17,6 +17,7 @@ import { bestReflection } from '$lib/rf/reflection.js';
 import { bestDiffraction, bandWavelengthM, edgesOf } from '$lib/rf/diffraction.js';
 import { rayWallLossDb } from '$lib/rf/wall-crossings.js';
 import { scatteringFactor } from '$lib/rf/scattering.js';
+import { scatterSamplesForAp } from '$lib/rf/path-candidates.js';
 import type { Band } from '@aetherax/channels';
 import { decodeMask, type DecodedWallMask } from '$canvas/mask-codec.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
@@ -344,6 +345,16 @@ export async function updateCoverage(): Promise<void> {
 	const sampleHeightWu = cachedSamples.map(
 		(sample) => surfaceHeightAt(surfaces, sample.x + ox, sample.y + oy) * surfaceWupm
 	);
+	const floorHeightM = currentFloor()?.ceilingHeight ?? 3;
+	const scatterByAp = allAps.map((ap) =>
+		scatterSamplesForAp(
+			{ x: ap.x - ox, y: ap.y - oy },
+			reflectingWalls,
+			ap.band as Band,
+			1 / surfaceWupm,
+			floorHeightM
+		)
+	);
 
 	/*
 	 * 干扰在这里按这个方案实际的信道量出来。
@@ -506,22 +517,38 @@ export async function updateCoverage(): Promise<void> {
 						legLoss;
 					if (reflectedMargin > bestMargin) bestMargin = reflectedMargin;
 					if (reflectedMargin > margins[index]!) margins[index] = reflectedMargin;
+				}
 
-					const scattered = scatteringFactor({
-						wall: reflectingWalls[bounce.wallIndex]!,
-						ap: { x: ap.x - ox, y: ap.y - oy },
-						hit: { x: bounce.x, y: bounce.y },
-						target: { x: sample.x, y: sample.y },
-						material: bounce.material
-					});
-					if (scattered > 0) {
-						const scatteredMargin =
-							coverageMarginDb(bounce.length, ap.interferenceRadius) +
-							10 * Math.log10(scattered) -
-							legLoss;
-						if (scatteredMargin > bestMargin) bestMargin = scatteredMargin;
-						if (scatteredMargin > margins[index]!) margins[index] = scatteredMargin;
+				for (const scatter of scatterByAp[index]!) {
+					if (
+						rayWallLossDb(
+							{ x: scatter.x, y: scatter.y },
+							{ x: sample.x, y: sample.y },
+							reflectingWalls,
+							ap.band as Band,
+							[scatter.wallIndex]
+						) > 1e-9
+					) {
+						continue;
 					}
+					const d2M = Math.hypot(sample.x - scatter.x, sample.y - scatter.y) / surfaceWupm;
+					const factor =
+						scatteringFactor({
+							wall: scatter.wall,
+							ap: { x: ap.x - ox, y: ap.y - oy },
+							hit: { x: scatter.x, y: scatter.y },
+							target: { x: sample.x, y: sample.y },
+							material: scatter.wall.material
+						}) * scatter.areaM2;
+					if (factor <= 0) continue;
+					const scatteredMargin =
+						coverageMarginDb(
+							(scatter.d1M + d2M) * surfaceWupm,
+							ap.interferenceRadius
+						) +
+						10 * Math.log10(factor);
+					if (scatteredMargin > bestMargin) bestMargin = scatteredMargin;
+					if (scatteredMargin > margins[index]!) margins[index] = scatteredMargin;
 				}
 			}
 		}

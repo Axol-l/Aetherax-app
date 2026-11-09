@@ -120,20 +120,35 @@ AP → 反射点 的墙损
 
 ### 4. 单次漫散射
 
-参考 Sionna RT 的 Lambertian 模式，增加一次漫散射：
+参考 Sionna RT 的 Lambertian 模式和 Remcom 的测量示例，增加一次漫散射：
 
 ```text
 f_s(θ_s) = cos θ_s / π
-墙面散射功率 ∝ S · cos θ_i · f_s(θ_s)
+墙面散射功率 ∝ S · cos θ_i · f_s(θ_s) · A
 ```
 
-- `S` 是材质的 `scatteringCoefficient`，默认 0.15；
-- 零衰减的 Virtual Partition 散射系数为 0；
-- 用镜面反射点作为整面墙的代表点，不额外做墙面方向采样；
-- 与镜面反射共用 AP → 墙 → 客户端的路径长度、天线方向和墙损；
-- 作为独立功率项与直射、镜面反射、绕射相加。
+- `S` 是材质的 `scatteringCoefficient`；
+| 材质 | S | 来源 |
+|---|---:|---|
+| Drywall | 0.2 | Remcom 5G mmWave office 示例（3 层 drywall） |
+| Concrete | 0.4 | 同上 |
+| Metal | 0.2 | 同上（文件柜/桌腿） |
+| Wood | 0.2 | 无实测值，保守默认 |
+| Glass | 0.1 | 无实测值，保守默认 |
+| Brick | 0.3 | 无实测值，保守默认 |
+| Door | 0.2 | 无实测值，保守默认 |
+| Virtual Partition | 0 | 零衰减隔断 |
 
-这是实时热力图的近似，不是 Sionna 那种对墙面做 Monte Carlo 积分。
+Remcom 的示例范围是 60 GHz 下 **0.1–0.5**，并按粗糙度取值；这不是通用常数表。
+- 每面墙按长度切成约 1 m 的面元，每个面元按 `A = 段长 × 墙高` 计算面积；
+- AP 一侧不可见的面元不生成；客户端一侧不可见的面元在纹素循环中跳过；
+- 各面元功率相加。
+
+这是**一维墙面积分**：比单点近似能在 2 m 内使用，但仍不是 Sionna 的完整
+Monte Carlo 3D 表面积分，也没有交叉极化和相位。
+
+Remcom 使用的方向图是 Directive，不是 Lambertian；当前实现先用 Lambertian
+作为实时近似，`S` 表来自 Directive 示例，量级只能视为工程近似。
 
 ### 5. 暂不引入
 

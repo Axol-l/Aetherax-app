@@ -36,6 +36,8 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 		itu: 'plasterboard',
 		dbPerMeter: { '2.4ghz': 13, '5ghz': 25, '6ghz': 30 },
 		typicalThickness: 0.12,
+		// Remcom 5G mmWave office example: 3-layer drywall = 0.2.
+		scatteringCoefficient: 0.2,
 		color: [200, 200, 210]
 	},
 	{
@@ -44,6 +46,8 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 		itu: 'wood',
 		dbPerMeter: { '2.4ghz': 17, '5ghz': 33, '6ghz': 40 },
 		typicalThickness: 0.15,
+		// No measured value in the cited example; use the conservative indoor default.
+		scatteringCoefficient: 0.2,
 		color: [160, 130, 90]
 	},
 	{
@@ -52,6 +56,7 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 		itu: 'glass',
 		dbPerMeter: { '2.4ghz': 105, '5ghz': 200, '6ghz': 240 },
 		typicalThickness: 0.01,
+		scatteringCoefficient: 0.1,
 		color: [140, 210, 230]
 	},
 	{
@@ -60,6 +65,7 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 		itu: 'brick',
 		dbPerMeter: { '2.4ghz': 18, '5ghz': 35, '6ghz': 42 },
 		typicalThickness: 0.23,
+		scatteringCoefficient: 0.3,
 		color: [180, 80, 60]
 	},
 	{
@@ -68,6 +74,8 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 		itu: 'concrete',
 		dbPerMeter: { '2.4ghz': 32, '5ghz': 60, '6ghz': 72 },
 		typicalThickness: 0.2,
+		// Remcom 5G mmWave office example: concrete = 0.4.
+		scatteringCoefficient: 0.4,
 		color: [130, 130, 140]
 	},
 	{
@@ -76,6 +84,8 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 		itu: 'metal',
 		dbPerMeter: { '2.4ghz': 63, '5ghz': 120, '6ghz': 144 },
 		typicalThickness: 0.17,
+		// Remcom example: metal cabinets/desk supports = 0.2.
+		scatteringCoefficient: 0.2,
 		color: [90, 100, 120]
 	},
 	{
@@ -98,6 +108,7 @@ export const WALL_MATERIALS: readonly WallMaterial[] = [
 		name: 'Door',
 		dbPerMeter: { '2.4ghz': 58, '5ghz': 110, '6ghz': 132 },
 		typicalThickness: 0.045,
+		scatteringCoefficient: 0.2,
 		color: [205, 160, 115]
 	}
 ] as const;

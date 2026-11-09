@@ -904,6 +904,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	$effect(() => {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		heatmapLayer.surfaces = floor?.surfaces ?? [];
+		heatmapLayer.wallHeightM = floor?.ceilingHeight ?? 3;
 		engine.markDirty();
 	});
 

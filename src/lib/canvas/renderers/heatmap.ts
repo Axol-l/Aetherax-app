@@ -61,7 +61,9 @@ import {
 	DIFFRACTION_MAX_CLEARANCE_M,
 	DIFFRACTION_MAX_DISTANCE_M,
 	reflectionCandidates,
-	type ReflectionCandidateSet
+	scatterSamplesForAp,
+	type ReflectionCandidateSet,
+	type ScatterSample
 } from '../../rf/path-candidates.js';
 
 import { rampColorAt } from '../heatmap-ramp.js';
@@ -289,6 +291,8 @@ export class HeatmapLayer implements Layer {
 	 */
 	maskTag = '';
 	worldUnitsPerMeter = 32.8; // 由 getEffectiveWupm() 更新
+	/** 当前楼层墙高，单位米；一维漫散射积分用它把墙长换算成面积。 */
+	wallHeightM = 3;
 	/**
 	 * 色阶显示的最低接收电平，单位 dBm；低于该值的像素透明。
 	 * 色阶从该值延伸到最强接入点 1 m 处的电平（`P_tx - PL0`）。
@@ -309,6 +313,7 @@ export class HeatmapLayer implements Layer {
 		key: string;
 		reflectionByAp: ReflectionCandidateSet[];
 		diffractionByAp: DiffractionEdge[][];
+		scatterByAp: ScatterSample[][];
 	} | null = null;
 
 	markWallsDirty(): void {
@@ -697,15 +702,18 @@ export class HeatmapLayer implements Layer {
 		 */
 		const candidateKey = [
 			metersPerWorldUnit,
+			this.wallHeightM,
 			this.aps.map((ap) => `${ap.x},${ap.y},${ap.band}`).join(';'),
 			walls.map((wall) => `${wall.ax},${wall.ay},${wall.bx},${wall.by},${wall.material}`).join(';')
 		].join('|');
 		const cacheable = !this.isDragging;
 		let reflectionByAp: ReflectionCandidateSet[];
 		let diffractionByAp: DiffractionEdge[][];
+		let scatterByAp: ScatterSample[][];
 		if (cacheable && this.pathCandidates?.key === candidateKey) {
 			reflectionByAp = this.pathCandidates.reflectionByAp;
 			diffractionByAp = this.pathCandidates.diffractionByAp;
+			scatterByAp = this.pathCandidates.scatterByAp;
 		} else {
 			reflectionByAp =
 				walls.length > 0
@@ -722,8 +730,25 @@ export class HeatmapLayer implements Layer {
 							)
 						)
 					: this.aps.map(() => []);
+			scatterByAp =
+				walls.length > 0
+					? this.aps.map((ap) =>
+							scatterSamplesForAp(
+								{ x: ap.x, y: ap.y },
+								walls,
+								ap.band,
+								metersPerWorldUnit,
+								this.wallHeightM
+							)
+						)
+					: this.aps.map(() => []);
 			if (cacheable) {
-				this.pathCandidates = { key: candidateKey, reflectionByAp, diffractionByAp };
+				this.pathCandidates = {
+					key: candidateKey,
+					reflectionByAp,
+					diffractionByAp,
+					scatterByAp
+				};
 			}
 		}
 
@@ -942,25 +967,45 @@ export class HeatmapLayer implements Layer {
 								10 * Math.log10(bounce.powerRatio) -
 								legLoss;
 							if (reflected > this.rssiFloor) reflectedMw += 10 ** (reflected / 10);
-
-							/*
-							 * 单次漫散射：同一面墙、同一路径的 Lambertian 项。
-							 * 用镜面反射点作为整面墙的代表点，是实时热力图的近似；
-							 * 不额外做墙面方向采样。
-							 */
-							const scattered = diffuseLevelDb({
-								apRefDb: apRefDb[i]!,
-								pathLengthM: bounce.length * metersPerWorldUnit,
-								antennaLossDb: antennaLoss,
-								wallLossDb: legLoss,
-								wall: walls[bounce.wallIndex]!,
-								ap: { x: apX[i]!, y: apY[i]! },
-								hit: { x: bounce.x, y: bounce.y },
-								target: { x: wx, y: wy },
-								material: bounce.material
-							});
-							if (scattered > this.rssiFloor) reflectedMw += 10 ** (scattered / 10);
 						}
+					}
+
+					/*
+					 * 单次漫散射：按墙面元做一维积分。
+					 * 每个面元是一个独立的散射点，客户端一侧可见才计入；功率相加。
+					 */
+					const scatterSamples = scatterByAp[i]!;
+					for (const sample of scatterSamples) {
+						if (
+							rayWallLossDb(
+								{ x: sample.x, y: sample.y },
+								{ x: wx, y: wy },
+								walls,
+								bands[i]!,
+								[sample.wallIndex]
+							) > 1e-9
+						) {
+							continue;
+						}
+						const d2M = Math.hypot(wx - sample.x, wy - sample.y) * metersPerWorldUnit;
+						const scattered = diffuseLevelDb({
+							apRefDb: apRefDb[i]!,
+							pathLengthM: sample.d1M + d2M,
+							antennaLossDb: antennaRayLossDb(
+								apProfiles[i]!,
+								gap,
+								sample.x - apX[i]!,
+								sample.y - apY[i]!
+							),
+							wallLossDb: 0,
+							wall: sample.wall,
+							ap: { x: apX[i]!, y: apY[i]! },
+							hit: { x: sample.x, y: sample.y },
+							target: { x: wx, y: wy },
+							material: sample.wall.material,
+							areaM2: sample.areaM2
+						});
+						if (scattered > this.rssiFloor) reflectedMw += 10 ** (scattered / 10);
 					}
 
 					/*

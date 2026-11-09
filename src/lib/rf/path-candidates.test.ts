@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { diffractionCandidatesForAp, reflectionCandidates } from './path-candidates.js';
+import { diffractionCandidatesForAp, reflectionCandidates, scatterSamplesForAp } from './path-candidates.js';
 import type { ReflectingWall } from './reflection.js';
 
 const wall = (ax: number, ay: number, bx: number, by: number, material = 0): ReflectingWall => ({
@@ -43,5 +43,13 @@ describe('secondary path candidates', () => {
 		const near = set.grid!.query(0, 5, 25);
 		expect(near.length).toBeGreaterThan(0);
 		expect(near.length).toBeLessThan(walls.length);
+	});
+
+	it('builds one-dimensional scatter samples with wall area', () => {
+		const walls = [wall(0, 0, 0, 100)];
+		const samples = scatterSamplesForAp({ x: 50, y: 50 }, walls, '5ghz', 1, 3);
+		expect(samples.length).toBeGreaterThan(1);
+		expect(samples[0]!.areaM2).toBeGreaterThan(0);
+		expect(samples[0]!.d1M).toBeGreaterThan(0);
 	});
 });

@@ -102,6 +102,61 @@ export function reflectionCandidates(
 }
 
 /**
+ * 一维漫散射的面元。
+ */
+export interface ScatterSample {
+	wall: ReflectingWall;
+	wallIndex: number;
+	x: number;
+	y: number;
+	/** AP 到该面元中心的距离，米。 */
+	d1M: number;
+	/** 该面元等效面积，平方米。 */
+	areaM2: number;
+}
+
+/** 一维墙面积分的面元长度和每面墙的最大采样数。 */
+export const SCATTER_SEGMENT_M = 1;
+export const MAX_SCATTER_SAMPLES_PER_WALL = 16;
+
+/**
+ * 把墙按长度切成面元，保留 AP 一侧可见、且材质有散射系数的面元。
+ * 客户端一侧的可见性仍由调用方逐纹素判断。
+ */
+export function scatterSamplesForAp(
+	ap: { x: number; y: number },
+	walls: readonly ReflectingWall[],
+	band: Band,
+	metersPerWorldUnit: number,
+	wallHeightM: number
+): ScatterSample[] {
+	const out: ScatterSample[] = [];
+	if (!(wallHeightM > 0)) return out;
+	for (let wallIndex = 0; wallIndex < walls.length; wallIndex++) {
+		const wall = walls[wallIndex]!;
+		if (getScatteringCoefficient(wall.material as WallMaterialId) <= 0) continue;
+		const lengthWu = Math.hypot(wall.bx - wall.ax, wall.by - wall.ay);
+		const lengthM = lengthWu * metersPerWorldUnit;
+		if (!(lengthM > 0)) continue;
+		const count = Math.min(
+			MAX_SCATTER_SAMPLES_PER_WALL,
+			Math.max(1, Math.ceil(lengthM / SCATTER_SEGMENT_M))
+		);
+		const areaM2 = (lengthM / count) * wallHeightM;
+		for (let i = 0; i < count; i++) {
+			const t = (i + 0.5) / count;
+			const x = wall.ax + (wall.bx - wall.ax) * t;
+			const y = wall.ay + (wall.by - wall.ay) * t;
+			const d1M = Math.hypot(x - ap.x, y - ap.y) * metersPerWorldUnit;
+			const apLoss = rayWallLossDb(ap, { x, y }, walls, band, [wallIndex]);
+			if (apLoss > 1e-9) continue;
+			out.push({ wall, wallIndex, x, y, d1M, areaM2 });
+		}
+	}
+	return out;
+}
+
+/**
  * AP 一侧的绕射候选：刃峰在 AP 的最大距离内，且 AP 到刃峰之间没有其他墙。
  * 客户端一侧的可见性仍取决于纹素位置，留给调用方逐点判断。
  */

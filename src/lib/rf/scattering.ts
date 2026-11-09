@@ -5,8 +5,9 @@
  *
  *   f_s(θ_s) = cos θ_s / π
  *
- * 墙面把入射功率的一部分按该方向图散开，其余进入镜面反射/透射。这里用镜面反射点
- * 作为整面墙的代表点；不是对墙面做数值积分，属于实时热力图的近似。
+ * 墙面把入射功率的一部分按该方向图散开，其余进入镜面反射/透射。热力图把每面墙
+ * 切成约 1 m 的面元，逐个面元按面积累加；这是实时的二维墙面积分，不是完整 3D
+ * Monte Carlo 积分。
  */
 import { getScatteringCoefficient, type WallMaterialId } from '$lib/domain/materials.js';import { relativePathLossDb } from './propagation.js';
 import type { ReflectingWall } from './reflection.js';
@@ -71,8 +72,10 @@ export function diffuseLevelDb(input: {
 	hit: { x: number; y: number };
 	target: { x: number; y: number };
 	material: number;
+	/** 当前散射面元的等效面积，平方米；远墙近似时用整面墙面积。 */
+	areaM2?: number;
 }): number {
-	const scattered = scatteringFactor(input);
+	const scattered = scatteringFactor(input) * (input.areaM2 ?? 1);
 	if (!(scattered > 0)) return -Infinity;
 	return (
 		input.apRefDb -

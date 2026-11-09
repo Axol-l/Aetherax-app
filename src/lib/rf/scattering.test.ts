@@ -9,6 +9,8 @@ describe('single-bounce diffuse scattering', () => {
 		expect(normal.y).toBeCloseTo(0);
 		expect(getScatteringCoefficient(0)).toBeGreaterThan(0);
 		expect(getScatteringCoefficient(6)).toBe(0);
+		expect(getScatteringCoefficient(4)).toBeCloseTo(0.4, 6);
+		expect(getScatteringCoefficient(0)).toBeCloseTo(0.2, 6);
 	});
 
 	it('is a finite, weaker path than the incident reference', () => {
