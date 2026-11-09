@@ -5,7 +5,7 @@ import {
 	directivePatternFactor,
 	wallNormal
 } from './scattering.js';
-import { getScatteringCoefficient } from '$lib/domain/materials.js';
+import { getScatteringCoefficient, getCrossPolarizationRatio } from '$lib/domain/materials.js';
 
 describe('single-bounce diffuse scattering', () => {
 	it('reads the wall normal and the material coefficient', () => {
@@ -17,6 +17,7 @@ describe('single-bounce diffuse scattering', () => {
 		expect(getScatteringCoefficient(4, '6ghz')).toBeCloseTo(0.3, 6);
 		expect(getScatteringCoefficient(0)).toBeCloseTo(0.1, 6);
 		expect(getScatteringCoefficient(0, '2.4ghz')).toBeCloseTo(0.05, 6);
+		expect(getCrossPolarizationRatio(6)).toBe(0);
 	});
 
 	it('peaks around the specular direction', () => {

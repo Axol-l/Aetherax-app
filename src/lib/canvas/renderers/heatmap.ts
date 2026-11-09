@@ -37,7 +37,7 @@ type HeatmapAp = AccessPoint & {
 import type { DecodedWallMask } from '../mask-codec.js';
 import { computeBuildingInterior } from '../morphology.js';
 import type { WallMaterialId } from '$lib/domain/materials.js';
-import { getMaterialDbTable, getFlatAttenuation } from '$lib/domain/materials.js';
+import { getMaterialDbTable, getFlatAttenuation, getCrossPolarizationRatio } from '$lib/domain/materials.js';
 import type { Band } from '@aetherax/channels';
 import { crossFloorSegments, pointAlong, slabIsVoid } from '$lib/rf/cross-floor.js';
 import { heatmapRegion } from './heatmap-region.js';
@@ -1233,8 +1233,24 @@ export class HeatmapLayer implements Layer {
 										d1M + d2M,
 										BAND_FREQUENCY_GHZ[bands[i]!] * 1e9
 									),
-									{ re: polarV, im: 0 },
-									{ re: polarH, im: 0 }
+									(() => {
+										const kx = getCrossPolarizationRatio(
+											sample.wall.material as 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7
+										);
+										return {
+											re: polarV * Math.sqrt(1 - kx) + polarH * Math.sqrt(kx),
+											im: 0
+										};
+									})(),
+									(() => {
+										const kx = getCrossPolarizationRatio(
+											sample.wall.material as 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7
+										);
+										return {
+											re: polarH * Math.sqrt(1 - kx) - polarV * Math.sqrt(kx),
+											im: 0
+										};
+									})()
 								);
 							}
 						}

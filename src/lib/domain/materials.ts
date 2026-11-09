@@ -21,6 +21,8 @@ export interface WallMaterial {
 	typicalThickness: number; // 典型厚度，单位米，未标定时使用。
 	/** 单次漫散射系数，0 表示只有镜面反射。未填写时用内置默认值。 */
 	scatteringCoefficient?: number;
+	/** 漫散射中转为交叉极化的功率比例，0..0.5。 */
+	crossPolarizationRatio?: number;
 	color: [number, number, number];
 }
 
@@ -139,6 +141,17 @@ const SCATTERING_BY_BAND: Record<Band, Record<number, number>> = {
 };
 
 export const DEFAULT_SCATTERING_COEFFICIENT = 0.15;
+/** 漫散射的默认交叉极化功率比例，取自 Remcom 示例的量级。 */
+export const DEFAULT_CROSS_POLARIZATION_RATIO = 0.2;
+
+/** 某材质的漫散射交叉极化功率比例，范围 [0, 0.5]。 */
+export function getCrossPolarizationRatio(id: WallMaterialId): number {
+	const custom = customMaterials.find((material) => material.id === id);
+	if (custom?.crossPolarizationRatio !== undefined) {
+		return Math.min(0.5, Math.max(0, custom.crossPolarizationRatio));
+	}
+	return isVirtualMaterial(id) ? 0 : DEFAULT_CROSS_POLARIZATION_RATIO;
+}
 
 /** 某材质在某频段的单次漫散射系数，范围 [0, 1]。 */
 export function getScatteringCoefficient(
