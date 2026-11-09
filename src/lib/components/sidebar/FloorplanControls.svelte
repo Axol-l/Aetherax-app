@@ -22,6 +22,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import Collapse from './Collapse.svelte';
 	import { setCalibrateMode } from '$state/app.svelte';
 	import { setPlanningDrawMode } from '$state/app.svelte';
+	import { sidebarCards } from '$state/sidebar-cards.svelte';
 	import { wupmFromSegment } from '$state/calibrate.js';
 	import { forgetInterior } from '$state/ap-interior.js';
 	import { getFloorMask } from '$state/floor-mask.js';
@@ -91,6 +92,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import { pushState } from '$state/history.svelte.js';
 	import Button from '$components/shared/Button.svelte';
 	import Icon from '$components/shared/Icon.svelte';
+	import Tooltip from '$components/shared/Tooltip.svelte';
 	import WallDetectionPanel from '$components/sidebar/WallDetectionPanel.svelte';
 	import { t } from '$state/i18n.svelte';
 	import {
@@ -401,16 +403,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 		return Math.abs(twiceArea) / 2 / (wupm * wupm);
 	}
 
-	/**
-	 * Whether the two once-per-floor cards are folded away.
+	/*
+	 * 两张每层只设一次的卡片（比例、规划范围），以及会在其中来回操作的卡片（平面图、墙体），
+	 * 折叠状态都放在 `sidebarCards` 里：切换 Floorplan / APs 面板会卸载本组件，局部状态会丢。
 	 */
-	let scaleCollapsed = $state(false);
-	let areaCollapsed = $state(false);
-	/** The cards that are worked in fold too: the step in use is not always the tallest. */
-	let floorplanCollapsed = $state(false);
-	let wallsCollapsed = $state(false);
-	/** The floor-properties card (multi-storey only): read once per floor, then left alone. */
-	let propsCollapsed = $state(false);
 
 	/**
 	 * Trace the painted mask into segments.
@@ -611,9 +607,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 			<div class="planning-head">
 				<button
 					class="card-collapse"
-					aria-expanded={!floorplanCollapsed}
-					title={floorplanCollapsed ? t('Show the list') : t('Hide the list')}
-					onclick={() => (floorplanCollapsed = !floorplanCollapsed)}
+					aria-expanded={!sidebarCards.floorplan}
+					title={sidebarCards.floorplan ? t('Show the list') : t('Hide the list')}
+					onclick={() => (sidebarCards.floorplan = !sidebarCards.floorplan)}
 				>
 					<Icon name="chevron-down" size={11} />
 				</button>
@@ -625,7 +621,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					{floorplanState.floorplanUrl ? t('Loaded') : t('Walls drawn')}
 				</span>
 			</div>
-			<Collapse open={!floorplanCollapsed}>
+			<Collapse open={!sidebarCards.floorplan}>
 		
 			{#if appState.floorView === 'single'}
 				<div class="opacity-row">
@@ -651,10 +647,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 					<Icon name="stack" size={14} />
 					{t('Copy layout…')}
 				</Button>
-				<Button variant="danger" size="sm" onclick={removeFloorplan}>
-					<Icon name="trash" size={14} />
-					{t('Remove floorplan')}
-				</Button>
+				<Tooltip text={t('Remove floorplan')} position="top">
+					<button class="remove-plan" onclick={removeFloorplan} aria-label={t('Remove floorplan')}>
+						<Icon name="trash" size={14} />
+					</button>
+				</Tooltip>
 			</div>
 			</Collapse>
 		</div>
@@ -664,9 +661,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 			<div class="planning-head">
 				<button
 					class="card-collapse"
-					aria-expanded={!scaleCollapsed}
-					title={scaleCollapsed ? t('Show the list') : t('Hide the list')}
-					onclick={() => (scaleCollapsed = !scaleCollapsed)}
+					aria-expanded={!sidebarCards.scale}
+					title={sidebarCards.scale ? t('Show the list') : t('Hide the list')}
+					onclick={() => (sidebarCards.scale = !sidebarCards.scale)}
 				>
 					<Icon name="chevron-down" size={11} />
 				</button>
@@ -677,7 +674,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				<span class="planning-state">{scaleDisplay ?? t('Not set')}</span>
 			</div>
 
-			<Collapse open={!scaleCollapsed}>
+			<Collapse open={!sidebarCards.scale}>
 			{#if detecting}
 				<span class="calibration-status">{t('Detecting boundary...')}</span>
 			{:else if appState.calibrateMode}
@@ -754,9 +751,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 			<div class="planning-head">
 				<button
 					class="card-collapse"
-					aria-expanded={!propsCollapsed}
-					title={propsCollapsed ? t('Show the list') : t('Hide the list')}
-					onclick={() => (propsCollapsed = !propsCollapsed)}
+					aria-expanded={!sidebarCards.properties}
+					title={sidebarCards.properties ? t('Show the list') : t('Hide the list')}
+					onclick={() => (sidebarCards.properties = !sidebarCards.properties)}
 				>
 					<Icon name="chevron-down" size={11} />
 				</button>
@@ -765,7 +762,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					{t('Floor properties')}
 				</span>
 			</div>
-			<Collapse open={!propsCollapsed}>
+			<Collapse open={!sidebarCards.properties}>
 			<div class="floor-props">
 			<div class="prop-row">
 				<span class="prop-label">{t('Ceiling height')}</span>
@@ -849,9 +846,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 				<div class="planning-head">
 					<button
 						class="card-collapse"
-						aria-expanded={!areaCollapsed}
-						title={areaCollapsed ? t('Show the list') : t('Hide the list')}
-						onclick={() => (areaCollapsed = !areaCollapsed)}
+						aria-expanded={!sidebarCards.planningArea}
+						title={sidebarCards.planningArea ? t('Show the list') : t('Hide the list')}
+						onclick={() => (sidebarCards.planningArea = !sidebarCards.planningArea)}
 					>
 						<Icon name="chevron-down" size={11} />
 					</button>
@@ -870,7 +867,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					{/if}
 				</div>
 
-				<Collapse open={!areaCollapsed}>
+				<Collapse open={!sidebarCards.planningArea}>
 				{#if appState.planningDrawMode}
 					<p class="planning-hint">
 						{#if appState.planningDraft.length < 3}
@@ -912,9 +909,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 				<div class="planning-head">
 					<button
 						class="card-collapse"
-						aria-expanded={!wallsCollapsed}
-						title={wallsCollapsed ? t('Show the list') : t('Hide the list')}
-						onclick={() => (wallsCollapsed = !wallsCollapsed)}
+						aria-expanded={!sidebarCards.walls}
+						title={sidebarCards.walls ? t('Show the list') : t('Hide the list')}
+						onclick={() => (sidebarCards.walls = !sidebarCards.walls)}
 					>
 						<Icon name="chevron-down" size={11} />
 					</button>
@@ -924,7 +921,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 					</span>
 					<span class="planning-state">{t('{count} drawn', { count: (currentFloor()?.walls ?? []).length })}</span>
 				</div>
-				<Collapse open={!wallsCollapsed}>
+				<Collapse open={!sidebarCards.walls}>
 				{#if appState.wallVectorMode}
 					<p class="planning-hint">
 						{appState.wallVectorDraft
@@ -1239,11 +1236,38 @@ import { wallState } from '$state/wall-state.svelte.js';
 		color: var(--text-secondary);
 	}
 
+	/* Copy layout takes the row; removing the plan is one icon at the end of it. */
 	.planning-actions {
-		display: flex;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
 		align-items: center;
-		gap: var(--space-3);
-		flex-wrap: wrap;
+		gap: var(--space-2);
+	}
+
+	.remove-plan {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-md);
+		background: var(--bg-surface);
+		color: var(--text-tertiary);
+		cursor: pointer;
+		transition: all var(--transition-fast);
+	}
+
+	.remove-plan:hover {
+		color: var(--color-error, #ef4444);
+		border-color: var(--color-error-dim, rgba(239, 68, 68, 0.45));
+		background: var(--color-error-dim, rgba(239, 68, 68, 0.12));
+	}
+
+	.remove-plan:focus-visible {
+		outline: 2px solid var(--accent-primary);
+		outline-offset: 1px;
 	}
 
 	/* Raised surfaces: a segmented kind switch and one row per parameter. */

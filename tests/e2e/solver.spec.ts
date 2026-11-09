@@ -18,7 +18,7 @@ test.describe('Solver', () => {
 
 		// Auto-solve should run; go to AP list and check channels assigned
 		await page.waitForTimeout(2000);
-		await page.getByText('All APs').click();
+		await page.getByRole('button', { name: /^All APs/ }).click();
 		await page.waitForTimeout(500);
 
 		// At least one AP should have a channel number visible

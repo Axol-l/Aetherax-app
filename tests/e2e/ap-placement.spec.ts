@@ -28,7 +28,7 @@ test.describe('AP placement', () => {
 		await expect(page.locator('input[aria-label="AP name"]')).toBeVisible();
 
 		// Click back to see the list
-		await page.getByText('All APs').click();
+		await page.getByRole('button', { name: /^All APs/ }).click();
 		await page.waitForTimeout(200);
 
 		// AP list shows all 3
@@ -77,7 +77,7 @@ test.describe('AP placement', () => {
 		await page.locator('.select-wrapper .option', { hasText: '2.4 GHz' }).click();
 
 		// Go back to list to verify
-		await page.getByText('All APs').click();
+		await page.getByRole('button', { name: /^All APs/ }).click();
 		await page.waitForTimeout(200);
 		await expect(page.locator('text=2.4G')).toBeVisible();
 	});

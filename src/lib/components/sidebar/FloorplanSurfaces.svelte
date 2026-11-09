@@ -21,8 +21,7 @@
 	import Icon from '$components/shared/Icon.svelte';
 	import NumberInput from '$components/shared/NumberInput.svelte';
 	import PanelCard from './PanelCard.svelte';
-
-	let collapsed = $state(false);
+	import { sidebarCards } from '$state/sidebar-cards.svelte';
 
 	/** The three kinds of raised surface, in the order a plan usually needs them. */
 	const surfaceKinds = $derived<Array<{ id: SurfaceKind; label: string }>>([
@@ -159,7 +158,7 @@
 	}
 </script>
 
-<PanelCard title={t('Raised surfaces')} icon="stack" bind:collapsed>
+<PanelCard title={t('Raised surfaces')} icon="stack" bind:collapsed={sidebarCards.surfaces}>
 	{#if selected}
 		<!-- A selected deck: the same fields the next one is drawn with, bound to it. -->
 		<p class="planning-hint">{t('Editing the selected raised area')}</p>

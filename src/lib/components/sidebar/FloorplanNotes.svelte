@@ -7,8 +7,8 @@
 	import Button from '$components/shared/Button.svelte';
 	import Icon from '$components/shared/Icon.svelte';
 	import PanelCard from './PanelCard.svelte';
+	import { sidebarCards } from '$state/sidebar-cards.svelte';
 
-	let collapsed = $state(false);
 	/** Whether the floor's notes are listed. Open on first use, collapsible after. */
 	let notesOpen = $state(true);
 
@@ -42,7 +42,7 @@
 	}
 </script>
 
-<PanelCard title={t('Notes')} icon="tag" bind:collapsed>
+<PanelCard title={t('Notes')} icon="tag" bind:collapsed={sidebarCards.notes}>
 	{#if notes.length > 0}
 		<button class="notes-toggle" onclick={() => (notesOpen = !notesOpen)} aria-expanded={notesOpen}>
 			<Icon name="chevron-down" size={12} />

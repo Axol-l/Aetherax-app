@@ -322,9 +322,17 @@
 
 {#if singleAp}
 	<div class="editor">
-		<button class="back-link" onclick={() => clearSelection()}>
-			&larr; {t('All APs ({count})', { count: apState.aps.length })}
-		</button>
+		<div class="back-row">
+			<Tooltip text={t('All APs ({count})', { count: apState.aps.length })} position="right">
+				<button
+					class="back-btn"
+					aria-label={t('All APs ({count})', { count: apState.aps.length })}
+					onclick={() => clearSelection()}
+				>
+					<Icon name="chevron-left" size={15} />
+				</button>
+			</Tooltip>
+		</div>
 		<div class="section-header">{t('PROPERTIES')}</div>
 
 		<div class="field">
@@ -907,24 +915,34 @@
 	}
 
 
-	.back-link {
+	.back-row {
+		display: flex;
+		align-self: flex-start;
+	}
+
+	/* A framed square like the toolbar controls: the label is gone, the tooltip keeps it. */
+	.back-btn {
 		display: inline-flex;
 		align-items: center;
-		gap: 4px;
-		background: none;
-		border: none;
-		color: var(--accent-primary);
-		font-size: var(--text-xs);
-		cursor: pointer;
+		justify-content: center;
+		width: 26px;
+		height: 26px;
 		padding: 0;
-		margin-bottom: var(--space-2);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		background: var(--bg-surface);
+		color: var(--text-secondary);
+		cursor: pointer;
+		transition: all var(--transition-fast);
 	}
 
-	.back-link:hover {
-		text-decoration: underline;
+	.back-btn:hover {
+		color: var(--text-primary);
+		background: var(--bg-hover);
+		border-color: var(--border-default);
 	}
 
-	.back-link:focus-visible {
+	.back-btn:focus-visible {
 		outline: 2px solid var(--accent-primary);
 		outline-offset: 1px;
 	}

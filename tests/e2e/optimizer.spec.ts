@@ -85,7 +85,7 @@ test.describe('Optimizer', () => {
 
 		// Open APs tab and go to list view (not editor)
 		await openApsTab(page);
-		const allAps = page.locator('text=All APs');
+		const allAps = page.getByRole('button', { name: /^All APs/ });
 		if (await allAps.isVisible({ timeout: 1000 }).catch(() => false)) {
 			await allAps.click();
 		}

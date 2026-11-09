@@ -602,6 +602,7 @@ docs/             架构、手册、测量与修复计划
 | `per-floor-floor.spec.ts` | 每层最低覆盖率约束只提升最弱层。 |
 | `path-loss.spec.ts` | 传播场景选择与持久化。 |
 | `multi-floor.spec.ts` | 添加、切换、删除楼层与逐层数据。 |
+| `sidebar-cards.spec.ts` | 切换 Floorplan / APs 面板后卡片保持折叠状态。 |
 | `floor-3d.spec.ts` | 3D 视图、旋转、楼层切换与换层动画、墙体高度。 |
 | `stacked-view.spec.ts` | 堆叠视图布局、旋转、楼层点击、Only this floor。 |
 | `tiled-view.spec.ts` | 平铺卡片、切换楼层、逐层比例、材质颜色。 |
