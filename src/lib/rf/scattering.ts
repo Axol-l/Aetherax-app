@@ -38,6 +38,24 @@ function cosToWall(
 }
 
 /**
+ * 一次漫散射的相对功率因子 `S · cos θ_i · cos θ_s / π`；为 0 时没有散射。
+ */
+export function scatteringFactor(input: {
+	wall: ReflectingWall;
+	ap: { x: number; y: number };
+	hit: { x: number; y: number };
+	target: { x: number; y: number };
+	material: number;
+}): number {
+	const coefficient = getScatteringCoefficient(input.material as WallMaterialId);
+	if (coefficient <= 0) return 0;
+	const cosIn = cosToWall(input.wall, input.ap, input.hit);
+	const cosOut = cosToWall(input.wall, input.hit, input.target);
+	if (cosIn <= 0 || cosOut <= 0) return 0;
+	return coefficient * cosIn * (cosOut / Math.PI);
+}
+
+/**
  * 从 AP 经墙面上一次漫散射后到达客户端的接收电平，dBm。
  *
  * 与镜面反射使用同一条 AP → 墙 → 客户端的路径长度和墙损；区别是把反射系数换成
@@ -54,14 +72,7 @@ export function diffuseLevelDb(input: {
 	target: { x: number; y: number };
 	material: number;
 }): number {
-	const coefficient = getScatteringCoefficient(input.material as WallMaterialId);
-	if (coefficient <= 0) return -Infinity;
-	const cosIn = cosToWall(input.wall, input.ap, input.hit);
-	const cosOut = cosToWall(input.wall, input.hit, input.target);
-	if (cosIn <= 0 || cosOut <= 0) return -Infinity;
-	// Lambertian 归一化方向图，单位 1/sr；在相对功率计算中按 1 sr 归一化。
-	const pattern = cosOut / Math.PI;
-	const scattered = coefficient * cosIn * pattern;
+	const scattered = scatteringFactor(input);
 	if (!(scattered > 0)) return -Infinity;
 	return (
 		input.apRefDb -

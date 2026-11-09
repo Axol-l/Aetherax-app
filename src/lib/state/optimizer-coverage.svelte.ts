@@ -16,6 +16,7 @@ import { surfaceHeightAt, deckCrossing } from '$lib/rf/surface-height.js';
 import { bestReflection } from '$lib/rf/reflection.js';
 import { bestDiffraction, bandWavelengthM, edgesOf } from '$lib/rf/diffraction.js';
 import { rayWallLossDb } from '$lib/rf/wall-crossings.js';
+import { scatteringFactor } from '$lib/rf/scattering.js';
 import type { Band } from '@aetherax/channels';
 import { decodeMask, type DecodedWallMask } from '$canvas/mask-codec.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
@@ -505,6 +506,22 @@ export async function updateCoverage(): Promise<void> {
 						legLoss;
 					if (reflectedMargin > bestMargin) bestMargin = reflectedMargin;
 					if (reflectedMargin > margins[index]!) margins[index] = reflectedMargin;
+
+					const scattered = scatteringFactor({
+						wall: reflectingWalls[bounce.wallIndex]!,
+						ap: { x: ap.x - ox, y: ap.y - oy },
+						hit: { x: bounce.x, y: bounce.y },
+						target: { x: sample.x, y: sample.y },
+						material: bounce.material
+					});
+					if (scattered > 0) {
+						const scatteredMargin =
+							coverageMarginDb(bounce.length, ap.interferenceRadius) +
+							10 * Math.log10(scattered) -
+							legLoss;
+						if (scatteredMargin > bestMargin) bestMargin = scatteredMargin;
+						if (scatteredMargin > margins[index]!) margins[index] = scatteredMargin;
+					}
 				}
 			}
 		}
