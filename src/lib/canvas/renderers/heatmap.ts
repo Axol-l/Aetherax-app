@@ -52,7 +52,9 @@ import {
 import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../rf/antenna.js';
 import { wallRunLoss } from '../../rf/link-budget.js';
 import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
-import { reflections, secondOrderReflection, type ReflectingWall, type ReflectionPair } from '../../rf/reflection.js';
+import { reflections, secondOrderReflection, reflectionCoefficients, type ReflectingWall, type ReflectionPair } from '../../rf/reflection.js';
+import { cMul, cPower, pathPhase, type Complex } from '../../rf/field.js';
+import { BAND_FREQUENCY_GHZ } from '../../rf/material-itu.js';
 import { diffractionPaths, bandWavelengthM, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
 import { rayWallLossDb } from '../../rf/wall-crossings.js';
 import { diffuseLevelDb } from '../../rf/scattering.js';
@@ -294,6 +296,8 @@ export class HeatmapLayer implements Layer {
 	worldUnitsPerMeter = 32.8; // 由 getEffectiveWupm() 更新
 	/** 当前楼层墙高，单位米；一维漫散射积分用它把墙长换算成面积。 */
 	wallHeightM = 3;
+	/** 使用 V/H 复场相干合成；关闭时退回旧的功率相加。 */
+	coherent = true;
 	/**
 	 * 色阶显示的最低接收电平，单位 dBm；低于该值的像素透明。
 	 * 色阶从该值延伸到最强接入点 1 m 处的电平（`P_tx - PL0`）。
@@ -591,6 +595,21 @@ export class HeatmapLayer implements Layer {
 		const floorDbThickness = new Float64Array(n); // ITU 楼板总隔离度，单位 dB
 		const apX = new Float64Array(n);
 		const apY = new Float64Array(n);
+		const fieldV: Complex[] = Array.from({ length: n }, () => ({ re: 0, im: 0 }));
+		const fieldH: Complex[] = Array.from({ length: n }, () => ({ re: 0, im: 0 }));
+		const apPowers = new Float64Array(n);
+		const addField = (
+			index: number,
+			power: number,
+			phase: number,
+			coefficient: Complex = { re: 1, im: 0 }
+		) => {
+			const amplitude = Math.sqrt(Math.max(0, power));
+			const re = amplitude * (coefficient.re * Math.cos(phase) - coefficient.im * Math.sin(phase));
+			const im = amplitude * (coefficient.re * Math.sin(phase) + coefficient.im * Math.cos(phase));
+			fieldV[index]!.re += re;
+			fieldV[index]!.im += im;
+		};
 		/**
 		 * 各接入点 1 m 处的电平，单位 dBm：P_tx - PL0(band)。
 		 * 以此为各接入点的贡献基准，使功率与频段体现在结果中，色阶门限可用 dBm 表示。
@@ -828,6 +847,14 @@ export class HeatmapLayer implements Layer {
 				 * 地面为零，夹层为层高，楼梯或坡道内按比例插值；楼层无抬高面时直接为零。
 				 */
 				const liftWu = surfaces.length > 0 ? surfaceHeightAt(surfaces, wx, wy) * surfaceScale : 0;
+				if (this.coherent) {
+					for (let i = 0; i < n; i++) {
+						fieldV[i]!.re = 0;
+						fieldV[i]!.im = 0;
+						fieldH[i]!.re = 0;
+						fieldH[i]!.im = 0;
+					}
+				}
 
 				// 该纹素处的最强接收电平，单位 dBm。各项都是 dB 可直接相加，仅下方的反射项需换算一次功率。
 				let bestDb = -Infinity;
@@ -946,6 +973,14 @@ export class HeatmapLayer implements Layer {
 					}
 					level -= slabDb;
 
+					if (this.coherent) {
+						addField(
+							i,
+							10 ** (level / 10),
+							pathPhase(dWu * metersPerWorldUnit, BAND_FREQUENCY_GHZ[bands[i]!] * 1e9)
+						);
+					}
+
 					if (level > bestDb) bestDb = level;
 
 					/*
@@ -1011,6 +1046,28 @@ export class HeatmapLayer implements Layer {
 								10 * Math.log10(bounce.powerRatio) -
 								legLoss;
 							if (reflected > this.rssiFloor) reflectedMw += 10 ** (reflected / 10);
+							if (this.coherent) {
+								const wall = walls[bounce.wallIndex]!;
+								const coefficients = reflectionCoefficients(
+									wall,
+									bands[i]!,
+									bounce.cosTheta
+								);
+								addField(
+									i,
+									10 **
+										((apRefDb[i]! -
+											relativePathLossDb(bounce.length * metersPerWorldUnit) -
+											antennaLoss -
+											legLoss) /
+											10),
+									pathPhase(
+										bounce.length * metersPerWorldUnit,
+										BAND_FREQUENCY_GHZ[bands[i]!] * 1e9
+									),
+									coefficients.te
+								);
+							}
 						}
 					}
 
@@ -1061,6 +1118,37 @@ export class HeatmapLayer implements Layer {
 							10 * Math.log10(second.powerRatio * second.powerRatio2) -
 							legLoss;
 						if (reflected > this.rssiFloor) reflectedMw += 10 ** (reflected / 10);
+						if (this.coherent) {
+							const c1 = reflectionCoefficients(
+								walls[second.wallIndex]!,
+								bands[i]!,
+								second.cosTheta
+							);
+							const c2 = reflectionCoefficients(
+								walls[second.wallIndex2]!,
+								bands[i]!,
+								second.cosTheta2
+							);
+							addField(
+								i,
+								10 **
+									((apRefDb[i]! -
+										relativePathLossDb(second.length * metersPerWorldUnit) -
+										antennaRayLossDb(
+											apProfiles[i]!,
+											gap,
+											second.x - apX[i]!,
+											second.y - apY[i]!
+										) -
+										legLoss) /
+										10),
+								pathPhase(
+									second.length * metersPerWorldUnit,
+									BAND_FREQUENCY_GHZ[bands[i]!] * 1e9
+								),
+								cMul(c1.te, c2.te)
+							);
+						}
 					}
 
 					/*
@@ -1100,7 +1188,19 @@ export class HeatmapLayer implements Layer {
 							areaM2: sample.areaM2,
 							normalization: sample.directiveNorm
 						});
-						if (scattered > this.rssiFloor) reflectedMw += 10 ** (scattered / 10);
+						if (scattered > this.rssiFloor) {
+							reflectedMw += 10 ** (scattered / 10);
+							if (this.coherent) {
+								addField(
+									i,
+									10 ** (scattered / 10),
+									pathPhase(
+										sample.d1M + d2M,
+										BAND_FREQUENCY_GHZ[bands[i]!] * 1e9
+									)
+								);
+							}
+						}
 					}
 
 					/*
@@ -1143,6 +1243,16 @@ export class HeatmapLayer implements Layer {
 								);
 							if (diffracted > this.rssiFloor) {
 								diffractedMw += 10 ** (diffracted / 10);
+								if (this.coherent) {
+									addField(
+										i,
+										10 ** (diffracted / 10),
+										pathPhase(
+											(path.d1 + path.d2) * metersPerWorldUnit,
+											BAND_FREQUENCY_GHZ[bands[i]!] * 1e9
+										)
+									);
+								}
 							}
 						}
 						if (diffractedMw > 0) {
@@ -1151,9 +1261,19 @@ export class HeatmapLayer implements Layer {
 					}
 				}
 
-				// 功率求和：该纹素同时收到直达射线与反射射线。
-				const totalDb =
-					reflectedMw > 0 ? 10 * Math.log10(10 ** (bestDb / 10) + reflectedMw) : bestDb;
+				// 功率求和：相干模式先按 AP 求 V/H 复场功率，再跨 AP 非相干相加。
+				let totalDb: number;
+				if (this.coherent) {
+					let totalMw = 0;
+					for (let i = 0; i < n; i++) {
+						apPowers[i] = cPower(fieldV[i]!) + cPower(fieldH[i]!);
+						totalMw += apPowers[i]!;
+					}
+					totalDb = totalMw > 0 ? 10 * Math.log10(totalMw) : -Infinity;
+				} else {
+					totalDb =
+						reflectedMw > 0 ? 10 * Math.log10(10 ** (bestDb / 10) + reflectedMw) : bestDb;
+				}
 				/*
 				 * 这里保存电平而非颜色，以便先做平滑。
 				 * 逐纹素的场是分段常数，直接着色会得到硬楔形与阶梯，平滑电平后才转为渐变。

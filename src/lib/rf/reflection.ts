@@ -227,6 +227,8 @@ export interface SecondOrderReflection extends Reflection {
 	y2: number;
 	wallIndex2: number;
 	material2: number;
+	/** 第二次反射的入射角余弦。 */
+	cosTheta2: number;
 	/** 两次反射的功率比乘积。 */
 	powerRatio2: number;
 }
@@ -276,6 +278,7 @@ export function secondOrderReflection(
 		y2: hit2.y,
 		wallIndex2: pair.second,
 		material2: wall2.material,
+		cosTheta2: hit2.cosTheta,
 		powerRatio2: r2
 	};
 }
