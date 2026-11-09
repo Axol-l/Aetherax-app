@@ -1,16 +1,51 @@
 /**
  * 单次漫散射。
  *
- * 采用 Sionna RT 的 Lambertian 模式：归一化散射方向图为
+ * 采用 Sionna RT 的 Directive 模式（Remcom 办公室示例也用这一模式）：
+ * 散射能量集中在镜面反射方向，而不是像 Lambertian 那样围绕法线。
  *
- *   f_s(θ_s) = cos θ_s / π
- *
- * 墙面把入射功率的一部分按该方向图散开，其余进入镜面反射/透射。热力图把每面墙
- * 切成约 1 m 的面元，逐个面元按面积累加；这是实时的二维墙面积分，不是完整 3D
- * Monte Carlo 积分。
+ * 热力图把每面墙切成约 1 m 的面元，逐个面元按面积累加；这是实时的二维墙面积分，
+ * 不是完整 3D Monte Carlo 积分。
  */
-import { getScatteringCoefficient, type WallMaterialId } from '$lib/domain/materials.js';import { relativePathLossDb } from './propagation.js';
+import { getScatteringCoefficient, type WallMaterialId } from '$lib/domain/materials.js';
+import { relativePathLossDb } from './propagation.js';
 import type { ReflectingWall } from './reflection.js';
+
+/** Remcom 示例使用的 directive 前向波束参数。 */
+export const SCATTERING_ALPHA = 4;
+
+/** 二项式系数，只用于很小的 alpha。 */
+function binomial(n: number, k: number): number {
+	if (k < 0 || k > n) return 0;
+	let result = 1;
+	for (let i = 1; i <= k; i++) result = (result * (n - k + i)) / i;
+	return result;
+}
+
+/**
+ * Sionna `DirectivePattern` 的归一化因子，alpha_i = 1、lambda = 1。
+ *
+ * 归一化是对上半球积分；参数只依赖入射角余弦和 alpha。
+ */
+export function directiveNormalization(cosThetaI: number, alpha = SCATTERING_ALPHA): number {
+	const cosI = Math.min(1, Math.max(0, cosThetaI));
+	const sinI = Math.sqrt(Math.max(0, 1 - cosI * cosI));
+	let fAlphaR = 0;
+	let kNone = 0;
+	for (let j = 0; j <= alpha; j++) {
+		let iJ: number;
+		if (j % 2 === 0) {
+			iJ = (2 * Math.PI) / (j + 1);
+		} else {
+			const n = (j - 1) / 2;
+			const v = (Math.pow(sinI, 2 * n) * binomial(2 * n, n)) / Math.pow(2, 2 * n);
+			kNone += v;
+			iJ = (cosI * kNone * 2 * Math.PI) / (j + 1);
+		}
+		fAlphaR += iJ * binomial(alpha, j);
+	}
+	return fAlphaR / Math.pow(2, alpha);
+}
 
 /** 墙面的单位法线；方向取墙的任一侧，调用方用绝对值。 */
 export function wallNormal(wall: Pick<ReflectingWall, 'ax' | 'ay' | 'bx' | 'by'>): {
@@ -39,7 +74,47 @@ function cosToWall(
 }
 
 /**
- * 一次漫散射的相对功率因子 `S · cos θ_i · cos θ_s / π`；为 0 时没有散射。
+ * Directive 方向图，围绕镜面反射方向归一化。
+ */
+export function directivePatternFactor(input: {
+	wall: ReflectingWall;
+	ap: { x: number; y: number };
+	hit: { x: number; y: number };
+	target: { x: number; y: number };
+	alpha?: number;
+	/** 预计算的归一化因子；不传时按入射角现算。 */
+	normalization?: number;
+}): number {
+	const alpha = input.alpha ?? SCATTERING_ALPHA;
+	const normal = wallNormal(input.wall);
+	const inX = input.hit.x - input.ap.x;
+	const inY = input.hit.y - input.ap.y;
+	const inLen = Math.hypot(inX, inY);
+	const outX = input.target.x - input.hit.x;
+	const outY = input.target.y - input.hit.y;
+	const outLen = Math.hypot(outX, outY);
+	if (inLen < 1e-9 || outLen < 1e-9) return 0;
+
+	const kiX = inX / inLen;
+	const kiY = inY / inLen;
+	const dotI = kiX * normal.x + kiY * normal.y;
+	const cosI = Math.abs(dotI);
+	if (cosI <= 0) return 0;
+
+	// 镜面反射方向：ki − 2(ki·n)n。
+	const ksX = kiX - 2 * dotI * normal.x;
+	const ksY = kiY - 2 * dotI * normal.y;
+	const koX = outX / outLen;
+	const koY = outY / outLen;
+	const cosPsi = Math.min(1, Math.max(-1, ksX * koX + ksY * koY));
+	const raw = Math.pow(0.5 * (1 + cosPsi), alpha);
+	const norm =
+		input.normalization ?? directiveNormalization(cosI, alpha);
+	return norm > 0 ? raw / norm : 0;
+}
+
+/**
+ * 一次漫散射的相对功率因子 `S · cos θ_i · f_s`；为 0 时没有散射。
  */
 export function scatteringFactor(input: {
 	wall: ReflectingWall;
@@ -47,13 +122,16 @@ export function scatteringFactor(input: {
 	hit: { x: number; y: number };
 	target: { x: number; y: number };
 	material: number;
+	alpha?: number;
+	normalization?: number;
 }): number {
 	const coefficient = getScatteringCoefficient(input.material as WallMaterialId);
 	if (coefficient <= 0) return 0;
 	const cosIn = cosToWall(input.wall, input.ap, input.hit);
-	const cosOut = cosToWall(input.wall, input.hit, input.target);
-	if (cosIn <= 0 || cosOut <= 0) return 0;
-	return coefficient * cosIn * (cosOut / Math.PI);
+	if (cosIn <= 0) return 0;
+	const pattern = directivePatternFactor(input);
+	if (!(pattern > 0)) return 0;
+	return coefficient * cosIn * pattern;
 }
 
 /**
@@ -74,6 +152,8 @@ export function diffuseLevelDb(input: {
 	material: number;
 	/** 当前散射面元的等效面积，平方米；远墙近似时用整面墙面积。 */
 	areaM2?: number;
+	/** 预计算的 Directive 归一化因子。 */
+	normalization?: number;
 }): number {
 	const scattered = scatteringFactor(input) * (input.areaM2 ?? 1);
 	if (!(scattered > 0)) return -Infinity;

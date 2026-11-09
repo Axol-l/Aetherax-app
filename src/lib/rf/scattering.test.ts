@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { diffuseLevelDb, wallNormal } from './scattering.js';
+import {
+	diffuseLevelDb,
+	directiveNormalization,
+	directivePatternFactor,
+	wallNormal
+} from './scattering.js';
 import { getScatteringCoefficient } from '$lib/domain/materials.js';
 
 describe('single-bounce diffuse scattering', () => {
@@ -13,6 +18,24 @@ describe('single-bounce diffuse scattering', () => {
 		expect(getScatteringCoefficient(0)).toBeCloseTo(0.2, 6);
 	});
 
+	it('peaks around the specular direction', () => {
+		const wall = { ax: 0, ay: 0, bx: 0, by: 10, material: 0 };
+		const specular = directivePatternFactor({
+			wall,
+			ap: { x: 5, y: 5 },
+			hit: { x: 0, y: 5 },
+			target: { x: 5, y: 5 }
+		});
+		const off = directivePatternFactor({
+			wall,
+			ap: { x: 5, y: 5 },
+			hit: { x: 0, y: 5 },
+			target: { x: 5, y: 9 }
+		});
+		expect(directiveNormalization(1)).toBeGreaterThan(0);
+		expect(specular).toBeGreaterThan(off);
+	});
+
 	it('is a finite, weaker path than the incident reference', () => {
 		const wall = { ax: 0, ay: 0, bx: 0, by: 10, material: 0 };
 		const level = diffuseLevelDb({
@@ -23,7 +46,7 @@ describe('single-bounce diffuse scattering', () => {
 			wall,
 			ap: { x: 5, y: 5 },
 			hit: { x: 0, y: 5 },
-			target: { x: -5, y: 5 },
+			target: { x: 5, y: 4 },
 			material: 0
 		});
 		expect(Number.isFinite(level)).toBe(true);

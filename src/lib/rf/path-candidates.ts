@@ -10,6 +10,7 @@ import { edgesOf, type DiffractionEdge } from './diffraction.js';
 import { rayWallLossDb } from './wall-crossings.js';
 import { getScatteringCoefficient, type WallMaterialId } from '$lib/domain/materials.js';
 import { reflectionPowerRatio, type ReflectingWall } from './reflection.js';
+import { directiveNormalization, wallNormal } from './scattering.js';
 
 /** 绕射距离和净空上限，单位米，与 `diffraction.ts` 的默认值一致。 */
 export const DIFFRACTION_MAX_DISTANCE_M = 60;
@@ -113,6 +114,8 @@ export interface ScatterSample {
 	d1M: number;
 	/** 该面元等效面积，平方米。 */
 	areaM2: number;
+	/** 该面元在 AP 入射角下的 Directive 归一化因子，预计算避免逐像素循环。 */
+	directiveNorm: number;
 }
 
 /** 一维墙面积分的面元长度和每面墙的最大采样数。 */
@@ -150,7 +153,21 @@ export function scatterSamplesForAp(
 			const d1M = Math.hypot(x - ap.x, y - ap.y) * metersPerWorldUnit;
 			const apLoss = rayWallLossDb(ap, { x, y }, walls, band, [wallIndex]);
 			if (apLoss > 1e-9) continue;
-			out.push({ wall, wallIndex, x, y, d1M, areaM2 });
+			const normal = wallNormal(wall);
+			const inX = ap.x - x;
+			const inY = ap.y - y;
+			const inLen = Math.hypot(inX, inY);
+			const cosIn =
+				inLen > 1e-9 ? Math.abs((inX * normal.x + inY * normal.y) / inLen) : 0;
+			out.push({
+				wall,
+				wallIndex,
+				x,
+				y,
+				d1M,
+				areaM2,
+				directiveNorm: directiveNormalization(cosIn)
+			});
 		}
 	}
 	return out;

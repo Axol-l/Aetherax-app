@@ -58,13 +58,9 @@
 - 每面墙按约 1 m 切段，每面墙最多 16 个面元；
 - 每个面元面积按 `段长 × 楼层净高` 计算；
 - AP 一侧不可见的面元不生成，客户端一侧不可见的面元逐纹素跳过；
-- 使用 Lambertian 方向图：
-
-```text
-f_s(θ_s) = cos θ_s / π
-```
-
-- 面元贡献按 `S · cos θ_i · f_s(θ_s) · A` 计；
+- 使用 Sionna `DirectivePattern` 风格的方向图（`alpha = 4`），散射能量集中在镜面反射方向；
+- 方向图按入射角归一化；
+- 面元贡献按 `S · cos θ_i · f_s · A` 计；
 - 各面元功率不相干相加；
 - 材质 S 内置值来自 Remcom 5G mmWave office 示例的工程近似。
 
@@ -213,18 +209,18 @@ Sionna 的路径求解器可以组合 reflection / diffraction / diffuse 交互�
 
 当前：
 
-- 使用 Lambertian；
+- 使用 Directive（`alpha = 4`）；
 - 一维墙段积分；
 - 每个面元一个确定点；
 - 没有相位；
 - 没有交叉极化；
-- 没有 Directive / backscattering；
+- 没有 backscattering；
 - 没有真正二维墙面积分；
 - 没有按频率、粗糙度、含水率修正 S；
 - S 主要来自 60 GHz 办公室示例，跨频段只是工程近似；
 - 墙高使用楼层净高，未区分实际墙高。
 
-Remcom 的示例使用的是 **Directive** 模型，不是 Lambertian；其参数还包括：
+Remcom 的示例使用的也是 **Directive** 模型；其参数还包括：
 
 - 散射因子 S；
 - 交叉极化比例；
@@ -232,7 +228,7 @@ Remcom 的示例使用的是 **Directive** 模型，不是 Lambertian；其参�
 - 可选 backscatter。
 
 Sionna 的 `scattering_pattern.py` 提供 Lambertian、Directive 和 Backscattering 三种模式，
-并做归一化。Aetherax 目前只实现了 Lambertian 的一个简化版本。
+并做归一化。Aetherax 目前实现了 Directive 的一维近似版本，没有 backscattering 和交叉极化。
 
 ### 3.8 极化
 
@@ -341,10 +337,9 @@ Aetherax 目前只有 RSSI 和覆盖率，容量模型是独立的客户端数�
    - 需要墙高、三维 AP/客户端位置、三维刃边求交；
    - 解决墙角、窗边、上层/下层绕射的误差。
 
-2. **Directive 漫散射 + 交叉极化**
-   - 用 Remcom/Sionna 的 Directive 模型替换 Lambertian；
-   - 增加 alpha、交叉极化比例；
-   - 按频段和材质校准 S。
+2. **Directive 参数与交叉极化**
+   - Directive 已实现一维近似；
+   - 继续补 backscattering 模式、交叉极化比例和按频段/粗糙度的 S 校准。
 
 3. **逐点 SINR**
    - 把噪声和同频干扰纳入着色；

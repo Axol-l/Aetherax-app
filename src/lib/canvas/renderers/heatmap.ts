@@ -1037,7 +1037,8 @@ export class HeatmapLayer implements Layer {
 							hit: { x: sample.x, y: sample.y },
 							target: { x: wx, y: wy },
 							material: sample.wall.material,
-							areaM2: sample.areaM2
+							areaM2: sample.areaM2,
+							normalization: sample.directiveNorm
 						});
 						if (scattered > this.rssiFloor) reflectedMw += 10 ** (scattered / 10);
 					}

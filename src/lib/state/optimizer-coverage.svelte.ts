@@ -538,7 +538,8 @@ export async function updateCoverage(): Promise<void> {
 							ap: { x: ap.x - ox, y: ap.y - oy },
 							hit: { x: scatter.x, y: scatter.y },
 							target: { x: sample.x, y: sample.y },
-							material: scatter.wall.material
+							material: scatter.wall.material,
+							normalization: scatter.directiveNorm
 						}) * scatter.areaM2;
 					if (factor <= 0) continue;
 					const scatteredMargin =
