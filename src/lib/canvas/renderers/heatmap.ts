@@ -301,6 +301,12 @@ export class HeatmapLayer implements Layer {
 
 	private cache: HTMLCanvasElement | null = null;
 	private cacheKey = '';
+	/** 已生成的热力图按完整输入键缓存，切换楼层再切回来时直接复用。 */
+	private cacheEntries = new Map<
+		string,
+		{ canvas: HTMLCanvasElement; x0: number; y0: number; texel: number }
+	>();
+	private static readonly MAX_CACHE_ENTRIES = 6;
 	/** `cache` 在世界坐标中的原点位置，以及每个纹素对应的世界坐标单位数。 */
 	private cacheX0 = 0;
 	private cacheY0 = 0;
@@ -317,6 +323,8 @@ export class HeatmapLayer implements Layer {
 	} | null = null;
 
 	markWallsDirty(): void {
+		// 不删除具体缓存项：这里拿不到楼层 id，而键本身包含掩码/材质签名。
+		// 当前图下次会按新键重建；其他楼层的缓存继续保留。
 		this.cacheKey = '';
 		invalidateAttenCache();
 	}
@@ -333,6 +341,18 @@ export class HeatmapLayer implements Layer {
 		}
 		const key = this.getCacheKey();
 		if (key === this.cacheKey) return;
+		const cached = this.cacheEntries.get(key);
+		if (cached) {
+			this.cache = cached.canvas;
+			this.cacheX0 = cached.x0;
+			this.cacheY0 = cached.y0;
+			this.cacheTexel = cached.texel;
+			this.cacheKey = key;
+			// 命中后移到末尾，Map 的插入顺序即 LRU 顺序。
+			this.cacheEntries.delete(key);
+			this.cacheEntries.set(key, cached);
+			return;
+		}
 		this.cacheKey = key;
 		const started = performance.now();
 		const generated = this.generateWorld();
@@ -340,6 +360,19 @@ export class HeatmapLayer implements Layer {
 		this.cacheX0 = generated?.x0 ?? 0;
 		this.cacheY0 = generated?.y0 ?? 0;
 		this.cacheTexel = generated?.texel ?? TEXEL_FINE;
+		if (generated) {
+			this.cacheEntries.set(key, {
+				canvas: generated.canvas,
+				x0: generated.x0,
+				y0: generated.y0,
+				texel: generated.texel
+			});
+			while (this.cacheEntries.size > HeatmapLayer.MAX_CACHE_ENTRIES) {
+				const oldest = this.cacheEntries.keys().next().value;
+				if (oldest === undefined) break;
+				this.cacheEntries.delete(oldest);
+			}
+		}
 		// 计时：一次生成会遍历整个平面，且发生在手势结束的那一帧，卡顿最易被感知。
 		debug(`[heatmap] ${generated ? 'generated' : 'skipped'} in ${Math.round(performance.now() - started)} ms`);
 	}
@@ -447,6 +480,7 @@ export class HeatmapLayer implements Layer {
 			// 掩码对象本身，而不仅是其几何尺寸：同尺寸替换掩码时，缓存中的衰减场也会随之失效。
 			`|wms:${maskSignature(this.wallMask)}:${maskSignature(this.materialMap)}` +
 			`|mat:${this.defaultMaterial}|mv:${this.materialVersion}|wupm:${this.worldUnitsPerMeter}` +
+			`|wh:${this.wallHeightM}` +
 			// 抬高面移动的是客户端而非接入点：同一平面加入夹层后画面不同。
 			`|surf:${this.surfaces
 				.map((s) => `${s.kind}:${s.ax},${s.ay},${s.bx},${s.by}:${s.heightM}/${s.topHeightM}`)
