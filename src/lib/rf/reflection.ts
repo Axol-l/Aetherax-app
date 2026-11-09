@@ -3,7 +3,8 @@
  * 只处理单次反射，不做多次反射与衍射。
  */
 import type { Band } from '@aetherax/channels';
-import type { Complex } from './field.js';
+import type { Complex, JonesMatrix } from './field.js';
+import { diagonalJones } from './field.js';
 import { getMaterial, getScatteringCoefficient, type WallMaterialId } from '$lib/domain/materials.js';
 import {
 	BAND_FREQUENCY_GHZ,
@@ -104,8 +105,7 @@ export function reflectionCoefficients(
 	wall: ReflectingWall,
 	band: Band,
 	cosTheta: number
-): { te: Complex; tm: Complex } {
-	const material = getMaterial(wall.material as WallMaterialId);
+): { te: Complex; tm: Complex } {	const material = getMaterial(wall.material as WallMaterialId);
 	if (!material.itu) {
 		return { te: { re: 0, im: 0 }, tm: { re: 0, im: 0 } };
 	}
@@ -129,6 +129,16 @@ export function reflectionCoefficients(
 	};
 	coefficientFieldCache.set(key, result);
 	return result;
+}
+
+/** 平滑平板的反射 Jones 矩阵；TE/TM 不耦合，因此是对角矩阵。 */
+export function reflectionJones(
+	wall: ReflectingWall,
+	band: Band,
+	cosTheta: number
+): JonesMatrix {
+	const { te, tm } = reflectionCoefficients(wall, band, cosTheta);
+	return diagonalJones(te, tm);
 }
 
 /**

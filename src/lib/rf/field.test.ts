@@ -1,11 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
+	applyJones,
 	cAdd,
 	cFromPower,
 	cMul,
 	cPower,
+	diagonalJones,
 	emptyPolarized,
 	pathPhase,
+	polarizationVector,
 	sinrDb
 } from './field.js';
 
@@ -32,5 +35,15 @@ describe('complex field primitives', () => {
 		// 0.5 mW signal against 0 dBm (1 mW) noise => -3.01 dB.
 		expect(sinrDb(0.5, 0, 0)).toBeCloseTo(-3.0103, 3);
 		expect(sinrDb(0, 1, -100)).toBe(-Infinity);
+	});
+
+	it('applies a diagonal Jones matrix to a polarization vector', () => {
+		const input = polarizationVector(0);
+		const output = applyJones(
+			diagonalJones({ re: 0, im: 1 }, { re: 0, im: 1 }),
+			input
+		);
+		expect(cPower(output.vertical)).toBeCloseTo(1, 9);
+		expect(cPower(output.horizontal)).toBeCloseTo(0, 9);
 	});
 });

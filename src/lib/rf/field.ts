@@ -52,6 +52,34 @@ export const emptyPolarized = (): PolarizedField => ({
 	horizontal: { re: 0, im: 0 }
 });
 
+/** 2×2 Jones 矩阵；行是输出 V/H，列是输入 V/H。 */
+export interface JonesMatrix {
+	vv: Complex;
+	vh: Complex;
+	hv: Complex;
+	hh: Complex;
+}
+
+export function diagonalJones(vv: Complex, hh: Complex): JonesMatrix {
+	return { vv, vh: { re: 0, im: 0 }, hv: { re: 0, im: 0 }, hh };
+}
+
+/** 线极化输入向量。0 为垂直，π/2 为水平。 */
+export function polarizationVector(angle: number): PolarizedField {
+	return {
+		vertical: { re: Math.cos(angle), im: 0 },
+		horizontal: { re: Math.sin(angle), im: 0 }
+	};
+}
+
+/** 用 Jones 矩阵作用到入射极化场。 */
+export function applyJones(matrix: JonesMatrix, input: PolarizedField): PolarizedField {
+	return {
+		vertical: cAdd(cMul(matrix.vv, input.vertical), cMul(matrix.vh, input.horizontal)),
+		horizontal: cAdd(cMul(matrix.hv, input.vertical), cMul(matrix.hh, input.horizontal))
+	};
+}
+
 /**
  * 逐点 SINR，dB。输入都是线性功率，噪声以 dBm 给出。
  * 没有信号时返回 -Infinity。

@@ -1332,14 +1332,19 @@ export class HeatmapLayer implements Layer {
 				let value = totalDb;
 				if (this.metric === 'sinr' && this.coherent) {
 					let strongest = 0;
+					let strongestIndex = -1;
 					let total = 0;
 					for (let i = 0; i < n; i++) {
 						const p = apPowers[i]!;
 						total += p;
-						if (p > strongest) strongest = p;
+						if (p > strongest) {
+							strongest = p;
+							strongestIndex = i;
+						}
 					}
 					const interference = Math.max(0, total - strongest);
-					value = sinrDb(strongest, interference, thermalNoiseFloorDbm(20));
+					const width = this.aps[strongestIndex]?.channelWidth ?? 20;
+					value = sinrDb(strongest, interference, thermalNoiseFloorDbm(width));
 				}
 				/*
 				 * 这里保存电平而非颜色，以便先做平滑。
