@@ -1,0 +1,53 @@
+/**
+ * 复数场的基础运算。
+ *
+ * 用于把路径从“功率相加”升级成“复振幅相加”：每条路径保留幅度和相位，
+ * 在接收点按极化分量求和后再取功率。
+ */
+
+export interface Complex {
+	re: number;
+	im: number;
+}
+
+export const complex = (re: number, im = 0): Complex => ({ re, im });
+
+export function cAdd(a: Complex, b: Complex): Complex {
+	return { re: a.re + b.re, im: a.im + b.im };
+}
+
+export function cMul(a: Complex, b: Complex): Complex {
+	return { re: a.re * b.re - a.im * b.im, im: a.re * b.im + a.im * b.re };
+}
+
+export function cScale(a: Complex, s: number): Complex {
+	return { re: a.re * s, im: a.im * s };
+}
+
+/** 功率（线性）转复振幅，相位单位为弧度。 */
+export function cFromPower(power: number, phase = 0): Complex {
+	const amplitude = Math.sqrt(Math.max(0, power));
+	return { re: amplitude * Math.cos(phase), im: amplitude * Math.sin(phase) };
+}
+
+/** 复振幅的功率。 */
+export function cPower(a: Complex): number {
+	return a.re * a.re + a.im * a.im;
+}
+
+/** 自由空间相位：`-k d`，`distanceM` 为米。 */
+export function pathPhase(distanceM: number, frequencyHz: number): number {
+	const c = 299_792_458;
+	return (-2 * Math.PI * frequencyHz * distanceM) / c;
+}
+
+/** 两个线极化分量。 */
+export interface PolarizedField {
+	vertical: Complex;
+	horizontal: Complex;
+}
+
+export const emptyPolarized = (): PolarizedField => ({
+	vertical: { re: 0, im: 0 },
+	horizontal: { re: 0, im: 0 }
+});

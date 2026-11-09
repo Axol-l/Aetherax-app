@@ -3,6 +3,7 @@
  * 只处理单次反射，不做多次反射与衍射。
  */
 import type { Band } from '@aetherax/channels';
+import type { Complex } from './field.js';
 import { getMaterial, getScatteringCoefficient, type WallMaterialId } from '$lib/domain/materials.js';
 import {
 	BAND_FREQUENCY_GHZ,
@@ -94,6 +95,43 @@ export function specularReflection(
 }
 
 /**
+ * ITU-R P.2040 平板反射系数，保留幅度和相位。
+ *
+ * `te` 对应垂直极化，`tm` 对应水平极化（当前二维平面模型中的近似）。
+ */
+const coefficientFieldCache = new Map<string, { te: Complex; tm: Complex }>();
+export function reflectionCoefficients(
+	wall: ReflectingWall,
+	band: Band,
+	cosTheta: number
+): { te: Complex; tm: Complex } {
+	const material = getMaterial(wall.material as WallMaterialId);
+	if (!material.itu) {
+		return { te: { re: 0, im: 0 }, tm: { re: 0, im: 0 } };
+	}
+	const bucket = Math.round(Math.min(1, Math.max(0, cosTheta)) * 40);
+	const key = `${wall.material}:${band}:${bucket}`;
+	const cached = coefficientFieldCache.get(key);
+	if (cached) return cached;
+
+	const frequencyGhz = BAND_FREQUENCY_GHZ[band];
+	const { epsR, sigma } = ituEpsilon(material.itu, frequencyGhz);
+	const { rTe, rTm } = slabTransmission(
+		epsR,
+		sigma,
+		frequencyGhz,
+		material.typicalThickness,
+		cosTheta
+	);
+	const result = {
+		te: { re: rTe.re, im: rTe.im },
+		tm: { re: rTm.re, im: rTm.im }
+	};
+	coefficientFieldCache.set(key, result);
+	return result;
+}
+
+/**
  * 由材质系数算出的反射功率占入射功率的比例。
  */
 const coefficientCache = new Map<string, number>();
@@ -109,16 +147,8 @@ export function reflectionPowerRatio(
 	const cached = coefficientCache.get(key);
 	if (cached !== undefined) return cached;
 
-	const frequencyGhz = BAND_FREQUENCY_GHZ[band];
-	const { epsR, sigma } = ituEpsilon(material.itu, frequencyGhz);
-	const { rTe, rTm } = slabTransmission(
-		epsR,
-		sigma,
-		frequencyGhz,
-		material.typicalThickness,
-		cosTheta
-	);
-	const power = (rTe.re * rTe.re + rTe.im * rTe.im + rTm.re * rTm.re + rTm.im * rTm.im) / 2;
+	const { te, tm } = reflectionCoefficients(wall, band, cosTheta);
+	const power = (te.re * te.re + te.im * te.im + tm.re * tm.re + tm.im * tm.im) / 2;
 	const result = Math.min(1, Math.max(0, power));
 	coefficientCache.set(key, result);
 	return result;
