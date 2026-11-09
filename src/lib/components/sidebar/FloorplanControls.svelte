@@ -746,6 +746,73 @@ import { wallState } from '$state/wall-state.svelte.js';
 		{/if}
 	{/if}
 
+	{#if wallState.wallMask || floorplanState.floorplanUrl}
+		{#if appState.floorView === 'single'}
+			<div class="planning-area">
+				<div class="planning-head">
+					<button
+						class="card-collapse"
+						aria-expanded={!sidebarCards.planningArea}
+						title={sidebarCards.planningArea ? t('Show the list') : t('Hide the list')}
+						onclick={() => (sidebarCards.planningArea = !sidebarCards.planningArea)}
+					>
+						<Icon name="chevron-down" size={11} />
+					</button>
+					<span class="planning-title">
+						<Icon name="crosshair" size={13} />
+						{t('Planning area')}
+					</span>
+					{#if appState.planningDrawMode}
+						<span class="planning-state drawing">{t('Drawing')}</span>
+					{:else if currentFloor()?.planningArea}
+						<span class="planning-state drawn">
+							{t('{count} corners · {area} m²', { count: currentFloor()!.planningArea!.length, area: committedAreaSqm.toFixed(1) })}
+						</span>
+					{:else}
+						<span class="planning-state">{t('Auto-detected')}</span>
+					{/if}
+				</div>
+
+				<Collapse open={!sidebarCards.planningArea}>
+				{#if appState.planningDrawMode}
+					<p class="planning-hint">
+						{#if appState.planningDraft.length < 3}
+							{t('Click the corners of this floor (at least three), then press Enter.')}
+						{:else}
+							{t('{count} corners · {area} m² — press Enter to close, Backspace to undo the last corner.', { count: appState.planningDraft.length, area: draftAreaSqm.toFixed(1) })}
+						{/if}
+					</p>
+					<div class="planning-actions">
+						<Button
+							variant="primary"
+							size="sm"
+							disabled={appState.planningDraft.length < 3}
+							onclick={commitPlanningArea}
+						>
+							{t('Confirm area')}
+						</Button>
+						<button
+							class="skip-link"
+							disabled={appState.planningDraft.length === 0}
+							onclick={() => (appState.planningDraft = appState.planningDraft.slice(0, -1))}
+						>
+							{t('Undo corner')}
+						</button>
+						<button class="skip-link" onclick={() => setPlanningDrawMode(false)}>{t('Cancel')}</button>
+					</div>
+				{:else}
+					<div class="planning-actions">
+						<Button variant="secondary" size="sm" onclick={() => setPlanningDrawMode(true)}>
+							<Icon name="pencil" size={14} />
+							{currentFloor()?.planningArea ? t('Redraw planning area') : t('Draw planning area')}
+						</Button>
+					</div>
+				{/if}
+				</Collapse>
+			</div>
+		{/if}
+	{/if}
+
 	{#if floorState.floors.length > 1}
 		<div class="planning-area">
 			<div class="planning-head">
@@ -842,69 +909,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 	{#if wallState.wallMask || floorplanState.floorplanUrl}
 		<!-- Hidden while the tiled overview is up. -->
 		{#if appState.floorView === 'single'}
-			<div class="planning-area">
-				<div class="planning-head">
-					<button
-						class="card-collapse"
-						aria-expanded={!sidebarCards.planningArea}
-						title={sidebarCards.planningArea ? t('Show the list') : t('Hide the list')}
-						onclick={() => (sidebarCards.planningArea = !sidebarCards.planningArea)}
-					>
-						<Icon name="chevron-down" size={11} />
-					</button>
-					<span class="planning-title">
-						<Icon name="crosshair" size={13} />
-						{t('Planning area')}
-					</span>
-					{#if appState.planningDrawMode}
-						<span class="planning-state drawing">{t('Drawing')}</span>
-					{:else if currentFloor()?.planningArea}
-						<span class="planning-state drawn">
-							{t('{count} corners · {area} m²', { count: currentFloor()!.planningArea!.length, area: committedAreaSqm.toFixed(1) })}
-						</span>
-					{:else}
-						<span class="planning-state">{t('Auto-detected')}</span>
-					{/if}
-				</div>
-
-				<Collapse open={!sidebarCards.planningArea}>
-				{#if appState.planningDrawMode}
-					<p class="planning-hint">
-						{#if appState.planningDraft.length < 3}
-							{t('Click the corners of this floor (at least three), then press Enter.')}
-						{:else}
-							{t('{count} corners · {area} m² — press Enter to close, Backspace to undo the last corner.', { count: appState.planningDraft.length, area: draftAreaSqm.toFixed(1) })}
-						{/if}
-					</p>
-					<div class="planning-actions">
-						<Button
-							variant="primary"
-							size="sm"
-							disabled={appState.planningDraft.length < 3}
-							onclick={commitPlanningArea}
-						>
-							{t('Confirm area')}
-						</Button>
-						<button
-							class="skip-link"
-							disabled={appState.planningDraft.length === 0}
-							onclick={() => (appState.planningDraft = appState.planningDraft.slice(0, -1))}
-						>
-							{t('Undo corner')}
-						</button>
-						<button class="skip-link" onclick={() => setPlanningDrawMode(false)}>{t('Cancel')}</button>
-					</div>
-				{:else}
-					<div class="planning-actions">
-						<Button variant="secondary" size="sm" onclick={() => setPlanningDrawMode(true)}>
-							<Icon name="pencil" size={14} />
-							{currentFloor()?.planningArea ? t('Redraw planning area') : t('Draw planning area')}
-						</Button>
-					</div>
-				{/if}
-				</Collapse>
-			</div>
-
 			<div class="planning-area">
 				<div class="planning-head">
 					<button
