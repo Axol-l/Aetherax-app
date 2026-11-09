@@ -497,6 +497,12 @@
 					min="0"
 					max="90"
 					step={5}
+					oninput={(e) => {
+						const input = e.currentTarget as HTMLInputElement;
+						const value = Number(input.value);
+						if (value > 90) input.value = '90';
+						else if (value < 0) input.value = '0';
+					}}
 					onchange={handlePolarizationChange}
 				/>
 				<span class="mount-unit">{t('°')}</span>

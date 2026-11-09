@@ -7,6 +7,7 @@ import {
 	cPower,
 	diagonalJones,
 	emptyPolarized,
+	linearPolarizationPower,
 	pathPhase,
 	polarizationVector,
 	sinrDb
@@ -45,5 +46,11 @@ describe('complex field primitives', () => {
 		);
 		expect(cPower(output.vertical)).toBeCloseTo(1, 9);
 		expect(cPower(output.horizontal)).toBeCloseTo(0, 9);
+	});
+
+	it('rejects a signal orthogonal to the receiver polarization', () => {
+		const horizontal = polarizationVector(Math.PI / 2);
+		expect(linearPolarizationPower(horizontal, 0)).toBeCloseTo(0, 9);
+		expect(linearPolarizationPower(horizontal, Math.PI / 2)).toBeCloseTo(1, 9);
 	});
 });

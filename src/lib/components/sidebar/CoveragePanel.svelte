@@ -437,6 +437,28 @@
 
 				<Tooltip
 					position="top"
+					text={t('Client receive polarization: 0° is vertical, 90° is horizontal.')}
+				>
+					<label class="setting-row slider-row">
+						<span class="setting-title">{t('Receiver polarization')}</span>
+						<input
+							type="number"
+							min="0"
+							max="90"
+							step="5"
+							value={projectMeta.receiverPolarizationAngleDeg}
+							onchange={(e) =>
+								(projectMeta.receiverPolarizationAngleDeg = Math.min(
+									90,
+									Math.max(0, Number((e.currentTarget as HTMLInputElement).value))
+								))}
+						/>
+						<span class="setting-value">{t('°')}</span>
+					</label>
+				</Tooltip>
+
+				<Tooltip
+					position="top"
 					text={t('How many times to run the optimiser on this floor, keeping the best result. Each run starts from a different seed. 1 is fastest; the browser console prints the spread across runs, which says whether the extra ones are buying anything.')}
 				>
 					<label class="setting-row slider-row">

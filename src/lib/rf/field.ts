@@ -80,6 +80,15 @@ export function applyJones(matrix: JonesMatrix, input: PolarizedField): Polarize
 	};
 }
 
+/** 线性极化接收机在给定角度下收到的功率；0 为垂直。 */
+export function linearPolarizationPower(field: PolarizedField, angle: number): number {
+	const cos = Math.cos(angle);
+	const sin = Math.sin(angle);
+	const re = field.vertical.re * cos + field.horizontal.re * sin;
+	const im = field.vertical.im * cos + field.horizontal.im * sin;
+	return re * re + im * im;
+}
+
 /**
  * 逐点 SINR，dB。输入都是线性功率，噪声以 dBm 给出。
  * 没有信号时返回 -Infinity。

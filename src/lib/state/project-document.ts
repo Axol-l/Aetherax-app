@@ -109,6 +109,7 @@ export interface ProjectDocumentV3 {
 	heatmapRssiFloor: number;
 	coverageThresholdDbm: number;
 	clientHeight: number;
+	receiverPolarizationAngleDeg?: number;
 	interferenceWeight: number;
 	coverageSoftnessDb: number;
 	coverageFloorPct: number;
@@ -196,6 +197,7 @@ export function toDocument(options: ToDocumentOptions = {}): ProjectDocumentV3 {
 		heatmapRssiFloor: projectMeta.heatmapRssiFloor,
 		coverageThresholdDbm: projectMeta.coverageThresholdDbm,
 		clientHeight: projectMeta.clientHeight,
+		receiverPolarizationAngleDeg: projectMeta.receiverPolarizationAngleDeg,
 		interferenceWeight: projectMeta.interferenceWeight,
 		coverageSoftnessDb: projectMeta.coverageSoftnessDb,
 		coverageFloorPct: projectMeta.coverageFloorPct,
@@ -347,6 +349,7 @@ export function migrate(raw: unknown): ProjectDocumentV3 | null {
 		heatmapRssiFloor: data.heatmapRssiFloor ?? -70,
 		coverageThresholdDbm: data.coverageThresholdDbm ?? -70,
 		clientHeight: data.clientHeight ?? 1.5,
+		receiverPolarizationAngleDeg: data.receiverPolarizationAngleDeg ?? 0,
 		interferenceWeight: data.interferenceWeight ?? 0.2,
 		coverageSoftnessDb: data.coverageSoftnessDb ?? DEFAULT_COVERAGE_SOFTNESS_DB,
 		coverageFloorPct: data.coverageFloorPct ?? 0,
@@ -493,6 +496,7 @@ export function applyDocument(
 	projectMeta.heatmapRssiFloor = doc.heatmapRssiFloor;
 	projectMeta.coverageThresholdDbm = doc.coverageThresholdDbm;
 	projectMeta.clientHeight = doc.clientHeight;
+	projectMeta.receiverPolarizationAngleDeg = doc.receiverPolarizationAngleDeg ?? 0;
 	projectMeta.interferenceWeight = doc.interferenceWeight;
 	projectMeta.coverageSoftnessDb = doc.coverageSoftnessDb;
 	projectMeta.coverageFloorPct = doc.coverageFloorPct;

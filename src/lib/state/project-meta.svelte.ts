@@ -29,6 +29,8 @@ export const projectMeta = $state({
 	 * 假设客户端离地多高，单位米。
 	 */
 	clientHeight: 1.5 as number,
+	/** 接收端线极化角：0° 垂直，90° 水平。 */
+	receiverPolarizationAngleDeg: 0 as number,
 	/**
 	 * 同频干扰占比在放置目标里的权重：
 	 * `score = coverageUtility − interferenceWeight · interferenceShare`。

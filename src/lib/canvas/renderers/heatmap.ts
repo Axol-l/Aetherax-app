@@ -54,7 +54,7 @@ import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../r
 import { wallRunLoss } from '../../rf/link-budget.js';
 import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
 import { reflections, secondOrderReflection, reflectionCoefficients, type ReflectingWall, type ReflectionPair } from '../../rf/reflection.js';
-import { cMul, cPower, pathPhase, sinrDb, type Complex } from '../../rf/field.js';
+import { cMul, linearPolarizationPower, pathPhase, sinrDb, type Complex } from '../../rf/field.js';
 import { BAND_FREQUENCY_GHZ } from '../../rf/material-itu.js';
 import { diffractionPaths, bandWavelengthM, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
 import { rayWallLossDb } from '../../rf/wall-crossings.js';
@@ -306,6 +306,8 @@ export class HeatmapLayer implements Layer {
 	rssiFloor = DEFAULT_RSSI_FLOOR;
 	/** 显示指标；SINR 使用固定的 -5..30 dB 色阶。 */
 	metric: 'rssi' | 'sinr' = 'rssi';
+	/** 接收端线极化角，0 为垂直。 */
+	receiverPolarizationAngleDeg = 0;
 
 	private cache: HTMLCanvasElement | null = null;
 	private cacheKey = '';
@@ -350,6 +352,15 @@ export class HeatmapLayer implements Layer {
 		}
 		const key = this.getCacheKey();
 		if (key === this.cacheKey) return;
+		/*
+		 * 新楼层还没有户型/墙体时，唯一的热力图来源是其他楼层的虚拟 AP。
+		 * 这种图没有本层几何可裁剪，生成成本高且没有意义；等本层有墙体后再画。
+		 */
+		if (!this.wallMask && this.aps.every((ap) => !!ap.crossFloor)) {
+			this.cache = null;
+			this.cacheKey = key;
+			return;
+		}
 		const cached = this.cacheEntries.get(key);
 		if (cached) {
 			this.cache = cached.canvas;
@@ -484,7 +495,7 @@ export class HeatmapLayer implements Layer {
 							: '')
 				)
 				.join('|') +
-			`|floor:${this.rssiFloor}|metric:${this.metric}|t:${this.isDragging ? 'c' : 'f'}` +
+			`|floor:${this.rssiFloor}|metric:${this.metric}|rxpol:${this.receiverPolarizationAngleDeg}|t:${this.isDragging ? 'c' : 'f'}` +
 			`|wm:${this.wallMask?.width ?? 0}x${this.wallMask?.height ?? 0}:${this.wallMask?.originX ?? 0},${this.wallMask?.originY ?? 0}` +
 			// 掩码对象本身，而不仅是其几何尺寸：同尺寸替换掩码时，缓存中的衰减场也会随之失效。
 			`|wms:${maskSignature(this.wallMask)}:${maskSignature(this.materialMap)}` +
@@ -1321,7 +1332,10 @@ export class HeatmapLayer implements Layer {
 				if (this.coherent) {
 					let totalMw = 0;
 					for (let i = 0; i < n; i++) {
-						apPowers[i] = cPower(fieldV[i]!) + cPower(fieldH[i]!);
+						apPowers[i] = linearPolarizationPower(
+							{ vertical: fieldV[i]!, horizontal: fieldH[i]! },
+							(this.receiverPolarizationAngleDeg * Math.PI) / 180
+						);
 						totalMw += apPowers[i]!;
 					}
 					totalDb = totalMw > 0 ? 10 * Math.log10(totalMw) : -Infinity;

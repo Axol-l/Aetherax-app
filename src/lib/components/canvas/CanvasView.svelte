@@ -899,6 +899,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		heatmapLayer.ispSpeed = projectMeta.ispSpeed;
 		heatmapLayer.rssiFloor = projectMeta.heatmapRssiFloor;
 		heatmapLayer.metric = appState.heatmapMetric;
+		heatmapLayer.receiverPolarizationAngleDeg = projectMeta.receiverPolarizationAngleDeg;
 		engine.markDirty();
 	});
 
@@ -1254,7 +1255,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 			`|self:${maskTag(floor.wallMask)}:${floor.wallMask?.originX ?? 0},${floor.wallMask?.originY ?? 0}` +
 			// The floor's own scale: the image is generated in its units, and every
 			// cross-floor source is converted into them by `heatmapApsForFloor`.
-			`|rssi:${projectMeta.heatmapRssiFloor}|wupm:${wupmForFloor(floor.id)}|ch:${projectMeta.clientHeight}`
+			`|rssi:${projectMeta.heatmapRssiFloor}|wupm:${wupmForFloor(floor.id)}|ch:${projectMeta.clientHeight}` +
+			`|metric:${appState.heatmapMetric}|rxpol:${projectMeta.receiverPolarizationAngleDeg}`
 		);
 	}
 
