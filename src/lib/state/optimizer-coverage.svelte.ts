@@ -14,7 +14,7 @@ import { scaleBetween } from './floor-scale.js';
 import { antennaRayLossDb } from '$lib/rf/antenna.js';
 import { surfaceHeightAt, deckCrossing } from '$lib/rf/surface-height.js';
 import { bestReflection } from '$lib/rf/reflection.js';
-import { bestDiffraction, bandWavelengthM, edgesOf } from '$lib/rf/diffraction.js';
+import { bandWavelengthM, diffractionPaths, edgesOf } from '$lib/rf/diffraction.js';
 import { rayWallLossDb } from '$lib/rf/wall-crossings.js';
 import { scatteringFactor } from '$lib/rf/scattering.js';
 import { scatterSamplesForAp } from '$lib/rf/path-candidates.js';
@@ -448,39 +448,44 @@ export async function updateCoverage(): Promise<void> {
 			 */
 			const diffractionGate = Math.min(1, Math.max(0, (wallLossDb - 3) / 6));
 			if (diffractionGate > 0 && diffractionEdges.length > 0) {
-				const best = bestDiffraction(
+				const paths = diffractionPaths(
 					{ x: ap.x - ox, y: ap.y - oy },
 					{ x: sample.x, y: sample.y },
 					diffractionEdges,
 					bandWavelengthM(ap.band as '2.4ghz' | '5ghz' | '6ghz'),
 					undefined,
 					undefined,
-					1 / wupmForGap
+					1 / wupmForGap,
+					(edge) =>
+						rayWallLossDb(
+							{ x: ap.x - ox, y: ap.y - oy },
+							{ x: edge.x, y: edge.y },
+							reflectingWalls,
+							ap.band as Band,
+							edge.wallIndices ?? []
+						) <= 1e-9 &&
+						rayWallLossDb(
+							{ x: edge.x, y: edge.y },
+							{ x: sample.x, y: sample.y },
+							reflectingWalls,
+							ap.band as Band,
+							edge.wallIndices ?? []
+						) <= 1e-9,
+					4
 				);
-				if (
-					best &&
-					best.lossDb > 0 &&
-					rayWallLossDb(
-						{ x: ap.x - ox, y: ap.y - oy },
-						{ x: best.x, y: best.y },
-						reflectingWalls,
-						ap.band as Band,
-						best.edge.wallIndices ?? []
-					) <= 1e-9 &&
-					rayWallLossDb(
-						{ x: best.x, y: best.y },
-						{ x: sample.x, y: sample.y },
-						reflectingWalls,
-						ap.band as Band,
-						best.edge.wallIndices ?? []
-					) <= 1e-9
-				) {
-					const d1 = Math.hypot(best.x - (ap.x - ox), best.y - (ap.y - oy));
-					const d2 = Math.hypot(sample.x - best.x, sample.y - best.y);
+				let diffractedMw = 0;
+				for (const path of paths) {
+					if (!(path.lossDb > 0)) continue;
+					const d1 = Math.hypot(path.x - (ap.x - ox), path.y - (ap.y - oy));
+					const d2 = Math.hypot(sample.x - path.x, sample.y - path.y);
 					const diffractedMargin =
 						coverageMarginDb((d1 + d2) * wupmForGap, ap.interferenceRadius) -
-						(wallLossDb + best.lossDb) +
+						(wallLossDb + path.lossDb) +
 						(dbLoss - wallLossDb);
+					diffractedMw += 10 ** (diffractedMargin / 10);
+				}
+				if (diffractedMw > 0) {
+					const diffractedMargin = 10 * Math.log10(diffractedMw);
 					const blended = margin + diffractionGate * (diffractedMargin - margin);
 					if (blended > bestMargin) bestMargin = blended;
 					if (blended > margins[index]!) margins[index] = blended;
@@ -539,6 +544,7 @@ export async function updateCoverage(): Promise<void> {
 							hit: { x: scatter.x, y: scatter.y },
 							target: { x: sample.x, y: sample.y },
 							material: scatter.wall.material,
+							band: ap.band as Band,
 							normalization: scatter.directiveNorm
 						}) * scatter.areaM2;
 					if (factor <= 0) continue;

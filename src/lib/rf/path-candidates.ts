@@ -88,7 +88,7 @@ export function reflectionCandidates(
 		// 但漫散射仍可能有贡献，所以还要看材质的散射系数。
 		if (
 			reflectionPowerRatio(wall, band, 1) <= 0 &&
-			getScatteringCoefficient(wall.material as WallMaterialId) <= 0
+			getScatteringCoefficient(wall.material as WallMaterialId, band) <= 0
 		) {
 			continue;
 		}
@@ -137,7 +137,7 @@ export function scatterSamplesForAp(
 	if (!(wallHeightM > 0)) return out;
 	for (let wallIndex = 0; wallIndex < walls.length; wallIndex++) {
 		const wall = walls[wallIndex]!;
-		if (getScatteringCoefficient(wall.material as WallMaterialId) <= 0) continue;
+		if (getScatteringCoefficient(wall.material as WallMaterialId, band) <= 0) continue;
 		const lengthWu = Math.hypot(wall.bx - wall.ax, wall.by - wall.ay);
 		const lengthM = lengthWu * metersPerWorldUnit;
 		if (!(lengthM > 0)) continue;

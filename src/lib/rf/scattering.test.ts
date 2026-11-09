@@ -14,8 +14,9 @@ describe('single-bounce diffuse scattering', () => {
 		expect(normal.y).toBeCloseTo(0);
 		expect(getScatteringCoefficient(0)).toBeGreaterThan(0);
 		expect(getScatteringCoefficient(6)).toBe(0);
-		expect(getScatteringCoefficient(4)).toBeCloseTo(0.4, 6);
-		expect(getScatteringCoefficient(0)).toBeCloseTo(0.2, 6);
+		expect(getScatteringCoefficient(4, '6ghz')).toBeCloseTo(0.3, 6);
+		expect(getScatteringCoefficient(0)).toBeCloseTo(0.1, 6);
+		expect(getScatteringCoefficient(0, '2.4ghz')).toBeCloseTo(0.05, 6);
 	});
 
 	it('peaks around the specular direction', () => {
@@ -47,7 +48,8 @@ describe('single-bounce diffuse scattering', () => {
 			ap: { x: 5, y: 5 },
 			hit: { x: 0, y: 5 },
 			target: { x: 5, y: 4 },
-			material: 0
+			material: 0,
+			band: '5ghz'
 		});
 		expect(Number.isFinite(level)).toBe(true);
 		expect(level).toBeLessThan(-26);

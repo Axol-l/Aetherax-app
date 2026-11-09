@@ -127,20 +127,33 @@ export function isVirtualMaterial(id: WallMaterialId): boolean {
 }
 
 /**
- * 默认单次漫散射系数。
+ * 频段预设的单次漫散射系数。
  *
- * Sionna RT 的材质默认散射系数是 0，只有显式设置才启用；这里给常见室内表面一个
- * 温和的非零默认值，使墙后阴影不会是完全的硬边。可在材质上覆盖
- * `scatteringCoefficient`，设为 0 即关闭该材质的漫散射。
+ * 这些不是通用材料常数：Remcom 的测量示例针对 60 GHz；2.4/5/6 GHz 的值是按频段
+ * 下调后的工程预设。没有实测数据的材质只用于给出数量级，不能当作验收依据。
  */
+const SCATTERING_BY_BAND: Record<Band, Record<number, number>> = {
+	'2.4ghz': { 0: 0.05, 1: 0.05, 2: 0.02, 3: 0.08, 4: 0.15, 5: 0.1, 6: 0, 7: 0.05 },
+	'5ghz': { 0: 0.1, 1: 0.1, 2: 0.03, 3: 0.12, 4: 0.25, 5: 0.15, 6: 0, 7: 0.1 },
+	'6ghz': { 0: 0.12, 1: 0.12, 2: 0.04, 3: 0.15, 4: 0.3, 5: 0.18, 6: 0, 7: 0.12 }
+};
+
 export const DEFAULT_SCATTERING_COEFFICIENT = 0.15;
 
-/** 某材质的单次漫散射系数，范围 [0, 1]。 */
-export function getScatteringCoefficient(id: WallMaterialId): number {
-	const m = WALL_MATERIALS[id] ?? customMaterials.find((material) => material.id === id);
-	if (!m) return DEFAULT_SCATTERING_COEFFICIENT;
+/** 某材质在某频段的单次漫散射系数，范围 [0, 1]。 */
+export function getScatteringCoefficient(
+	id: WallMaterialId,
+	band: Band = '5ghz'
+): number {
+	const custom = customMaterials.find((material) => material.id === id);
+	// 自定义材质显式给出的 S 视为用户校准值，优先于内置频段预设。
+	if (custom?.scatteringCoefficient !== undefined) {
+		return Math.min(1, Math.max(0, custom.scatteringCoefficient));
+	}
 	if (isVirtualMaterial(id)) return 0;
-	return Math.min(1, Math.max(0, m.scatteringCoefficient ?? DEFAULT_SCATTERING_COEFFICIENT));
+	const preset = SCATTERING_BY_BAND[band]?.[id];
+	if (preset !== undefined) return Math.min(1, Math.max(0, preset));
+	return Math.min(1, Math.max(0, DEFAULT_SCATTERING_COEFFICIENT));
 }
 
 /** 调用方没有 AP 频段信息时使用的默认频段。 */

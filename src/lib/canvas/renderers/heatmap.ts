@@ -53,7 +53,7 @@ import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../r
 import { wallRunLoss } from '../../rf/link-budget.js';
 import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
 import { reflections, type ReflectingWall } from '../../rf/reflection.js';
-import { bestDiffraction, bandWavelengthM, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
+import { diffractionPaths, bandWavelengthM, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
 import { rayWallLossDb } from '../../rf/wall-crossings.js';
 import { diffuseLevelDb } from '../../rf/scattering.js';
 import {
@@ -1037,6 +1037,7 @@ export class HeatmapLayer implements Layer {
 							hit: { x: sample.x, y: sample.y },
 							target: { x: wx, y: wy },
 							material: sample.wall.material,
+							band: bands[i]!,
 							areaM2: sample.areaM2,
 							normalization: sample.directiveNorm
 						});
@@ -1050,7 +1051,7 @@ export class HeatmapLayer implements Layer {
 					const diffractionGate = Math.min(1, Math.max(0, (wallLoss - 3) / 6));
 					const candidates = diffractionByAp[i]!;
 					if (diffractionGate > 0 && candidates.length > 0) {
-						const best = bestDiffraction(
+						const paths = diffractionPaths(
 							{ x: apX[i]!, y: apY[i]! },
 							{ x: wx, y: wy },
 							candidates,
@@ -1065,24 +1066,30 @@ export class HeatmapLayer implements Layer {
 									walls,
 									bands[i]!,
 									edge.wallIndices ?? []
-								) <= 1e-9
+								) <= 1e-9,
+							4
 						);
-						if (best && best.lossDb > 0) {
-							const d1 = Math.hypot(best.x - apX[i]!, best.y - apY[i]!);
-							const d2 = Math.hypot(wx - best.x, wy - best.y);
+						let diffractedMw = 0;
+						for (const path of paths) {
+							if (!(path.lossDb > 0)) continue;
+							const d1 = Math.hypot(path.x - apX[i]!, path.y - apY[i]!);
+							const d2 = Math.hypot(wx - path.x, wy - path.y);
 							const diffracted =
 								apRefDb[i]! -
 								relativePathLossDb((d1 + d2) * metersPerWorldUnit) -
-								best.lossDb -
+								path.lossDb -
 								antennaRayLossDb(
 									apProfiles[i]!,
 									gap,
-									best.x - apX[i]!,
-									best.y - apY[i]!
+									path.x - apX[i]!,
+									path.y - apY[i]!
 								);
 							if (diffracted > this.rssiFloor) {
-								reflectedMw += diffractionGate * 10 ** (diffracted / 10);
+								diffractedMw += 10 ** (diffracted / 10);
 							}
+						}
+						if (diffractedMw > 0) {
+							reflectedMw += diffractionGate * diffractedMw;
 						}
 					}
 				}

@@ -4,6 +4,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	bestDiffraction,
+	diffractionPaths,
 	edgesOf,
 	knifeEdgeLossDb,
 	wavelengthM,
@@ -57,6 +58,19 @@ describe('bestDiffraction', () => {
 
 	it('returns null when there are no edges', () => {
 		expect(bestDiffraction(from, to, [], lambda5)).toBeNull();
+	});
+
+	it('returns all visible edges in ascending loss order', () => {
+		const many: DiffractionEdge[] = [
+			{ x: 50, y: 1, material: 0 },
+			{ x: 50, y: 2, material: 0 },
+			{ x: 50, y: 5, material: 0 }
+		];
+		const paths = diffractionPaths(from, to, many, lambda5);
+		expect(paths).toHaveLength(3);
+		expect(paths[0]!.lossDb).toBeLessThan(paths[1]!.lossDb);
+		expect(paths[1]!.lossDb).toBeLessThan(paths[2]!.lossDb);
+		expect(diffractionPaths(from, to, many, lambda5, 40, 60, 1, undefined, 2)).toHaveLength(2);
 	});
 
 	it('honours the clearance cull', () => {

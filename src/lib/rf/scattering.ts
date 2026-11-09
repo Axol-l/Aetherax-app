@@ -8,6 +8,7 @@
  * 不是完整 3D Monte Carlo 积分。
  */
 import { getScatteringCoefficient, type WallMaterialId } from '$lib/domain/materials.js';
+import type { Band } from '@aetherax/channels';
 import { relativePathLossDb } from './propagation.js';
 import type { ReflectingWall } from './reflection.js';
 
@@ -122,10 +123,11 @@ export function scatteringFactor(input: {
 	hit: { x: number; y: number };
 	target: { x: number; y: number };
 	material: number;
+	band: Band;
 	alpha?: number;
 	normalization?: number;
 }): number {
-	const coefficient = getScatteringCoefficient(input.material as WallMaterialId);
+	const coefficient = getScatteringCoefficient(input.material as WallMaterialId, input.band);
 	if (coefficient <= 0) return 0;
 	const cosIn = cosToWall(input.wall, input.ap, input.hit);
 	if (cosIn <= 0) return 0;
@@ -150,6 +152,7 @@ export function diffuseLevelDb(input: {
 	hit: { x: number; y: number };
 	target: { x: number; y: number };
 	material: number;
+	band: Band;
 	/** 当前散射面元的等效面积，平方米；远墙近似时用整面墙面积。 */
 	areaM2?: number;
 	/** 预计算的 Directive 归一化因子。 */

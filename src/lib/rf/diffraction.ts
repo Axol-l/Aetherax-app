@@ -49,12 +49,20 @@ export function knifeEdgeLossDb(clearance: number, d1: number, d2: number, wavel
 	return 6.9 + 20 * Math.log10(Math.sqrt((v - 0.1) ** 2 + 1) + v - 0.1);
 }
 
+export interface DiffractionPath {
+	lossDb: number;
+	x: number;
+	y: number;
+	edge: DiffractionEdge;
+}
+
 /**
- * `from` 到 `to` 绕经 `edges` 中某条边缘的最佳衍射损耗；无可用边缘时返回 null。
+ * 所有满足几何和可见性条件的刃峰路径，按损耗升序排列。
  *
- * 只考虑位于两端之间、且偏离直连线的边缘。
+ * ITU-R P.526 公式是单刃峰的；真实房间可能同时有多个墙端向同一客户端绕射，
+ * 调用方应以功率和累加这些路径，而不是只取最强的一条。
  */
-export function bestDiffraction(
+export function diffractionPaths(
 	from: { x: number; y: number },
 	to: { x: number; y: number },
 	edges: readonly DiffractionEdge[],
@@ -62,16 +70,17 @@ export function bestDiffraction(
 	maxClearance = 40,
 	maxDistance = 60,
 	metersPerWorldUnit = 1,
-	visible?: (edge: DiffractionEdge) => boolean
-): { lossDb: number; x: number; y: number; edge: DiffractionEdge } | null {
+	visible?: (edge: DiffractionEdge) => boolean,
+	limit = Infinity
+): DiffractionPath[] {
 	const dx = to.x - from.x;
 	const dy = to.y - from.y;
 	const direct = Math.hypot(dx, dy);
-	if (direct < 1e-6) return null;
+	if (direct < 1e-6) return [];
 	const ux = dx / direct;
 	const uy = dy / direct;
 
-	let best: { lossDb: number; x: number; y: number; edge: DiffractionEdge } | null = null;
+	const out: DiffractionPath[] = [];
 	for (const edge of edges) {
 		if (visible && !visible(edge)) continue;
 		const ex = edge.x - from.x;
@@ -91,9 +100,40 @@ export function bestDiffraction(
 		const clearance = side;
 		if (Math.abs(clearance) * metersPerWorldUnit > maxClearance) continue;
 		const lossDb = knifeEdgeLossDb(Math.abs(clearance) * metersPerWorldUnit, d1M, d2M, wavelength);
-		if (best === null || lossDb < best.lossDb) best = { lossDb, x: edge.x, y: edge.y, edge };
+		out.push({ lossDb, x: edge.x, y: edge.y, edge });
 	}
-	return best;
+	out.sort((a, b) => a.lossDb - b.lossDb);
+	return Number.isFinite(limit) ? out.slice(0, Math.max(0, limit)) : out;
+}
+
+/**
+ * `from` 到 `to` 绕经 `edges` 中某条边缘的最佳衍射损耗；无可用边缘时返回 null。
+ *
+ * 只考虑位于两端之间、且偏离直连线的边缘。
+ */
+export function bestDiffraction(
+	from: { x: number; y: number },
+	to: { x: number; y: number },
+	edges: readonly DiffractionEdge[],
+	wavelength: number,
+	maxClearance = 40,
+	maxDistance = 60,
+	metersPerWorldUnit = 1,
+	visible?: (edge: DiffractionEdge) => boolean
+): DiffractionPath | null {
+	return (
+		diffractionPaths(
+			from,
+			to,
+			edges,
+			wavelength,
+			maxClearance,
+			maxDistance,
+			metersPerWorldUnit,
+			visible,
+			1
+		)[0] ?? null
+	);
 }
 
 /** 自由空间波长，单位米。 */
