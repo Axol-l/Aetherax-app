@@ -248,6 +248,21 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 const USAGE = { MAP_READ: 1, COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128 };
 const MAP_READ = 1;
 
+let devicePromise: Promise<any | null> | null = null;
+
+function sharedDevice(): Promise<any | null> {
+	if (!devicePromise) {
+		devicePromise = (async () => {
+			const gpu = (navigator as any).gpu;
+			if (!gpu) return null;
+			const adapter = await gpu.requestAdapter();
+			if (!adapter) return null;
+			return adapter.requestDevice();
+		})();
+	}
+	return devicePromise;
+}
+
 function packBytes(data: Uint8Array | null): Uint32Array {
 	if (!data || data.length === 0) return new Uint32Array(1);
 	const packed = new Uint32Array(Math.ceil(data.length / 4));
@@ -261,11 +276,7 @@ function packBytes(data: Uint8Array | null): Uint32Array {
 export async function productionDirectGpu(
 	input: ProductionDirectInput
 ): Promise<ProductionDirectResult | null> {
-	const gpu = (navigator as any).gpu;
-	if (!gpu) return null;
-	const adapter = await gpu.requestAdapter();
-	if (!adapter) return null;
-	const device: any = await adapter.requestDevice();
+	const device: any = await sharedDevice();
 	if (!device) return null;
 
 	const pixels = input.width * input.height;

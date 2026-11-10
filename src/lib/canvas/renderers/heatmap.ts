@@ -57,11 +57,12 @@ import { antennaRayLossDb, antennaSignature, type AntennaProfile } from '../../r
 import { wallRunLoss } from '../../rf/link-budget.js';
 import { surfaceHeightAt, deckCrossing, type ElevatedSurface as ElevatableSurface } from '../../rf/surface-height.js';
 import { reflections, secondOrderReflection, reflectionCoefficients, type ReflectingWall, type ReflectionPair } from '../../rf/reflection.js';
-import { cMul, linearPolarizationPower, pathPhase, sinrDb, type Complex } from '../../rf/field.js';
-import { BAND_FREQUENCY_GHZ } from '../../rf/material-itu.js';
+import { cMul, linearPolarizationPower, pathPhase, sinrDb, type Complex } from '../../rf/field.js';import { BAND_FREQUENCY_GHZ } from '../../rf/material-itu.js';
 import { diffractionPaths, bandWavelengthM, edgesOf, type DiffractionEdge } from '../../rf/diffraction.js';
 import { rayWallLossDb } from '../../rf/wall-crossings.js';
 import { diffuseLevelDb } from '../../rf/scattering.js';
+import { productionDirectGpu, type ProductionDirectInput } from '../../gpu/production-direct.js';
+import { pathLossN } from '../../rf/propagation.js';
 import {
 	diffractionCandidatesForAp,
 	DIFFRACTION_MAX_CLEARANCE_M,
@@ -320,6 +321,41 @@ export class HeatmapLayer implements Layer {
 
 	private cache: HeatmapImage | null = null;
 	private cacheKey = '';
+	/** 当前输入下 GPU 生成的逐 AP 直射基础电平。 */
+	private gpuDirect: { key: string; levels: Float32Array; apCount: number; pixels: number } | null =
+		null;
+	private gpuDirectPending = '';
+	private gpuDirectUnavailable = false;
+	gpuDirectEnabled = true;
+
+	private scheduleGpuDirect(input: ProductionDirectInput, key: string): void {
+		if (!this.gpuDirectEnabled || this.gpuDirectUnavailable) return;
+		if (this.gpuDirect?.key === key || this.gpuDirectPending === key) return;
+		this.gpuDirectPending = key;
+		void productionDirectGpu(input)
+			.then((result) => {
+				this.gpuDirectPending = '';
+				if (!result) {
+					this.gpuDirectUnavailable = true;
+					return;
+				}
+				this.gpuDirect = {
+					key,
+					levels: result.dbm,
+					apCount: result.apCount,
+					pixels: result.pixels
+				};
+				// 当前图像是用 CPU 直射项生成的；丢掉它，下一帧用 GPU 结果重建。
+				this.cacheEntries.delete(key);
+				this.cacheKey = '';
+				this.cache = null;
+				this.onGenerated?.();
+			})
+			.catch(() => {
+				this.gpuDirectPending = '';
+				this.gpuDirectUnavailable = true;
+			});
+	}
 	worker: Worker | null = null;
 	onGenerated: (() => void) | null = null;
 	private workerRequestId = 0;
@@ -558,8 +594,10 @@ export class HeatmapLayer implements Layer {
 		const savedSurfaces = this.surfaces;
 		const savedClip = this.clipPolygon;
 		const savedClipStrict = this.clipStrict;
+		const savedGpuEnabled = this.gpuDirectEnabled;
 
 		try {
+			this.gpuDirectEnabled = false;
 			this.aps = input.aps;
 			this.wallMask = input.wallMask;
 			this.materialMap = input.materialMap;
@@ -587,6 +625,7 @@ export class HeatmapLayer implements Layer {
 			this.surfaces = savedSurfaces;
 			this.clipPolygon = savedClip;
 			this.clipStrict = savedClipStrict;
+			this.gpuDirectEnabled = savedGpuEnabled;
 		}
 	}
 
@@ -867,6 +906,57 @@ export class HeatmapLayer implements Layer {
 		 * 有轮廓多边形时使用多边形，并始终加上墙体围出的内部区域。
 		 * 内部区域由墙体掩码推导，因此任何有墙体的楼层都有裁剪。
 		 */
+		/*
+		 * GPU 直射场只覆盖同层、同频段、无抬高面的情况；其他情况保留 CPU 路径。
+		 * 结果异步返回，当前帧仍用 CPU，下一帧命中后再替换直射项。
+		 */
+		const gpuBand = bands[0];
+		const sameBand = bands.every((band) => band === gpuBand);
+		if (
+			this.gpuDirectEnabled &&
+			!this.gpuDirectUnavailable &&
+			this.wallMask &&
+			this.surfaces.length === 0 &&
+			sameBand &&
+			this.aps.every((ap) => !ap.crossFloor)
+		) {
+			const gpuKey = `${this.cacheKey}|gpu:${cols}x${rows}@${x0},${y0}:${texel}:${gpuBand}`;
+			const mask = this.wallMask;
+			const input: ProductionDirectInput = {
+				width: cols,
+				height: rows,
+				originX: x0,
+				originY: y0,
+				texel,
+				worldUnitsPerMeter: wupm,
+				aps: this.aps.map((ap, i) => ({
+					x: apX[i]!,
+					y: apY[i]!,
+					referenceDbm: apRefDb[i]!,
+					pathLossExponent: pathLossN(),
+					verticalGapM: vertWu[i]! * metersPerWorldUnit,
+					slabLossDb: floorDbThickness[i]!
+				})),
+				wallMask: {
+					data: mask.data,
+					width: mask.width,
+					height: mask.height,
+					originX: mask.originX,
+					originY: mask.originY,
+					materialMap: this.materialMap,
+					materialDb: matDbByBand.get(gpuBand!) ?? getMaterialDbTable(gpuBand!),
+					fallbackDb: defaultDbByBand.get(gpuBand!) ?? 0,
+					defaultMaterialId: this.defaultMaterial,
+					stride: 2
+				}
+			};
+			this.scheduleGpuDirect(input, gpuKey);
+		}
+		const gpuDirect =
+			this.gpuDirect && this.gpuDirect.key.startsWith(`${this.cacheKey}|gpu:`)
+				? this.gpuDirect
+				: null;
+
 		const outline =
 			this.clipPolygon && this.clipPolygon.length >= 3 && !this.isDragging
 				? this.clipPolygon
@@ -1034,7 +1124,21 @@ export class HeatmapLayer implements Layer {
 					const dWu = Math.sqrt(dx * dx + dy * dy + gap * gap);
 					// 从该接入点 1 m 处的电平起算，减去超出的路径损耗；1 m 以内会被
 					// relativePathLossDb 截断，因为对数距离模型在该范围内不成立。
-					let level = apRefDb[i]! - relativePathLossDb(dWu * metersPerWorldUnit);
+					const gpuBase = gpuDirect
+						? gpuDirect.levels[i * gpuDirect.pixels + ty * cols + tx]
+						: undefined;
+					let level =
+						gpuBase !== undefined
+							? gpuBase
+							: apRefDb[i]! - relativePathLossDb(dWu * metersPerWorldUnit);
+					if (gpuBase !== undefined) {
+						// GPU 已包含墙体和楼板；反推墙损只供绕射门限使用，不再重复步进。
+						const cpuBase =
+							apRefDb[i]! -
+							relativePathLossDb(dWu * metersPerWorldUnit) -
+							floorDbThickness[i]!;
+						wallLoss = Math.max(0, cpuBase - gpuBase);
+					}
 
 					/*
 					 * 由本射线的几何关系得到天线方向图的切割。
@@ -1060,7 +1164,7 @@ export class HeatmapLayer implements Layer {
 					// 墙体衰减（预计算场，O(1) 查表）。
 					const field = fields[i];
 					const crossFloor = this.aps[i]!.crossFloor;
-					if (field) {
+					if (gpuBase === undefined && field) {
 						// 与 `level` 分开保存：它也用于判断该射线是否被遮挡，遮挡时由绕射项补足。
 						/*
 						 * 同楼层路径使用精确步进而非极坐标查表。
@@ -1116,27 +1220,29 @@ export class HeatmapLayer implements Layer {
 						}
 					}
 
-					// 楼板衰减（ITU-R P.1238 经验模型）：覆盖直接穿透、绕射与多径的总隔离度，按固定 dB 计。
-					// 三维距离已体现斜入射几何；射线穿过处楼板缺失时（中庭、楼梯井）不计该项。
-					let slabDb = floorDbThickness[i]!;
-					const slabTypes = crossFloor?.slabRoomType;
-					if (slabTypes) {
-						const slabCross = pointAlong(apX[i]!, apY[i]!, wx, wy, crossFloor!.slabT ?? 0);
-						if (
-							slabIsVoid(
-								slabTypes.data,
-								slabTypes.width,
-								slabTypes.height,
-								slabTypes.originX,
-								slabTypes.originY,
-								slabCross.x,
-								slabCross.y
-							)
-						) {
-							slabDb = 0;
+					if (gpuBase === undefined) {
+						// 楼板衰减（ITU-R P.1238 经验模型）：覆盖直接穿透、绕射与多径的总隔离度，按固定 dB 计。
+						// 三维距离已体现斜入射几何；射线穿过处楼板缺失时（中庭、楼梯井）不计该项。
+						let slabDb = floorDbThickness[i]!;
+						const slabTypes = crossFloor?.slabRoomType;
+						if (slabTypes) {
+							const slabCross = pointAlong(apX[i]!, apY[i]!, wx, wy, crossFloor!.slabT ?? 0);
+							if (
+								slabIsVoid(
+									slabTypes.data,
+									slabTypes.width,
+									slabTypes.height,
+									slabTypes.originX,
+									slabTypes.originY,
+									slabCross.x,
+									slabCross.y
+								)
+							) {
+								slabDb = 0;
+							}
 						}
+						level -= slabDb;
 					}
-					level -= slabDb;
 
 					if (this.coherent) {
 						addField(

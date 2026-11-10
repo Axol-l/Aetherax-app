@@ -115,6 +115,18 @@ applyProductionAntenna(input, result, apIndex, profile);
 
 这一版的性能优势不大，因为墙体 ray-march 是逐像素循环；下一步应把墙体/材质上传为 texture，并把每 AP 的循环拆成更多并行 workgroup。
 
+## 已接入热力图的条件
+
+单层热力图在以下条件满足时，会异步用 GPU 直射场替换 CPU 直射项：
+
+- 所有 AP 同频段；
+- 没有跨楼层 AP；
+- 楼层没有抬高面；
+- 有墙体掩码；
+- WebGPU adapter/device 可用。
+
+不满足时保留 CPU。GPU 结果到达后触发一次重绘；当前帧仍由 CPU 产生，不会阻塞渲染。
+
 ## 接入生产热力图还差
 
 - 跨楼层中庭/楼梯井的逐像素楼板开洞；
