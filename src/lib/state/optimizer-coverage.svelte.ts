@@ -192,7 +192,7 @@ export async function updateCoverage(): Promise<void> {
 	 * 覆盖率和设备负载只取决于这一层的几何/AP/门限，全部包含在 basis 里。
 	 */
 	const cachedFloor = floorCoverage.get(curFloorId);
-	if (cachedFloor && cachedFloor.basis === coverageBasis(curFloorId)) {
+	if (cachedFloor && cachedFloor.basis === coverageBasis(curFloorId) && cachedFloor.devices !== undefined) {
 		debug(`[coverage] ${curFloorId} cache hit`);
 		optimizerState.coverage = cachedFloor.coverage;
 		return;
