@@ -14,11 +14,15 @@
 	function dismiss(): void {
 		if (appState.storageNotice) appState.storageNotice = null;
 		else if (appState.placementNotice) appState.placementNotice = null;
-		else appState.outsideNotice = null;
+		else if (appState.outsideNotice) appState.outsideNotice = null;
+		else appState.staleSettingsNotice = null;
 	}
 
 	const text = $derived(
-		appState.storageNotice ?? appState.placementNotice ?? appState.outsideNotice
+		appState.storageNotice ??
+			appState.placementNotice ??
+			appState.outsideNotice ??
+			appState.staleSettingsNotice
 	);
 	const saved = $derived(appState.savedNotice);
 	const walls = $derived(appState.wallNotice);

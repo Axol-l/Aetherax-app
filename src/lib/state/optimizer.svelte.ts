@@ -24,7 +24,7 @@ import { minRoomRadiusWu } from './room-domain.js';
 import { isUsablePlanningArea } from './planning-area.js';
 import type { ApInput } from '../workers/optimizer-protocol.js';
 import { apState } from '$state/ap-state.svelte.js';
-import { coverageBasis, optimizerState, floorCoverage } from './optimizer-state.svelte.js';
+import { coverageBasis, optimizerState, floorCoverage, scoringSettingsSignature } from './optimizer-state.svelte.js';
 import { applyPositions, applyPowers, buildDensityMap, crossingSlabsFor, localVerticalDropFor, powerLevelsFor, sourceFloorMaskFor, toApInput, type FloorOutcome, type FloorRunOptions } from './optimizer-support.js';
 
 
@@ -661,7 +661,11 @@ async function withOptimizerRun(body: (signal: AbortSignal) => Promise<unknown>)
 		// 时间戳打在这里而不是 `body` 里面，这样单层按钮和全楼按钮跑完都会记上。
 		// 布点建议面板靠它判断有没有新的测量结果可用。取消的运行不算：它停在半路，
 		// 留在图上的东西不是最后一个数字描述的样子。
-		if (!abort.signal.aborted) optimizerState.lastRunAt = Date.now();
+		if (!abort.signal.aborted) {
+			optimizerState.lastRunAt = Date.now();
+			// 同一个时刻记下评分设置：之后再改设置，面板就能说清屏幕上的布局是按旧值选的。
+			optimizerState.settingsAtRun = scoringSettingsSignature();
+		}
 	} finally {
 		if (runAbort === abort) runAbort = null;
 		optimizerState.isRunning = false;
@@ -912,5 +916,9 @@ export function cancelOptimizer(): void {
 
 // 对外导出保持不变：状态和覆盖计算以前就住在这个文件里，调用方不该关心某个数字搬去了哪个模块。
 export { optimizerState, floorCoverage };
-export { apsOutsideInterior, getBuildingCoverage } from './optimizer-state.svelte.js';
+export {
+	apsOutsideInterior,
+	getBuildingCoverage,
+	resultIsStale
+} from './optimizer-state.svelte.js';
 export { updateCoverage } from './optimizer-coverage.svelte.js';

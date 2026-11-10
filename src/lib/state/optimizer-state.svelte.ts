@@ -49,7 +49,14 @@ export const optimizerState = $state({
 	/**
 	 * 上次运行结束的时间戳（epoch 毫秒），没跑过为 null。
 	 */
-	lastRunAt: null as number | null
+	lastRunAt: null as number | null,
+	/**
+	 * 上次运行开始时的评分设置，见 `scoringSettingsSignature`。
+	 *
+	 * 和 `lastRunAt` 一起记：只留时间戳的话，用户改完权重再回来看，面板上的数字没有任何
+	 * 东西说明它来自旧设置——而那个布局确实是按旧设置选出来的。
+	 */
+	settingsAtRun: null as string | null
 });
 
 /**
@@ -105,8 +112,52 @@ export function coverageBasis(floorId: string): string {
 		maskId(floor.roomTypeMask),
 		floor.wallMaterial,
 		Math.round(wupmForFloor(floorId) * 100),
+		/*
+		 * 影响这个数字的设置也要算进 basis。
+		 *
+		 * 少了门限这一项时，改门限只重算当前楼层，其余楼层缓存里的数字还是旧门限下量的，
+		 * 切回去时 basis 又对得上、不会被丢弃——同一份工程里两层用了两个门限。
+		 * 客户高度是同一类问题：它改变每个采样点的垂直距离。
+		 * `coverageSoftnessDb` 不改覆盖率读数，但它是同一次评分的一部分；放进来，
+		 * 「这个数字属于哪套设置」就只有一个答案。
+		 */
+		projectMeta.coverageThresholdDbm,
+		Math.round(projectMeta.clientHeight * 100),
+		projectMeta.coverageSoftnessDb,
 		aps
 	].join('~');
+}
+
+/**
+ * 影响优化结果的那组设置，拼成一个可比较的签名。
+ *
+ * 只放真的会改变评分或可行域的量：显示相关的（热力图下限）不在其中，
+ * 重启次数也不在——它决定下次能找到多好的解，不改变已经选出来的布局是否成立。
+ */
+export function scoringSettingsSignature(): string {
+	return [
+		projectMeta.allowOutsideRooms ? '1' : '0',
+		projectMeta.coverageThresholdDbm,
+		Math.round(projectMeta.clientHeight * 100),
+		projectMeta.interferenceWeight,
+		projectMeta.coverageSoftnessDb,
+		projectMeta.coverageFloorPct,
+		projectMeta.coverageFloorEveryFloor ? '1' : '0',
+		projectMeta.pathLossScenario
+	].join('|');
+}
+
+/**
+ * 屏幕上这个布局是不是按当前设置选出来的。
+ *
+ * 设置改过、又没重新跑，就是 true。它读的是响应式状态，所以可以直接放进 `$derived`。
+ */
+export function resultIsStale(): boolean {
+	return (
+		optimizerState.lastRunAt !== null &&
+		optimizerState.settingsAtRun !== null &&
+		optimizerState.settingsAtRun !== scoringSettingsSignature()
+	);
 }
 
 /**
@@ -135,6 +186,20 @@ export async function apsOutsideInterior(): Promise<string[]> {
 		if (!inside) outside.push(ap.name);
 	}
 	return outside;
+}
+
+/**
+ * 换工程时清掉上一次运行留下的东西。
+ *
+ * 时间戳和设置签名都是「这份工程的这次运行」的标记，跟着文件走就会指错工程：
+ * 布点建议会按别的工程的布局开药方，「设置已改」也会立刻误报。
+ */
+export function resetRunHistory(): void {
+	optimizerState.lastRunAt = null;
+	optimizerState.settingsAtRun = null;
+	optimizerState.buildingCoverage = null;
+	optimizerState.worstFloor = null;
+	optimizerState.passes = 0;
 }
 
 /** 有数据的各楼层覆盖率的加权平均。 */

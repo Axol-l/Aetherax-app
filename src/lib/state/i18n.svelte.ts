@@ -136,14 +136,11 @@ const zh: Record<string, string> = {
 	'Allow APs outside rooms': '允许 AP 放在房间外',
 	'Off by default: optimised APs stay inside the detected building interior. Turn on to let them land anywhere, walls included.':
 		'默认关闭：优化时 AP 只落在识别出的建筑内部。打开后可以落在任何位置，包括墙上。',
-	'Min signal': '最低信号',
 	OK: '知道了',
 	'Placement warning': '放置警告',
-	'Signal below this is left transparent, so the coloured area lines up with the coverage circle around each AP. Raise it (e.g. -70 dBm) to show only the strong core.':
-		'低于这个电平的区域保持透明。',
 	'Coverage threshold': '覆盖门限',
-	'The signal level used to decide whether a sample counts as covered. It is separate from Min signal, which only controls what the heatmap paints. Raise it to −65 or −60 for high-density offices.':
-		'判定一个采样点是否被覆盖的信号电平。它和 Min signal 分开：后者只控制热力图着色。高密度办公区可以提高到 −65 或 −60 dBm。',
+	'The signal level used to decide whether a sample counts as covered. The heatmap is painted from 10 dB below it, so the edge of the covered area still has a gradient. Raise it to −65 or −60 for high-density offices.':
+		'判定一个采样点是否被覆盖的信号电平。热力图从它下面 10 dB 开始着色，覆盖边缘仍能看到梯度。高密度办公区可以提高到 −65 或 −60 dBm。',
 	Capacity: '容量',
 	Interference: '干扰权重',
 	'How much co-channel interference the optimiser trades against coverage: the score is coverage minus this weight times the share of the floor whose best access point is degraded by a co-channel second one. 0 scores coverage alone — the behaviour before the term existed — so it doubles as the A/B switch.':
@@ -158,6 +155,8 @@ const zh: Record<string, string> = {
 	'How many times to run the optimiser on this floor, keeping the best result. Each run starts from a different seed. 1 is fastest; the browser console prints the spread across runs, which says whether the extra ones are buying anything.':
 		'在本层重复跑几次，取最好的一次。每次用不同的随机种子。',
 	'run(s)': '次',
+	'Optimiser settings changed since the last run — the layout on screen was chosen with the old values. Run the optimiser again to apply them.':
+		'优化设置在上次运行之后改过——屏幕上的布局是按旧设置选出来的。重新运行优化才会采用新值。',
 	Weakest: '最弱',
 	floors: '层',
 	floor: '层',
@@ -329,9 +328,7 @@ const zh: Record<string, string> = {
 	'Signal heatmap': '信号热力图',
 	'Show SINR': '显示 SINR',
 	'Show RSSI': '显示 RSSI',
-	'Receiver polarization': '接收极化',
 	Polarization: '极化角',
-	'Client receive polarization: 0° is vertical, 90° is horizontal.': '客户端接收极化：0° 垂直，90° 水平。',
 	'°': '°',
 	'Transmit polarization: 0° is vertical, 90° is horizontal.': '发射极化：0° 为垂直，90° 为水平。',
 	Heatmap: '热力图',

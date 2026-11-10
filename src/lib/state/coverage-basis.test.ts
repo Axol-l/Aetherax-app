@@ -1,7 +1,16 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { addAp, apState } from './ap-state.svelte.js';
 import { floorState } from './floor-state.svelte.js';
-import { coverageBasis, dropStaleCoverage, floorCoverage } from './optimizer-state.svelte.js';
+import { projectMeta } from './project-meta.svelte.js';
+import { DEFAULT_SETTINGS } from './project-settings.js';
+import {
+	coverageBasis,
+	dropStaleCoverage,
+	floorCoverage,
+	optimizerState,
+	resultIsStale,
+	scoringSettingsSignature
+} from './optimizer-state.svelte.js';
 
 /*
  * 覆盖率数字是*某一版*方案的测量结果。
@@ -40,6 +49,10 @@ function reseed() {
 	floorState.currentFloorId = floor.id;
 	apState.aps = [];
 	floorCoverage.clear();
+	// 设置是模块级状态，前一个用例改过就会影响下一个；每个用例都从默认值开始。
+	Object.assign(projectMeta, DEFAULT_SETTINGS);
+	optimizerState.lastRunAt = null;
+	optimizerState.settingsAtRun = null;
 	return floor;
 }
 
@@ -80,6 +93,32 @@ describe('coverage basis', () => {
 		floorState.floors[0]!.wallMask = walls('A');
 
 		expect(coverageBasis('floor-a')).toBe(coverageBasis('floor-a'));
+	});
+
+	it('changes when a setting that the figure depends on changes', () => {
+		addAp(10, 10);
+		const before = coverageBasis('floor-a');
+
+		// 门限改了，同一个覆盖率数字说的就是另一件事；客户高度同理，它改垂直距离。
+		projectMeta.coverageThresholdDbm = -65;
+		const threshold = coverageBasis('floor-a');
+		expect(threshold).not.toBe(before);
+
+		projectMeta.clientHeight = 1.1;
+		expect(coverageBasis('floor-a')).not.toBe(threshold);
+	});
+
+	it('marks the last run stale once a scoring setting changes', () => {
+		optimizerState.lastRunAt = 1;
+		optimizerState.settingsAtRun = scoringSettingsSignature();
+		expect(resultIsStale()).toBe(false);
+
+		projectMeta.interferenceWeight = 0.5;
+		expect(resultIsStale()).toBe(true);
+
+		// 重跑会把签名刷新成当前设置，旧布局的标记随之消失。
+		optimizerState.settingsAtRun = scoringSettingsSignature();
+		expect(resultIsStale()).toBe(false);
 	});
 
 	it('reads the floor’s own calibration, not the selected floor’s', () => {

@@ -8,7 +8,8 @@
 		cancelOptimizer,
 		floorCoverage,
 		getBuildingCoverage,
-		updateCoverage
+		updateCoverage,
+		resultIsStale
 	} from '$state/optimizer.svelte';
 	import { floorState } from '$state/floor-state.svelte';
 	import { appState, setApPlaceMode } from '$state/app.svelte';
@@ -41,6 +42,27 @@
 
 	let settingsOpen = $state(false);
 	let optimizerErrorOpen = $state(false);
+
+	/*
+	 * 设置改过、但还没重跑时，布局是旧设置选出来的。
+	 *
+	 * 这里只负责“变旧的那一刻”弹一次：把答案留在评分状态里（`settingsAtRun`），
+	 * 用户关掉提示之后不再反复打扰——他改的就是设置，自己知道。
+	 */
+	const staleResult = $derived(resultIsStale());
+	let staleNotifiedFor: string | null = null;
+	$effect(() => {
+		if (!staleResult) {
+			staleNotifiedFor = null;
+			return;
+		}
+		const run = `${optimizerState.lastRunAt}:${optimizerState.settingsAtRun}`;
+		if (staleNotifiedFor === run) return;
+		staleNotifiedFor = run;
+		appState.staleSettingsNotice = t(
+			'Optimiser settings changed since the last run — the layout on screen was chosen with the old values. Run the optimiser again to apply them.'
+		);
+	});
 
 	$effect(() => {
 		optimizerErrorOpen = Boolean(optimizerState.error);
@@ -310,28 +332,7 @@
 
 				<Tooltip
 					position="top"
-					text={t('Signal below this is left transparent, so the coloured area lines up with the coverage circle around each AP. Raise it (e.g. -70 dBm) to show only the strong core.')}
-				>
-					<label class="setting-row slider-row">
-						<span class="setting-title">{t('Min signal')}</span>
-						<input
-							type="range"
-							min="-95"
-							max="-55"
-							step="5"
-							value={projectMeta.heatmapRssiFloor}
-							oninput={(e) =>
-								(projectMeta.heatmapRssiFloor = Number(
-									(e.currentTarget as HTMLInputElement).value
-								))}
-						/>
-						<span class="setting-value">{projectMeta.heatmapRssiFloor} dBm</span>
-					</label>
-				</Tooltip>
-
-				<Tooltip
-					position="top"
-					text={t('The signal level used to decide whether a sample counts as covered. It is separate from Min signal, which only controls what the heatmap paints. Raise it to −65 or −60 for high-density offices.')}
+					text={t('The signal level used to decide whether a sample counts as covered. The heatmap is painted from 10 dB below it, so the edge of the covered area still has a gradient. Raise it to −65 or −60 for high-density offices.')}
 				>
 					<label class="setting-row slider-row">
 						<span class="setting-title">{t('Coverage threshold')}</span>
@@ -435,31 +436,6 @@
 					</label>
 				</Tooltip>
 
-				<details class="advanced-settings">
-					<summary>{t('Advanced')}</summary>
-					<Tooltip
-						position="top"
-						text={t('Client receive polarization: 0° is vertical, 90° is horizontal.')}
-					>
-						<label class="setting-row slider-row">
-							<span class="setting-title">{t('Receiver polarization')}</span>
-							<input
-								type="number"
-								min="0"
-								max="90"
-								step="5"
-								value={projectMeta.receiverPolarizationAngleDeg}
-								onchange={(e) =>
-									(projectMeta.receiverPolarizationAngleDeg = Math.min(
-										90,
-										Math.max(0, Number((e.currentTarget as HTMLInputElement).value))
-									))}
-							/>
-							<span class="setting-value">{t('°')}</span>
-						</label>
-					</Tooltip>
-				</details>
-
 				<Tooltip
 					position="top"
 					text={t('How many times to run the optimiser on this floor, keeping the best result. Each run starts from a different seed. 1 is fastest; the browser console prints the spread across runs, which says whether the extra ones are buying anything.')}
@@ -516,14 +492,6 @@
 />
 
 <style>
-	.advanced-settings {
-		margin-top: var(--space-2);
-	}
-	.advanced-settings summary {
-		cursor: pointer;
-		font-size: var(--text-xs);
-		color: var(--text-tertiary);
-	}
 	/*
 	 * Placement mode
 	 */

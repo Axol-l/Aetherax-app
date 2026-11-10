@@ -418,18 +418,17 @@ Coverage 下方有一条 Capacity 容量条：显示本层当前 AP 数 / 按房
 点击 Placement optimiser 右侧的齿轮：
 
 1. Allow APs outside rooms：允许 AP 落在房间外，默认关闭。
-2. Min signal：热力图最低信号门限，-95 到 -55 dBm，步长 5。只影响热力图着色。
-3. Coverage threshold：覆盖率判定门限，默认 -70 dBm；高密度办公区可提高到 -65 或 -60。
-4. Interference：同信道干扰在评分中的权重，0 到 1，步长 0.05。
-5. Min coverage：最低覆盖率约束，0 表示不约束。
-6. Every floor：多楼层时把最低覆盖率约束应用到每一层。
-7. Client height：客户端离地高度。
-8. Restarts：优化重启次数，1 到 8。
-9. Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。
+2. Coverage threshold：覆盖率判定门限，默认 -70 dBm；高密度办公区可提高到 -65 或 -60。热力图从门限下方 10 dB 开始着色，边缘仍保留梯度。
+3. Interference：同信道干扰在评分中的权重，0 到 1，步长 0.05。
+4. Min coverage：最低覆盖率约束，0 表示不约束。
+5. Every floor：多楼层时把最低覆盖率约束应用到每一层。
+6. Client height：客户端离地高度。
+7. Restarts：优化重启次数，1 到 8。
+8. Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。
 
 容量不在这里设置：每台 AP 的 Clients 数量在 AP 编辑页单独修改，未设置时默认为 25。
 
-影响优化评分的设置需要重新运行优化才会生效；Min signal 会立即改变热力图，Coverage threshold 会立即重算覆盖率。
+影响优化评分的设置需要重新运行优化才会生效；Coverage threshold 会立即重算覆盖率，热力图也跟着门限重画。改过评分设置又没重跑时，界面会提示屏幕上的布局是按旧设置选的。
 
 ### 10.4 放置建议
 
@@ -446,7 +445,7 @@ Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼
 1. 放置至少一个 AP。
 2. 点击 Layers 面板中的 Signal heatmap，或按 H。
 3. 颜色表示接收信号强度，单位 dBm。
-4. 低于 Min signal 的区域保持透明。
+4. 低于热力图着色下限（覆盖门限下方 10 dB）的区域保持透明。
 
 ### 11.2 图层开关
 
@@ -472,7 +471,7 @@ Room labels、Floor below、Labels、Notes、Grid 只在单层视图显示。
 
 ### 11.4 信号色标
 
-Layers 面板底部显示信号强度色标。色标范围随 Min signal 变化。最左侧的深色格表示低于门限、无可用信号。
+Layers 面板底部显示信号强度色标。色标范围随覆盖门限变化。最左侧的深色格表示低于门限、无可用信号。
 
 ## 12. 视图
 
@@ -606,7 +605,7 @@ Layers 面板底部显示信号强度色标。色标范围随 Min signal 变化�
 1. 确认 Layers 面板中 Signal heatmap 已打开，或按 H。
 2. 确认当前楼层至少有一个 AP。
 3. 确认已完成比例标定。
-4. 检查 Min signal 是否过高，导致大面积低于门限。
+4. 热力图只画到覆盖门限下方 10 dB；如果大片区域没有颜色，说明该处信号确实低于门限。
 5. 确认当前在单层或包含热力图的概览视图。
 
 ### 18.2 AP 放不下去
@@ -622,7 +621,7 @@ Layers 面板底部显示信号强度色标。色标范围随 Min signal 变化�
 2. 检查墙体是否识别完整，墙洞是否过大。
 3. 检查规划范围是否覆盖真实楼层。
 4. 检查房间类型和密度是否合理。
-5. 检查 Coverage threshold 是否与评估标准一致（默认 −70 dBm，不是 Min signal）。
+5. 检查 Coverage threshold 是否与评估标准一致（默认 −70 dBm）。
 6. 检查 Propagation 是否按墙体绘制程度选择；墙体已完整绘制时用 Walls drawn in full。高密度办公区还要检查每台 AP 的 Clients 和本层终端估算。
 
 ### 18.4 优化器没有改变布局

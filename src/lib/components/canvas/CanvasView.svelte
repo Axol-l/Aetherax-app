@@ -6,6 +6,7 @@
 	import HeatmapWorker from '$lib/workers/heatmap-worker.ts?worker';
 	import { HeatmapLayer } from '$canvas/renderers/heatmap.js';
 	import { heatmapRasterService } from '$lib/workers/heatmap-raster-service.js';
+	import { heatmapDisplayFloorDbm } from '$canvas/heatmap-display.js';
 	import { pathLossN } from '$lib/rf/propagation.js';
 	import { ApLayer } from '$canvas/renderers/ap.js';
 	import type { WallDistanceAnnotation } from '$canvas/renderers/ap.js';
@@ -917,10 +918,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	// Sync heatmap display settings — only tracks projectMeta
 	$effect(() => {
+		// 着色下限由覆盖门限推出，所以让这个 effect 依赖门限本身：门限一变，
+		// 画面跟着重画，而不是等下一次换层。
+		void projectMeta.coverageThresholdDbm;
 		heatmapLayer.ispSpeed = projectMeta.ispSpeed;
-		heatmapLayer.rssiFloor = projectMeta.heatmapRssiFloor;
+		heatmapLayer.rssiFloor = heatmapDisplayFloorDbm();
 		heatmapLayer.metric = appState.heatmapMetric;
-		heatmapLayer.receiverPolarizationAngleDeg = projectMeta.receiverPolarizationAngleDeg;
 		heatmapLayer.floorId = floorState.currentFloorId;
 		engine.markDirty();
 	});
@@ -1278,8 +1281,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 			`|self:${maskTag(floor.wallMask)}:${floor.wallMask?.originX ?? 0},${floor.wallMask?.originY ?? 0}` +
 			// The floor's own scale: the image is generated in its units, and every
 			// cross-floor source is converted into them by `heatmapApsForFloor`.
-			`|rssi:${projectMeta.heatmapRssiFloor}|wupm:${wupmForFloor(floor.id)}|ch:${projectMeta.clientHeight}` +
-			`|metric:${appState.heatmapMetric}|rxpol:${projectMeta.receiverPolarizationAngleDeg}`
+			`|thr:${projectMeta.coverageThresholdDbm}|wupm:${wupmForFloor(floor.id)}|ch:${projectMeta.clientHeight}` +
+			`|metric:${appState.heatmapMetric}`
 		);
 	}
 
@@ -1308,7 +1311,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			materialMap: material,
 			defaultMaterial: floor.wallMaterial,
 			worldUnitsPerMeter: wupmForFloor(floor.id),
-			rssiFloor: projectMeta.heatmapRssiFloor,
+			rssiFloor: heatmapDisplayFloorDbm(),
 			maskTag: heatmapMaskTag(floor),
 			surfaces: (floor.surfaces ?? []).map((surface) => ({ ...surface })),
 			clipPolygon:
@@ -1368,7 +1371,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		// warm and the affected cards refresh.
 		if (singleFloorView || !appState.showHeatmap) return;
 		trackHeatmapInputs();
-		void projectMeta.heatmapRssiFloor;
+		void projectMeta.coverageThresholdDbm;
 		// Drop keys for floors that no longer exist, for the same reason the layer
 		// drops their canvases: otherwise a deleted floor's key keeps its entry for
 		// the rest of the session.

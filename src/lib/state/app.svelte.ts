@@ -35,6 +35,12 @@ export const appState = $state({
 	 * 有 AP 落在建筑外面时的常驻警告
 	 */
 	outsideNotice: null as string | null,
+	/**
+	 * 优化设置改过、但还没重跑时的一次性提示。
+	 *
+	 * 只在「结果变旧」的那一刻弹一次；关掉之后不再骚扰，屏幕上的布局仍然是旧的。
+	 */
+	staleSettingsNotice: null as string | null,
 	sidebarPanel: 'floorplan' as SidebarPanel,
 	sidebarOpen: true,
 	showGrid: true,

@@ -6,10 +6,10 @@
 	import { clearHistory } from '$state/history.svelte';
 	import { clearSavedState } from '$state/persistence.svelte';
 	import { floorState } from '$state/floor-state.svelte';
-	import { DEFAULT_COVERAGE_SOFTNESS_DB, setCoverageThresholdDbm } from '../../rf/propagation.js';
 	import { t } from '$state/i18n.svelte';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
-	import { projectMeta } from '$state/project-meta.svelte.js';
+	import { projectMeta, resetProjectSettings } from '$state/project-meta.svelte.js';
+	import { optimizerState, resetRunHistory } from '$state/optimizer-state.svelte.js';
 	import { apState } from '$state/ap-state.svelte.js';
 	import { wallState } from '$state/wall-state.svelte.js';
 
@@ -42,14 +42,13 @@
 		floorplanState.floorplanBoundary = null;
 		projectMeta.ispSpeed = 0;
 		projectMeta.targetThroughput = 25;
-		projectMeta.allowOutsideRooms = false;
-		projectMeta.heatmapRssiFloor = -70;
-		projectMeta.coverageThresholdDbm = -70;
-		setCoverageThresholdDbm(-70);
-		// Default weight of the co-channel interference term in the objective.
-		projectMeta.interferenceWeight = 0.2;
-		// And the objective's threshold softness, back to the shipped default.
-		projectMeta.coverageSoftnessDb = DEFAULT_COVERAGE_SOFTNESS_DB;
+		// 规划参数一次性归位。以前这里手抄了六个字段，漏掉的（覆盖率下限、传播环境、
+		// 客户端高度）会从上个工程跟过来；默认值只在 `project-settings.ts` 里写一份。
+		resetProjectSettings();
+		// 上一次运行的标记属于上一个工程；留着它，新工程一打开就会误报“设置已改”。
+		resetRunHistory();
+		// 重跑次数不属于工程文档，新建工程也回到默认，免得跟着上一次会话走。
+		optimizerState.restarts = 1;
 
 		// Reset floor state to a single default floor
 		const newFloorId = crypto.randomUUID();

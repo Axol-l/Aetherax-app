@@ -12,6 +12,7 @@
 	import { slide } from 'svelte/transition';
 	import { motionDuration } from '$lib/motion.js';
 	import { rampCss } from '$canvas/heatmap-ramp.js';
+	import { heatmapDisplayFloorDbm } from '$canvas/heatmap-display.js';
 	import { projectMeta } from '$state/project-meta.svelte';
 
 	let collapsed = $state(typeof window !== 'undefined' && window.innerWidth <= 768);
@@ -32,7 +33,11 @@
 		layers.filter((l) => !l.singleViewOnly || appState.floorView === 'single')
 	);
 
-	const floorDb = $derived(projectMeta.heatmapRssiFloor ?? -85);
+	// 色阶下限由覆盖门限推出（见 `heatmap-display.ts`）；读一下门限让图例跟着它更新。
+	const floorDb = $derived.by(() => {
+		void projectMeta.coverageThresholdDbm;
+		return heatmapDisplayFloorDbm();
+	});
 	const legendFloor = $derived(appState.heatmapMetric === 'sinr' ? -5 : floorDb);
 	const legendTop = $derived(appState.heatmapMetric === 'sinr' ? 30 : 0);
 	const LEGEND_BAND_DB = 5;

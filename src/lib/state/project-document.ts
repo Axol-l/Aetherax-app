@@ -6,8 +6,6 @@ import type { FloorMaterialId } from '$canvas/floor-materials.js';
 import type { WallMaterialId } from '$lib/domain/materials.js';
 import { defaultAntenna } from '../rf/antenna.js';
 import {
-	DEFAULT_COVERAGE_SOFTNESS_DB,
-	DEFAULT_PATH_LOSS_SCENARIO,
 	setCoverageThresholdDbm,
 	setPathLossScenario,
 	type PathLossScenario
@@ -23,6 +21,8 @@ import { floorState, type Floor } from './floor-state.svelte.js';
 import { floorplanState } from './floorplan-state.svelte.js';
 import { clearHistory } from './history.svelte.js';
 import { projectMeta } from './project-meta.svelte.js';
+import { resetRunHistory } from './optimizer-state.svelte.js';
+import { DEFAULT_SETTINGS } from './project-settings.js';
 
 /** 本模块写出的版本号。存储字段的含义一变就要加一。 */
 export const DOCUMENT_VERSION = 3;
@@ -106,10 +106,8 @@ export interface ProjectDocumentV3 {
 	ispSpeed: number;
 	targetThroughput: number;
 	allowOutsideRooms: boolean;
-	heatmapRssiFloor: number;
 	coverageThresholdDbm: number;
 	clientHeight: number;
-	receiverPolarizationAngleDeg?: number;
 	interferenceWeight: number;
 	coverageSoftnessDb: number;
 	coverageFloorPct: number;
@@ -194,10 +192,8 @@ export function toDocument(options: ToDocumentOptions = {}): ProjectDocumentV3 {
 		ispSpeed: projectMeta.ispSpeed,
 		targetThroughput: projectMeta.targetThroughput,
 		allowOutsideRooms: projectMeta.allowOutsideRooms,
-		heatmapRssiFloor: projectMeta.heatmapRssiFloor,
 		coverageThresholdDbm: projectMeta.coverageThresholdDbm,
 		clientHeight: projectMeta.clientHeight,
-		receiverPolarizationAngleDeg: projectMeta.receiverPolarizationAngleDeg,
 		interferenceWeight: projectMeta.interferenceWeight,
 		coverageSoftnessDb: projectMeta.coverageSoftnessDb,
 		coverageFloorPct: projectMeta.coverageFloorPct,
@@ -345,16 +341,15 @@ export function migrate(raw: unknown): ProjectDocumentV3 | null {
 		unitSystem: data.unitSystem ?? 'imperial',
 		ispSpeed: data.ispSpeed ?? 0,
 		targetThroughput: data.targetThroughput ?? 25,
-		allowOutsideRooms: data.allowOutsideRooms ?? false,
-		heatmapRssiFloor: data.heatmapRssiFloor ?? -70,
-		coverageThresholdDbm: data.coverageThresholdDbm ?? -70,
-		clientHeight: data.clientHeight ?? 1.5,
-		receiverPolarizationAngleDeg: data.receiverPolarizationAngleDeg ?? 0,
-		interferenceWeight: data.interferenceWeight ?? 0.2,
-		coverageSoftnessDb: data.coverageSoftnessDb ?? DEFAULT_COVERAGE_SOFTNESS_DB,
-		coverageFloorPct: data.coverageFloorPct ?? 0,
-		coverageFloorEveryFloor: data.coverageFloorEveryFloor ?? false,
-		pathLossScenario: data.pathLossScenario ?? DEFAULT_PATH_LOSS_SCENARIO,
+		allowOutsideRooms: data.allowOutsideRooms ?? DEFAULT_SETTINGS.allowOutsideRooms,
+		coverageThresholdDbm: data.coverageThresholdDbm ?? DEFAULT_SETTINGS.coverageThresholdDbm,
+		clientHeight: data.clientHeight ?? DEFAULT_SETTINGS.clientHeight,
+		interferenceWeight: data.interferenceWeight ?? DEFAULT_SETTINGS.interferenceWeight,
+		coverageSoftnessDb: data.coverageSoftnessDb ?? DEFAULT_SETTINGS.coverageSoftnessDb,
+		coverageFloorPct: data.coverageFloorPct ?? DEFAULT_SETTINGS.coverageFloorPct,
+		coverageFloorEveryFloor:
+			data.coverageFloorEveryFloor ?? DEFAULT_SETTINGS.coverageFloorEveryFloor,
+		pathLossScenario: data.pathLossScenario ?? DEFAULT_SETTINGS.pathLossScenario,
 		customMaterials: (data.customMaterials ?? []).map(cloneMaterial),
 		floorCoverage: filterCoverage(data.floorCoverage, floors),
 		floors,
@@ -489,14 +484,18 @@ export function applyDocument(
 	const floors: Floor[] = doc.floors.map(toStateFloor);
 	if (floors.length === 0) throw new Error('a project document needs at least one floor');
 
+	/*
+	 * 上一次运行的标记属于上一份工程。不清掉的话，布点建议会拿另一栋楼的测量结果
+	 * 给这栋楼开药方，「设置已改」也会把它误报成旧设置。
+	 */
+	resetRunHistory();
+
 	projectMeta.name = doc.name;
 	projectMeta.ispSpeed = doc.ispSpeed;
 	projectMeta.targetThroughput = doc.targetThroughput;
 	projectMeta.allowOutsideRooms = doc.allowOutsideRooms;
-	projectMeta.heatmapRssiFloor = doc.heatmapRssiFloor;
 	projectMeta.coverageThresholdDbm = doc.coverageThresholdDbm;
 	projectMeta.clientHeight = doc.clientHeight;
-	projectMeta.receiverPolarizationAngleDeg = doc.receiverPolarizationAngleDeg ?? 0;
 	projectMeta.interferenceWeight = doc.interferenceWeight;
 	projectMeta.coverageSoftnessDb = doc.coverageSoftnessDb;
 	projectMeta.coverageFloorPct = doc.coverageFloorPct;

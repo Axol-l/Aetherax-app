@@ -43,10 +43,10 @@ async function openFloorplanTab(page: Page) {
 test.describe('Optimizer', () => {
 	/*
 	 * The settings are inputs to placing the first AP — "Allow APs outside rooms"
-	 * decides whether the first click in the margin is accepted, and "Min signal"
-	 * shapes the heatmap that click produces — so they cannot sit behind a plan
-	 * that already has one. The run button can: the optimiser only moves the APs
-	 * already on the floor.
+	 * decides whether the first click in the margin is accepted, and "Coverage
+	 * threshold" shapes the heatmap and the coverage figure that click produces —
+	 * so they cannot sit behind a plan that already has one. The run button can:
+	 * the optimiser only moves the APs already on the floor.
 	 */
 	test('optimizer settings open without access points', async ({ page }) => {
 		const gear = page.getByRole('button', { name: 'Placement optimiser settings' });
@@ -58,7 +58,7 @@ test.describe('Optimizer', () => {
 		await expect(
 			page.getByRole('checkbox', { name: 'Allow APs outside rooms' })
 		).toBeVisible();
-		await expect(page.getByRole('slider', { name: 'Min signal' })).toBeVisible();
+		await expect(page.getByRole('spinbutton', { name: 'Coverage threshold' })).toBeVisible();
 		await expect(page.getByRole('button', { name: /optimize placement/i })).toHaveCount(0);
 	});
 

@@ -38,7 +38,7 @@ function fixture(): Record<string, unknown> {
 		ispSpeed: 500,
 		targetThroughput: 50,
 		allowOutsideRooms: true,
-		heatmapRssiFloor: -72,
+		coverageThresholdDbm: -68,
 		clientHeight: 1.1,
 		interferenceWeight: 0.35,
 		coverageSoftnessDb: 8,
@@ -199,6 +199,7 @@ describe('project document', () => {
 		expect(written.unitSystem).toBe('metric');
 		expect(written.pathLossScenario).toBe('office');
 		expect(written.coverageFloorEveryFloor).toBe(true);
+		expect(written.coverageThresholdDbm).toBe(-68);
 
 		// 楼层和 AP，逐个字段对。
 		expect(withoutFloorplans(written.floors)).toEqual(withoutFloorplans(first!.floors));
@@ -306,6 +307,26 @@ describe('project document', () => {
 		expect(doc!.aps[0]!.floorId).toBe(floor.id);
 		expect(doc!.aps[0]!.mount).toBe('ceiling');
 		expect(doc!.aps[0]!.pinned).toBe(false);
+	});
+
+	/*
+	 * 删掉的设置项还会出现在旧文件里。
+	 *
+	 * 读入端必须无视它们：老工程得照常打开，而且不能因为读进来又写回去，
+	 * 就把已经删掉的字段复刻成默认值——那等于让一个不存在的设置活过升级。
+	 */
+	it('ignores project settings that no longer exist', () => {
+		const doc = migrate({
+			...fixture(),
+			heatmapRssiFloor: -85,
+			receiverPolarizationAngleDeg: 90
+		});
+
+		expect(doc).not.toBeNull();
+		expect('heatmapRssiFloor' in doc!).toBe(false);
+		expect('receiverPolarizationAngleDeg' in doc!).toBe(false);
+		// 留下的门限照旧生效：热力图的下限现在由它推出来。
+		expect(doc!.coverageThresholdDbm).toBe(-68);
 	});
 
 	it('refuses a document it cannot read', () => {
