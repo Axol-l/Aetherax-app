@@ -9,6 +9,8 @@
 	import { floorplanState } from '$state/floorplan-state.svelte';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
+	import { slide } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 	import { rampCss } from '$canvas/heatmap-ramp.js';
 	import { projectMeta } from '$state/project-meta.svelte';
 
@@ -64,7 +66,7 @@
 	</button>
 
 	{#if !collapsed}
-		<div class="panel-body">
+		<div class="panel-body" transition:slide={{ duration: motionDuration(180) }}>
 			{#each visibleLayers as layer}
 				<button
 					class="layer-row"

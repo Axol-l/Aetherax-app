@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { fade, slide } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 	import { appState } from '$state/app.svelte';
 	import Toolbar from './Toolbar.svelte';
 	import Sidebar from './Sidebar.svelte';
@@ -7,11 +8,11 @@
 	import NoticeToast from './NoticeToast.svelte';
 	import CanvasView from '$components/canvas/CanvasView.svelte';
 
-	onMount(() => {
-		if (window.innerWidth <= 768) {
-			appState.sidebarOpen = false;
-		}
-	});
+	// Phones start with the sidebar closed. Do it before the first paint: closing it from
+	// `onMount` would play the slide-out animation on every phone load.
+	if (typeof window !== 'undefined' && window.innerWidth <= 768) {
+		appState.sidebarOpen = false;
+	}
 </script>
 
 <div class="app-shell">
@@ -28,8 +29,16 @@
 	</div>
 	{#if appState.sidebarOpen}
 		<!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
-		<div class="sidebar-backdrop" role="presentation" onclick={() => { appState.sidebarOpen = false; }}></div>
-		<div class="sidebar-area">
+		<div
+			class="sidebar-backdrop"
+			role="presentation"
+			transition:fade={{ duration: motionDuration(160) }}
+			onclick={() => { appState.sidebarOpen = false; }}
+		></div>
+		<div
+			class="sidebar-area"
+			transition:slide={{ duration: motionDuration(180), axis: 'x' }}
+		>
 			<Sidebar />
 		</div>
 	{/if}

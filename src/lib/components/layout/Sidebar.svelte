@@ -18,41 +18,39 @@
 	let activeTabIndex = $derived(Math.max(0, tabs.findIndex((tab) => tab.id === appState.sidebarPanel)));
 </script>
 
-{#if appState.sidebarOpen}
-	<aside class="sidebar" aria-label={t('Sidebar')}>
-		<div class="tab-bar" role="tablist">
-			<span
-				class="tab-indicator"
-				style:transform={`translateX(${activeTabIndex * 100}%)`}
-				aria-hidden="true"
-			></span>
-			{#each tabs as tab}
-				<button
-					class="tab"
-					class:active={appState.sidebarPanel === tab.id}
-					role="tab"
-					aria-selected={appState.sidebarPanel === tab.id}
-					onclick={() => { appState.sidebarPanel = tab.id; }}
-				>
-					{tab.label}
-				</button>
-			{/each}
-		</div>
-		<div class="panel-content">
-			{#if appState.sidebarPanel === 'floorplan'}
-				<div class="scroll-panel"><FloorplanControls /></div>
-			{:else if appState.sidebarPanel === 'aps'}
-				{#if hasSelection}
-					<div class="scroll-panel"><ApEditor /></div>
-				{:else}
-					<ApList />
-				{/if}
+<aside class="sidebar" aria-label={t('Sidebar')}>
+	<div class="tab-bar" role="tablist">
+		<span
+			class="tab-indicator"
+			style:transform={`translateX(${activeTabIndex * 100}%)`}
+			aria-hidden="true"
+		></span>
+		{#each tabs as tab}
+			<button
+				class="tab"
+				class:active={appState.sidebarPanel === tab.id}
+				role="tab"
+				aria-selected={appState.sidebarPanel === tab.id}
+				onclick={() => { appState.sidebarPanel = tab.id; }}
+			>
+				{tab.label}
+			</button>
+		{/each}
+	</div>
+	<div class="panel-content">
+		{#if appState.sidebarPanel === 'floorplan'}
+			<div class="scroll-panel"><FloorplanControls /></div>
+		{:else if appState.sidebarPanel === 'aps'}
+			{#if hasSelection}
+				<div class="scroll-panel"><ApEditor /></div>
+			{:else}
+				<ApList />
 			{/if}
-		</div>
-		<CoveragePanel />
-		<ApAdvicePanel />
-	</aside>
-{/if}
+		{/if}
+	</div>
+	<CoveragePanel />
+	<ApAdvicePanel />
+</aside>
 
 <style>
 	.sidebar {
