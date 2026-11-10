@@ -245,6 +245,10 @@ export interface HeatmapInput {
 	 */
 	clipPolygon?: Array<{ x: number; y: number }> | null;
 	clipStrict?: boolean;
+	reflectingWalls?: ReflectingWall[];
+	wallHeightM?: number;
+	metric?: 'rssi' | 'sinr';
+	receiverPolarizationAngleDeg?: number;
 }
 
 export class HeatmapLayer implements Layer {
@@ -311,6 +315,49 @@ export class HeatmapLayer implements Layer {
 
 	private cache: HTMLCanvasElement | null = null;
 	private cacheKey = '';
+	worker: Worker | null = null;
+	onGenerated: (() => void) | null = null;
+	private workerRequestId = 0;
+	private workerJobs = new Map<number, string>();
+
+	attachWorker(worker: Worker): void {
+		this.worker = worker;
+		worker.onmessage = (event: MessageEvent<{
+			id: number;
+			canvas: OffscreenCanvas | null;
+			x0: number;
+			y0: number;
+			texel: number;
+		}>) => {
+			const { id, canvas, x0, y0, texel } = event.data;
+			const key = this.workerJobs.get(id);
+			this.workerJobs.delete(id);
+			if (!key || id !== this.workerRequestId) return;
+			if (!canvas) {
+				this.cache = null;
+				this.onGenerated?.();
+				return;
+			}
+			this.cache = canvas as unknown as HTMLCanvasElement;
+			this.cacheX0 = x0;
+			this.cacheY0 = y0;
+			this.cacheTexel = texel;
+			this.cacheKey = key;
+			this.cacheEntries.set(key, {
+				canvas: canvas as unknown as HTMLCanvasElement,
+				x0,
+				y0,
+				texel
+			});
+			this.onGenerated?.();
+		};
+		worker.onerror = () => {
+			this.worker = null;
+			this.workerJobs.clear();
+			this.cacheKey = '';
+			this.onGenerated?.();
+		};
+	}
 	/** 已生成的热力图按完整输入键缓存，切换楼层再切回来时直接复用。 */
 	private cacheEntries = new Map<
 		string,
@@ -374,6 +421,29 @@ export class HeatmapLayer implements Layer {
 			return;
 		}
 		this.cacheKey = key;
+		if (this.worker) {
+			const input: HeatmapInput = {
+				aps: this.aps,
+				wallMask: this.wallMask,
+				materialMap: this.materialMap,
+				defaultMaterial: this.defaultMaterial,
+				worldUnitsPerMeter: this.worldUnitsPerMeter,
+				rssiFloor: this.rssiFloor,
+				maskTag: this.maskTag,
+				surfaces: this.surfaces,
+				clipPolygon: this.clipPolygon,
+				clipStrict: this.clipStrict,
+				reflectingWalls: this.reflectingWalls,
+				wallHeightM: this.wallHeightM,
+				metric: this.metric,
+				receiverPolarizationAngleDeg: this.receiverPolarizationAngleDeg
+			};
+			const id = ++this.workerRequestId;
+			this.workerJobs.set(id, key);
+			this.cache = null;
+			this.worker.postMessage({ id, input });
+			return;
+		}
 		const started = performance.now();
 		const generated = this.generateWorld();
 		this.cache = generated?.canvas ?? null;
@@ -708,10 +778,11 @@ export class HeatmapLayer implements Layer {
 		if (!(span > 0)) return null;
 
 		const startedAt = performance.now();
-		const canvas = document.createElement('canvas');
+		const canvas: HTMLCanvasElement | OffscreenCanvas =
+			typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(cols, rows) : document.createElement('canvas');
 		canvas.width = cols;
 		canvas.height = rows;
-		const cctx = canvas.getContext('2d')!;
+		const cctx = canvas.getContext('2d') as CanvasRenderingContext2D;
 		const imgData = cctx.createImageData(cols, rows);
 		const u32 = new Uint32Array(imgData.data.buffer);
 		/** 每个纹素的接收电平，单位 dBm；低于色阶门限处为 NaN。 */
@@ -1414,6 +1485,6 @@ export class HeatmapLayer implements Layer {
 			`[heatmap] ${cols}x${rows} texels at ${texel} world units ` +
 				`(${((performance.now() - startedAt) | 0)} ms)`
 		);
-		return { canvas, x0, y0, texel };
+		return { canvas: canvas as HTMLCanvasElement, x0, y0, texel };
 	}
 }

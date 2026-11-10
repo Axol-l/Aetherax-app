@@ -3,6 +3,7 @@
 	import { CanvasEngine } from '$canvas/engine.js';
 	import { FloorplanLayer } from '$canvas/renderers/floorplan.js';
 	import { GridLayer } from '$canvas/renderers/grid.js';
+	import HeatmapWorker from '$lib/workers/heatmap-worker.ts?worker';
 	import { HeatmapLayer } from '$canvas/renderers/heatmap.js';
 	import { ApLayer } from '$canvas/renderers/ap.js';
 	import type { WallDistanceAnnotation } from '$canvas/renderers/ap.js';
@@ -549,6 +550,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 	const floorplanLayer = new FloorplanLayer();
 	const gridLayer = new GridLayer();
 	const heatmapLayer = new HeatmapLayer();
+	if (typeof Worker !== 'undefined') {
+		const worker = new HeatmapWorker();
+		heatmapLayer.attachWorker(worker);
+		heatmapLayer.onGenerated = () => engine?.markDirty();
+	}
 	const wallLayer = new WallLayer();
 	const roomLabelsLayer = new RoomLabelsLayer();
 	const apLayer = new ApLayer();
