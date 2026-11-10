@@ -906,6 +906,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		heatmapLayer.rssiFloor = projectMeta.heatmapRssiFloor;
 		heatmapLayer.metric = appState.heatmapMetric;
 		heatmapLayer.receiverPolarizationAngleDeg = projectMeta.receiverPolarizationAngleDeg;
+		heatmapLayer.floorId = floorState.currentFloorId;
 		engine.markDirty();
 	});
 

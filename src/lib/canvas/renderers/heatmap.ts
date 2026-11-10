@@ -312,6 +312,8 @@ export class HeatmapLayer implements Layer {
 	metric: 'rssi' | 'sinr' = 'rssi';
 	/** 接收端线极化角，0 为垂直。 */
 	receiverPolarizationAngleDeg = 0;
+	/** 当前生成所属楼层；缓存按楼层分开，切回时可直接命中。 */
+	floorId = '';
 
 	private cache: HTMLCanvasElement | null = null;
 	private cacheKey = '';
@@ -363,7 +365,7 @@ export class HeatmapLayer implements Layer {
 		string,
 		{ canvas: HTMLCanvasElement; x0: number; y0: number; texel: number }
 	>();
-	private static readonly MAX_CACHE_ENTRIES = 6;
+	private static readonly MAX_CACHE_ENTRIES = 12;
 	/** `cache` 在世界坐标中的原点位置，以及每个纹素对应的世界坐标单位数。 */
 	private cacheX0 = 0;
 	private cacheY0 = 0;
@@ -566,6 +568,7 @@ export class HeatmapLayer implements Layer {
 				)
 				.join('|') +
 			`|floor:${this.rssiFloor}|metric:${this.metric}|rxpol:${this.receiverPolarizationAngleDeg}|t:${this.isDragging ? 'c' : 'f'}` +
+			`|id:${this.floorId}` +
 			`|wm:${this.wallMask?.width ?? 0}x${this.wallMask?.height ?? 0}:${this.wallMask?.originX ?? 0},${this.wallMask?.originY ?? 0}` +
 			// 掩码对象本身，而不仅是其几何尺寸：同尺寸替换掩码时，缓存中的衰减场也会随之失效。
 			`|wms:${maskSignature(this.wallMask)}:${maskSignature(this.materialMap)}` +

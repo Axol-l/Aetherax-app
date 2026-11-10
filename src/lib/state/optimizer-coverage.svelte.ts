@@ -185,6 +185,17 @@ export async function updateCoverage(): Promise<void> {
 		return;
 	}
 
+	const curFloorId = floorState.currentFloorId;
+	/*
+	 * 切回已经算过的楼层时直接复用该层缓存。
+	 * 覆盖率和设备负载只取决于这一层的几何/AP/门限，全部包含在 basis 里。
+	 */
+	const cachedFloor = floorCoverage.get(curFloorId);
+	if (cachedFloor && cachedFloor.basis === coverageBasis(curFloorId)) {
+		optimizerState.coverage = cachedFloor.coverage;
+		return;
+	}
+
 	if (!(await ensureCoverageCache()) || !cachedMask || !cachedSamples) {
 		// 这一步失败时覆盖率会静默读成 0
 		console.warn(
@@ -249,7 +260,6 @@ export async function updateCoverage(): Promise<void> {
 	}
 
 	// 把别的楼层的虚拟 AP 也当成固定信号源
-	const curFloorId = floorState.currentFloorId;
 	const localAps = apState.aps.filter((ap) => ap.floorId === curFloorId);
 	const virtualAps: Array<
 		(typeof apState.aps)[0] & {
