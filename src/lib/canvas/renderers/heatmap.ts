@@ -420,6 +420,7 @@ export class HeatmapLayer implements Layer {
 				0,
 				0
 			);
+			this.beginFade();
 			this.cache = canvas;
 			this.cacheX0 = x0;
 			this.cacheY0 = y0;
@@ -455,6 +456,13 @@ export class HeatmapLayer implements Layer {
 	private cacheY0 = 0;
 	private cacheTexel = TEXEL_FINE;
 	private cacheFloorId = '';
+	/** 旧图淡出、新图淡入；只用于同层更新，不跨楼层。 */
+	private previousCache: HeatmapImage | null = null;
+	private previousX0 = 0;
+	private previousY0 = 0;
+	private previousTexel = TEXEL_FINE;
+	private fadeStartedAt = 0;
+	private fadeRaf = 0;
 	/**
 	 * 反射/绕射候选跨帧缓存。候选只取决于 AP 位置与频段、墙体几何、楼层标定；
 	 * 平移、缩放、平滑参数变化时可直接复用。
@@ -563,7 +571,10 @@ export class HeatmapLayer implements Layer {
 			const id = ++this.workerRequestId;
 			// Keep the previous raster for the same floor visible while the worker
 			// rebuilds; only a floor change must clear it.
-			if (this.cacheFloorId !== this.floorId) this.cache = null;
+			if (this.cacheFloorId !== this.floorId) {
+				this.cache = null;
+				this.previousCache = null;
+			}
 			if (this.workerDebounce) clearTimeout(this.workerDebounce);
 			/*
 			 * 画墙/对齐会在一帧内连续改变裁剪键。等输入稳定后再发，避免把中间键
@@ -603,6 +614,7 @@ export class HeatmapLayer implements Layer {
 			console.warn('[heatmap] worker unavailable; generating synchronously on the main thread');
 		}
 		const generated = this.generateWorld();
+		if (generated) this.beginFade();
 		this.cache = generated?.canvas ?? null;
 		this.cacheX0 = generated?.x0 ?? 0;
 		this.cacheY0 = generated?.y0 ?? 0;
@@ -693,15 +705,52 @@ export class HeatmapLayer implements Layer {
 		const smoothing = ctx.imageSmoothingEnabled;
 		ctx.imageSmoothingEnabled = true;
 		ctx.imageSmoothingQuality = 'high';
-		ctx.drawImage(
-			this.cache,
-			this.cacheX0,
-			this.cacheY0,
-			this.cache.width * this.cacheTexel,
-			this.cache.height * this.cacheTexel
-		);
+
+		const fading = this.previousCache !== null;
+		if (fading) {
+			const progress = Math.min(1, (performance.now() - this.fadeStartedAt) / 180);
+			ctx.globalAlpha = 1 - progress;
+			this.drawCache(ctx, this.previousCache!, this.previousX0, this.previousY0, this.previousTexel);
+			ctx.globalAlpha = progress;
+			this.drawCache(ctx, this.cache, this.cacheX0, this.cacheY0, this.cacheTexel);
+			ctx.globalAlpha = 1;
+			if (progress < 1) {
+				this.requestFadeFrame();
+			} else {
+				this.previousCache = null;
+			}
+		} else {
+			this.drawCache(ctx, this.cache, this.cacheX0, this.cacheY0, this.cacheTexel);
+		}
 		ctx.imageSmoothingEnabled = smoothing;
 		ctx.restore();
+	}
+
+	private drawCache(
+		ctx: CanvasRenderingContext2D,
+		image: HeatmapImage,
+		x0: number,
+		y0: number,
+		texel: number
+	): void {
+		ctx.drawImage(image, x0, y0, image.width * texel, image.height * texel);
+	}
+
+	private requestFadeFrame(): void {
+		if (this.fadeRaf || typeof requestAnimationFrame === 'undefined') return;
+		this.fadeRaf = requestAnimationFrame(() => {
+			this.fadeRaf = 0;
+			this.onGenerated?.();
+		});
+	}
+
+	private beginFade(): void {
+		if (!this.cache || this.cacheFloorId !== this.floorId) return;
+		this.previousCache = this.cache;
+		this.previousX0 = this.cacheX0;
+		this.previousY0 = this.cacheY0;
+		this.previousTexel = this.cacheTexel;
+		this.fadeStartedAt = performance.now();
 	}
 
 	/**
