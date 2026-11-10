@@ -1,10 +1,10 @@
-﻿/**
+/**
  * 判断一个点是否在楼内。
  */
 import { debug } from '$lib/log.js';
 import { sealOpenings } from '$canvas/morphology.js';
 import { buildRoomDomain } from '$canvas/rooms.js';
-import { maskSignature } from '$canvas/mask-registry.js';
+import { maskContentSignature } from '$canvas/mask-registry.js';
 import { isVoidRoomType } from '$lib/domain/room-types.js';
 import { wupmForFloor } from './ap-state.svelte.js';
 import { getFloorMask } from './floor-mask.js';
@@ -47,7 +47,7 @@ async function computeInterior(floorId: string): Promise<CachedInterior | null> 
 	const decoded = await getFloorMask(floorId);
 	if (!decoded) return null;
 	const cached = cache.get(floorId);
-	const maskKey = maskSignature(decoded);
+	const maskKey = maskContentSignature(decoded);
 	if (cached && cached.key === maskKey) return cached;
 
 	/*

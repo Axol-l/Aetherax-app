@@ -74,7 +74,7 @@ import {
 } from '../../rf/path-candidates.js';
 
 import { rampColorAt } from '../heatmap-ramp.js';
-import { maskSignature } from '../mask-registry.js';
+import { maskContentSignature, maskSignature } from '../mask-registry.js';
 import { antennaProfileForMount } from '../../rf/antenna.js';
 
 /**
@@ -640,7 +640,7 @@ export class HeatmapLayer implements Layer {
 			`|id:${this.floorId}` +
 			`|wm:${this.wallMask?.width ?? 0}x${this.wallMask?.height ?? 0}:${this.wallMask?.originX ?? 0},${this.wallMask?.originY ?? 0}` +
 			// 掩码对象本身，而不仅是其几何尺寸：同尺寸替换掩码时，缓存中的衰减场也会随之失效。
-			`|wms:${maskSignature(this.wallMask)}:${maskSignature(this.materialMap)}` +
+			`|wms:${maskContentSignature(this.wallMask)}:${maskSignature(this.materialMap)}` +
 			`|mat:${this.defaultMaterial}|mv:${this.materialVersion}|wupm:${this.worldUnitsPerMeter}` +
 			`|wh:${this.wallHeightM}` +
 			// 抬高面移动的是客户端而非接入点：同一平面加入夹层后画面不同。
@@ -876,7 +876,7 @@ export class HeatmapLayer implements Layer {
 		let interior: Uint8Array | null = null;
 		const maskForClip = this.wallMask;
 		if (maskForClip && !this.isDragging) {
-			const key = maskSignature(maskForClip);
+			const key = maskContentSignature(maskForClip);
 			if (this.interiorCache?.key === key) {
 				interior = this.interiorCache.data;
 			} else {
