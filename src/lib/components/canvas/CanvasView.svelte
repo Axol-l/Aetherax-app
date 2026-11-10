@@ -5,6 +5,8 @@
 	import { GridLayer } from '$canvas/renderers/grid.js';
 	import HeatmapWorker from '$lib/workers/heatmap-worker.ts?worker';
 	import { HeatmapLayer } from '$canvas/renderers/heatmap.js';
+	import { heatmapRasterService } from '$lib/workers/heatmap-raster-service.js';
+	import { pathLossN } from '$lib/rf/propagation.js';
 	import { ApLayer } from '$canvas/renderers/ap.js';
 	import type { WallDistanceAnnotation } from '$canvas/renderers/ap.js';
 	import { WallLayer } from '$canvas/renderers/walls.js';
@@ -1300,18 +1302,34 @@ import { wallState } from '$state/wall-state.svelte.js';
 		}
 		const aps = await heatmapApsForFloor(floor.id);
 		if (aps.length === 0) return null;
-		return heatmapLayer.generateFor({
-			aps,
+		const input = {
+			aps: aps.map((ap) => ({ ...ap })),
 			wallMask: mask,
 			materialMap: material,
 			defaultMaterial: floor.wallMaterial,
 			worldUnitsPerMeter: wupmForFloor(floor.id),
 			rssiFloor: projectMeta.heatmapRssiFloor,
 			maskTag: heatmapMaskTag(floor),
-			surfaces: floor.surfaces ?? [],
-			clipPolygon: floor.planningArea ?? floorplanState.floorplanBoundary ?? null,
-			clipStrict: !!floor.planningArea && floor.planningArea.length >= 3
-		});
+			surfaces: (floor.surfaces ?? []).map((surface) => ({ ...surface })),
+			clipPolygon:
+				(floor.planningArea ?? floorplanState.floorplanBoundary ?? null)?.map((point) => ({
+					x: point.x,
+					y: point.y
+				})) ?? null,
+			clipStrict: !!floor.planningArea && floor.planningArea.length >= 3,
+			reflectingWalls: (floor.walls ?? []).map((wall) => ({
+				ax: wall.ax,
+				ay: wall.ay,
+				bx: wall.bx,
+				by: wall.by,
+				material: wall.material
+			})),
+			pathLossExponent: pathLossN()
+		};
+		const image = await heatmapRasterService.request(input);
+		if (image) return image;
+		// Worker unavailable: keep the old synchronous fallback.
+		return heatmapLayer.generateFor(input);
 	}
 
 	async function warmTileHeatmaps(): Promise<void> {
