@@ -64,3 +64,32 @@ test('per-AP WebGPU direct field matches the CPU reference', async ({ page }) =>
 	expect(probe!.meanAbsErrorDb).toBeLessThan(0.1);
 	expect(probe!.gpuMs).toBeGreaterThan(0);
 });
+
+test('production-aligned GPU direct field matches the CPU reference', async ({ page }) => {
+	await page.goto('/?gpuProbe=1');
+	await page.waitForFunction(() => {
+		const probe = (window as Window & { __aetheraxGpuProductionProbe?: unknown })
+			.__aetheraxGpuProductionProbe;
+		return !!probe;
+	});
+	const probe = await page.evaluate(
+		() =>
+			(window as Window & { __aetheraxGpuProductionProbe?: unknown })
+				.__aetheraxGpuProductionProbe as
+				| {
+						supported: boolean;
+						reason?: string;
+						cpuMs: number;
+						gpuMs: number;
+						maxAbsErrorDb: number;
+						meanAbsErrorDb: number;
+				  }
+				| undefined
+	);
+	test.skip(!probe?.supported, `WebGPU unavailable: ${probe?.reason ?? 'no result'}`);
+	console.log('GPU_PRODUCTION_PROBE', JSON.stringify(probe));
+	expect(probe!.maxAbsErrorDb).toBeLessThan(1);
+	expect(probe!.meanAbsErrorDb).toBeLessThan(0.1);
+	expect(probe!.cpuMs).toBeGreaterThan(0);
+	expect(probe!.gpuMs).toBeGreaterThan(0);
+});

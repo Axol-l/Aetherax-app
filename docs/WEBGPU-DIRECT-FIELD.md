@@ -86,6 +86,42 @@ out[apIndex * pixelCount + pixel] = dBm
 | 最大绝对误差 | 1.5e-5 dB |
 | 平均绝对误差 | 1.5e-6 dB |
 
+## 与生产热力图对齐的版本
+
+`production-direct.ts` 使用与生产热力图直射项相同的输入：
+
+- `referenceDbm`（AP 功率 − PL0）；
+- `pathLossExponent`，走 `relativePathLossDbAt` 的折断点曲线；
+- 栅格墙体掩码 + 材质掩码 + 每材质 dB 表；
+- 与 `rayMarchWallAtten` 相同步长的 ray-march；
+- 每 AP 固定楼板损耗。
+
+GPU 输出**不含天线**；天线损耗由 CPU 后处理：
+
+```ts
+applyProductionAntenna(input, result, apIndex, profile);
+```
+
+这样不在 WGSL 里复制 Beam/Aim/Facing 方向图。
+
+256×256、2 AP、带材质墙实测：
+
+| 指标 | 数值 |
+|---|---:|
+| CPU 耗时 | 57.4 ms |
+| GPU 耗时 | 50.6 ms |
+| 最大绝对误差 | 9.5e-6 dB |
+| 平均绝对误差 | 1.7e-6 dB |
+
+这一版的性能优势不大，因为墙体 ray-march 是逐像素循环；下一步应把墙体/材质上传为 texture，并把每 AP 的循环拆成更多并行 workgroup。
+
+## 接入生产热力图还差
+
+- 跨楼层中庭/楼梯井的逐像素楼板开洞；
+- 天线损耗在 CPU 后处理中的相位/复场合并；
+- 异步 readback 缓存，避免主线程等待；
+- 与现有反射/绕射/散射的逐 AP 复场合并。
+
 ## 还不是生产热力图
 
 尚未接入主热力图，因为：

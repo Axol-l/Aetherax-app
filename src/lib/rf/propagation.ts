@@ -532,7 +532,16 @@ function rampIntegral(u: number): number {
 
 /** `relativePathLossDb` 在 `u = log10(d)` 处的取值，供二分解反使用。 */
 function relativeLossAtLog10(u: number): number {
-	const n = pathLossN();
+	return relativeLossAtLog10ForN(u, pathLossN());
+}
+
+/** 指定路径损耗指数的相对损耗，供 GPU 对照/离线计算使用。 */
+export function relativePathLossDbAt(distanceMeters: number, n: number): number {
+	const d = distanceMeters > 1 ? distanceMeters : 1;
+	return relativeLossAtLog10ForN(Math.log10(d), n);
+}
+
+function relativeLossAtLog10ForN(u: number, n: number): number {
 	if (n >= FAR_FIELD_N) return 10 * n * u;
 	return 10 * (n * u + (FAR_FIELD_N - n) * rampIntegral(u));
 }

@@ -10,6 +10,7 @@
 	import { installUnloadFlush } from '$state/persistence.svelte';
 	import { runGpuDirectProbe } from '$lib/gpu/direct-field.js';
 	import { runGpuPerApProbe } from '$lib/gpu/direct-field-per-ap.js';
+	import { runProductionProbe } from '$lib/gpu/production-direct.js';
 
 	let { children } = $props();
 
@@ -24,6 +25,12 @@
 			(window as Window & { __aetheraxGpuPerApProbe?: unknown }).__aetheraxGpuPerApProbe =
 				perAp;
 			document.documentElement.dataset.gpuPerApProbe = perAp.supported
+				? 'ok'
+				: 'unsupported';
+			const production = await runProductionProbe();
+			(window as Window & { __aetheraxGpuProductionProbe?: unknown })
+				.__aetheraxGpuProductionProbe = production;
+			document.documentElement.dataset.gpuProductionProbe = production.supported
 				? 'ok'
 				: 'unsupported';
 		});
