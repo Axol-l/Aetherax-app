@@ -23,6 +23,7 @@
 	import { solverState, edgeSignals } from '$state/solver.svelte.js';
 	import { findModel, getBandSpec, recommendedClients, recommendedAntenna, type ApModel } from '$lib/data/ap-models.js';
 	import Select from '$components/shared/Select.svelte';
+	import Button from '$components/shared/Button.svelte';
 	import Icon from '$components/shared/Icon.svelte';
 	import NumberInput from '$components/shared/NumberInput.svelte';
 	import Tooltip from '$components/shared/Tooltip.svelte';
@@ -604,11 +605,10 @@
 		</PanelCard>
 
 		<div class="delete-section">
-			<Tooltip text={t('Delete Access Point')} position="top">
-				<button class="delete-icon-btn" onclick={handleDelete} aria-label={t('Delete Access Point')}>
-					<Icon name="trash" size={14} />
-				</button>
-			</Tooltip>
+			<Button variant="danger" size="sm" onclick={handleDelete}>
+				<Icon name="trash" size={14} />
+				{t('Delete Access Point')}
+			</Button>
 		</div>
 	</div>
 {:else if multiSelect}
@@ -654,11 +654,10 @@
 		</div>
 
 		<div class="delete-section">
-			<Tooltip text={t('Delete All')} position="top">
-				<button class="delete-icon-btn" onclick={handleDeleteAll} aria-label={t('Delete All')}>
-					<Icon name="trash" size={14} />
-				</button>
-			</Tooltip>
+			<Button variant="danger" size="sm" onclick={handleDeleteAll}>
+				<Icon name="trash" size={14} />
+				{t('Delete All')}
+			</Button>
 		</div>
 	</div>
 {/if}
@@ -841,37 +840,12 @@
 		white-space: nowrap;
 	}
 
-	/* One icon at the end of the row: the danger colour is kept, the label moves to the tooltip. */
+	/* The delete action spans the editor, like the action buttons in the sidebar cards. */
 	.delete-section {
-		display: flex;
-		justify-content: flex-end;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr);
 		padding-top: var(--space-3);
 		border-top: 1px solid var(--border-subtle);
-	}
-
-	.delete-icon-btn {
-		display: inline-flex;
-		align-items: center;
-		justify-content: center;
-		width: 28px;
-		height: 28px;
-		padding: 0;
-		border: 1px solid var(--color-error-dim);
-		border-radius: var(--radius-md);
-		background: var(--color-error-dim);
-		color: var(--text-on-accent, #fff);
-		cursor: pointer;
-		transition: all var(--transition-fast);
-	}
-
-	.delete-icon-btn:hover {
-		background: var(--color-error);
-		border-color: var(--color-error);
-	}
-
-	.delete-icon-btn:focus-visible {
-		outline: 2px solid var(--accent-primary);
-		outline-offset: 1px;
 	}
 
 	.field-hint {
