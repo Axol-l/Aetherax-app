@@ -17,7 +17,7 @@
 		crosshair:
 			'M8 1v3M8 12v3M1 8h3M12 8h3M8 5a3 3 0 110 6 3 3 0 010-6z',
 		hand:
-			'M11 1.5v5m0-5a1 1 0 112 0v7m-2-7a1 1 0 10-2 0v6m0-6a1 1 0 10-2 0v7m0-5a1 1 0 10-2 0v5a6 6 0 0012 0V6.5a1 1 0 10-2 0v1',
+			'M9 1.5v5m0-5a1 1 0 112 0v7m-2-7a1 1 0 10-2 0v6m0-6a1 1 0 10-2 0v7m0-5a1 1 0 10-2 0v5a6 6 0 0012 0V6.5a1 1 0 10-2 0v1',
 		play:
 			'M5 3l10 5-10 5z',
 		chart:
@@ -79,6 +79,9 @@
 		check: 'M2.5 8.5l3.5 3.5 7.5-8',
 		// The close cross, for a notice the reader can put away.
 		x: 'M3.5 3.5l9 9M12.5 3.5l-9 9',
+		// Two sheets, the back one offset. "Copy layout" had been using the stacked-floors
+		// mark, which says "floors", not "duplicate this one".
+		copy: 'M5 2h6a2 2 0 0 1 2 2v7M4 5h5a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2z',
 		heatmap:
 			'M1 1h6v6H1zM9 1h6v6H9zM1 9h6v6H1zM9 9h6v6H9z',
 		eye:
@@ -102,7 +105,7 @@
 		'cursor', 'crosshair', 'hand', 'chart', 'download', 'trash',
 		'grid', 'radio', 'link', 'tag', 'plus', 'minus', 'file',
 		'upload', 'settings', 'keyboard', 'chevron-down', 'chevron-left', 'undo', 'redo',
-		'sidebar', 'help', 'eye', 'eye-off', 'sparkles', 'eraser', 'pencil', 'lock'
+		'sidebar', 'help', 'eye', 'eye-off', 'sparkles', 'eraser', 'pencil', 'lock', 'copy'
 	]);
 </script>
 

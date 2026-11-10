@@ -614,7 +614,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 					<Icon name="chevron-down" size={11} />
 				</button>
 				<span class="planning-title">
-					<Icon name="file" size={13} />
 					{t('Floorplan')}
 				</span>
 				<span class="planning-state">
@@ -644,7 +643,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 			<div class="planning-actions">
 				<Button variant="secondary" size="sm" onclick={() => { copySourceId = currentFloor().id; copyLayoutOpen = true; }}>
-					<Icon name="stack" size={14} />
+					<Icon name="copy" size={14} />
 					{t('Copy layout…')}
 				</Button>
 				<Tooltip text={t('Remove floorplan')} position="top">
@@ -668,7 +667,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 					<Icon name="chevron-down" size={11} />
 				</button>
 				<span class="planning-title">
-					<Icon name="ruler" size={13} />
 					{t('Scale')}
 				</span>
 				<span class="planning-state">{scaleDisplay ?? t('Not set')}</span>
@@ -702,6 +700,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 							title={t('Set by the ft/m switch in the toolbar.')}>{lengthDisplayUnit}</span
 						>
 						<Button variant="primary" size="sm" onclick={applyMeasuredCalibration}>
+							<Icon name="check" size={14} />
 							{t('Apply')}
 						</Button>
 					</div>
@@ -723,6 +722,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 							setCalibrateMode(true);
 						}}
 					>
+						<Icon name="ruler" size={14} />
 						{t('Measure a distance')}
 					</Button>
 				</div>
@@ -737,6 +737,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 							setCalibrateMode(true);
 						}}
 					>
+						<Icon name="ruler" size={14} />
 						{t('Recalibrate')}
 					</Button>
 				</div>
@@ -759,7 +760,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 						<Icon name="chevron-down" size={11} />
 					</button>
 					<span class="planning-title">
-						<Icon name="crosshair" size={13} />
 						{t('Planning area')}
 					</span>
 					{#if appState.planningDrawMode}
@@ -789,6 +789,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 							disabled={appState.planningDraft.length < 3}
 							onclick={commitPlanningArea}
 						>
+							<Icon name="check" size={14} />
 							{t('Confirm area')}
 						</Button>
 						<button
@@ -825,7 +826,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 					<Icon name="chevron-down" size={11} />
 				</button>
 				<span class="planning-title">
-					<Icon name="stack" size={13} />
 					{t('Floor properties')}
 				</span>
 			</div>
@@ -897,6 +897,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 						variant={appState.floorAlignMode ? 'primary' : 'secondary'}
 						onclick={() => setFloorAlignMode(!appState.floorAlignMode)}
 					>
+						<Icon name="hand" size={14} />
 						{appState.floorAlignMode ? t('Drag on canvas…') : t('Drag to align')}
 					</Button>
 				</div>
@@ -920,7 +921,6 @@ import { wallState } from '$state/wall-state.svelte.js';
 						<Icon name="chevron-down" size={11} />
 					</button>
 					<span class="planning-title">
-						<Icon name="arc" size={13} />
 						{t('Walls')}
 					</span>
 					<span class="planning-state">{t('{count} drawn', { count: (currentFloor()?.walls ?? []).length })}</span>
@@ -1212,7 +1212,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
-		font-size: var(--text-xs);
+		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--text-secondary);
 	}

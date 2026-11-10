@@ -42,7 +42,7 @@
 	}
 </script>
 
-<PanelCard title={t('Notes')} icon="tag" bind:collapsed={sidebarCards.notes}>
+<PanelCard title={t('Notes')} bind:collapsed={sidebarCards.notes}>
 	{#if notes.length > 0}
 		<button class="notes-toggle" onclick={() => (notesOpen = !notesOpen)} aria-expanded={notesOpen}>
 			<Icon name="chevron-down" size={12} />
@@ -79,15 +79,19 @@
 			oninput={(e) => updateSelectedNote((e.target as HTMLTextAreaElement).value)}
 		></textarea>
 		<div class="planning-actions">
-			<Button variant="secondary" size="sm" onclick={deleteSelectedNote}>{t('Delete note')}</Button>
+			<Button variant="secondary" size="sm" onclick={deleteSelectedNote}>
+				<Icon name="trash" size={14} />
+				{t('Delete note')}
+			</Button>
 			<Button variant="primary" size="sm" onclick={() => (appState.noteSelectedId = null)}>
+				<Icon name="check" size={14} />
 				{t('Done')}
 			</Button>
 		</div>
 	{:else}
 		<div class="planning-actions">
 			<Button variant="secondary" size="sm" onclick={() => (appState.noteMode = true)}>
-				<Icon name="tag" size={14} />
+				<Icon name="plus" size={14} />
 				{t('Add note')}
 			</Button>
 		</div>
@@ -179,11 +183,12 @@
 		color: var(--text-secondary);
 	}
 
+	/* One action fills the card; a pair shares the row, like the other cards. */
 	.planning-actions {
-		display: flex;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
 		align-items: center;
-		gap: var(--space-3);
-		flex-wrap: wrap;
+		gap: var(--space-2);
 	}
 
 	.skip-link {

@@ -11,13 +11,11 @@
 
 	let {
 		title,
-		icon,
 		collapsed = $bindable(false),
 		state,
 		children
 	}: {
 		title: string;
-		icon: string;
 		collapsed?: boolean;
 		state?: Snippet;
 		children: Snippet;
@@ -35,7 +33,6 @@
 			<Icon name="chevron-down" size={11} />
 		</button>
 		<span class="planning-title">
-			<Icon name={icon} size={13} />
 			{title}
 		</span>
 		{#if state}{@render state()}{/if}
@@ -76,7 +73,7 @@
 		display: inline-flex;
 		align-items: center;
 		gap: var(--space-1);
-		font-size: var(--text-xs);
+		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--text-secondary);
 	}

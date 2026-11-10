@@ -158,7 +158,7 @@
 	}
 </script>
 
-<PanelCard title={t('Raised surfaces')} icon="stack" bind:collapsed={sidebarCards.surfaces}>
+<PanelCard title={t('Raised surfaces')} bind:collapsed={sidebarCards.surfaces}>
 	{#if selected}
 		<!-- A selected deck: the same fields the next one is drawn with, bound to it. -->
 		<p class="planning-hint">{t('Editing the selected raised area')}</p>
@@ -281,6 +281,7 @@
 				{t('Delete raised area')}
 			</Button>
 			<Button variant="primary" size="sm" onclick={closeSelectedSurface}>
+				<Icon name="check" size={14} />
 				{t('Done')}
 			</Button>
 		</div>
@@ -365,6 +366,7 @@
 			</p>
 			<div class="planning-actions">
 				<Button variant="primary" size="sm" onclick={() => setSurfaceMode(false)}>
+					<Icon name="check" size={14} />
 					{t('Done')}
 				</Button>
 			</div>
@@ -495,6 +497,11 @@
 		transition: transform var(--transition-fast), background var(--transition-fast);
 	}
 
+	.param-toggle:active {
+		/* A switch row, not a button: the global press scale would shrink the whole row. */
+		transform: none;
+	}
+
 	.param-toggle.on .toggle-knob {
 		transform: translateX(12px);
 		background: var(--accent-primary);
@@ -512,10 +519,11 @@
 		color: var(--text-secondary);
 	}
 
+	/* One action fills the card; a pair shares the row, like the other cards. */
 	.planning-actions {
-		display: flex;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) auto;
 		align-items: center;
-		gap: var(--space-3);
-		flex-wrap: wrap;
+		gap: var(--space-2);
 	}
 </style>

@@ -10,7 +10,6 @@
 	import { DEFAULT_COVERAGE_TARGET, evaluateApAdvice } from '$lib/ap-advice.js';
 	import { polygonArea } from '$canvas/boundary-detect.js';
 	import { areaUnit as areaUnitFor, sqmToUnit } from '$lib/units.js';
-	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
 	import { apState } from '$state/ap-state.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
@@ -123,7 +122,6 @@
 	<section class="advice" aria-label={t('Placement advice')}>
 		<div class="advice-head">
 			<span class="advice-title">
-				<Icon name="sparkles" size={12} />
 				{t('Placement advice')}
 			</span>
 			<button
