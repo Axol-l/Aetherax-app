@@ -28,7 +28,8 @@
 	import NumberInput from '$components/shared/NumberInput.svelte';
 	import Tooltip from '$components/shared/Tooltip.svelte';
 	import ModelPicker from '$components/shared/ModelPicker.svelte';
-	import PanelCard from './PanelCard.svelte';
+	import { slide } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 	import { t } from '$state/i18n.svelte';
 	import { displayLength, lengthInputHints, lengthUnit, unitToMetres } from '$lib/units.js';
 	import { apState } from '$state/ap-state.svelte.js';
@@ -339,18 +340,18 @@
 
 {#if singleAp}
 	<div class="editor">
-		<div class="back-row">
-			<Tooltip text={t('All APs ({count})', { count: apState.aps.length })} position="right">
+		<div class="editor-head">
+			<div class="section-header">{t('PROPERTIES')}</div>
+			<Tooltip text={t('All APs ({count})', { count: apState.aps.length })} position="left">
 				<button
-					class="back-btn"
+					class="head-btn"
 					aria-label={t('All APs ({count})', { count: apState.aps.length })}
 					onclick={() => clearSelection()}
 				>
-					<Icon name="chevron-left" size={15} />
+					<Icon name="chevron-right" size={15} />
 				</button>
 			</Tooltip>
 		</div>
-		<div class="section-header">{t('PROPERTIES')}</div>
 
 		<div class="field">
 			<Tooltip text={t('Pick a model to fill in band, power and range.')} position="top">
@@ -579,30 +580,44 @@
 			</div>
 		{/if}
 
-		<PanelCard title={t('Advanced')} bind:collapsed={advancedCollapsed}>
-			<div class="mount-row">
-				<Tooltip position="top" text={t('Transmit polarization: 0° is vertical, 90° is horizontal.')}>
-					<span class="field-label">{t('Polarization')}</span>
-				</Tooltip>
-				<input
-					class="mount-height"
-					type="number"
-					aria-label={t('Polarization')}
-					value={singleAp.polarizationAngleDeg ?? 0}
-					min="0"
-					max="90"
-					step={5}
-					oninput={(e) => {
-						const input = e.currentTarget as HTMLInputElement;
-						const value = Number(input.value);
-						if (value > 90) input.value = '90';
-						else if (value < 0) input.value = '0';
-					}}
-					onchange={handlePolarizationChange}
-				/>
-				<span class="mount-unit">{t('°')}</span>
-			</div>
-		</PanelCard>
+		<div class="advanced">
+			<button
+				class="advanced-head"
+				aria-expanded={!advancedCollapsed}
+				onclick={() => (advancedCollapsed = !advancedCollapsed)}
+			>
+				<span class="advanced-chevron" class:collapsed={advancedCollapsed}>
+					<Icon name="chevron-down" size={11} />
+				</span>
+				<span>{t('Advanced')}</span>
+			</button>
+			{#if !advancedCollapsed}
+				<div class="advanced-body" transition:slide={{ duration: motionDuration(180) }}>
+					<div class="mount-row">
+						<Tooltip position="top" text={t('Transmit polarization: 0° is vertical, 90° is horizontal.')}>
+							<span class="field-label">{t('Polarization')}</span>
+						</Tooltip>
+						<input
+							class="mount-height"
+							type="number"
+							aria-label={t('Polarization')}
+							value={singleAp.polarizationAngleDeg ?? 0}
+							min="0"
+							max="90"
+							step={5}
+							oninput={(e) => {
+								const input = e.currentTarget as HTMLInputElement;
+								const value = Number(input.value);
+								if (value > 90) input.value = '90';
+								else if (value < 0) input.value = '0';
+							}}
+							onchange={handlePolarizationChange}
+						/>
+						<span class="mount-unit">{t('°')}</span>
+					</div>
+				</div>
+			{/if}
+		</div>
 
 		<div class="delete-section">
 			<Button variant="danger" size="sm" onclick={handleDelete}>
@@ -615,7 +630,11 @@
 	<div class="editor">
 		<div class="multi-header">
 			<div class="section-header">{selectedAps.length} APs SELECTED</div>
-			<button class="deselect-link" onclick={() => clearSelection()}>{t('Deselect')}</button>
+			<Tooltip text={t('Deselect')} position="left">
+				<button class="head-btn" aria-label={t('Deselect')} onclick={() => clearSelection()}>
+					<Icon name="chevron-right" size={15} />
+				</button>
+			</Tooltip>
 		</div>
 
 		<div class="field">
@@ -678,6 +697,50 @@
 		text-transform: uppercase;
 		letter-spacing: 0.05em;
 		font-weight: 500;
+	}
+
+	/*
+	 * The advanced section is a plain fold inside the form, not a card: no border or raised
+	 * background, so it reads as one more field group with the same rhythm as the rest.
+	 */
+	.advanced {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.advanced-head {
+		display: flex;
+		align-items: center;
+		gap: var(--space-1);
+		width: 100%;
+		padding: 0;
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+		font-family: var(--font-sans);
+		font-size: var(--text-sm);
+		cursor: pointer;
+	}
+
+	.advanced-head:hover {
+		color: var(--text-primary);
+	}
+
+	.advanced-chevron {
+		display: inline-flex;
+		color: var(--text-tertiary);
+		transition: transform var(--transition-fast);
+	}
+
+	.advanced-chevron.collapsed {
+		transform: rotate(-90deg);
+	}
+
+	.advanced-body {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding-top: var(--space-2);
 	}
 
 	.field {
@@ -961,13 +1024,17 @@
 	}
 
 
-	.back-row {
+	/* Title at the top of the panel, the way-out control at the end of its row. */
+	.editor-head,
+	.multi-header {
 		display: flex;
-		align-self: flex-start;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--space-2);
 	}
 
-	/* A framed square like the toolbar controls: the label is gone, the tooltip keeps it. */
-	.back-btn {
+	/* A framed square like the toolbar controls: the label lives in the tooltip. */
+	.head-btn {
 		display: inline-flex;
 		align-items: center;
 		justify-content: center;
@@ -982,37 +1049,13 @@
 		transition: all var(--transition-fast);
 	}
 
-	.back-btn:hover {
+	.head-btn:hover {
 		color: var(--text-primary);
 		background: var(--bg-hover);
 		border-color: var(--border-default);
 	}
 
-	.back-btn:focus-visible {
-		outline: 2px solid var(--accent-primary);
-		outline-offset: 1px;
-	}
-
-	.multi-header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-	}
-
-	.deselect-link {
-		background: none;
-		border: none;
-		color: var(--accent-primary);
-		font-size: var(--text-xs);
-		cursor: pointer;
-		padding: 0;
-	}
-
-	.deselect-link:hover {
-		text-decoration: underline;
-	}
-
-	.deselect-link:focus-visible {
+	.head-btn:focus-visible {
 		outline: 2px solid var(--accent-primary);
 		outline-offset: 1px;
 	}

@@ -64,6 +64,7 @@
 		// Its mirror: the "back to the list" control is an icon button, so the arrow has to
 		// read as a chevron rather than as a piece of text.
 		'chevron-left': 'M10 4l-4 4 4 4',
+		'chevron-right': 'M6 4l4 4-4 4',
 		undo:
 			'M3 7l4-4M3 7l4 4M3 7h8a4 4 0 010 8H9',
 		redo:
@@ -104,7 +105,7 @@
 	const strokeIcons = new Set([
 		'cursor', 'crosshair', 'hand', 'chart', 'download', 'trash',
 		'grid', 'radio', 'link', 'tag', 'plus', 'minus', 'file',
-		'upload', 'settings', 'keyboard', 'chevron-down', 'chevron-left', 'undo', 'redo',
+		'upload', 'settings', 'keyboard', 'chevron-down', 'chevron-left', 'chevron-right', 'undo', 'redo',
 		'sidebar', 'help', 'eye', 'eye-off', 'sparkles', 'eraser', 'pencil', 'lock', 'copy'
 	]);
 </script>
