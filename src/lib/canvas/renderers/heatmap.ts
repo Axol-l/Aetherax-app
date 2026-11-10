@@ -326,7 +326,12 @@ export class HeatmapLayer implements Layer {
 		null;
 	private gpuDirectPending = '';
 	private gpuDirectUnavailable = false;
-	gpuDirectEnabled = true;
+	/**
+	 * GPU 直射场默认关闭：首次创建 device/pipeline/shader 的同步初始化在部分
+	 * Intel 驱动上会让打开热力图停顿数秒，而当前直射项只占热力图总耗时的一部分。
+	 * 需要实验时再打开；CPU/Worker 路径始终可用。
+	 */
+	gpuDirectEnabled = false;
 	/** 小网格上 GPU 的初始化/提交开销大于收益，低于该纹素数保留 CPU。 */
 	gpuDirectMinPixels = 120_000;
 
