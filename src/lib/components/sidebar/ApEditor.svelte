@@ -21,7 +21,7 @@
 	import { getAvailableChannels } from '@aetherax/channels';
 	import type { Band, ChannelWidth } from '@aetherax/channels';
 	import { solverState, edgeSignals } from '$state/solver.svelte.js';
-	import { findModel, getBandSpec, recommendedClients, type ApModel } from '$lib/data/ap-models.js';
+	import { findModel, getBandSpec, recommendedClients, recommendedAntenna, type ApModel } from '$lib/data/ap-models.js';
 	import Select from '$components/shared/Select.svelte';
 	import Button from '$components/shared/Button.svelte';
 	import Icon from '$components/shared/Icon.svelte';
@@ -292,6 +292,7 @@
 		if (!spec) return;
 
 		// Set power from model spec — radius is auto-derived by the $effect
+		const antenna = recommendedAntenna(model, spec, singleAp.mount);
 		updateAp(singleAp.id, {
 			modelId: model.id,
 			modelLabel: `${model.vendor} ${model.model}`,
@@ -299,6 +300,8 @@
 			channelWidth: spec.maxChannelWidth,
 			power: spec.maxTxPower,
 			interferenceRadius: radiusFromPower(spec.maxTxPower, spec.band),
+			beamwidthDeg: antenna.beamwidthDeg,
+			aimDeg: antenna.aimDeg,
 			fixedChannel: null,
 			assignedChannel: null,
 			clients: recommendedClients(model)
@@ -485,28 +488,31 @@
 				/>
 				<span class="mount-unit">{t('° aim')}</span>
 			</div>
-			<div class="mount-row">
-				<Tooltip position="top" text={t('Transmit polarization: 0° is vertical, 90° is horizontal.')}>
-					<span class="field-label">{t('Polarization')}</span>
-				</Tooltip>
-				<input
-					class="mount-height"
-					type="number"
-					aria-label={t('Polarization')}
-					value={singleAp.polarizationAngleDeg ?? 0}
-					min="0"
-					max="90"
-					step={5}
-					oninput={(e) => {
-						const input = e.currentTarget as HTMLInputElement;
-						const value = Number(input.value);
-						if (value > 90) input.value = '90';
-						else if (value < 0) input.value = '0';
-					}}
-					onchange={handlePolarizationChange}
-				/>
-				<span class="mount-unit">{t('°')}</span>
-			</div>
+			<details class="advanced-settings">
+				<summary>{t('Advanced')}</summary>
+				<div class="mount-row">
+					<Tooltip position="top" text={t('Transmit polarization: 0° is vertical, 90° is horizontal.')}>
+						<span class="field-label">{t('Polarization')}</span>
+					</Tooltip>
+					<input
+						class="mount-height"
+						type="number"
+						aria-label={t('Polarization')}
+						value={singleAp.polarizationAngleDeg ?? 0}
+						min="0"
+						max="90"
+						step={5}
+						oninput={(e) => {
+							const input = e.currentTarget as HTMLInputElement;
+							const value = Number(input.value);
+							if (value > 90) input.value = '90';
+							else if (value < 0) input.value = '0';
+						}}
+						onchange={handlePolarizationChange}
+					/>
+					<span class="mount-unit">{t('°')}</span>
+				</div>
+			</details>
 			{#if singleAp.mount === 'wall'}
 				<!--
 					Only a wall mount has a direction in the plan: an upright omni is a
@@ -652,6 +658,14 @@
 {/if}
 
 <style>
+	.advanced-settings {
+		margin-top: var(--space-2);
+	}
+	.advanced-settings summary {
+		cursor: pointer;
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+	}
 	.editor {
 		display: flex;
 		flex-direction: column;

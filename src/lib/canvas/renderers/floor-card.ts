@@ -36,6 +36,8 @@ export interface FloorCardSource {
 	maskOriginY: number;
 	maskWidth: number;
 	maskHeight: number;
+	/** 该楼层手绘的规划区域；有它时它才是可选/绘制的范围。 */
+	planningArea?: Array<{ x: number; y: number }> | null;
 	/**
 	 * 该楼层的标定，单位：世界单位/米。
 	 * 卡片按楼层自身的单位绘制，再把整幅图缩放到底图坐标框架中，使不同分辨率的楼层尺寸可比。
@@ -201,6 +203,19 @@ export class FloorCardCache {
 			w: box.w * k,
 			h: box.h * k
 		});
+		if (s.planningArea && s.planningArea.length >= 3) {
+			let minX = Infinity;
+			let minY = Infinity;
+			let maxX = -Infinity;
+			let maxY = -Infinity;
+			for (const point of s.planningArea) {
+				minX = Math.min(minX, point.x);
+				minY = Math.min(minY, point.y);
+				maxX = Math.max(maxX, point.x);
+				maxY = Math.max(maxY, point.y);
+			}
+			return scaled({ minX, minY, w: maxX - minX, h: maxY - minY });
+		}
 		if (s.maskUrl && s.maskWidth > 0 && s.maskHeight > 0) {
 			return scaled({
 				minX: s.maskOriginX,

@@ -435,27 +435,30 @@
 					</label>
 				</Tooltip>
 
-				<Tooltip
-					position="top"
-					text={t('Client receive polarization: 0° is vertical, 90° is horizontal.')}
-				>
-					<label class="setting-row slider-row">
-						<span class="setting-title">{t('Receiver polarization')}</span>
-						<input
-							type="number"
-							min="0"
-							max="90"
-							step="5"
-							value={projectMeta.receiverPolarizationAngleDeg}
-							onchange={(e) =>
-								(projectMeta.receiverPolarizationAngleDeg = Math.min(
-									90,
-									Math.max(0, Number((e.currentTarget as HTMLInputElement).value))
-								))}
-						/>
-						<span class="setting-value">{t('°')}</span>
-					</label>
-				</Tooltip>
+				<details class="advanced-settings">
+					<summary>{t('Advanced')}</summary>
+					<Tooltip
+						position="top"
+						text={t('Client receive polarization: 0° is vertical, 90° is horizontal.')}
+					>
+						<label class="setting-row slider-row">
+							<span class="setting-title">{t('Receiver polarization')}</span>
+							<input
+								type="number"
+								min="0"
+								max="90"
+								step="5"
+								value={projectMeta.receiverPolarizationAngleDeg}
+								onchange={(e) =>
+									(projectMeta.receiverPolarizationAngleDeg = Math.min(
+										90,
+										Math.max(0, Number((e.currentTarget as HTMLInputElement).value))
+									))}
+							/>
+							<span class="setting-value">{t('°')}</span>
+						</label>
+					</Tooltip>
+				</details>
 
 				<Tooltip
 					position="top"
@@ -513,6 +516,14 @@
 />
 
 <style>
+	.advanced-settings {
+		margin-top: var(--space-2);
+	}
+	.advanced-settings summary {
+		cursor: pointer;
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+	}
 	/*
 	 * Placement mode
 	 */

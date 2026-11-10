@@ -13,6 +13,9 @@ export interface ApBandSpec {
 	maxTxPower: number; // dBm (conducted)
 	typicalIndoorRange: number; // meters
 	streams: number; // spatial streams (MIMO), e.g. 2 for 2x2, 4 for 4x4
+	/** 可选的型号天线预设；未给出时按频段/安装方式取保守默认。 */
+	beamwidthDeg?: number;
+	aimDeg?: number;
 }
 
 export interface ApModel {
@@ -52,8 +55,25 @@ export function recommendedClients(model: ApModel): number {
 	return Math.min(150, Math.max(10, streams * perStream));
 }
 
-/** Search models by query (fuzzy match on vendor + model + wifi standard) */
-export function searchModels(query: string): ApModel[] {
+/**
+ * 型号的 Beam/Aim 预设。
+ *
+ * 优先使用型号数据里显式给出的方向图；没有时按频段和安装方式取保守默认。
+ * 这是型号级默认，不是厂商实测方向图。
+ */
+export function recommendedAntenna(
+	model: ApModel,
+	spec: ApBandSpec,
+	mount: 'ceiling' | 'floor' | 'wall' = 'ceiling'
+): { beamwidthDeg: number; aimDeg: number } {
+	const bandDefault = spec.band === '2.4ghz' ? 120 : 60;
+	return {
+		beamwidthDeg: spec.beamwidthDeg ?? bandDefault,
+		aimDeg: spec.aimDeg ?? (mount === 'ceiling' ? 30 : 0)
+	};
+}
+
+/** Search models by query (fuzzy match on vendor + model + wifi standard) */export function searchModels(query: string): ApModel[] {
 	if (!query.trim()) return [...AP_MODELS];
 	const q = query.toLowerCase();
 	return AP_MODELS.filter(

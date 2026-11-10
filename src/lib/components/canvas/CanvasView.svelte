@@ -1122,6 +1122,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			maskOriginY: f.wallMask?.originY ?? 0,
 			maskWidth: f.wallMask?.width ?? 0,
 			maskHeight: f.wallMask?.height ?? 0,
+			planningArea: f.planningArea ?? null,
 			wupm: wupmForFloor(f.id),
 			aps: apState.aps
 				.filter((ap) => ap.floorId === f.id)
@@ -1430,7 +1431,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	$effect(() => {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
-		vectorWallsLayer.visible = singleFloorView;
+		vectorWallsLayer.visible = singleFloorView && appState.showWalls;
 		vectorWallsLayer.walls = (floor?.walls ?? []) as VectorWall[];
 		vectorWallsLayer.columns = (floor?.columns ?? []) as VectorColumn[];
 		vectorWallsLayer.selectedId = appState.wallVectorSelected;
