@@ -425,7 +425,8 @@ export class HeatmapLayer implements Layer {
 			this.onGenerated?.();
 			requestAnimationFrame(() => this.onGenerated?.());
 		};
-		worker.onerror = () => {
+		worker.onerror = (event) => {
+			console.warn('[heatmap] worker failed, falling back to CPU:', event.message);
 			if (this.workerTimer) {
 				clearTimeout(this.workerTimer);
 				this.workerTimer = null;
