@@ -369,6 +369,7 @@ export class HeatmapLayer implements Layer {
 	private workerJobs = new Map<number, string>();
 	private workerTimer: ReturnType<typeof setTimeout> | null = null;
 	private workerDebounce: ReturnType<typeof setTimeout> | null = null;
+	private warnedNoWorker = false;
 	private pendingWorkerKey = '';
 
 	attachWorker(worker: Worker): void {
@@ -565,13 +566,14 @@ export class HeatmapLayer implements Layer {
 				if (this.workerTimer) clearTimeout(this.workerTimer);
 				this.workerTimer = setTimeout(() => {
 					if (this.pendingWorkerKey === key && !this.cache) {
+						console.warn('[heatmap] worker timed out after 8 s, falling back to CPU');
 						this.worker = null;
 						this.workerJobs.clear();
 						this.pendingWorkerKey = '';
 						this.cacheKey = '';
 						this.onGenerated?.();
 					}
-				}, 800);
+				}, 8000);
 				try {
 					this.worker.postMessage({ id, key, input });
 				} catch {
@@ -585,6 +587,10 @@ export class HeatmapLayer implements Layer {
 			return;
 		}
 		const started = performance.now();
+		if (!this.worker && !this.warnedNoWorker) {
+			this.warnedNoWorker = true;
+			console.warn('[heatmap] worker unavailable; generating synchronously on the main thread');
+		}
 		const generated = this.generateWorld();
 		this.cache = generated?.canvas ?? null;
 		this.cacheX0 = generated?.x0 ?? 0;
