@@ -2,5 +2,5 @@
 
 export function motionDuration(milliseconds: number): number {
 	if (typeof window === 'undefined') return 0;
-	return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ? 0 : milliseconds;
+	return window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ? 0 : milliseconds;
 }

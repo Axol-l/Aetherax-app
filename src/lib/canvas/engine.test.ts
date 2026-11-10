@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import type { MockInstance } from 'vitest';
-import { CanvasEngine } from './engine.js';
+import { CanvasEngine, LAYER_FADE_MS } from './engine.js';
 import type { Layer } from './types.js';
 
 /*
@@ -74,6 +74,7 @@ describe('CanvasEngine frame chain', () => {
 
 	afterEach(() => {
 		errorSpy.mockRestore();
+		delete (globalThis as unknown as { document?: unknown }).document;
 	});
 
 	it('keeps drawing after a layer throws once', () => {
@@ -161,5 +162,76 @@ describe('CanvasEngine frame chain', () => {
 		// 帧内发出的请求得以保留，因此排入了第二帧。
 		frames.flush();
 		expect(renders).toBe(2);
+	});
+
+	it('fades a hidden layer out, then stops drawing it', () => {
+		// 渐变的中间帧要画到离屏画布，所以这里需要一个最小的 canvas 工厂。
+		(globalThis as unknown as { window: unknown }).window = {
+			devicePixelRatio: 1,
+			matchMedia: () => ({ matches: false })
+		};
+		(globalThis as unknown as { document: unknown }).document = {
+			createElement: () => fakeCanvas()
+		};
+
+		const engine = new CanvasEngine(fakeCanvas());
+		let clock = 1000;
+		engine.now = () => clock;
+
+		let renders = 0;
+		const fading = layer('fading', () => {
+			renders += 1;
+		});
+		engine.addLayer(fading);
+
+		engine.start();
+		frames.flush();
+		expect(renders).toBe(1);
+
+		clock += 500;
+		fading.visible = false;
+		engine.markDirty();
+		frames.flush();
+		// 第一帧仍按完整不透明度绘制，随后才开始变淡。
+		expect(renders).toBe(2);
+
+		clock += LAYER_FADE_MS / 2;
+		frames.flush();
+		// 半透明的那一帧仍然绘制（经离屏合成）。
+		expect(renders).toBe(3);
+
+		clock += LAYER_FADE_MS;
+		frames.flush();
+		// 完全隐藏后不再绘制，帧链也就停止。
+		expect(renders).toBe(3);
+		const scheduled = frames.requested();
+		frames.flush();
+		expect(frames.requested()).toBe(scheduled);
+	});
+
+	it('hides a layer at once when motion is reduced', () => {
+		(globalThis as unknown as { window: unknown }).window = {
+			devicePixelRatio: 1,
+			matchMedia: () => ({ matches: true })
+		};
+
+		const engine = new CanvasEngine(fakeCanvas());
+		let renders = 0;
+		const hidden = layer('instant', () => {
+			renders += 1;
+		});
+		engine.addLayer(hidden);
+
+		engine.start();
+		frames.flush();
+		expect(renders).toBe(1);
+
+		hidden.visible = false;
+		engine.markDirty();
+		frames.flush();
+		expect(renders).toBe(1);
+		const scheduled = frames.requested();
+		frames.flush();
+		expect(frames.requested()).toBe(scheduled);
 	});
 });
