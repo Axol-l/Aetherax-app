@@ -253,6 +253,7 @@ export interface HeatmapInput {
 	wallHeightM?: number;
 	metric?: 'rssi' | 'sinr';
 	receiverPolarizationAngleDeg?: number;
+	pathLossExponent?: number;
 }
 
 export class HeatmapLayer implements Layer {
@@ -379,19 +380,23 @@ export class HeatmapLayer implements Layer {
 			key: string;
 			pixels: ArrayBuffer | null;
 			colored?: number;
+			wallCount?: number;
+			wupm?: number;
+			wallHeightM?: number;
+			surfaceCount?: number;
 			width: number;
 			height: number;
 			x0: number;
 			y0: number;
 			texel: number;
 		}>) => {
-			const { id, key, pixels, colored, width, height, x0, y0, texel } = event.data;
+			const { id, key, pixels, colored, wallCount, wupm, wallHeightM, surfaceCount, width, height, x0, y0, texel } = event.data;
 			if (this.workerTimer) {
 				clearTimeout(this.workerTimer);
 				this.workerTimer = null;
 			}
 			debug(
-				`[heatmap-worker] id=${id} key=${key.slice(-18)} pixels=${pixels?.byteLength ?? 0} colored=${colored ?? 0} at ${x0},${y0} texel=${texel}`
+				`[heatmap-worker] id=${id} key=${key.slice(-18)} pixels=${pixels?.byteLength ?? 0} colored=${colored ?? 0} walls=${wallCount ?? 0} wupm=${wupm ?? 0} h=${wallHeightM ?? 0} surfaces=${surfaceCount ?? 0} at ${x0},${y0} texel=${texel}`
 			);
 			this.workerJobs.delete(id);
 			// A late result for an older key must not become the current raster.
@@ -419,6 +424,7 @@ export class HeatmapLayer implements Layer {
 			this.cacheX0 = x0;
 			this.cacheY0 = y0;
 			this.cacheTexel = texel;
+			this.cacheFloorId = this.floorId;
 			this.cacheKey = key;
 			this.cacheEntries.set(key, { canvas, x0, y0, texel });
 			// The wall editor can finish a frame between the message and the callback;
@@ -448,6 +454,7 @@ export class HeatmapLayer implements Layer {
 	private cacheX0 = 0;
 	private cacheY0 = 0;
 	private cacheTexel = TEXEL_FINE;
+	private cacheFloorId = '';
 	/**
 	 * 反射/绕射候选跨帧缓存。候选只取决于 AP 位置与频段、墙体几何、楼层标定；
 	 * 平移、缩放、平滑参数变化时可直接复用。
@@ -514,7 +521,8 @@ export class HeatmapLayer implements Layer {
 			reflectingWalls: this.reflectingWalls.map((wall) => ({ ...wall })),
 			wallHeightM: this.wallHeightM,
 			metric: this.metric,
-			receiverPolarizationAngleDeg: this.receiverPolarizationAngleDeg
+			receiverPolarizationAngleDeg: this.receiverPolarizationAngleDeg,
+			pathLossExponent: pathLossN()
 		};
 	}
 
@@ -541,6 +549,7 @@ export class HeatmapLayer implements Layer {
 			this.cacheX0 = cached.x0;
 			this.cacheY0 = cached.y0;
 			this.cacheTexel = cached.texel;
+			this.cacheFloorId = this.floorId;
 			this.cacheKey = key;
 			this.pendingWorkerKey = '';
 			// 命中后移到末尾，Map 的插入顺序即 LRU 顺序。
@@ -552,7 +561,9 @@ export class HeatmapLayer implements Layer {
 		if (this.worker) {
 			const input = this.workerInput();
 			const id = ++this.workerRequestId;
-			this.cache = null;
+			// Keep the previous raster for the same floor visible while the worker
+			// rebuilds; only a floor change must clear it.
+			if (this.cacheFloorId !== this.floorId) this.cache = null;
 			if (this.workerDebounce) clearTimeout(this.workerDebounce);
 			/*
 			 * 画墙/对齐会在一帧内连续改变裁剪键。等输入稳定后再发，避免把中间键
@@ -596,6 +607,7 @@ export class HeatmapLayer implements Layer {
 		this.cacheX0 = generated?.x0 ?? 0;
 		this.cacheY0 = generated?.y0 ?? 0;
 		this.cacheTexel = generated?.texel ?? TEXEL_FINE;
+		this.cacheFloorId = this.floorId;
 		if (generated) {
 			this.cacheEntries.set(key, {
 				canvas: generated.canvas,
@@ -714,7 +726,7 @@ export class HeatmapLayer implements Layer {
 							: '')
 				)
 				.join('|') +
-			`|floor:${this.rssiFloor}|metric:${this.metric}|rxpol:${this.receiverPolarizationAngleDeg}|t:${this.isDragging ? 'c' : 'f'}` +
+			`|floor:${this.rssiFloor}|metric:${this.metric}|rxpol:${this.receiverPolarizationAngleDeg}|n:${pathLossN()}|t:${this.isDragging ? 'c' : 'f'}` +
 			`|id:${this.floorId}` +
 			`|wm:${this.wallMask?.width ?? 0}x${this.wallMask?.height ?? 0}:${this.wallMask?.originX ?? 0},${this.wallMask?.originY ?? 0}` +
 			// 掩码对象本身，而不仅是其几何尺寸：同尺寸替换掩码时，缓存中的衰减场也会随之失效。

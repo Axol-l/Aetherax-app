@@ -5,6 +5,7 @@
  * 卡片缩略图仍可在主线程用 `generateFor` 生成。
  */
 import { HeatmapLayer, type HeatmapInput } from '$canvas/renderers/heatmap.js';
+import { setPathLossN } from '$lib/rf/propagation.js';
 
 interface HeatmapWorkerRequest {
 	id: number;
@@ -14,7 +15,12 @@ interface HeatmapWorkerRequest {
 
 self.onmessage = (event: MessageEvent<HeatmapWorkerRequest>) => {
 	const { id, key, input } = event.data;
+	// The main thread's project may use line-of-sight/office instead of the default
+	// closed-plan exponent; the worker module starts with the default.
+	if (input.pathLossExponent) setPathLossN(input.pathLossExponent);
 	const layer = new HeatmapLayer();
+	layer.coherent = true;
+	layer.gpuDirectEnabled = false;
 	layer.reflectingWalls = input.reflectingWalls ?? [];
 	layer.wallHeightM = input.wallHeightM ?? 3;
 	layer.metric = input.metric ?? 'rssi';
@@ -42,6 +48,10 @@ self.onmessage = (event: MessageEvent<HeatmapWorkerRequest>) => {
 			key,
 			pixels: image.data.buffer,
 			colored,
+			wallCount: input.reflectingWalls?.length ?? 0,
+			wupm: input.worldUnitsPerMeter,
+			wallHeightM: input.wallHeightM,
+			surfaceCount: input.surfaces?.length ?? 0,
 			width: image.width,
 			height: image.height,
 			x0: result.x0,
