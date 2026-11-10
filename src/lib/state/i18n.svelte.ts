@@ -75,6 +75,8 @@ const zh: Record<string, string> = {
 	'Redraw planning area': '重新绘制规划范围',
 	'Use the detected area': '改用自动识别的范围',
 	'Signal strength scale in dBm': '信号强度色标（dBm）',
+	'No vector walls on this floor: reflections and scattering need wall segments.':
+		'本层没有矢量墙线段；反射和散射需要墙线段，纯栅格墙体只能计算直射和穿墙衰减。',
 	'Below the floor: no usable signal': '低于门限：无可用信号',
 	Undo: '撤销',
 	Redo: '重做',

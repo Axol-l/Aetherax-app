@@ -196,6 +196,11 @@
 						{/each}
 					</div>
 				</div>
+				{#if (floorState.floors.find((f) => f.id === floorState.currentFloorId)?.walls?.length ?? 0) === 0}
+					<p class="no-vector-walls">
+						{t('No vector walls on this floor: reflections and scattering need wall segments.')}
+					</p>
+				{/if}
 			{/if}
 		</div>
 	{/if}
@@ -317,6 +322,12 @@
 		text-align: right;
 	}
 
+	.no-vector-walls {
+		margin: 6px 0 0;
+		font-size: var(--text-xs);
+		line-height: 1.35;
+		color: var(--text-tertiary);
+	}
 	.legend-divider {
 		height: 1px;
 		background: var(--border-subtle);

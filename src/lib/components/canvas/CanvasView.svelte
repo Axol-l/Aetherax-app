@@ -553,10 +553,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 	if (typeof location !== 'undefined') {
 		heatmapLayer.gpuDirectEnabled = new URLSearchParams(location.search).has('gpuDirect');
 	}
-	// Off by default until the worker path survives in-place wall edits; the synchronous
-	// path remains the reference implementation. Attach with `attachWorker` to experiment.
+	// Worker is the normal path; `?noWorker=1` keeps the CPU-only reference path for
+	// comparing generated rasters.
 	const ENABLE_HEATMAP_WORKER = true;
-	if (ENABLE_HEATMAP_WORKER && typeof Worker !== 'undefined') {
+	const workerDisabledByQuery =
+		typeof location !== 'undefined' && new URLSearchParams(location.search).has('noWorker');
+	if (ENABLE_HEATMAP_WORKER && !workerDisabledByQuery && typeof Worker !== 'undefined') {
 		const worker = new HeatmapWorker();
 		heatmapLayer.attachWorker(worker);
 		heatmapLayer.onGenerated = () => engine?.markDirty();
