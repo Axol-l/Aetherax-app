@@ -34,3 +34,33 @@ test('WebGPU direct-field probe matches the CPU reference', async ({ page }) => 
 	expect(probe!.cpuMs).toBeGreaterThan(0);
 	expect(probe!.gpuMs).toBeGreaterThan(0);
 });
+
+test('per-AP WebGPU direct field matches the CPU reference', async ({ page }) => {
+	await page.goto('/?gpuProbe=1');
+	await page.waitForFunction(() => {
+		const probe = (window as Window & { __aetheraxGpuPerApProbe?: unknown })
+			.__aetheraxGpuPerApProbe;
+		return !!probe;
+	});
+	const probe = await page.evaluate(
+		() =>
+			(window as Window & { __aetheraxGpuPerApProbe?: unknown })
+				.__aetheraxGpuPerApProbe as
+				| {
+						supported: boolean;
+						reason?: string;
+						cpuMs: number;
+						gpuMs: number;
+						apCount: number;
+						maxAbsErrorDb: number;
+						meanAbsErrorDb: number;
+				  }
+				| undefined
+	);
+	test.skip(!probe?.supported, `WebGPU unavailable: ${probe?.reason ?? 'no result'}`);
+	console.log('GPU_PER_AP_PROBE', JSON.stringify(probe));
+	expect(probe!.apCount).toBe(2);
+	expect(probe!.maxAbsErrorDb).toBeLessThan(1);
+	expect(probe!.meanAbsErrorDb).toBeLessThan(0.1);
+	expect(probe!.gpuMs).toBeGreaterThan(0);
+});

@@ -60,13 +60,31 @@ GPU_PROBE_CHANNEL=msedge pnpm exec playwright test tests/e2e/gpu-direct.spec.ts
 | 指标 | 数值 |
 |---|---:|
 | 像素数 | 65,536 |
-| CPU 耗时 | 204.7 ms |
-| GPU 耗时 | 66.1 ms |
+| CPU 耗时 | 203.4 ms |
+| GPU 耗时 | 67.0 ms |
 | 最大绝对误差 | 7.6e-6 dB |
 | 平均绝对误差 | 1.4e-6 dB |
 | AP 索引不一致 | 0 |
 
 GPU 计时从提交 compute 到读回结果，**不包含** adapter/device 初始化、shader 编译和 buffer 创建；这些是一次性或初始化成本。
+
+## 逐 AP 版本
+
+`direct-field-per-ap.ts` 输出：
+
+```text
+out[apIndex * pixelCount + pixel] = dBm
+```
+
+这样 CPU 可以按 AP 叠加反射/绕射/散射。2 个 AP 的 256×256 逐 AP 实测：
+
+| 指标 | 数值 |
+|---|---:|
+| 像素×AP | 131,072 |
+| CPU 耗时 | 215.2 ms |
+| GPU 耗时 | 50.7 ms |
+| 最大绝对误差 | 1.5e-5 dB |
+| 平均绝对误差 | 1.5e-6 dB |
 
 ## 还不是生产热力图
 

@@ -9,14 +9,23 @@
 	import { restoreLocale } from '$state/i18n.svelte';
 	import { installUnloadFlush } from '$state/persistence.svelte';
 	import { runGpuDirectProbe } from '$lib/gpu/direct-field.js';
+	import { runGpuPerApProbe } from '$lib/gpu/direct-field-per-ap.js';
 
 	let { children } = $props();
 
 	onMount(() => {
 		if (!new URLSearchParams(location.search).has('gpuProbe')) return;
-		void runGpuDirectProbe().then((result) => {
+		void runGpuDirectProbe().then(async (result) => {
 			(window as Window & { __aetheraxGpuProbe?: unknown }).__aetheraxGpuProbe = result;
 			document.documentElement.dataset.gpuProbe = result.supported ? 'ok' : 'unsupported';
+			// Run the per-AP probe after the strongest-AP one so the two do not compete
+			// for the same device while being timed.
+			const perAp = await runGpuPerApProbe();
+			(window as Window & { __aetheraxGpuPerApProbe?: unknown }).__aetheraxGpuPerApProbe =
+				perAp;
+			document.documentElement.dataset.gpuPerApProbe = perAp.supported
+				? 'ok'
+				: 'unsupported';
 		});
 	});
 

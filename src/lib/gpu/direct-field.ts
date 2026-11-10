@@ -331,7 +331,7 @@ export interface GpuDirectProbe {
 	mismatchedAp: number;
 }
 
-function syntheticInput(): DirectFieldInput {
+export function syntheticDirectFieldInput(): DirectFieldInput {
 	const size = 256;
 	const mask = new Uint8Array(size * size);
 	for (let y = 0; y < size; y++) {
@@ -362,7 +362,7 @@ function syntheticInput(): DirectFieldInput {
 }
 
 export async function runGpuDirectProbe(): Promise<GpuDirectProbe> {
-	const input = syntheticInput();
+	const input = syntheticDirectFieldInput();
 	const cpu = directFieldCpu(input);
 	const gpu = await directFieldGpu(input);
 	if (!gpu) {
