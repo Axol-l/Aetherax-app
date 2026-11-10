@@ -102,7 +102,11 @@ export function encodeMaterialMask(mask: Uint8Array, w: number, h: number): stri
 }
 
 /** 将 PNG data URL 解码为 Uint8Array 掩码（读取 R 通道）。 */
+const decodedMaterialCache = new Map<string, Uint8Array>();
+
 export function decodeMaterialMask(dataUrl: string, w: number, h: number): Promise<Uint8Array> {
+	const cached = decodedMaterialCache.get(dataUrl);
+	if (cached) return Promise.resolve(cached);
 	return new Promise((resolve) => {
 		const img = new Image();
 		img.onload = () => {
@@ -116,6 +120,7 @@ export function decodeMaterialMask(dataUrl: string, w: number, h: number): Promi
 			for (let i = 0; i < mask.length; i++) {
 				mask[i] = data[i * 4]!;
 			}
+			decodedMaterialCache.set(dataUrl, mask);
 			resolve(mask);
 		};
 		img.onerror = () => resolve(new Uint8Array(w * h));

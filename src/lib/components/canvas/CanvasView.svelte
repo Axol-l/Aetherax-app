@@ -879,6 +879,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let heatmapApsVersion = 0;
 	$effect(() => {
 		trackHeatmapInputs();
+		void appState.showHeatmap;
+		void appState.floorView;
+		// With the heatmap off there is no image to prepare; decoding other floors'
+		// masks on every floor switch is pure latency.
+		if (!appState.showHeatmap || appState.floorView !== 'single') return;
 		const floorId = floorState.currentFloorId;
 		const version = ++heatmapApsVersion;
 		void (async () => {

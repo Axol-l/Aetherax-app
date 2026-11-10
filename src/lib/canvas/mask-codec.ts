@@ -11,12 +11,19 @@ export interface DecodedWallMask {
 	originY: number;
 }
 
+/** 已解码的墙体掩码；切回楼层时不必重新解码同一张 PNG。 */
+const decodedMaskCache = new Map<string, DecodedWallMask>();
+
 /** 把墙体掩码 PNG data URL 解码为 Uint8Array，便于快速查询像素。 */
 export function decodeMask(
 	dataUrl: string,
 	width: number,
 	height: number
 ): Promise<DecodedWallMask> {
+	const cached = decodedMaskCache.get(dataUrl);
+	if (cached) {
+		return Promise.resolve({ ...cached, originX: 0, originY: 0 });
+	}
 	return new Promise((resolve) => {
 		const img = new Image();
 		img.onload = () => {
@@ -30,7 +37,15 @@ export function decodeMask(
 			for (let i = 0; i < mask.length; i++) {
 				mask[i] = data[i * 4]! > 128 ? 1 : 0;
 			}
-			resolve({ data: mask, width, height, originX: 0, originY: 0 });
+			const result: DecodedWallMask = {
+				data: mask,
+				width,
+				height,
+				originX: 0,
+				originY: 0
+			};
+			decodedMaskCache.set(dataUrl, result);
+			resolve({ ...result });
 		};
 		// 无法解码的掩码返回空结果而不是抛错：调用方都在画已有的内容，
 		// 一层楼读不出来不应影响其他楼层打开。
