@@ -24,14 +24,17 @@ self.onmessage = (event: MessageEvent<HeatmapWorkerRequest>) => {
 		self.postMessage({ id, image: null });
 		return;
 	}
-	const image = (result.canvas as unknown as OffscreenCanvas).transferToImageBitmap();
+	const context = (result.canvas as unknown as OffscreenCanvas).getContext('2d')!;
+	const image = context.getImageData(0, 0, result.canvas.width, result.canvas.height);
 	self.postMessage(
 		{
 			id,
-			image,
+			pixels: image.data.buffer,
+			width: image.width,
+			height: image.height,
 			x0: result.x0,
 			y0: result.y0,
 			texel: result.texel
 		},
-		[image]
+		[image.data.buffer]
 	);};

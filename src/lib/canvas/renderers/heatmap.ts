@@ -327,6 +327,8 @@ export class HeatmapLayer implements Layer {
 	private gpuDirectPending = '';
 	private gpuDirectUnavailable = false;
 	gpuDirectEnabled = true;
+	/** 小网格上 GPU 的初始化/提交开销大于收益，低于该纹素数保留 CPU。 */
+	gpuDirectMinPixels = 120_000;
 
 	private scheduleGpuDirect(input: ProductionDirectInput, key: string): void {
 		if (!this.gpuDirectEnabled || this.gpuDirectUnavailable) return;
@@ -366,23 +368,25 @@ export class HeatmapLayer implements Layer {
 		this.worker = worker;
 		worker.onmessage = (event: MessageEvent<{
 			id: number;
-			image: ImageBitmap | null;
+			pixels: ArrayBuffer | null;
+			width: number;
+			height: number;
 			x0: number;
 			y0: number;
 			texel: number;
 		}>) => {
-			const { id, image, x0, y0, texel } = event.data;
+			const { id, pixels, width, height, x0, y0, texel } = event.data;
 			if (this.workerTimer) {
 				clearTimeout(this.workerTimer);
 				this.workerTimer = null;
 			}
 			debug(
-				`[heatmap-worker] id=${id} image=${image?.width ?? 0}x${image?.height ?? 0} at ${x0},${y0} texel=${texel}`
+				`[heatmap-worker] id=${id} pixels=${pixels?.byteLength ?? 0} at ${x0},${y0} texel=${texel}`
 			);
 			const key = this.workerJobs.get(id);
 			this.workerJobs.delete(id);
-			if (!key || id !== this.workerRequestId) return;
-			if (!image) {
+			if (!key) return;
+			if (!pixels) {
 				// Worker could not produce a raster; fall back to the synchronous path.
 				this.worker = null;
 				this.workerJobs.clear();
@@ -391,17 +395,21 @@ export class HeatmapLayer implements Layer {
 				this.onGenerated?.();
 				return;
 			}
-			this.cache = image;
+			const canvas = document.createElement('canvas');
+			canvas.width = width;
+			canvas.height = height;
+			const context = canvas.getContext('2d')!;
+			context.putImageData(
+				new ImageData(new Uint8ClampedArray(pixels), width, height),
+				0,
+				0
+			);
+			this.cache = canvas;
 			this.cacheX0 = x0;
 			this.cacheY0 = y0;
 			this.cacheTexel = texel;
 			this.cacheKey = key;
-			this.cacheEntries.set(key, {
-				canvas: image,
-				x0,
-				y0,
-				texel
-			});
+			this.cacheEntries.set(key, { canvas, x0, y0, texel });
 			this.onGenerated?.();
 		};
 		worker.onerror = () => {
@@ -917,6 +925,7 @@ export class HeatmapLayer implements Layer {
 			!this.gpuDirectUnavailable &&
 			this.wallMask &&
 			this.surfaces.length === 0 &&
+			cols * rows >= this.gpuDirectMinPixels &&
 			sameBand &&
 			this.aps.every((ap) => !ap.crossFloor)
 		) {
