@@ -61,7 +61,7 @@ test.describe('AP placement', () => {
 		const canvas = page.locator('canvas');
 		await canvas.click({ position: { x: 300, y: 300 } });
 
-		await page.locator('text=Delete Access Point').click();
+		await page.getByRole('button', { name: 'Delete Access Point' }).click();
 
 		// Should show empty list
 		await expect(page.locator('text=No access points yet')).toBeVisible();

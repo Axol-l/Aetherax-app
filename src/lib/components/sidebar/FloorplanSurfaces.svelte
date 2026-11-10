@@ -497,11 +497,6 @@
 		transition: transform var(--transition-fast), background var(--transition-fast);
 	}
 
-	.param-toggle:active {
-		/* A switch row, not a button: the global press scale would shrink the whole row. */
-		transform: none;
-	}
-
 	.param-toggle.on .toggle-knob {
 		transform: translateX(12px);
 		background: var(--accent-primary);

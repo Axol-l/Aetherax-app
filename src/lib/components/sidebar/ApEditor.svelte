@@ -23,11 +23,11 @@
 	import { solverState, edgeSignals } from '$state/solver.svelte.js';
 	import { findModel, getBandSpec, recommendedClients, recommendedAntenna, type ApModel } from '$lib/data/ap-models.js';
 	import Select from '$components/shared/Select.svelte';
-	import Button from '$components/shared/Button.svelte';
 	import Icon from '$components/shared/Icon.svelte';
 	import NumberInput from '$components/shared/NumberInput.svelte';
 	import Tooltip from '$components/shared/Tooltip.svelte';
 	import ModelPicker from '$components/shared/ModelPicker.svelte';
+	import PanelCard from './PanelCard.svelte';
 	import { t } from '$state/i18n.svelte';
 	import { displayLength, lengthInputHints, lengthUnit, unitToMetres } from '$lib/units.js';
 	import { apState } from '$state/ap-state.svelte.js';
@@ -35,6 +35,9 @@
 
 	/** Narrowest beam the field accepts: below this the pattern is a pencil. */
 	const MIN_BEAMWIDTH_DEG = 10;
+
+	/** The advanced settings are folded away and sit at the end of the editor. */
+	let advancedCollapsed = $state(true);
 
 	const allBandOptions = [
 		{ value: '2.4ghz', label: '2.4 GHz' },
@@ -488,31 +491,6 @@
 				/>
 				<span class="mount-unit">{t('° aim')}</span>
 			</div>
-			<details class="advanced-settings">
-				<summary>{t('Advanced')}</summary>
-				<div class="mount-row">
-					<Tooltip position="top" text={t('Transmit polarization: 0° is vertical, 90° is horizontal.')}>
-						<span class="field-label">{t('Polarization')}</span>
-					</Tooltip>
-					<input
-						class="mount-height"
-						type="number"
-						aria-label={t('Polarization')}
-						value={singleAp.polarizationAngleDeg ?? 0}
-						min="0"
-						max="90"
-						step={5}
-						oninput={(e) => {
-							const input = e.currentTarget as HTMLInputElement;
-							const value = Number(input.value);
-							if (value > 90) input.value = '90';
-							else if (value < 0) input.value = '0';
-						}}
-						onchange={handlePolarizationChange}
-					/>
-					<span class="mount-unit">{t('°')}</span>
-				</div>
-			</details>
 			{#if singleAp.mount === 'wall'}
 				<!--
 					Only a wall mount has a direction in the plan: an upright omni is a
@@ -570,6 +548,7 @@
 				class:on={singleAp.pinned}
 				role="switch"
 				aria-checked={singleAp.pinned}
+				aria-label={t('Pin position')}
 				onclick={() => {
 					pushState();
 					updateAp(singleAp.id, { pinned: !singleAp.pinned });
@@ -599,11 +578,37 @@
 			</div>
 		{/if}
 
+		<PanelCard title={t('Advanced')} bind:collapsed={advancedCollapsed}>
+			<div class="mount-row">
+				<Tooltip position="top" text={t('Transmit polarization: 0° is vertical, 90° is horizontal.')}>
+					<span class="field-label">{t('Polarization')}</span>
+				</Tooltip>
+				<input
+					class="mount-height"
+					type="number"
+					aria-label={t('Polarization')}
+					value={singleAp.polarizationAngleDeg ?? 0}
+					min="0"
+					max="90"
+					step={5}
+					oninput={(e) => {
+						const input = e.currentTarget as HTMLInputElement;
+						const value = Number(input.value);
+						if (value > 90) input.value = '90';
+						else if (value < 0) input.value = '0';
+					}}
+					onchange={handlePolarizationChange}
+				/>
+				<span class="mount-unit">{t('°')}</span>
+			</div>
+		</PanelCard>
+
 		<div class="delete-section">
-			<Button variant="danger" size="sm" onclick={handleDelete}>
-				<Icon name="trash" size={14} />
-				{t('Delete Access Point')}
-			</Button>
+			<Tooltip text={t('Delete Access Point')} position="top">
+				<button class="delete-icon-btn" onclick={handleDelete} aria-label={t('Delete Access Point')}>
+					<Icon name="trash" size={14} />
+				</button>
+			</Tooltip>
 		</div>
 	</div>
 {:else if multiSelect}
@@ -649,23 +654,16 @@
 		</div>
 
 		<div class="delete-section">
-			<Button variant="danger" size="sm" onclick={handleDeleteAll}>
-				<Icon name="trash" size={14} />
-				{t('Delete All')}
-			</Button>
+			<Tooltip text={t('Delete All')} position="top">
+				<button class="delete-icon-btn" onclick={handleDeleteAll} aria-label={t('Delete All')}>
+					<Icon name="trash" size={14} />
+				</button>
+			</Tooltip>
 		</div>
 	</div>
 {/if}
 
 <style>
-	.advanced-settings {
-		margin-top: var(--space-2);
-	}
-	.advanced-settings summary {
-		cursor: pointer;
-		font-size: var(--text-xs);
-		color: var(--text-tertiary);
-	}
 	.editor {
 		display: flex;
 		flex-direction: column;
@@ -843,9 +841,37 @@
 		white-space: nowrap;
 	}
 
+	/* One icon at the end of the row: the danger colour is kept, the label moves to the tooltip. */
 	.delete-section {
+		display: flex;
+		justify-content: flex-end;
 		padding-top: var(--space-3);
 		border-top: 1px solid var(--border-subtle);
+	}
+
+	.delete-icon-btn {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 1px solid var(--color-error-dim);
+		border-radius: var(--radius-md);
+		background: var(--color-error-dim);
+		color: var(--text-on-accent, #fff);
+		cursor: pointer;
+		transition: all var(--transition-fast);
+	}
+
+	.delete-icon-btn:hover {
+		background: var(--color-error);
+		border-color: var(--color-error);
+	}
+
+	.delete-icon-btn:focus-visible {
+		outline: 2px solid var(--accent-primary);
+		outline-offset: 1px;
 	}
 
 	.field-hint {

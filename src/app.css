@@ -52,11 +52,13 @@ body {
 
 /*
  * Press feedback for every button, including the small icon buttons and toolbars.
+ * A switch is not a button: scaling a whole row that happens to be a <button role="switch">
+ * reads as the layout jumping, so switches opt out.
  *
  * Components that already transition `all` animate this; the rest snap, which is still the
  * right response for a press. The transform is the only property, so no layout is touched.
  */
-button:not(:disabled):active {
+button:not(:disabled):not([role='switch']):active {
 	transform: scale(0.97);
 }
 
