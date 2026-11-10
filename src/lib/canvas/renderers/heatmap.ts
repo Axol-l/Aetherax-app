@@ -363,29 +363,34 @@ export class HeatmapLayer implements Layer {
 	private workerRequestId = 0;
 	private workerJobs = new Map<number, string>();
 	private workerTimer: ReturnType<typeof setTimeout> | null = null;
+	private workerDebounce: ReturnType<typeof setTimeout> | null = null;
+	private pendingWorkerKey = '';
 
 	attachWorker(worker: Worker): void {
 		this.worker = worker;
 		worker.onmessage = (event: MessageEvent<{
 			id: number;
+			key: string;
 			pixels: ArrayBuffer | null;
+			colored?: number;
 			width: number;
 			height: number;
 			x0: number;
 			y0: number;
 			texel: number;
 		}>) => {
-			const { id, pixels, width, height, x0, y0, texel } = event.data;
+			const { id, key, pixels, colored, width, height, x0, y0, texel } = event.data;
 			if (this.workerTimer) {
 				clearTimeout(this.workerTimer);
 				this.workerTimer = null;
 			}
 			debug(
-				`[heatmap-worker] id=${id} pixels=${pixels?.byteLength ?? 0} at ${x0},${y0} texel=${texel}`
+				`[heatmap-worker] id=${id} key=${key.slice(-18)} pixels=${pixels?.byteLength ?? 0} colored=${colored ?? 0} at ${x0},${y0} texel=${texel}`
 			);
-			const key = this.workerJobs.get(id);
 			this.workerJobs.delete(id);
-			if (!key) return;
+			// A late result for an older key must not become the current raster.
+			if (key !== this.pendingWorkerKey) return;
+			this.pendingWorkerKey = '';
 			if (!pixels) {
 				// Worker could not produce a raster; fall back to the synchronous path.
 				this.worker = null;
@@ -410,7 +415,10 @@ export class HeatmapLayer implements Layer {
 			this.cacheTexel = texel;
 			this.cacheKey = key;
 			this.cacheEntries.set(key, { canvas, x0, y0, texel });
+			// The wall editor can finish a frame between the message and the callback;
+			// queue one more repaint so the worker raster is guaranteed to be seen.
 			this.onGenerated?.();
+			requestAnimationFrame(() => this.onGenerated?.());
 		};
 		worker.onerror = () => {
 			if (this.workerTimer) {
@@ -527,6 +535,7 @@ export class HeatmapLayer implements Layer {
 			this.cacheY0 = cached.y0;
 			this.cacheTexel = cached.texel;
 			this.cacheKey = key;
+			this.pendingWorkerKey = '';
 			// 命中后移到末尾，Map 的插入顺序即 LRU 顺序。
 			this.cacheEntries.delete(key);
 			this.cacheEntries.set(key, cached);
@@ -536,27 +545,37 @@ export class HeatmapLayer implements Layer {
 		if (this.worker) {
 			const input = this.workerInput();
 			const id = ++this.workerRequestId;
-			this.workerJobs.set(id, key);
 			this.cache = null;
-			if (this.workerTimer) clearTimeout(this.workerTimer);
-			this.workerTimer = setTimeout(() => {
-				if (this.workerRequestId === id && !this.cache) {
-					// A worker that has not answered is worse than no worker: fall back.
+			if (this.workerDebounce) clearTimeout(this.workerDebounce);
+			/*
+			 * 画墙/对齐会在一帧内连续改变裁剪键。等输入稳定后再发，避免把中间键
+			 * 的请求留成 pending，新的键永远等不到结果。
+			 */
+			this.workerDebounce = setTimeout(() => {
+				this.workerDebounce = null;
+				if (this.cacheKey !== key || !this.worker) return;
+				this.pendingWorkerKey = key;
+				this.workerJobs.set(id, key);
+				if (this.workerTimer) clearTimeout(this.workerTimer);
+				this.workerTimer = setTimeout(() => {
+					if (this.pendingWorkerKey === key && !this.cache) {
+						this.worker = null;
+						this.workerJobs.clear();
+						this.pendingWorkerKey = '';
+						this.cacheKey = '';
+						this.onGenerated?.();
+					}
+				}, 800);
+				try {
+					this.worker.postMessage({ id, key, input });
+				} catch {
 					this.worker = null;
 					this.workerJobs.clear();
+					this.pendingWorkerKey = '';
 					this.cacheKey = '';
 					this.onGenerated?.();
 				}
-			}, 2000);
-			try {
-				this.worker.postMessage({ id, input });
-			} catch {
-				// A non-cloneable input must not leave the layer stuck without a raster.
-				this.worker = null;
-				this.workerJobs.clear();
-				this.cacheKey = '';
-				this.onGenerated?.();
-			}
+			}, 50);
 			return;
 		}
 		const started = performance.now();

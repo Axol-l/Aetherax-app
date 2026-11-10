@@ -8,11 +8,12 @@ import { HeatmapLayer, type HeatmapInput } from '$canvas/renderers/heatmap.js';
 
 interface HeatmapWorkerRequest {
 	id: number;
+	key: string;
 	input: HeatmapInput;
 }
 
 self.onmessage = (event: MessageEvent<HeatmapWorkerRequest>) => {
-	const { id, input } = event.data;
+	const { id, key, input } = event.data;
 	const layer = new HeatmapLayer();
 	layer.reflectingWalls = input.reflectingWalls ?? [];
 	layer.wallHeightM = input.wallHeightM ?? 3;
@@ -21,15 +22,26 @@ self.onmessage = (event: MessageEvent<HeatmapWorkerRequest>) => {
 
 	const result = layer.generateFor(input);
 	if (!result) {
-		self.postMessage({ id, image: null });
+		self.postMessage({ id, key, pixels: null });
 		return;
 	}
 	const context = (result.canvas as unknown as OffscreenCanvas).getContext('2d')!;
 	const image = context.getImageData(0, 0, result.canvas.width, result.canvas.height);
+	let colored = 0;
+	for (let i = 0; i < image.data.length; i += 4) {
+		const r = image.data[i]!;
+		const g = image.data[i + 1]!;
+		const b = image.data[i + 2]!;
+		const max = Math.max(r, g, b);
+		const min = Math.min(r, g, b);
+		if (max - min > 24 && max > 40) colored++;
+	}
 	self.postMessage(
 		{
 			id,
+			key,
 			pixels: image.data.buffer,
+			colored,
 			width: image.width,
 			height: image.height,
 			x0: result.x0,
