@@ -3,6 +3,9 @@ import type { Layer, RenderContext } from '../types.js';
 import type { AccessPoint } from '$state/ap-state.svelte.js';
 
 /** 带可选跨楼层参数的接入点，用于三维传播计算。 */
+/** 主线程同步生成用 canvas，Worker 返回 ImageBitmap。 */
+type HeatmapImage = HTMLCanvasElement | ImageBitmap;
+
 type HeatmapAp = AccessPoint & {
 	verticalOffset?: number; // 单位米：层高 × 间隔楼层数
 	floorDbPerMeter?: number; // 单位 dB/m：穿过楼板材料的损耗
@@ -72,7 +75,7 @@ import {
 
 import { rampColorAt } from '../heatmap-ramp.js';
 import { maskSignature } from '../mask-registry.js';
-import { antennaProfileFor } from '$state/ap-state.svelte.js';
+import { antennaProfileForMount } from '../../rf/antenna.js';
 
 /**
  * 热力图每个纹素对应的世界坐标单位数。
@@ -315,38 +318,50 @@ export class HeatmapLayer implements Layer {
 	/** 当前生成所属楼层；缓存按楼层分开，切回时可直接命中。 */
 	floorId = '';
 
-	private cache: HTMLCanvasElement | null = null;
+	private cache: HeatmapImage | null = null;
 	private cacheKey = '';
 	worker: Worker | null = null;
 	onGenerated: (() => void) | null = null;
 	private workerRequestId = 0;
 	private workerJobs = new Map<number, string>();
+	private workerTimer: ReturnType<typeof setTimeout> | null = null;
 
 	attachWorker(worker: Worker): void {
 		this.worker = worker;
 		worker.onmessage = (event: MessageEvent<{
 			id: number;
-			canvas: OffscreenCanvas | null;
+			image: ImageBitmap | null;
 			x0: number;
 			y0: number;
 			texel: number;
 		}>) => {
-			const { id, canvas, x0, y0, texel } = event.data;
+			const { id, image, x0, y0, texel } = event.data;
+			if (this.workerTimer) {
+				clearTimeout(this.workerTimer);
+				this.workerTimer = null;
+			}
+			debug(
+				`[heatmap-worker] id=${id} image=${image?.width ?? 0}x${image?.height ?? 0} at ${x0},${y0} texel=${texel}`
+			);
 			const key = this.workerJobs.get(id);
 			this.workerJobs.delete(id);
 			if (!key || id !== this.workerRequestId) return;
-			if (!canvas) {
+			if (!image) {
+				// Worker could not produce a raster; fall back to the synchronous path.
+				this.worker = null;
+				this.workerJobs.clear();
 				this.cache = null;
+				this.cacheKey = '';
 				this.onGenerated?.();
 				return;
 			}
-			this.cache = canvas as unknown as HTMLCanvasElement;
+			this.cache = image;
 			this.cacheX0 = x0;
 			this.cacheY0 = y0;
 			this.cacheTexel = texel;
 			this.cacheKey = key;
 			this.cacheEntries.set(key, {
-				canvas: canvas as unknown as HTMLCanvasElement,
+				canvas: image,
 				x0,
 				y0,
 				texel
@@ -354,6 +369,10 @@ export class HeatmapLayer implements Layer {
 			this.onGenerated?.();
 		};
 		worker.onerror = () => {
+			if (this.workerTimer) {
+				clearTimeout(this.workerTimer);
+				this.workerTimer = null;
+			}
 			this.worker = null;
 			this.workerJobs.clear();
 			this.cacheKey = '';
@@ -363,7 +382,7 @@ export class HeatmapLayer implements Layer {
 	/** 已生成的热力图按完整输入键缓存，切换楼层再切回来时直接复用。 */
 	private cacheEntries = new Map<
 		string,
-		{ canvas: HTMLCanvasElement; x0: number; y0: number; texel: number }
+		{ canvas: HeatmapImage; x0: number; y0: number; texel: number }
 	>();
 	private static readonly MAX_CACHE_ENTRIES = 12;
 	/** `cache` 在世界坐标中的原点位置，以及每个纹素对应的世界坐标单位数。 */
@@ -393,6 +412,53 @@ export class HeatmapLayer implements Layer {
 	 * 输入发生变化时重建世界坐标下的缓存图像。
 	 * 从 `render` 中拆出，使平铺楼层总览无需本图层绘制也能取得图像。
 	 */
+	/** 只传 plain data；Svelte 的 state proxy 不能直接 postMessage。 */
+	private workerInput(): HeatmapInput {
+		const mask = this.wallMask
+			? {
+					...this.wallMask,
+					data: new Uint8Array(this.wallMask.data)
+				}
+			: null;
+		const aps = this.aps.map((ap) => {
+			const crossFloor = ap.crossFloor
+				? {
+						...ap.crossFloor,
+						mask: {
+							...ap.crossFloor.mask,
+							data: new Uint8Array(ap.crossFloor.mask.data)
+						},
+						materialMap: ap.crossFloor.materialMap
+							? new Uint8Array(ap.crossFloor.materialMap)
+							: null,
+						slabRoomType: ap.crossFloor.slabRoomType
+							? {
+									...ap.crossFloor.slabRoomType,
+									data: new Uint8Array(ap.crossFloor.slabRoomType.data)
+								}
+							: null
+					}
+				: null;
+			return { ...ap, crossFloor };
+		});
+		return {
+			aps,
+			wallMask: mask,
+			materialMap: this.materialMap ? new Uint8Array(this.materialMap) : null,
+			defaultMaterial: this.defaultMaterial,
+			worldUnitsPerMeter: this.worldUnitsPerMeter,
+			rssiFloor: this.rssiFloor,
+			maskTag: this.maskTag,
+			surfaces: this.surfaces.map((surface) => ({ ...surface })),
+			clipPolygon: this.clipPolygon?.map((point) => ({ x: point.x, y: point.y })) ?? null,
+			clipStrict: this.clipStrict,
+			reflectingWalls: this.reflectingWalls.map((wall) => ({ ...wall })),
+			wallHeightM: this.wallHeightM,
+			metric: this.metric,
+			receiverPolarizationAngleDeg: this.receiverPolarizationAngleDeg
+		};
+	}
+
 	ensureGenerated(): void {
 		if (this.aps.length === 0) {
 			this.cache = null;
@@ -424,26 +490,29 @@ export class HeatmapLayer implements Layer {
 		}
 		this.cacheKey = key;
 		if (this.worker) {
-			const input: HeatmapInput = {
-				aps: this.aps,
-				wallMask: this.wallMask,
-				materialMap: this.materialMap,
-				defaultMaterial: this.defaultMaterial,
-				worldUnitsPerMeter: this.worldUnitsPerMeter,
-				rssiFloor: this.rssiFloor,
-				maskTag: this.maskTag,
-				surfaces: this.surfaces,
-				clipPolygon: this.clipPolygon,
-				clipStrict: this.clipStrict,
-				reflectingWalls: this.reflectingWalls,
-				wallHeightM: this.wallHeightM,
-				metric: this.metric,
-				receiverPolarizationAngleDeg: this.receiverPolarizationAngleDeg
-			};
+			const input = this.workerInput();
 			const id = ++this.workerRequestId;
 			this.workerJobs.set(id, key);
 			this.cache = null;
-			this.worker.postMessage({ id, input });
+			if (this.workerTimer) clearTimeout(this.workerTimer);
+			this.workerTimer = setTimeout(() => {
+				if (this.workerRequestId === id && !this.cache) {
+					// A worker that has not answered is worse than no worker: fall back.
+					this.worker = null;
+					this.workerJobs.clear();
+					this.cacheKey = '';
+					this.onGenerated?.();
+				}
+			}, 2000);
+			try {
+				this.worker.postMessage({ id, input });
+			} catch {
+				// A non-cloneable input must not leave the layer stuck without a raster.
+				this.worker = null;
+				this.workerJobs.clear();
+				this.cacheKey = '';
+				this.onGenerated?.();
+			}
 			return;
 		}
 		const started = performance.now();
@@ -722,7 +791,7 @@ export class HeatmapLayer implements Layer {
 			const vo = ap.verticalOffset ?? 0;
 			vertWu[i] = vo * wupm;
 			// 天线的垂直方向图取决于射线仰角，而仰角逐纹素计算，因此这里只解析方向图。
-			apProfiles.push(antennaProfileFor(ap));
+			apProfiles.push(antennaProfileForMount(ap));
 			bands.push(ap.band);
 			floorDbThickness[i] = (ap.floorDbPerMeter ?? 0) * (ap.floorThickness ?? 0);
 			// pathLossDb(band, 1) 即该频段 1 m 处的参考损耗 PL0。

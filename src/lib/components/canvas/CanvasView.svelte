@@ -550,7 +550,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 	const floorplanLayer = new FloorplanLayer();
 	const gridLayer = new GridLayer();
 	const heatmapLayer = new HeatmapLayer();
-	if (typeof Worker !== 'undefined') {
+	// Off by default until the worker path survives in-place wall edits; the synchronous
+	// path remains the reference implementation. Attach with `attachWorker` to experiment.
+	const ENABLE_HEATMAP_WORKER = false;
+	if (ENABLE_HEATMAP_WORKER && typeof Worker !== 'undefined') {
 		const worker = new HeatmapWorker();
 		heatmapLayer.attachWorker(worker);
 		heatmapLayer.onGenerated = () => engine?.markDirty();

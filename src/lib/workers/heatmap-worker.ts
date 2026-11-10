@@ -21,17 +21,17 @@ self.onmessage = (event: MessageEvent<HeatmapWorkerRequest>) => {
 
 	const result = layer.generateFor(input);
 	if (!result) {
-		self.postMessage({ id, canvas: null });
+		self.postMessage({ id, image: null });
 		return;
 	}
+	const image = (result.canvas as unknown as OffscreenCanvas).transferToImageBitmap();
 	self.postMessage(
 		{
 			id,
-			canvas: result.canvas,
+			image,
 			x0: result.x0,
 			y0: result.y0,
 			texel: result.texel
 		},
-		[result.canvas as unknown as Transferable]
-	);
-};
+		[image]
+	);};
