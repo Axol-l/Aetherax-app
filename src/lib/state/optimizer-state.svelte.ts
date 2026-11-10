@@ -3,7 +3,7 @@
  */
 import { SvelteMap } from 'svelte/reactivity';
 import { apState, wupmForFloor } from './ap-state.svelte.js';
-import { currentFloor, floorState } from './floor-state.svelte.js';
+import { floorState } from './floor-state.svelte.js';
 import { isInsideInterior } from './ap-interior.js';
 import { projectMeta } from './project-meta.svelte.js';
 import { isUsablePlanningArea, pointInPlanningArea } from './planning-area.js';
@@ -124,13 +124,11 @@ export function dropStaleCoverage(): void {
 export async function apsOutsideInterior(): Promise<string[]> {
 	if (projectMeta.allowOutsideRooms) return [];
 	const outside: string[] = [];
-	/*
-	 * 画了规划区域时，以它为准
-	 */
-	const planned = currentFloor().planningArea;
-	const hasPlan = isUsablePlanningArea(planned);
 	for (const ap of apState.aps) {
 		if (ap.mount === 'wall') continue;
+		// The planning area belongs to the AP's own floor, not whichever floor is on screen.
+		const planned = floorState.floors.find((floor) => floor.id === ap.floorId)?.planningArea;
+		const hasPlan = isUsablePlanningArea(planned);
 		const inside = hasPlan
 			? pointInPlanningArea({ x: ap.x, y: ap.y }, planned!)
 			: await isInsideInterior(ap.floorId, ap.x, ap.y);

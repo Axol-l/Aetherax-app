@@ -9,6 +9,7 @@ import { FLOOR_MATERIALS } from '$canvas/floor-materials.js';
 import { crossFloorSplit } from '$lib/rf/cross-floor.js';
 import type { ElevatedSurface } from '$lib/rf/surface-height.js';
 import type { Band } from '@aetherax/channels';
+import { appState } from './app.svelte.js';
 
 export interface Floor {
 	id: string;
@@ -178,7 +179,10 @@ export function removeFloor(id: string): void {
 
 /** 切到某一层 */
 export function switchFloor(id: string): void {
-	if (floorState.floors.some((f) => f.id === id)) {
+	if (floorState.currentFloorId !== id && floorState.floors.some((f) => f.id === id)) {
+		// 单层视图切到空白楼层时先关掉热力图，避免同步生成一张没有几何可裁剪的大图。
+		// 平铺/堆叠视图的卡片要保持自己的覆盖缩略图，不受这次切换影响。
+		if (appState.floorView === 'single') appState.showHeatmap = false;
 		floorState.currentFloorId = id;
 	}
 }
