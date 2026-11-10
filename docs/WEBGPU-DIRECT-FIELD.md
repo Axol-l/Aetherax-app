@@ -134,6 +134,15 @@ applyProductionAntenna(input, result, apIndex, profile);
 - 异步 readback 缓存，避免主线程等待；
 - 与现有反射/绕射/散射的逐 AP 复场合并。
 
+## GPU 选择与回退
+
+- 代码请求 `powerPreference: 'high-performance'`，但 WebGPU 不能按厂商强制选择
+  adapter；Windows 上通常由系统/驱动决定，可能选到 Intel 集显。
+- 探针会返回实际 adapter，例如 `{ vendor: 'intel', architecture: 'gen-9' }`。
+- 没有 `navigator.gpu`、没有 adapter 或 device 创建失败时，热力图自动保留 CPU
+  直射路径；不会留下空白图。
+- 设备丢失时会清空共享 device，下一次生成重新请求。
+
 ## 还不是生产热力图
 
 尚未接入主热力图，因为：

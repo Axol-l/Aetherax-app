@@ -248,16 +248,60 @@ fn main(@builtin(global_invocation_id) gid: vec3<u32>) {
 const USAGE = { MAP_READ: 1, COPY_SRC: 4, COPY_DST: 8, UNIFORM: 64, STORAGE: 128 };
 const MAP_READ = 1;
 
+let adapterPromise: Promise<any | null> | null = null;
+let adapterInfoCache: ProductionAdapterInfo | null = null;
 let devicePromise: Promise<any | null> | null = null;
+
+export interface ProductionAdapterInfo {
+	vendor: string;
+	architecture: string;
+	device: string;
+	description: string;
+}
+
+async function sharedAdapter(): Promise<any | null> {
+	if (!adapterPromise) {
+		adapterPromise = (async () => {
+			const gpu = (navigator as any).gpu;
+			if (!gpu) return null;
+			try {
+				const preferred = await gpu.requestAdapter({ powerPreference: 'high-performance' });
+				if (preferred) return preferred;
+			} catch {
+				// Fall through to the default adapter.
+			}
+			return gpu.requestAdapter();
+		})();
+	}
+	return adapterPromise;
+}
+
+/** 当前 WebGPU 实际选中的 adapter；没有则为 null。 */
+export async function productionAdapterInfo(): Promise<ProductionAdapterInfo | null> {
+	if (adapterInfoCache) return adapterInfoCache;
+	const adapter = await sharedAdapter();
+	if (!adapter) return null;
+	const info = adapter.info ?? {};
+	adapterInfoCache = {
+		vendor: String(info.vendor ?? ''),
+		architecture: String(info.architecture ?? ''),
+		device: String(info.device ?? ''),
+		description: String(info.description ?? '')
+	};
+	return adapterInfoCache;
+}
 
 function sharedDevice(): Promise<any | null> {
 	if (!devicePromise) {
 		devicePromise = (async () => {
-			const gpu = (navigator as any).gpu;
-			if (!gpu) return null;
-			const adapter = await gpu.requestAdapter();
+			const adapter = await sharedAdapter();
 			if (!adapter) return null;
-			return adapter.requestDevice();
+			const device = await adapter.requestDevice();
+			void device.lost?.then?.(() => {
+				// 下一次需要重新拿 device；当前帧仍保留 CPU 结果。
+				devicePromise = null;
+			});
+			return device;
 		})();
 	}
 	return devicePromise;
@@ -399,6 +443,7 @@ export interface ProductionProbe {
 	meanAbsErrorDb: number;
 	sampleCpu?: number;
 	sampleGpu?: number;
+	adapter?: ProductionAdapterInfo | null;
 }
 
 function syntheticInput(): ProductionDirectInput {
@@ -443,6 +488,7 @@ export async function runProductionProbe(): Promise<ProductionProbe> {
 	const input = syntheticInput();
 	const cpu = productionDirectCpu(input);
 	const gpu = await productionDirectGpu(input);
+	const adapter = await productionAdapterInfo();
 	if (!gpu) {
 		return {
 			supported: false,
@@ -450,7 +496,8 @@ export async function runProductionProbe(): Promise<ProductionProbe> {
 			cpuMs: cpu.ms,
 			gpuMs: 0,
 			maxAbsErrorDb: 0,
-			meanAbsErrorDb: 0
+			meanAbsErrorDb: 0,
+			adapter
 		};
 	}
 	let maxAbsErrorDb = 0;
@@ -467,6 +514,7 @@ export async function runProductionProbe(): Promise<ProductionProbe> {
 		maxAbsErrorDb,
 		meanAbsErrorDb: sum / cpu.dbm.length,
 		sampleCpu: cpu.dbm[0],
-		sampleGpu: gpu.dbm[0]
+		sampleGpu: gpu.dbm[0],
+		adapter
 	};
 }
