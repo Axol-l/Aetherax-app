@@ -28,8 +28,6 @@
 	import NumberInput from '$components/shared/NumberInput.svelte';
 	import Tooltip from '$components/shared/Tooltip.svelte';
 	import ModelPicker from '$components/shared/ModelPicker.svelte';
-	import { slide } from 'svelte/transition';
-	import { motionDuration } from '$lib/motion.js';
 	import { t } from '$state/i18n.svelte';
 	import { displayLength, lengthInputHints, lengthUnit, unitToMetres } from '$lib/units.js';
 	import { apState } from '$state/ap-state.svelte.js';
@@ -592,7 +590,7 @@
 				<span>{t('Advanced')}</span>
 			</button>
 			{#if !advancedCollapsed}
-				<div class="advanced-body" transition:slide={{ duration: motionDuration(180) }}>
+				<div class="advanced-body">
 					<div class="mount-row">
 						<Tooltip position="top" text={t('Transmit polarization: 0° is vertical, 90° is horizontal.')}>
 							<span class="field-label">{t('Polarization')}</span>
