@@ -370,6 +370,53 @@ export class HeatmapLayer implements Layer {
 	private workerDebounce: ReturnType<typeof setTimeout> | null = null;
 	private warnedNoWorker = false;
 	private pendingWorkerKey = '';
+	/**
+	 * A worker has one job at a time. Rapid spinner clicks used to enqueue every
+	 * intermediate key; the worker then spent seconds on stale rasters before the
+	 * latest one. Keep only the newest queued request.
+	 */
+	private workerBusy = false;
+	private queuedWorker: { key: string; input: HeatmapInput } | null = null;
+
+	private flushQueuedWorker(): void {
+		const queued = this.queuedWorker;
+		this.queuedWorker = null;
+		if (!queued || !this.worker || queued.key !== this.cacheKey) return;
+		this.postWorker(queued.input, queued.key);
+	}
+
+	private postWorker(input: HeatmapInput, key: string): void {
+		if (!this.worker) return;
+		const id = ++this.workerRequestId;
+		this.workerBusy = true;
+		this.pendingWorkerKey = key;
+		this.workerJobs.set(id, key);
+		if (this.workerTimer) clearTimeout(this.workerTimer);
+		this.workerTimer = setTimeout(() => {
+			if (this.pendingWorkerKey === key) {
+				console.warn('[heatmap] worker timed out after 8 s, falling back to CPU');
+				this.workerBusy = false;
+				this.queuedWorker = null;
+				this.worker = null;
+				this.workerJobs.clear();
+				this.pendingWorkerKey = '';
+				this.cacheKey = '';
+				this.cache = null;
+				this.onGenerated?.();
+			}
+		}, 8000);
+		try {
+			this.worker.postMessage({ id, key, input });
+		} catch {
+			this.workerBusy = false;
+			this.queuedWorker = null;
+			this.worker = null;
+			this.workerJobs.clear();
+			this.pendingWorkerKey = '';
+			this.cacheKey = '';
+			this.onGenerated?.();
+		}
+	}
 
 	attachWorker(worker: Worker): void {
 		this.worker = worker;
@@ -393,12 +440,16 @@ export class HeatmapLayer implements Layer {
 				clearTimeout(this.workerTimer);
 				this.workerTimer = null;
 			}
+			this.workerBusy = false;
 			debug(
 				`[heatmap-worker] id=${id} key=${key.slice(-18)} pixels=${pixels?.byteLength ?? 0} colored=${colored ?? 0} walls=${wallCount ?? 0} wupm=${wupm ?? 0} h=${wallHeightM ?? 0} surfaces=${surfaceCount ?? 0} at ${x0},${y0} texel=${texel}`
 			);
 			this.workerJobs.delete(id);
 			// A late result for an older key must not become the current raster.
-			if (key !== this.pendingWorkerKey) return;
+			if (key !== this.pendingWorkerKey) {
+				this.flushQueuedWorker();
+				return;
+			}
 			this.pendingWorkerKey = '';
 			if (!pixels) {
 				// Worker could not produce a raster; fall back to the synchronous path.
@@ -430,9 +481,12 @@ export class HeatmapLayer implements Layer {
 			// queue one more repaint so the worker raster is guaranteed to be seen.
 			this.onGenerated?.();
 			requestAnimationFrame(() => this.onGenerated?.());
+			this.flushQueuedWorker();
 		};
 		worker.onerror = (event) => {
 			console.warn('[heatmap] worker failed, falling back to CPU:', event.message);
+			this.workerBusy = false;
+			this.queuedWorker = null;
 			if (this.workerTimer) {
 				clearTimeout(this.workerTimer);
 				this.workerTimer = null;
@@ -574,12 +628,16 @@ export class HeatmapLayer implements Layer {
 		this.cacheKey = key;
 		if (this.worker) {
 			const input = this.workerInput();
-			const id = ++this.workerRequestId;
 			// Keep the previous raster for the same floor visible while the worker
 			// rebuilds; only a floor change must clear it.
 			if (this.cacheFloorId !== this.floorId) {
 				this.cache = null;
 				this.previousCache = null;
+			}
+			if (this.workerBusy) {
+				// Replace the queued intermediate key; never build a FIFO of stale jobs.
+				this.queuedWorker = { key, input };
+				return;
 			}
 			if (this.workerDebounce) clearTimeout(this.workerDebounce);
 			/*
@@ -589,29 +647,11 @@ export class HeatmapLayer implements Layer {
 			this.workerDebounce = setTimeout(() => {
 				this.workerDebounce = null;
 				if (this.cacheKey !== key || !this.worker) return;
-				this.pendingWorkerKey = key;
-				this.workerJobs.set(id, key);
-				if (this.workerTimer) clearTimeout(this.workerTimer);
-				this.workerTimer = setTimeout(() => {
-					if (this.pendingWorkerKey === key) {
-						console.warn('[heatmap] worker timed out after 8 s, falling back to CPU');
-						this.worker = null;
-						this.workerJobs.clear();
-						this.pendingWorkerKey = '';
-						this.cacheKey = '';
-						this.cache = null;
-						this.onGenerated?.();
-					}
-				}, 8000);
-				try {
-					this.worker.postMessage({ id, key, input });
-				} catch {
-					this.worker = null;
-					this.workerJobs.clear();
-					this.pendingWorkerKey = '';
-					this.cacheKey = '';
-					this.onGenerated?.();
+				if (this.workerBusy) {
+					this.queuedWorker = { key, input };
+					return;
 				}
+				this.postWorker(input, key);
 			}, 50);
 			return;
 		}
