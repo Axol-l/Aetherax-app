@@ -36,6 +36,8 @@
 	import Tooltip from '$components/shared/Tooltip.svelte';
 	import ModelPicker from '$components/shared/ModelPicker.svelte';
 	import { t } from '$state/i18n.svelte';
+	import { motionDuration } from '$lib/motion.js';
+	import { collapseHeight } from '$lib/transitions.js';
 	import { displayLength, lengthInputHints, lengthUnit, unitToMetres } from '$lib/units.js';
 	import { apState } from '$state/ap-state.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
@@ -649,7 +651,10 @@
 				<span>{t('Advanced')}</span>
 			</button>
 			{#if !advancedCollapsed}
-				<div class="advanced-body">
+				<div
+					class="advanced-body"
+					transition:collapseHeight={{ duration: motionDuration(180) }}
+				>
 					<div class="mount-row">
 						<Tooltip position="top" text={t('Single linear polarization, or dual V+H. Dual uses two equal-power ports; a single-polarized client receives about half the power.')}>
 							<span class="field-label">{t('Polarization mode')}</span>
