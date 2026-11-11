@@ -1,8 +1,8 @@
-﻿<script lang="ts">
+<script lang="ts">
 	/**
 	 * The raised-surface tool's floating bar.
 	 */
-	import { fly } from 'svelte/transition';
+	import { fly, slide } from 'svelte/transition';
 	import { motionDuration } from '$lib/motion.js';
 	import { t } from '$state/i18n.svelte';
 	import {
@@ -29,6 +29,9 @@
 		onmaterial: (material: SurfaceMaterialId | null) => void;
 		ondone: () => void;
 	} = $props();
+
+	/** Matches the material trigger's `aria-controls` to the listbox it opens. */
+	const materialListId = $props.id();
 
 	const kinds = $derived<Array<{ id: SurfaceKind; label: string }>>([
 		{ id: 'platform', label: t('Platform') },
@@ -77,9 +80,10 @@
 
 	<div class="material-wrap">
 		<button
-			class="material"
+			class="material no-press-scale"
 			aria-haspopup="listbox"
 			aria-expanded={open}
+			aria-controls={materialListId}
 			title={t('Material for the next raised surface')}
 			onclick={() => (open = !open)}
 		>
@@ -90,7 +94,13 @@
 			</svg>
 		</button>
 		{#if open}
-			<div class="material-popup" role="listbox" aria-label={t('Material')}>
+			<div
+				class="material-popup"
+				id={materialListId}
+				role="listbox"
+				aria-label={t('Material')}
+				transition:slide={{ duration: motionDuration(160) }}
+			>
 				<button
 					class="option"
 					class:selected={material === null}
@@ -225,7 +235,7 @@
 		right: 0;
 		min-width: 150px;
 		padding: 2px;
-		background: var(--bg-surface);
+		background: var(--bg-elevated);
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.3));

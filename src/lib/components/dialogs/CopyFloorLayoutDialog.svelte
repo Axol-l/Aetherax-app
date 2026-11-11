@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { fade, fly } from 'svelte/transition';
+	import { fade, fly, slide } from 'svelte/transition';
 	import Button from '$components/shared/Button.svelte';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
@@ -18,6 +18,8 @@
 
 	let target = $state('new');
 	let targetOpen = $state(false);
+	/** Matches the target trigger's `aria-controls` to the listbox it opens. */
+	const targetListId = $props.id();
 	let copyPlan = $state(true);
 	let copyWalls = $state(true);
 	let copyPlanningArea = $state(true);
@@ -140,10 +142,11 @@
 			<div class="field">
 				<span class="field-label">{t('Target floor')}</span>
 				<button
-					class="target-trigger"
+					class="target-trigger no-press-scale"
 					type="button"
 					aria-haspopup="listbox"
 					aria-expanded={targetOpen}
+					aria-controls={targetListId}
 					onclick={() => (targetOpen = !targetOpen)}
 					onkeydown={handleTargetKeydown}
 				>
@@ -157,7 +160,13 @@
 						aria-label={t('Close')}
 						onclick={() => (targetOpen = false)}
 					></button>
-					<div class="target-menu" role="listbox" aria-label={t('Target floor')}>
+					<div
+						class="target-menu"
+						id={targetListId}
+						role="listbox"
+						aria-label={t('Target floor')}
+						transition:slide={{ duration: motionDuration(160) }}
+					>
 						{#each targetOptions as option (option.value)}
 							<button
 								class="target-row"
@@ -297,7 +306,7 @@
 		flex-direction: column;
 		gap: 1px;
 		padding: var(--space-1);
-		background: var(--bg-secondary);
+		background: var(--bg-elevated);
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-lg);

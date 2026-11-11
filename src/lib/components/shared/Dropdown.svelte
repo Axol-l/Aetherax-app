@@ -1,5 +1,7 @@
 <script lang="ts">
 	import { onMount } from 'svelte';
+	import { fly } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 
 	interface MenuItem {
 		label: string;
@@ -94,7 +96,12 @@
 		</svg>
 	</button>
 	{#if open}
-		<div class="dropdown-menu" class:keyboard-nav={usingKeyboard} style={menuStyle}>
+		<div
+			class="dropdown-menu"
+			class:keyboard-nav={usingKeyboard}
+			style={menuStyle}
+			transition:fly={{ y: -4, duration: motionDuration(120) }}
+		>
 			{#each items as item, idx}
 				{#if item.separator}
 					<div class="dropdown-separator"></div>
@@ -169,18 +176,6 @@
 		box-shadow: var(--shadow-lg);
 		padding: 4px 0;
 		z-index: var(--z-tooltip);
-		animation: dropdown-fade-in 120ms ease-out;
-	}
-
-	@keyframes dropdown-fade-in {
-		from {
-			opacity: 0;
-			transform: translateY(-4px);
-		}
-		to {
-			opacity: 1;
-			transform: translateY(0);
-		}
 	}
 
 	.dropdown-item {

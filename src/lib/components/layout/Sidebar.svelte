@@ -2,6 +2,8 @@
 	import { appState } from '$state/app.svelte';
 	import type { SidebarPanel } from '$state/app.svelte';
 	import { canvasState } from '$state/canvas.svelte';
+	import { fly } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 	import ApList from '$components/sidebar/ApList.svelte';
 	import ApEditor from '$components/sidebar/ApEditor.svelte';
 	import CoveragePanel from '$components/sidebar/CoveragePanel.svelte';
@@ -42,9 +44,21 @@
 			<div class="scroll-panel"><FloorplanControls /></div>
 		{:else if appState.sidebarPanel === 'aps'}
 			{#if hasSelection}
-				<div class="scroll-panel"><ApEditor /></div>
+				<div
+					class="panel-view"
+					in:fly={{ x: 18, duration: motionDuration(180) }}
+					out:fly={{ x: 18, duration: motionDuration(140) }}
+				>
+					<div class="scroll-panel"><ApEditor /></div>
+				</div>
 			{:else}
-				<ApList />
+				<div
+					class="panel-view"
+					in:fly={{ x: -18, duration: motionDuration(180) }}
+					out:fly={{ x: -18, duration: motionDuration(140) }}
+				>
+					<ApList />
+				</div>
 			{/if}
 		{/if}
 	</div>
@@ -121,11 +135,24 @@
 	}
 
 	.panel-content {
+		position: relative;
 		flex: 1;
 		overflow: hidden;
 		min-height: 0;
 		display: flex;
 		flex-direction: column;
+	}
+
+	/*
+	 * The AP list and the AP editor slide past each other. They overlap while doing so, so
+	 * they are taken out of the column; otherwise both would split the height.
+	 */
+	.panel-view {
+		position: absolute;
+		inset: 0;
+		display: flex;
+		flex-direction: column;
+		min-height: 0;
 	}
 
 	.scroll-panel {

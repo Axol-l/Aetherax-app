@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { slide } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 	import { searchModels, getModelsByVendor, type ApModel } from '$lib/data/ap-models.js';
 	import { t } from '$state/i18n.svelte';
 
@@ -13,6 +15,8 @@
 	let open = $state(false);
 	let query = $state('');
 	let inputEl = $state<HTMLInputElement>();
+	/** Matches the trigger's `aria-controls` to the listbox it opens. */
+	const listboxId = $props.id();
 
 	let currentLabel = $derived(() => {
 		if (!value) return 'Custom';
@@ -55,7 +59,14 @@
 <svelte:window onkeydown={open ? handleKeydown : undefined} />
 
 <div class="model-picker">
-	<button class="trigger" onclick={handleOpen} type="button">
+	<button
+		class="trigger no-press-scale"
+		onclick={handleOpen}
+		type="button"
+		aria-expanded={open}
+		aria-haspopup="listbox"
+		aria-controls={listboxId}
+	>
 		<span class="trigger-label">{currentLabel()}</span>
 		<svg class="trigger-chevron" class:open width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
 			<path d="M4 6l4 4 4-4" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" />
@@ -65,7 +76,7 @@
 	{#if open}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="backdrop" onclick={() => { open = false; }}></div>
-		<div class="dropdown">
+		<div class="dropdown" id={listboxId} transition:slide={{ duration: motionDuration(160) }}>
 			<!-- Stop keyboard propagation so Backspace/Delete don't trigger AP deletion -->
 			<input
 				bind:this={inputEl}
@@ -164,7 +175,7 @@
 		right: 0;
 		z-index: 41;
 		margin-top: 4px;
-		background: var(--bg-secondary);
+		background: var(--bg-elevated);
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-lg);
 		box-shadow: var(--shadow-lg);

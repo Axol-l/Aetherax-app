@@ -1,4 +1,7 @@
 <script lang="ts">
+	import { slide } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
+
 	let {
 		value = $bindable(''),
 		options,
@@ -15,7 +18,12 @@
 
 	let open = $state(false);
 	let triggerEl = $state<HTMLButtonElement>();
+	let dropdownEl = $state<HTMLDivElement>();
 	let highlightedIndex = $state(-1);
+	/** The list opens upwards when the trigger sits near the bottom of its panel. */
+	let flipped = $state(false);
+	/** Matches the trigger's `aria-controls` to the listbox it opens. */
+	const listboxId = $props.id();
 
 	let selectedLabel = $derived(
 		options.find((o) => o.value === value)?.label ?? options[0]?.label ?? ''
@@ -29,6 +37,36 @@
 			highlightedIndex = idx >= 0 ? idx : 0;
 		}
 	}
+
+	/** The nearest ancestor that clips its content, or the window when there is none. */
+	function clippingRect(el: HTMLElement): DOMRect {
+		let node: HTMLElement | null = el.parentElement;
+		while (node && node !== document.body) {
+			const style = getComputedStyle(node);
+			if (style.overflowY !== 'visible' || style.overflowX !== 'visible') return node.getBoundingClientRect();
+			node = node.parentElement;
+		}
+		return new DOMRect(0, 0, window.innerWidth, window.innerHeight);
+	}
+
+	/*
+	 * A list that opens downward can fall out of the sidebar (the optimiser settings sit near
+	 * its bottom). Measure the room on both sides once the list is in the DOM and flip it up
+	 * when below is the tighter side.
+	 */
+	$effect(() => {
+		if (!open) {
+			flipped = false;
+			return;
+		}
+		const trigger = triggerEl?.getBoundingClientRect();
+		if (!trigger || !dropdownEl) return;
+		const clip = clippingRect(triggerEl!);
+		const needed = Math.min(dropdownEl.scrollHeight, 200) + 6;
+		const below = clip.bottom - trigger.bottom;
+		const above = trigger.top - clip.top;
+		flipped = below < needed && above > below;
+	});
 
 	function select(val: string) {
 		value = val;
@@ -71,13 +109,14 @@
 <div class="select-wrapper {className}">
 	<button
 		bind:this={triggerEl}
-		class="trigger"
+		class="trigger no-press-scale"
 		type="button"
 		onclick={toggle}
 		onkeydown={handleKeydown}
 		aria-label={ariaLabel}
 		aria-expanded={open}
 		aria-haspopup="listbox"
+		aria-controls={listboxId}
 	>
 		<span class="trigger-label">{selectedLabel}</span>
 		<svg class="chevron" class:open width="12" height="12" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -88,7 +127,14 @@
 	{#if open}
 		<!-- svelte-ignore a11y_no_static_element_interactions -->
 		<div class="backdrop" onclick={() => { open = false; }}></div>
-		<div class="dropdown" role="listbox">
+		<div
+			class="dropdown"
+			class:flipped
+			id={listboxId}
+			role="listbox"
+			bind:this={dropdownEl}
+			transition:slide={{ duration: motionDuration(160) }}
+		>
 			{#each options as opt, i}
 				<button
 					class="option"
@@ -164,7 +210,7 @@
 		top: calc(100% + 4px);
 		left: 0;
 		min-width: 100%;
-		background: var(--bg-surface);
+		background: var(--bg-elevated);
 		border: 1px solid var(--border-default);
 		border-radius: var(--radius-md);
 		box-shadow: var(--shadow-md, 0 4px 12px rgba(0, 0, 0, 0.3));
@@ -172,6 +218,11 @@
 		padding: 2px;
 		max-height: 200px;
 		overflow-y: auto;
+	}
+
+	.dropdown.flipped {
+		top: auto;
+		bottom: calc(100% + 4px);
 	}
 
 	.option {

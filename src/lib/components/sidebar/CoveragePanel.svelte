@@ -16,6 +16,7 @@
 	import { getAvailableChannels, nonOverlappingChannels } from '@aetherax/channels';
 	import Button from '$components/shared/Button.svelte';
 	import Icon from '$components/shared/Icon.svelte';
+	import Select from '$components/shared/Select.svelte';
 	import Tooltip from '$components/shared/Tooltip.svelte';
 	import { t } from '$state/i18n.svelte';
 	import { wallState } from '$state/wall-state.svelte';
@@ -471,20 +472,17 @@
 					position="top"
 					text={t('How much wall loss the distance model already contains. The tabulated value does include a wall allowance and this app also charges every wall the ray crosses, so the more completely the walls are drawn, the lower the value should be: too high makes coverage radii too small and the plan look like it needs more APs.')}
 				>
-					<label class="setting-row slider-row">
+					<div class="setting-row slider-row">
 						<span class="setting-title">{t('Propagation')}</span>
-						<select
-							class="env-select"
-							aria-label={t('Propagation environment')}
-							value={projectMeta.pathLossScenario}
-							onchange={(e) =>
-								applyPathLossScenario((e.currentTarget as HTMLSelectElement).value as PathLossScenario)}
-						>
-							{#each scenarioOptions as option (option.value)}
-								<option value={option.value}>{option.label}</option>
-							{/each}
-						</select>
-					</label>
+						<div class="env-select">
+							<Select
+								value={projectMeta.pathLossScenario}
+								options={scenarioOptions}
+								aria-label={t('Propagation environment')}
+								onchange={(value) => applyPathLossScenario(value as PathLossScenario)}
+							/>
+						</div>
+					</div>
 				</Tooltip>
 			</div>
 		{/if}
@@ -593,16 +591,16 @@
 		color: var(--text-secondary);
 	}
 
+	/* The shared Select, sized like the popup's other fields. */
 	.env-select {
-		flex: 1;
+		display: flex;
+		flex: 1 1 auto;
 		min-width: 0;
-		padding: 3px 6px;
-		font-family: var(--font-sans);
+	}
+
+	.env-select :global(.trigger) {
+		height: 24px;
 		font-size: var(--text-xs);
-		color: var(--text-primary);
-		background: var(--bg-primary);
-		border: 1px solid var(--border-default);
-		border-radius: var(--radius-sm);
 	}
 
 
