@@ -35,7 +35,7 @@
 		aria-live="polite"
 		transition:fly={{ y: 6, duration: motionDuration(160), opacity: 0 }}
 	>
-		<Icon name="warning" size={15} />
+		<Icon name="warning" size={13} />
 		<p>{text}</p>
 		<button class="dismiss" title={t('Dismiss')} aria-label={t('Dismiss')} onclick={dismiss}>
 			<Icon name="x" size={12} />

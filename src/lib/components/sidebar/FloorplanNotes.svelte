@@ -61,32 +61,41 @@
 	}
 </script>
 
-<PanelCard title={t('Notes')} bind:collapsed={sidebarCards.notes}>
-	{#if notes.length > 0}
-		<button class="notes-toggle" onclick={() => (notesOpen = !notesOpen)} aria-expanded={notesOpen}>
-			<span class="notes-chevron" class:collapsed={!notesOpen}>
+{#snippet listToggle()}
+	{#if notes.length > 0 && !sidebarCards.notes}
+		<button
+			class="list-toggle"
+			aria-expanded={notesOpen}
+			aria-label={notesOpen ? t('Hide the list') : t('Show the list')}
+			title={notesOpen ? t('Hide the list') : t('Show the list')}
+			onclick={() => (notesOpen = !notesOpen)}
+		>
+			<span class="list-count">{notes.length}</span>
+			<span class="list-chevron" class:collapsed={!notesOpen}>
 				<Icon name="chevron-down" size={11} />
 			</span>
-			{notesOpen ? t('Hide the list') : t('Show the list')}
 		</button>
-		{#if notesOpen}
-			<ul class="notes-list" transition:slide={{ duration: motionDuration(180) }}>
-				{#each notes as note (note.id)}
-					<li>
-						<button
-							class="note-row"
-							class:active={appState.noteSelectedId === note.id}
-							onclick={() => (appState.noteSelectedId = note.id)}
-						>
-							<span class="note-dot" aria-hidden="true"></span>
-							<span class="note-text" class:empty={!note.text.trim()}>
-								{note.text.trim() || t('(empty note)')}
-							</span>
-						</button>
-					</li>
-				{/each}
-			</ul>
-		{/if}
+	{/if}
+{/snippet}
+
+<PanelCard title={t('Notes')} bind:collapsed={sidebarCards.notes} state={listToggle}>
+	{#if notes.length > 0 && notesOpen}
+		<ul class="notes-list" transition:slide={{ duration: motionDuration(180) }}>
+			{#each notes as note (note.id)}
+				<li>
+					<button
+						class="note-row"
+						class:active={appState.noteSelectedId === note.id}
+						onclick={() => (appState.noteSelectedId = note.id)}
+					>
+						<span class="note-dot" aria-hidden="true"></span>
+						<span class="note-text" class:empty={!note.text.trim()}>
+							{note.text.trim() || t('(empty note)')}
+						</span>
+					</button>
+				</li>
+			{/each}
+		</ul>
 	{/if}
 
 	{#if appState.noteMode}
@@ -103,14 +112,18 @@
 			oninput={(e) => updateSelectedNote((e.target as HTMLTextAreaElement).value)}
 		></textarea>
 		<div class="planning-actions" bind:this={noteActions}>
-			<Button variant="secondary" size="sm" onclick={deleteSelectedNote}>
-				<Icon name="trash" size={14} />
-				{t('Delete note')}
-			</Button>
 			<Button variant="primary" size="sm" onclick={() => (appState.noteSelectedId = null)}>
 				<Icon name="check" size={14} />
 				{t('Done')}
 			</Button>
+			<button
+				class="note-delete"
+				aria-label={t('Delete note')}
+				title={t('Delete note')}
+				onclick={deleteSelectedNote}
+			>
+				<Icon name="trash" size={14} />
+			</button>
 		</div>
 	{:else}
 		<div class="planning-actions">
@@ -123,36 +136,42 @@
 </PanelCard>
 
 <style>
-	.notes-toggle {
+	/*
+	 * The list is folded from the card's own header: the count and a chevron sit where the
+	 * other cards show their state, so no stray "Hide the list" link lives in the body.
+	 */
+	.list-toggle {
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-1);
-		align-self: flex-start;
-		padding: 0;
-		font-family: var(--font-sans);
-		font-size: var(--text-xs);
-		color: var(--text-secondary);
+		gap: 4px;
+		align-self: center;
+		padding: 0 4px;
 		background: none;
-		border: none;
+		border: 1px solid transparent;
+		border-radius: var(--radius-sm);
+		color: var(--text-tertiary);
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		line-height: 1;
 		cursor: pointer;
 	}
 
-	.notes-toggle:hover {
+	.list-toggle:hover {
+		background: var(--bg-hover);
 		color: var(--text-primary);
 	}
 
-	.notes-toggle:focus-visible {
+	.list-toggle:focus-visible {
 		outline: 2px solid var(--accent-primary);
-		outline-offset: 2px;
+		outline-offset: 1px;
 	}
 
-	.notes-chevron {
+	.list-chevron {
 		display: inline-flex;
-		color: var(--text-tertiary);
 		transition: transform var(--transition-fast);
 	}
 
-	.notes-chevron.collapsed {
+	.list-chevron.collapsed {
 		transform: rotate(-90deg);
 	}
 
@@ -266,6 +285,36 @@
 		font-size: var(--text-xs);
 		line-height: 1.5;
 		color: var(--text-secondary);
+	}
+
+	/* The destructive action is a square beside the wide primary one. */
+	.note-delete {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 28px;
+		height: 28px;
+		padding: 0;
+		border: 1px solid var(--border-default);
+		border-radius: var(--radius-md);
+		background: var(--bg-surface);
+		color: var(--text-secondary);
+		cursor: pointer;
+		transition:
+			color var(--transition-fast),
+			border-color var(--transition-fast),
+			background var(--transition-fast);
+	}
+
+	.note-delete:hover {
+		color: var(--color-error, #ff5555);
+		border-color: var(--color-error, #ff5555);
+		background: var(--bg-hover);
+	}
+
+	.note-delete:focus-visible {
+		outline: 2px solid var(--accent-primary);
+		outline-offset: 1px;
 	}
 
 	/* One action fills the card; a pair shares the row, like the other cards. */

@@ -792,14 +792,19 @@ import { wallState } from '$state/wall-state.svelte.js';
 							<Icon name="check" size={14} />
 							{t('Confirm area')}
 						</Button>
-						<button
-							class="skip-link"
+					</div>
+					<div class="planning-actions pair">
+						<Button
+							variant="secondary"
+							size="sm"
 							disabled={appState.planningDraft.length === 0}
 							onclick={() => (appState.planningDraft = appState.planningDraft.slice(0, -1))}
 						>
 							{t('Undo corner')}
-						</button>
-						<button class="skip-link" onclick={() => setPlanningDrawMode(false)}>{t('Cancel')}</button>
+						</Button>
+						<Button variant="secondary" size="sm" onclick={() => setPlanningDrawMode(false)}>
+							{t('Cancel')}
+						</Button>
 					</div>
 				{:else}
 					<div class="planning-actions">
@@ -1246,6 +1251,11 @@ import { wallState } from '$state/wall-state.svelte.js';
 		grid-template-columns: minmax(0, 1fr) auto;
 		align-items: center;
 		gap: var(--space-2);
+	}
+
+	/* Two equal actions under a wide one (Undo corner / Cancel while drawing). */
+	.planning-actions.pair {
+		grid-template-columns: 1fr 1fr;
 	}
 
 	.remove-plan {

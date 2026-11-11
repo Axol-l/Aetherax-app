@@ -470,22 +470,26 @@
 					</label>
 				</Tooltip>
 
-				<Tooltip
-					position="top"
-					text={t('How much wall loss the distance model already contains. The tabulated value does include a wall allowance and this app also charges every wall the ray crosses, so the more completely the walls are drawn, the lower the value should be: too high makes coverage radii too small and the plan look like it needs more APs.')}
-				>
-					<div class="setting-row slider-row">
+				<div class="setting-row slider-row">
+					<!--
+						The tooltip wraps the label only: wrapping the whole row meant it stayed under
+						the cursor and covered the list when the select opened upwards.
+					-->
+					<Tooltip
+						position="top"
+						text={t('How much wall loss the distance model already contains. The tabulated value does include a wall allowance and this app also charges every wall the ray crosses, so the more completely the walls are drawn, the lower the value should be: too high makes coverage radii too small and the plan look like it needs more APs.')}
+					>
 						<span class="setting-title">{t('Propagation')}</span>
-						<div class="env-select">
-							<Select
-								value={projectMeta.pathLossScenario}
-								options={scenarioOptions}
-								aria-label={t('Propagation environment')}
-								onchange={(value) => applyPathLossScenario(value as PathLossScenario)}
-							/>
-						</div>
+					</Tooltip>
+					<div class="env-select">
+						<Select
+							value={projectMeta.pathLossScenario}
+							options={scenarioOptions}
+							aria-label={t('Propagation environment')}
+							onchange={(value) => applyPathLossScenario(value as PathLossScenario)}
+						/>
 					</div>
-				</Tooltip>
+				</div>
 			</div>
 		{/if}
 	{/if}

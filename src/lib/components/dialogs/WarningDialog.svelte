@@ -36,7 +36,7 @@
 	>
 		<div class="dialog" transition:fly={{ y: 8, duration: motionDuration(160), opacity: 0 }}>
 			<div class="head">
-				<Icon name="warning" size={16} />
+				<Icon name="warning" size={15} />
 				<h2>{title}</h2>
 			</div>
 			<p>{message}</p>
