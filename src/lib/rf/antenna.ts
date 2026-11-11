@@ -22,7 +22,9 @@ export interface AntennaProfile {
 	 * 水平切面，仅向前辐射的设备具有。
 	 */
 	facingDeg?: number;
-	/** 水平切面的 −3 dB 宽度，单位度。缺省或 180 表示无水平切面。 */
+	/** 水平切面的 −3 dB 宽度，单位度。360 或 >=180 表示水平全向。 */
+	horizontalBeamwidthDeg?: number;
+	/** 兼容旧字段：壁挂水平切面。 */
 	azBeamwidthDeg?: number;
 	/** 正后方相对正前方的衰减量，单位 dB。 */
 	frontToBackDb?: number;
@@ -59,6 +61,7 @@ export function antennaProfileForMount(input: {
 	aimDeg?: number | null;
 	mount?: string | null;
 	facingDeg?: number | null;
+	horizontalBeamwidthDeg?: number | null;
 }): AntennaProfile {
 	const base = defaultAntenna(input.beamwidthDeg ?? null, input.band);
 	const profile: AntennaProfile = {
@@ -66,12 +69,16 @@ export function antennaProfileForMount(input: {
 		aimDeg: input.aimDeg ?? 0,
 		floorDb: base.floorDb
 	};
-	if (input.mount !== 'wall') return profile;
-	return {
-		...profile,
-		facingDeg: input.facingDeg ?? 0,
-		...WALL_MOUNT_AZIMUTH
-	};
+	const horizontal =
+		input.horizontalBeamwidthDeg ??
+		(input.mount === 'wall' ? WALL_MOUNT_AZIMUTH.azBeamwidthDeg : 360);
+	if (horizontal < MAX_BEAMWIDTH_DEG) {
+		profile.horizontalBeamwidthDeg = horizontal;
+		profile.azBeamwidthDeg = horizontal;
+		profile.facingDeg = input.facingDeg ?? 0;
+		profile.frontToBackDb = input.mount === 'wall' ? WALL_MOUNT_AZIMUTH.frontToBackDb : 20;
+	}
+	return profile;
 }
 
 /** 该频段的侧射电平，用于用户改过波束宽度的方向图。 */
@@ -153,7 +160,7 @@ export function bearingDeg(dx: number, dy: number): number {
  * 偏移量取自相对 `facingDeg` 的方位角，远端锚点为 180°（正后方）；无水平切面的方向图返回 0。
  */
 export function azimuthGainDb(bearing: number, profile: AntennaProfile): number {
-	const beamwidth = profile.azBeamwidthDeg;
+	const beamwidth = profile.horizontalBeamwidthDeg ?? profile.azBeamwidthDeg;
 	if (beamwidth === undefined || beamwidth >= MAX_BEAMWIDTH_DEG) return 0;
 	const half = Math.max(1, beamwidth / 2);
 	const back = Math.max(3, profile.frontToBackDb ?? 20);
@@ -195,10 +202,12 @@ export function antennaRayLossDb(
  */
 export function antennaSignature(ap: {
 	beamwidthDeg?: number | null;
+	horizontalBeamwidthDeg?: number | null;
 	aimDeg?: number | null;
 	mount?: string | null;
 	facingDeg?: number | null;
 	polarizationAngleDeg?: number | null;
+	polarizationMode?: string | null;
 }): string {
-	return `${ap.beamwidthDeg ?? 0}/${ap.aimDeg ?? 0}/${ap.mount ?? ''}/${ap.facingDeg ?? 0}/${ap.polarizationAngleDeg ?? 0}`;
+	return `${ap.beamwidthDeg ?? 0}/${ap.horizontalBeamwidthDeg ?? 0}/${ap.aimDeg ?? 0}/${ap.mount ?? ''}/${ap.facingDeg ?? 0}/${ap.polarizationAngleDeg ?? 0}/${ap.polarizationMode ?? 'single'}`;
 }

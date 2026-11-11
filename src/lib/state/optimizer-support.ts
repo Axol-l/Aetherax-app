@@ -334,6 +334,7 @@ export function toApInput(
 			apVerticalOffsetTo(ap, frame.floorId, projectMeta.clientHeight) *
 			wupmForFloor(frame.floorId),
 		beamwidthDeg: ap.beamwidthDeg,
+		horizontalBeamwidthDeg: ap.horizontalBeamwidthDeg,
 		aimDeg: ap.aimDeg,
 		mount: ap.mount,
 		facingDeg: ap.facingDeg

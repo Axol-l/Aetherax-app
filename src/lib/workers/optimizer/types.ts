@@ -47,6 +47,8 @@ export interface ApInput {
 	 * 不传也不猜频段默认值，调用方传什么就是什么。
 	 */
 	beamwidthDeg?: number;
+	/** 水平面 −3 dB 宽度；360 表示水平全向。 */
+	horizontalBeamwidthDeg?: number;
 	aimDeg?: number;
 	/**
 	 * 安装方式；壁挂时还包括朝向。

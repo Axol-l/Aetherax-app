@@ -584,12 +584,13 @@ export class HeatmapLayer implements Layer {
 				this.workerJobs.set(id, key);
 				if (this.workerTimer) clearTimeout(this.workerTimer);
 				this.workerTimer = setTimeout(() => {
-					if (this.pendingWorkerKey === key && !this.cache) {
+					if (this.pendingWorkerKey === key) {
 						console.warn('[heatmap] worker timed out after 8 s, falling back to CPU');
 						this.worker = null;
 						this.workerJobs.clear();
 						this.pendingWorkerKey = '';
 						this.cacheKey = '';
+						this.cache = null;
 						this.onGenerated?.();
 					}
 				}, 8000);
@@ -1215,8 +1216,10 @@ export class HeatmapLayer implements Layer {
 				for (let i = 0; i < n; i++) {
 					wallLoss = 0;
 					const polarAngle = ((this.aps[i]!.polarizationAngleDeg ?? 0) * Math.PI) / 180;
-					const polarV = Math.cos(polarAngle);
-					const polarH = Math.sin(polarAngle);
+					const dual = this.aps[i]!.polarizationMode === 'dual';
+					// 双极化是 V/H 两个等功率端口：每个端口 −3 dB，总功率不变。
+					const polarV = dual ? Math.SQRT1_2 : Math.cos(polarAngle);
+					const polarH = dual ? Math.SQRT1_2 : Math.sin(polarAngle);
 					const dx = wx - apX[i]!;
 					const dy = wy - apY[i]!;
 					// 接入点与客户端的高度差，减去客户端所处抬高面的高度；可为负值。

@@ -60,6 +60,7 @@ function aps(): ApInput[] {
 			fixedChannel: null,
 			channelWidth: 20 as const,
 			beamwidthDeg: 360,
+			horizontalBeamwidthDeg: 360,
 			aimDeg: 0,
 			mount: 'ceiling' as const,
 			facingDeg: 0,

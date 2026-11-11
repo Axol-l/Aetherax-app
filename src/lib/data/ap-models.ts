@@ -15,6 +15,7 @@ export interface ApBandSpec {
 	streams: number; // spatial streams (MIMO), e.g. 2 for 2x2, 4 for 4x4
 	/** 可选的型号天线预设；未给出时按频段/安装方式取保守默认。 */
 	beamwidthDeg?: number;
+	horizontalBeamwidthDeg?: number;
 	aimDeg?: number;
 }
 
@@ -65,10 +66,11 @@ export function recommendedAntenna(
 	model: ApModel,
 	spec: ApBandSpec,
 	mount: 'ceiling' | 'floor' | 'wall' = 'ceiling'
-): { beamwidthDeg: number; aimDeg: number } {
+): { beamwidthDeg: number; horizontalBeamwidthDeg: number; aimDeg: number } {
 	const bandDefault = spec.band === '2.4ghz' ? 120 : 60;
 	return {
 		beamwidthDeg: spec.beamwidthDeg ?? bandDefault,
+		horizontalBeamwidthDeg: spec.horizontalBeamwidthDeg ?? (mount === 'wall' ? 90 : 360),
 		aimDeg: spec.aimDeg ?? (mount === 'ceiling' ? 30 : 0)
 	};
 }

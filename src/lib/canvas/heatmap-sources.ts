@@ -74,8 +74,11 @@ export function trackHeatmapInputs(): void {
 		 * 图层缓存键包含 `antennaSignature`，但只有画布被标记为需要重绘时才会重新读取。
 		 */
 		void ap.beamwidthDeg;
+		void ap.horizontalBeamwidthDeg;
 		void ap.aimDeg;
 		void ap.facingDeg;
+		void ap.polarizationAngleDeg;
+		void ap.polarizationMode;
 	}
 	void projectMeta.clientHeight;
 }

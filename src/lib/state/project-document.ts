@@ -4,7 +4,7 @@
 import type { Band, ChannelWidth, RegulatoryDomain } from '@aetherax/channels';
 import type { FloorMaterialId } from '$canvas/floor-materials.js';
 import type { WallMaterialId } from '$lib/domain/materials.js';
-import { defaultAntenna } from '../rf/antenna.js';
+import { defaultAntenna, WALL_MOUNT_AZIMUTH } from '../rf/antenna.js';
 import {
 	setCoverageThresholdDbm,
 	setPathLossScenario,
@@ -260,9 +260,11 @@ function toDocumentAp(ap: AccessPoint): AccessPoint {
 		mount: ap.mount,
 		mountHeightM: ap.mountHeightM,
 		beamwidthDeg: ap.beamwidthDeg,
+		horizontalBeamwidthDeg: ap.horizontalBeamwidthDeg,
 		aimDeg: ap.aimDeg,
 		facingDeg: ap.facingDeg,
 		polarizationAngleDeg: ap.polarizationAngleDeg ?? 0,
+		polarizationMode: ap.polarizationMode ?? 'single',
 		pinned: ap.pinned,
 		clients: ap.clients ?? null
 	};
@@ -455,10 +457,13 @@ function normalizeAp(
 		mount,
 		mountHeightM: stored.mountHeightM ?? defaultMountHeight(mount, ceiling),
 		beamwidthDeg: stored.beamwidthDeg ?? antenna.beamwidthDeg,
+		horizontalBeamwidthDeg:
+			stored.horizontalBeamwidthDeg ?? (mount === 'wall' ? WALL_MOUNT_AZIMUTH.azBeamwidthDeg : 360),
 		aimDeg: stored.aimDeg ?? antenna.aimDeg,
 		// 朝 +x。壁挂出现之前的文档说不出设备朝哪，而频段自带的天线是全向的，根本没有方向。
 		facingDeg: stored.facingDeg ?? 0,
 		polarizationAngleDeg: stored.polarizationAngleDeg ?? 0,
+		polarizationMode: stored.polarizationMode === 'dual' ? 'dual' : 'single',
 		// 固定位置出现之前的文档，描述的 AP 都是优化器可以随便挪的。
 		pinned: stored.pinned ?? false,
 		clients: stored.clients ?? null

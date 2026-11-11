@@ -38,6 +38,7 @@ export function resolveApProfiles(positions: Position[], ctx: EvalContext): Ante
  */
 export function antennaProfile(ap: {
 	beamwidthDeg?: number;
+	horizontalBeamwidthDeg?: number;
 	aimDeg?: number;
 	mount?: string | null;
 	facingDeg?: number;
@@ -46,6 +47,7 @@ export function antennaProfile(ap: {
 	return antennaProfileForMount({
 		band: ap.band,
 		beamwidthDeg: ap.beamwidthDeg,
+		horizontalBeamwidthDeg: ap.horizontalBeamwidthDeg,
 		aimDeg: ap.aimDeg,
 		mount: ap.mount,
 		facingDeg: ap.facingDeg

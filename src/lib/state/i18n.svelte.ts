@@ -563,6 +563,17 @@ const zh: Record<string, string> = {
 	'Beam: the -3 dB width of the pattern. Aim: where its peak points — positive down, negative up, 0 level.': 'beam：方向图的 −3 dB 宽度。aim：主瓣峰值方向——正朝下、负朝上、0 为水平。',
 	'Antenna': '天线',
 	'Vertical beamwidth': '垂直波束宽度',
+	'Horizontal beamwidth': '水平波束宽度',
+	'Polarization mode': '极化模式',
+	Single: '单极化',
+	'Dual V+H': '双极化 V+H',
+	'° vertical': '° 垂直',
+	'° horizontal': '° 水平',
+	'Plan view': '俯视图',
+	'Single linear polarization, or dual V+H. Dual uses two equal-power ports; a single-polarized client receives about half the power.':
+		'单线极化，或 V+H 双极化。双极化使用两个等功率端口；单极化接收端大约只收到一半功率。',
+	'Vertical beam: the -3 dB width of the vertical pattern. Horizontal beam: the -3 dB width in plan. Aim: where the vertical peak points — positive down.':
+		'垂直波束：垂直方向图的 −3 dB 宽度。水平波束：平面内的 −3 dB 宽度。Aim：垂直峰值指向，向下为正。',
 	'Aim': '朝向',
 	'° beam': '° 波束',
 	'° aim': '° 朝向',

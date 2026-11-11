@@ -116,6 +116,7 @@
 		updateAp(singleAp.id, {
 			mount,
 			mountHeightM: defaultMountHeight(mount, apCeilingHeight),
+			horizontalBeamwidthDeg: mount === 'wall' ? 90 : 360,
 			aimDeg: mount === 'ceiling' ? (wasCeiling ? singleAp.aimDeg : CEILING_DOWNTILT_DEG) : wasCeiling ? 0 : singleAp.aimDeg
 		});
 		if (mount !== 'wall') return;
@@ -161,6 +162,24 @@
 		const typed = Number((e.target as HTMLInputElement).value);
 		updateAp(singleAp.id, {
 			beamwidthDeg: Math.min(Math.max(typed, MIN_BEAMWIDTH_DEG), MAX_BEAMWIDTH_DEG)
+		});
+	}
+
+	/** Horizontal beam: 360° is omni, 10° is a narrow panel. */
+	function handleHorizontalBeamwidthChange(e: Event): void {
+		if (!singleAp) return;
+		pushState();
+		const typed = Number((e.target as HTMLInputElement).value);
+		updateAp(singleAp.id, {
+			horizontalBeamwidthDeg: Math.min(Math.max(typed, MIN_BEAMWIDTH_DEG), 360)
+		});
+	}
+
+	function handlePolarizationModeChange(e: Event): void {
+		if (!singleAp) return;
+		pushState();
+		updateAp(singleAp.id, {
+			polarizationMode: (e.target as HTMLSelectElement).value === 'dual' ? 'dual' : 'single'
 		});
 	}
 
@@ -304,6 +323,7 @@
 			power: spec.maxTxPower,
 			interferenceRadius: radiusFromPower(spec.maxTxPower, spec.band),
 			beamwidthDeg: antenna.beamwidthDeg,
+			horizontalBeamwidthDeg: antenna.horizontalBeamwidthDeg,
 			aimDeg: antenna.aimDeg,
 			fixedChannel: null,
 			assignedChannel: null,
@@ -462,7 +482,7 @@
 
 		<div class="field">
 			<Tooltip
-				text={t('Beam: the -3 dB width of the pattern. Aim: where its peak points — positive down, negative up, 0 level.')}
+				text={t('Vertical beam: the -3 dB width of the vertical pattern. Horizontal beam: the -3 dB width in plan. Aim: where the vertical peak points — positive down.')}
 				position="top"
 			>
 				<span class="field-label">{t('Antenna')}</span>
@@ -478,7 +498,18 @@
 					step={5}
 					onchange={handleBeamwidthChange}
 				/>
-				<span class="mount-unit">{t('° beam')}</span>
+				<span class="mount-unit">{t('° vertical')}</span>
+				<input
+					class="mount-height"
+					type="number"
+					aria-label={t('Horizontal beamwidth')}
+					value={singleAp.horizontalBeamwidthDeg ?? 360}
+					min={MIN_BEAMWIDTH_DEG}
+					max="360"
+					step={5}
+					onchange={handleHorizontalBeamwidthChange}
+				/>
+				<span class="mount-unit">{t('° horizontal')}</span>
 				<input
 					class="mount-height"
 					type="number"
@@ -491,12 +522,8 @@
 				/>
 				<span class="mount-unit">{t('° aim')}</span>
 			</div>
-			{#if singleAp.mount === 'wall'}
-				<!--
-					Only a wall mount has a direction in the plan: an upright omni is a
-					doughnut about its own axis, so for the other two mountings the number
-					would be a setting that does nothing.
-				-->
+			{#if singleAp.mount === 'wall' || (singleAp.horizontalBeamwidthDeg ?? 360) < 360}
+				<!-- A directional pattern has a direction in plan; a 360° pattern does not. -->
 				<div class="facing-row">
 					<Tooltip
 						position="top"
@@ -519,12 +546,14 @@
 			{/if}
 			<AntennaDiagram
 				beamwidthDeg={singleAp.beamwidthDeg}
+				horizontalBeamwidthDeg={singleAp.horizontalBeamwidthDeg ?? 360}
 				aimDeg={singleAp.aimDeg}
 				mountHeightM={apHeightAboveFloor(singleAp)}
 				ceilingHeightM={apCeilingHeight}
 				band={singleAp.band}
 				mount={singleAp.mount}
 				facingDeg={singleAp.facingDeg}
+				polarizationMode={singleAp.polarizationMode ?? 'single'}
 			/>
 		</div>
 
@@ -592,27 +621,43 @@
 			{#if !advancedCollapsed}
 				<div class="advanced-body">
 					<div class="mount-row">
-						<Tooltip position="top" text={t('Transmit polarization: 0° is vertical, 90° is horizontal.')}>
-							<span class="field-label">{t('Polarization')}</span>
+						<Tooltip position="top" text={t('Single linear polarization, or dual V+H. Dual uses two equal-power ports; a single-polarized client receives about half the power.')}>
+							<span class="field-label">{t('Polarization mode')}</span>
 						</Tooltip>
-						<input
+						<select
 							class="mount-height"
-							type="number"
-							aria-label={t('Polarization')}
-							value={singleAp.polarizationAngleDeg ?? 0}
-							min="0"
-							max="90"
-							step={5}
-							oninput={(e) => {
-								const input = e.currentTarget as HTMLInputElement;
-								const value = Number(input.value);
-								if (value > 90) input.value = '90';
-								else if (value < 0) input.value = '0';
-							}}
-							onchange={handlePolarizationChange}
-						/>
-						<span class="mount-unit">{t('°')}</span>
+							aria-label={t('Polarization mode')}
+							value={singleAp.polarizationMode ?? 'single'}
+							onchange={handlePolarizationModeChange}
+						>
+							<option value="single">{t('Single')}</option>
+							<option value="dual">{t('Dual V+H')}</option>
+						</select>
 					</div>
+					{#if (singleAp.polarizationMode ?? 'single') === 'single'}
+						<div class="mount-row">
+							<Tooltip position="top" text={t('Transmit polarization: 0° is vertical, 90° is horizontal.')}>
+								<span class="field-label">{t('Polarization')}</span>
+							</Tooltip>
+							<input
+								class="mount-height"
+								type="number"
+								aria-label={t('Polarization')}
+								value={singleAp.polarizationAngleDeg ?? 0}
+								min="0"
+								max="90"
+								step={5}
+								oninput={(e) => {
+									const input = e.currentTarget as HTMLInputElement;
+									const value = Number(input.value);
+									if (value > 90) input.value = '90';
+									else if (value < 0) input.value = '0';
+								}}
+								onchange={handlePolarizationChange}
+							/>
+							<span class="mount-unit">{t('°')}</span>
+						</div>
+					{/if}
 				</div>
 			{/if}
 		</div>

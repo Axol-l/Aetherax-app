@@ -12,6 +12,7 @@ import {
 	antennaProfileForMount,
 	defaultAntenna,
 	normaliseBearing,
+	WALL_MOUNT_AZIMUTH,
 	type AntennaProfile
 } from '../rf/antenna.js';
 
@@ -75,6 +76,7 @@ export interface AccessPoint {
 	fixedChannel: number | null;
 	assignedChannel: number | null;
 	interferenceRadius: number;
+	/** 规划功率（EIRP，dBm）；方向图只施加相对损耗。 */
 	power: number;
 	modelId: string | null;
 	modelLabel: string | null;
@@ -88,6 +90,8 @@ export interface AccessPoint {
 	 * 天线的垂直切面
 	 */
 	beamwidthDeg: number;
+	/** 水平面 −3 dB 波束宽度；360 表示水平全向。 */
+	horizontalBeamwidthDeg?: number;
 	aimDeg: number;
 	/**
 	 * 壁挂AP 朝哪个方向，单位是平面角度：0 是 +x，正方向转向 +y
@@ -97,6 +101,8 @@ export interface AccessPoint {
 	 * 发射极化角：0 为垂直，90° 为水平。
 	 */
 	polarizationAngleDeg?: number;
+	/** 单极化或双极化（V+H，等功率）。 */
+	polarizationMode?: 'single' | 'dual';
 	/**
 	 * 优化器是否必须让这个 AP 原地不动
 	 */
@@ -219,6 +225,7 @@ function initialMount(prev: AccessPoint | null): { mount: ApMount; mountHeightM:
 export function antennaProfileFor(ap: {
 	band: string;
 	beamwidthDeg: number;
+	horizontalBeamwidthDeg?: number;
 	aimDeg: number;
 	mount: ApMount;
 	facingDeg: number;
@@ -226,18 +233,39 @@ export function antennaProfileFor(ap: {
 	return antennaProfileForMount(ap);
 }
 
+/** 安装方式对应的默认水平波束。 */
+export function defaultHorizontalBeamwidth(mount: ApMount): number {
+	return mount === 'wall' ? WALL_MOUNT_AZIMUTH.azBeamwidthDeg : 360;
+}
+
 /**
  * 新 AP 的初始天线参数：取频段的默认值，保持水平。
  */
 function initialAntenna(
 	prev: AccessPoint | null,
-	band: string
-): { beamwidthDeg: number; aimDeg: number; facingDeg: number } {
+	band: string,
+	mount: ApMount
+): {
+	beamwidthDeg: number;
+	horizontalBeamwidthDeg: number;
+	aimDeg: number;
+	facingDeg: number;
+} {
 	if (prev) {
-		return { beamwidthDeg: prev.beamwidthDeg, aimDeg: prev.aimDeg, facingDeg: prev.facingDeg };
+		return {
+			beamwidthDeg: prev.beamwidthDeg,
+			horizontalBeamwidthDeg: prev.horizontalBeamwidthDeg ?? defaultHorizontalBeamwidth(prev.mount),
+			aimDeg: prev.aimDeg,
+			facingDeg: prev.facingDeg
+		};
 	}
 	const defaults = defaultAntenna(null, band);
-	return { beamwidthDeg: defaults.beamwidthDeg, aimDeg: defaults.aimDeg, facingDeg: 0 };
+	return {
+		beamwidthDeg: defaults.beamwidthDeg,
+		horizontalBeamwidthDeg: defaultHorizontalBeamwidth(mount),
+		aimDeg: defaults.aimDeg,
+		facingDeg: 0
+	};
 }
 
 export function addAp(
@@ -261,7 +289,7 @@ export function addAp(
 		? { mount: mountOverride, mountHeightM: defaultMountHeight(mountOverride, ceiling) }
 		: initialMount(prev);
 	const band = prev?.band ?? apState.band;
-	const antenna = initialAntenna(prev, band);
+	const antenna = initialAntenna(prev, band, mount.mount);
 	const aimDeg =
 		prev && prev.mount === mount.mount
 			? prev.aimDeg
@@ -293,6 +321,7 @@ export function addAp(
 		mount: mount.mount,
 		mountHeightM: mount.mountHeightM,
 		beamwidthDeg: antenna.beamwidthDeg,
+		horizontalBeamwidthDeg: antenna.horizontalBeamwidthDeg,
 		aimDeg,
 		// 放上去就贴着调用方测到的墙时，用那面墙的方向；否则沿用上一台的。
 		facingDeg: normaliseBearing(
@@ -300,6 +329,7 @@ export function addAp(
 		),
 		pinned: false,
 		polarizationAngleDeg: 0,
+		polarizationMode: prev?.polarizationMode ?? 'single',
 		clients: prev?.clients ?? null
 	};
 	apState.aps.push(ap);

@@ -30,6 +30,7 @@ type ApPayloadField =
 	| 'assignedChannel'
 	| 'fixedChannel'
 	| 'beamwidthDeg'
+	| 'horizontalBeamwidthDeg'
 	| 'aimDeg'
 	| 'mount'
 	| 'facingDeg';

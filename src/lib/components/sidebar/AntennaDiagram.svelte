@@ -8,23 +8,28 @@
 	// The client plane a low-mounted unit is measured against is the project's own client
 	// height — the height the coverage figure is computed at, so the two agree.
 	import { projectMeta } from '$state/project-meta.svelte';
+	import { t } from '$state/i18n.svelte.js';
 
 	let {
 		beamwidthDeg,
+		horizontalBeamwidthDeg = 360,
 		aimDeg,
 		mountHeightM,
 		ceilingHeightM,
 		band,
 		mount = 'ceiling',
-		facingDeg = 0
+		facingDeg = 0,
+		polarizationMode = 'single'
 	}: {
 		beamwidthDeg: number;
+		horizontalBeamwidthDeg?: number;
 		aimDeg: number;
 		mountHeightM: number;
 		ceilingHeightM: number;
 		band: string;
 		mount?: string;
 		facingDeg?: number;
+		polarizationMode?: 'single' | 'dual';
 	} = $props();
 
 	const W = 260;
@@ -53,7 +58,14 @@
 	const clientPlaneM = $derived(clamp(projectMeta.clientHeight, mountHeightM + 0.2, ceilingM));
 	const serveY = $derived(serveAbove ? FLOOR_Y - clientPlaneM * SCALE : FLOOR_Y);
 	const profile = $derived(
-		antennaProfileForMount({ band, beamwidthDeg, aimDeg, mount, facingDeg })
+		antennaProfileForMount({
+			band,
+			beamwidthDeg,
+			horizontalBeamwidthDeg,
+			aimDeg,
+			mount,
+			facingDeg
+		})
 	);
 	const bars = $derived.by(() => {
 		// The vertical drop from the unit to the plane it is measured on: for a ceiling
@@ -80,6 +92,26 @@
 		const usable = bars.filter((bar) => bar.x >= PAD + 16 && bar.x <= W - PAD - 26);
 		if (usable.length === 0) return null;
 		return usable.reduce((best, bar) => (bar.h > best.h ? bar : best)).x;
+	});
+
+	const PLAN_W = 260;
+	const PLAN_H = 140;
+	const PLAN_CX = PLAN_W / 2;
+	const PLAN_CY = PLAN_H / 2;
+	const PLAN_R = 58;
+	const halfHorizontal = $derived(
+		Math.min(180, Math.max(1, (horizontalBeamwidthDeg ?? 360) / 2))
+	);
+	const planPath = $derived.by(() => {
+		if ((horizontalBeamwidthDeg ?? 360) >= 360) {
+			return `M ${PLAN_CX - PLAN_R} ${PLAN_CY} a ${PLAN_R} ${PLAN_R} 0 1 0 ${PLAN_R * 2} 0 a ${PLAN_R} ${PLAN_R} 0 1 0 ${-PLAN_R * 2} 0`;
+		}
+		const start = ((facingDeg - halfHorizontal) * Math.PI) / 180;
+		const end = ((facingDeg + halfHorizontal) * Math.PI) / 180;
+		const p1 = [PLAN_CX + PLAN_R * Math.cos(start), PLAN_CY + PLAN_R * Math.sin(start)];
+		const p2 = [PLAN_CX + PLAN_R * Math.cos(end), PLAN_CY + PLAN_R * Math.sin(end)];
+		const large = halfHorizontal > 90 ? 1 : 0;
+		return `M ${PLAN_CX} ${PLAN_CY} L ${p1[0]} ${p1[1]} A ${PLAN_R} ${PLAN_R} 0 ${large} 1 ${p2[0]} ${p2[1]} Z`;
 	});
 </script>
 
@@ -122,13 +154,33 @@
 	{/if}
 </svg>
 
+<div class="plan-wrap">
+	<div class="plan-label">{t('Plan view')}</div>
+	<svg viewBox="0 0 {PLAN_W} {PLAN_H}" class="plan-diagram" role="img" aria-label="Antenna coverage in plan">
+		<path d={planPath} class="plan-lobe" />
+		<circle cx={PLAN_CX} cy={PLAN_CY} r="4" class="ap" />
+		{#if (horizontalBeamwidthDeg ?? 360) < 360}
+			<line
+				x1={PLAN_CX}
+				y1={PLAN_CY}
+				x2={PLAN_CX + PLAN_R * Math.cos((facingDeg * Math.PI) / 180)}
+				y2={PLAN_CY + PLAN_R * Math.sin((facingDeg * Math.PI) / 180)}
+				class="facing-line"
+			/>
+		{/if}
+	</svg>
+	<div class="plan-meta">
+		H {Math.round(horizontalBeamwidthDeg ?? 360)}° · V {Math.round(beamwidthDeg)}° · Pol
+		{polarizationMode === 'dual' ? 'V+H' : 'single'}
+	</div>
+</div>
+
 <style>
 	.diagram {
 		display: block;
 		width: 100%;
 		height: auto;
-		background: var(--bg-surface);
-		border: 1px solid var(--border-subtle);
+		background: var(--bg-surface);		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-sm);
 	}
 
@@ -163,5 +215,31 @@
 		fill: #22c55e;
 		stroke: rgba(255, 255, 255, 0.75);
 		stroke-width: 1;
+	}
+
+	.plan-wrap {
+		margin-top: var(--space-2);
+		border-top: 1px solid var(--border-subtle);
+		padding-top: var(--space-1);
+	}
+	.plan-label,
+	.plan-meta {
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+	}
+	.plan-diagram {
+		display: block;
+		width: 100%;
+		height: auto;
+	}
+	.plan-lobe {
+		fill: rgba(34, 197, 94, 0.16);
+		stroke: rgba(34, 197, 94, 0.75);
+		stroke-width: 1;
+	}
+	.facing-line {
+		stroke: rgba(234, 255, 246, 0.7);
+		stroke-width: 1;
+		stroke-dasharray: 3 3;
 	}
 </style>

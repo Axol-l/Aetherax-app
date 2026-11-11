@@ -134,6 +134,7 @@ async function optimizeFloor(
 			verticalGap: number;
 			/** 这个 AP 的天线切角。见 Worker 里的 `ApInput.beamwidthDeg`。 */
 			beamwidthDeg: number;
+			horizontalBeamwidthDeg?: number;
 			aimDeg: number;
 			mount: string;
 			facingDeg: number;
@@ -229,6 +230,7 @@ async function optimizeFloor(
 					// 固定 AP 的天线方向图也要算：正是它说明楼上的 AP 往侧面比往下更能打到下一层，
 					// 而楼上壁挂的 AP 在这一层同样有正反两面。
 					beamwidthDeg: ap.beamwidthDeg,
+					horizontalBeamwidthDeg: ap.horizontalBeamwidthDeg,
 					aimDeg: ap.aimDeg,
 					mount: ap.mount,
 					facingDeg: ap.facingDeg,

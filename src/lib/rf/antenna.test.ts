@@ -7,6 +7,7 @@ import {
 	angleBelowHorizonDeg,
 	antennaFloorDb,
 	antennaLossDb,
+	antennaProfileForMount,
 	antennaRayLossDb,
 	azimuthGainDb,
 	azimuthLossDb,
@@ -86,8 +87,35 @@ describe('elevationGainDb', () => {
 	});
 });
 
-describe('defaultAntenna', () => {
-	it('is a level doughnut with the band’s own width', () => {
+describe('horizontal beamwidth', () => {
+	it('keeps the horizontal cut independent of the vertical beam', () => {
+		const panel = antennaProfileForMount({
+			band: '5ghz',
+			beamwidthDeg: 15,
+			horizontalBeamwidthDeg: 75,
+			aimDeg: 0,
+			mount: 'wall',
+			facingDeg: 90
+		});
+		expect(azimuthGainDb(90, panel)).toBeCloseTo(0, 10);
+		expect(azimuthGainDb(0, panel)).toBeLessThan(-3);
+		expect(elevationGainDb(90, panel)).toBeLessThan(-10);
+	});
+
+	it('treats 360° as horizontal omni', () => {
+		const omni = antennaProfileForMount({
+			band: '5ghz',
+			beamwidthDeg: 90,
+			horizontalBeamwidthDeg: 360,
+			aimDeg: 30,
+			mount: 'ceiling'
+		});
+		expect(azimuthGainDb(0, omni)).toBe(0);
+		expect(azimuthGainDb(137, omni)).toBe(0);
+	});
+});
+
+describe('defaultAntenna', () => {	it('is a level doughnut with the band’s own width', () => {
 		expect(omni5).toEqual({ beamwidthDeg: 60, aimDeg: 0, floorDb: 12 });
 		expect(omni24.beamwidthDeg).toBe(120);
 		expect(omni24.aimDeg).toBe(0);
