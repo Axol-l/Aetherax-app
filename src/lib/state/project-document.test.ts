@@ -323,7 +323,7 @@ describe('project document', () => {
 
 		expect(doc).not.toBeNull();
 		expect('heatmapRssiFloor' in doc!).toBe(false);
-		expect('receiverPolarizationAngleDeg' in doc!).toBe(false);
+		expect(doc!.receiverPolarizationAngleDeg).toBe(90);
 		expect('coverageFloorEveryFloor' in doc!).toBe(false);
 		// 留下的门限照旧生效：热力图的下限现在由它推出来。
 		expect(doc!.coverageThresholdDbm).toBe(-68);

@@ -19,6 +19,8 @@ export interface ProjectSettings {
 	coverageThresholdDbm: number;
 	/** 假设客户端离地多高，单位米。 */
 	clientHeight: number;
+	/** 接收端线极化角：0° 垂直，90° 水平。 */
+	receiverPolarizationAngleDeg: number;
 	/** 同频干扰占比在放置目标里的权重。 */
 	interferenceWeight: number;
 	/**
@@ -44,6 +46,7 @@ export const DEFAULT_SETTINGS: Readonly<ProjectSettings> = {
 	allowOutsideRooms: false,
 	coverageThresholdDbm: COVERAGE_THRESHOLD_DBM,
 	clientHeight: 1.5,
+	receiverPolarizationAngleDeg: 0,
 	interferenceWeight: 0.2,
 	coverageSoftnessDb: DEFAULT_COVERAGE_SOFTNESS_DB,
 	coverageFloorPct: 0,

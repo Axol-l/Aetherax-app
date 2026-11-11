@@ -21,7 +21,14 @@
 	import { getAvailableChannels } from '@aetherax/channels';
 	import type { Band, ChannelWidth } from '@aetherax/channels';
 	import { solverState, edgeSignals } from '$state/solver.svelte.js';
-	import { findModel, getBandSpec, recommendedClients, recommendedAntenna, type ApModel } from '$lib/data/ap-models.js';
+	import { projectMeta } from '$state/project-meta.svelte';
+	import {
+		findModel,
+		getBandSpec,
+		recommendedClients,
+		recommendedAntenna,
+		type ApModel
+	} from '$lib/data/ap-models.js';
 	import Select from '$components/shared/Select.svelte';
 	import Button from '$components/shared/Button.svelte';
 	import Icon from '$components/shared/Icon.svelte';
@@ -182,6 +189,18 @@
 			polarizationMode: (e.target as HTMLSelectElement).value === 'dual' ? 'dual' : 'single'
 		});
 	}
+
+	/** 相对接收极化的理论失配；双极化按单端口 −3 dB 显示。 */
+	const polarizationMismatchDb = $derived.by(() => {
+		if (!singleAp) return 0;
+		if ((singleAp.polarizationMode ?? 'single') === 'dual') return 3.01;
+		const delta =
+			(((singleAp.polarizationAngleDeg ?? 0) - projectMeta.receiverPolarizationAngleDeg) *
+				Math.PI) /
+			180;
+		const c = Math.cos(delta);
+		return -10 * Math.log10(Math.max(c * c, 1e-6));
+	});
 
 	/** Sign is the direction: positive aims the peak down, negative aims it up. */
 	function handleAimChange(e: Event): void {
@@ -487,63 +506,74 @@
 			>
 				<span class="field-label">{t('Antenna')}</span>
 			</Tooltip>
-			<div class="mount-row">
-				<input
-					class="mount-height"
-					type="number"
-					aria-label={t('Vertical beamwidth')}
-					value={singleAp.beamwidthDeg}
-					min={MIN_BEAMWIDTH_DEG}
-					max={MAX_BEAMWIDTH_DEG}
-					step={5}
-					onchange={handleBeamwidthChange}
-				/>
-				<span class="mount-unit">{t('° vertical')}</span>
-				<input
-					class="mount-height"
-					type="number"
-					aria-label={t('Horizontal beamwidth')}
-					value={singleAp.horizontalBeamwidthDeg ?? 360}
-					min={MIN_BEAMWIDTH_DEG}
-					max="360"
-					step={5}
-					onchange={handleHorizontalBeamwidthChange}
-				/>
-				<span class="mount-unit">{t('° horizontal')}</span>
-				<input
-					class="mount-height"
-					type="number"
-					aria-label={t('Aim')}
-					value={singleAp.aimDeg}
-					min={-MAX_AIM_DEG}
-					max={MAX_AIM_DEG}
-					step={5}
-					onchange={handleAimChange}
-				/>
-				<span class="mount-unit">{t('° aim')}</span>
+			<div class="antenna-grid">
+				<label class="antenna-cell">
+					<span>{t('Vertical')}</span>
+					<span class="antenna-input">
+						<input
+							class="mount-height"
+							type="number"
+							aria-label={t('Vertical beamwidth')}
+							value={singleAp.beamwidthDeg}
+							min={MIN_BEAMWIDTH_DEG}
+							max={MAX_BEAMWIDTH_DEG}
+							step={5}
+							onchange={handleBeamwidthChange}
+						/>
+						<span class="mount-unit">{t('°')}</span>
+					</span>
+				</label>
+				<label class="antenna-cell">
+					<span>{t('Horizontal')}</span>
+					<span class="antenna-input">
+						<input
+							class="mount-height"
+							type="number"
+							aria-label={t('Horizontal beamwidth')}
+							value={singleAp.horizontalBeamwidthDeg ?? 360}
+							min={MIN_BEAMWIDTH_DEG}
+							max="360"
+							step={5}
+							onchange={handleHorizontalBeamwidthChange}
+						/>
+						<span class="mount-unit">{t('°')}</span>
+					</span>
+				</label>
+				<label class="antenna-cell">
+					<span>{t('Aim')}</span>
+					<span class="antenna-input">
+						<input
+							class="mount-height"
+							type="number"
+							aria-label={t('Aim')}
+							value={singleAp.aimDeg}
+							min={-MAX_AIM_DEG}
+							max={MAX_AIM_DEG}
+							step={5}
+							onchange={handleAimChange}
+						/>
+						<span class="mount-unit">{t('°')}</span>
+					</span>
+				</label>
+				{#if singleAp.mount === 'wall' || (singleAp.horizontalBeamwidthDeg ?? 360) < 360}
+					<label class="antenna-cell">
+						<span>{t('Facing')}</span>
+						<span class="antenna-input">
+							<input
+								class="mount-height"
+								type="number"
+								aria-label={t('Facing')}
+								value={Math.round(singleAp.facingDeg)}
+								min="0"
+								max="359"
+								step="5"
+								onchange={handleFacingChange}
+							/>
+							<span class="mount-unit">{t('°')}</span>
+						</span>
+					</label>
+				{/if}
 			</div>
-			{#if singleAp.mount === 'wall' || (singleAp.horizontalBeamwidthDeg ?? 360) < 360}
-				<!-- A directional pattern has a direction in plan; a 360° pattern does not. -->
-				<div class="facing-row">
-					<Tooltip
-						position="top"
-						text={t('Which way the unit looks in the plan: 0° is +x (right), 90° is +y (down). A wall mount radiates forwards and is attenuated behind, so this is the direction its coverage goes.')}
-					>
-						<span class="field-label">{t('Facing')}</span>
-					</Tooltip>
-					<input
-						class="mount-height"
-						type="number"
-						aria-label={t('Facing')}
-						value={Math.round(singleAp.facingDeg)}
-						min="0"
-						max="359"
-						step="5"
-						onchange={handleFacingChange}
-					/>
-					<span class="mount-unit">{t('° in plan')}</span>
-				</div>
-			{/if}
 			<AntennaDiagram
 				beamwidthDeg={singleAp.beamwidthDeg}
 				horizontalBeamwidthDeg={singleAp.horizontalBeamwidthDeg ?? 360}
@@ -633,6 +663,9 @@
 							<option value="single">{t('Single')}</option>
 							<option value="dual">{t('Dual V+H')}</option>
 						</select>
+					</div>
+					<div class="polarization-mismatch">
+						{t('Polarization mismatch')}: {polarizationMismatchDb.toFixed(1)} dB
 					</div>
 					{#if (singleAp.polarizationMode ?? 'single') === 'single'}
 						<div class="mount-row">
@@ -965,6 +998,33 @@
 		display: flex;
 		align-items: center;
 		gap: var(--space-2);
+	}
+
+	.antenna-grid {
+		display: grid;
+		grid-template-columns: 1fr 1fr;
+		gap: var(--space-2);
+	}
+	.antenna-cell {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+	}
+	.antenna-input {
+		display: flex;
+		align-items: center;
+		gap: 4px;
+	}
+	.antenna-input .mount-height {
+		flex: 1;
+		min-width: 0;
+	}
+	.polarization-mismatch {
+		margin-top: var(--space-1);
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
 	}
 
 	/* The facing row sits under the beam/aim row, in the same rhythm. */

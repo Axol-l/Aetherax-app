@@ -1,7 +1,6 @@
 <script lang="ts">
 	import {
 		antennaProfileForMount,
-		azimuthLossDb,
 		elevationGainDb
 	} from '$lib/rf/antenna.js';
 	import { rampCss } from '$lib/canvas/heatmap-ramp.js';
@@ -78,9 +77,7 @@
 			const offset = x - AP_X;
 			const horizontal = Math.abs(offset) / SCALE;
 			const angle = (Math.atan2(drop / SCALE, Math.max(horizontal, 0.01)) * 180) / Math.PI;
-			const bearing = facingDeg + (offset < 0 ? 180 : 0);
-			const loss =
-				-elevationGainDb(angle, profile) + azimuthLossDb(bearing, profile);
+			const loss = -elevationGainDb(angle, profile);
 			const strength = 1 - clamp(loss / profile.floorDb, 0, 1);
 			out.push({ x, h: Math.max(3, strength * full), color: rampCss(strength) });
 		}

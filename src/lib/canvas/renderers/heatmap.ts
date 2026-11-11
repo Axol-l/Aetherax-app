@@ -253,6 +253,7 @@ export interface HeatmapInput {
 	reflectingWalls?: ReflectingWall[];
 	wallHeightM?: number;
 	metric?: 'rssi' | 'sinr' | 'rate';
+	receiverPolarizationAngleDeg?: number;
 	pathLossExponent?: number;
 }
 
@@ -315,6 +316,8 @@ export class HeatmapLayer implements Layer {
 	rssiFloor = DEFAULT_RSSI_FLOOR;
 	/** 显示指标；SINR 使用固定的 -5..30 dB 色阶。 */
 	metric: 'rssi' | 'sinr' | 'rate' = 'rssi';
+	/** 接收端线极化角；0 为垂直。 */
+	receiverPolarizationAngleDeg = 0;
 	/** 当前生成所属楼层；缓存按楼层分开，切回时可直接命中。 */
 	floorId = '';
 
@@ -590,6 +593,7 @@ export class HeatmapLayer implements Layer {
 			reflectingWalls: this.reflectingWalls.map((wall) => ({ ...wall })),
 			wallHeightM: this.wallHeightM,
 			metric: this.metric,
+			receiverPolarizationAngleDeg: this.receiverPolarizationAngleDeg,
 			pathLossExponent: pathLossN()
 		};
 	}
@@ -822,7 +826,7 @@ export class HeatmapLayer implements Layer {
 							: '')
 				)
 				.join('|') +
-			`|floor:${this.rssiFloor}|metric:${this.metric}|n:${pathLossN()}|t:${this.isDragging ? 'c' : 'f'}` +
+			`|floor:${this.rssiFloor}|metric:${this.metric}|rxpol:${this.receiverPolarizationAngleDeg}|n:${pathLossN()}|t:${this.isDragging ? 'c' : 'f'}` +
 			`|id:${this.floorId}` +
 			`|wm:${this.wallMask?.width ?? 0}x${this.wallMask?.height ?? 0}:${this.wallMask?.originX ?? 0},${this.wallMask?.originY ?? 0}` +
 			// 掩码对象本身，而不仅是其几何尺寸：同尺寸替换掩码时，缓存中的衰减场也会随之失效。
@@ -1737,7 +1741,7 @@ export class HeatmapLayer implements Layer {
 						// 各 AP 自己的发射极化角仍然起作用，见 `HeatmapAp.polarizationAngleDeg`。
 						apPowers[i] = linearPolarizationPower(
 							{ vertical: fieldV[i]!, horizontal: fieldH[i]! },
-							0
+							(this.receiverPolarizationAngleDeg * Math.PI) / 180
 						);
 						totalMw += apPowers[i]!;
 					}

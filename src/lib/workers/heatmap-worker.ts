@@ -24,6 +24,7 @@ self.onmessage = (event: MessageEvent<HeatmapWorkerRequest>) => {
 	layer.reflectingWalls = input.reflectingWalls ?? [];
 	layer.wallHeightM = input.wallHeightM ?? 3;
 	layer.metric = input.metric ?? 'rssi';
+	layer.receiverPolarizationAngleDeg = input.receiverPolarizationAngleDeg ?? 0;
 
 	const result = layer.generateFor(input);
 	if (!result) {

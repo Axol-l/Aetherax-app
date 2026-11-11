@@ -108,6 +108,7 @@ export interface ProjectDocumentV3 {
 	allowOutsideRooms: boolean;
 	coverageThresholdDbm: number;
 	clientHeight: number;
+	receiverPolarizationAngleDeg?: number;
 	interferenceWeight: number;
 	coverageSoftnessDb: number;
 	coverageFloorPct: number;
@@ -193,6 +194,7 @@ export function toDocument(options: ToDocumentOptions = {}): ProjectDocumentV3 {
 		allowOutsideRooms: projectMeta.allowOutsideRooms,
 		coverageThresholdDbm: projectMeta.coverageThresholdDbm,
 		clientHeight: projectMeta.clientHeight,
+		receiverPolarizationAngleDeg: projectMeta.receiverPolarizationAngleDeg,
 		interferenceWeight: projectMeta.interferenceWeight,
 		coverageSoftnessDb: projectMeta.coverageSoftnessDb,
 		coverageFloorPct: projectMeta.coverageFloorPct,
@@ -344,6 +346,8 @@ export function migrate(raw: unknown): ProjectDocumentV3 | null {
 		allowOutsideRooms: data.allowOutsideRooms ?? DEFAULT_SETTINGS.allowOutsideRooms,
 		coverageThresholdDbm: data.coverageThresholdDbm ?? DEFAULT_SETTINGS.coverageThresholdDbm,
 		clientHeight: data.clientHeight ?? DEFAULT_SETTINGS.clientHeight,
+		receiverPolarizationAngleDeg:
+			data.receiverPolarizationAngleDeg ?? DEFAULT_SETTINGS.receiverPolarizationAngleDeg,
 		interferenceWeight: data.interferenceWeight ?? DEFAULT_SETTINGS.interferenceWeight,
 		coverageSoftnessDb: data.coverageSoftnessDb ?? DEFAULT_SETTINGS.coverageSoftnessDb,
 		coverageFloorPct: data.coverageFloorPct ?? DEFAULT_SETTINGS.coverageFloorPct,
@@ -497,6 +501,7 @@ export function applyDocument(
 	projectMeta.allowOutsideRooms = doc.allowOutsideRooms;
 	projectMeta.coverageThresholdDbm = doc.coverageThresholdDbm;
 	projectMeta.clientHeight = doc.clientHeight;
+	projectMeta.receiverPolarizationAngleDeg = doc.receiverPolarizationAngleDeg ?? 0;
 	projectMeta.interferenceWeight = doc.interferenceWeight;
 	projectMeta.coverageSoftnessDb = doc.coverageSoftnessDb;
 	projectMeta.coverageFloorPct = doc.coverageFloorPct;
