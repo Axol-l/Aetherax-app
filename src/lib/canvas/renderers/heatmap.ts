@@ -480,6 +480,15 @@ export class HeatmapLayer implements Layer {
 		invalidateAttenCache();
 	}
 
+	/** Antenna edits must not be able to reuse a raster under a stale key. */
+	invalidateRasterCache(): void {
+		this.cacheEntries.clear();
+		this.cache = null;
+		this.previousCache = null;
+		this.cacheKey = '';
+		invalidateAttenCache();
+	}
+
 	/**
 	 * 输入发生变化时重建世界坐标下的缓存图像。
 	 * 从 `render` 中拆出，使平铺楼层总览无需本图层绘制也能取得图像。

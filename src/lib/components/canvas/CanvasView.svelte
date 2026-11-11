@@ -919,6 +919,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	// Sync heatmap APs — current floor plus every other floor's, as fixed sources.
 	/** Guards the async mask lookup against a superseded run publishing late. */
 	let heatmapApsVersion = 0;
+	let lastAntennaSignature = '';
 	$effect(() => {
 		trackHeatmapInputs();
 		void appState.showHeatmap;
@@ -942,6 +943,18 @@ import { wallState } from '$state/wall-state.svelte.js';
 			}
 			if (version !== heatmapApsVersion) return;
 			heatmapLayer.aps = resolved;
+			// Beam/aim/polarization changes alter the antenna signature, but an old
+			// cached raster under the previous key can still be present. Clear the
+			// raster entries, not just the key, so a stale antenna result cannot win.
+			const antennaKey = resolved
+				.map((ap) => `${ap.id}:${antennaSignature(ap)}`)
+				.join('|');
+			if (antennaKey !== lastAntennaSignature) {
+				lastAntennaSignature = antennaKey;
+				heatmapLayer.invalidateRasterCache();
+			} else {
+				heatmapLayer.markWallsDirty();
+			}
 			heatmapLayer.maskTag = heatmapMaskTag(floorState.floors.find((f) => f.id === floorId) ?? {
 				id: floorId,
 				wallMask: null
