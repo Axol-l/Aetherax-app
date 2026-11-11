@@ -317,17 +317,20 @@
 					position="top"
 					text={t('Off by default: optimised APs stay inside the detected building interior. Turn on to let them land anywhere, walls included.')}
 				>
-					<label class="setting-row">
-						<input
-							type="checkbox"
-							checked={projectMeta.allowOutsideRooms}
-							onchange={(e) =>
-								(projectMeta.allowOutsideRooms = (
-									e.currentTarget as HTMLInputElement
-								).checked)}
-						/>
+					<button
+						class="setting-row switch-row"
+						class:on={projectMeta.allowOutsideRooms}
+						role="switch"
+						aria-checked={projectMeta.allowOutsideRooms}
+						aria-label={t('Allow APs outside rooms')}
+						onclick={() => {
+							projectMeta.allowOutsideRooms = !projectMeta.allowOutsideRooms;
+							scheduleSave();
+						}}
+					>
 						<span class="setting-title">{t('Allow APs outside rooms')}</span>
-					</label>
+						<span class="toggle-track"><span class="toggle-knob"></span></span>
+					</button>
 				</Tooltip>
 
 				<Tooltip
@@ -400,17 +403,20 @@
 						position="top"
 						text={t('Apply the floor to every storey, not just the one you optimise: an all-floors run gives the weakest floor that falls short one more pass with the floor as its own constraint. A1\'s "no floor below X%", which a weighted sum cannot express.')}
 					>
-						<label class="setting-row">
-							<input
-								type="checkbox"
-								checked={projectMeta.coverageFloorEveryFloor}
-								onchange={(e) =>
-									(projectMeta.coverageFloorEveryFloor = (
-										e.currentTarget as HTMLInputElement
-									).checked)}
-							/>
+						<button
+							class="setting-row switch-row"
+							class:on={projectMeta.coverageFloorEveryFloor}
+							role="switch"
+							aria-checked={projectMeta.coverageFloorEveryFloor}
+							aria-label={t('Every floor')}
+							onclick={() => {
+								projectMeta.coverageFloorEveryFloor = !projectMeta.coverageFloorEveryFloor;
+								scheduleSave();
+							}}
+						>
 							<span class="setting-title">{t('Every floor')}</span>
-						</label>
+							<span class="toggle-track"><span class="toggle-knob"></span></span>
+						</button>
 					</Tooltip>
 				{/if}
 
@@ -767,9 +773,58 @@
 		cursor: pointer;
 	}
 
-	.setting-row input[type='checkbox'] {
+	/* The switch the AP editor uses for "Pin position": the track turns accent when on. */
+	.switch-row {
+		justify-content: space-between;
+		padding: 2px 0;
+		background: none;
+		border: none;
+		color: var(--text-secondary);
+	}
+
+	.switch-row:hover,
+	.switch-row.on {
+		color: var(--text-primary);
+	}
+
+	.switch-row.on .setting-title {
+		color: var(--text-primary);
+	}
+
+	.toggle-track {
+		position: relative;
 		flex: 0 0 auto;
-		accent-color: var(--accent-primary);
+		width: 28px;
+		height: 16px;
+		border-radius: 999px;
+		background: var(--bg-surface);
+		border: 1px solid var(--border-default);
+		transition:
+			background var(--transition-fast),
+			border-color var(--transition-fast);
+	}
+
+	.switch-row.on .toggle-track {
+		background: var(--accent-primary);
+		border-color: var(--accent-primary);
+	}
+
+	.toggle-knob {
+		position: absolute;
+		top: 1px;
+		left: 1px;
+		width: 12px;
+		height: 12px;
+		border-radius: 50%;
+		background: var(--text-secondary);
+		transition:
+			transform var(--transition-fast),
+			background var(--transition-fast);
+	}
+
+	.switch-row.on .toggle-knob {
+		transform: translateX(12px);
+		background: #0b0d12;
 	}
 
 	.slider-row {

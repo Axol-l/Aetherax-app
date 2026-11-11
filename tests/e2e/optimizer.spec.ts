@@ -56,7 +56,7 @@ test.describe('Optimizer', () => {
 		await gear.click();
 		await expect(gear).toHaveAttribute('aria-expanded', 'true');
 		await expect(
-			page.getByRole('checkbox', { name: 'Allow APs outside rooms' })
+			page.getByRole('switch', { name: 'Allow APs outside rooms' })
 		).toBeVisible();
 		await expect(page.getByRole('spinbutton', { name: 'Coverage threshold' })).toBeVisible();
 		await expect(page.getByRole('button', { name: /optimize placement/i })).toHaveCount(0);
