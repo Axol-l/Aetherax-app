@@ -342,7 +342,7 @@ test.describe('Walls as segments', () => {
 			.toBe('circle');
 		await expect.poll(() => savedWallPixels(page), { timeout: 20_000 }).toBeGreaterThan(20);
 
-		// And Delete removes it, like every other selected object.
+		// Delete removes it
 		await page.keyboard.press('Delete');
 		await expect.poll(
 			async () =>

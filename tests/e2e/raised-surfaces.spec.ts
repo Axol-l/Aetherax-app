@@ -71,7 +71,7 @@ test.describe('Raised surfaces', () => {
 		const canvas = page.locator('canvas');
 		const box = (await canvas.boundingBox())!;
 		await canvas.click({ position: { x: box.width * 0.35, y: box.height * 0.3 } });
-		await expect(page.getByText('Click the opposite corner. Escape cancels.')).toBeVisible();
+		await expect(page.getByText('Click the opposite corner.')).toBeVisible();
 
 		await canvas.click({
 			button: 'right',

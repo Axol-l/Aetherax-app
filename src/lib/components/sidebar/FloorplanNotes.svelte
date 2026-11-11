@@ -99,7 +99,7 @@
 	{/if}
 
 	{#if appState.noteMode}
-		<p class="planning-hint">{t('Click on the plan to place a note. Escape cancels.')}</p>
+		<p class="planning-hint">{t('Click on the plan to place a note.')}</p>
 		<div class="planning-actions">
 			<button class="skip-link" onclick={() => (appState.noteMode = false)}>{t('Cancel')}</button>
 		</div>

@@ -361,7 +361,7 @@
 		{#if appState.surfaceMode}
 			<p class="planning-hint">
 				{appState.surfaceDraft
-					? t('Click the opposite corner. Escape cancels.')
+					? t('Click the opposite corner.')
 					: t('Click one corner of the raised area, then the other.')}
 			</p>
 			<div class="planning-actions">
