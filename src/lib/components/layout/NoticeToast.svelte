@@ -35,7 +35,7 @@
 		aria-live="polite"
 		transition:fly={{ y: 6, duration: motionDuration(160), opacity: 0 }}
 	>
-		<Icon name="warning" size={13} />
+		<Icon name="warning" size={16} />
 		<p>{text}</p>
 		<button class="dismiss" title={t('Dismiss')} aria-label={t('Dismiss')} onclick={dismiss}>
 			<Icon name="x" size={12} />
@@ -97,6 +97,14 @@
 		line-height: 1.55;
 		/* The message carries names of access points, so it can be long. */
 		color: var(--text-primary);
+	}
+
+	/*
+	 * A long message shrinks every flex item, and the icon was being squeezed to half its
+	 * width while its height stayed 16 — which is why it read as a tiny triangle.
+	 */
+	.notice :global(svg) {
+		flex: 0 0 auto;
 	}
 
 	.dismiss {

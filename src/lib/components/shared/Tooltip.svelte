@@ -17,6 +17,7 @@
 	let visible = $state(false);
 	let timeout: ReturnType<typeof setTimeout> | null = null;
 	let tooltipEl: HTMLDivElement;
+	let wrapperEl: HTMLDivElement;
 
 	const displayText = $derived.by(() => {
 		const cjk = text.match(/^.*?[。！？]/s);
@@ -32,15 +33,31 @@
 		}, 400);
 	}
 
+	/** The visible box a tooltip must stay inside: the window, narrowed by the panel that clips it. */
+	function bounds(): { left: number; right: number } {
+		let left = 8;
+		let right = window.innerWidth - 8;
+		for (let node = wrapperEl?.parentElement; node && node !== document.body; node = node.parentElement) {
+			const style = getComputedStyle(node);
+			if (style.overflowX === 'visible' && style.overflowY === 'visible') continue;
+			const rect = node.getBoundingClientRect();
+			left = Math.max(left, rect.left + 4);
+			right = Math.min(right, rect.right - 4);
+			break;
+		}
+		return { left, right };
+	}
+
 	function clampToViewport() {
 		if (!tooltipEl) return;
 		const rect = tooltipEl.getBoundingClientRect();
-		if (rect.right > window.innerWidth - 8) {
+		const limit = bounds();
+		if (rect.right > limit.right) {
 			tooltipEl.style.left = 'auto';
 			tooltipEl.style.right = '0';
 			tooltipEl.style.transform = position === 'top' || position === 'bottom' ? 'none' : tooltipEl.style.transform;
 		}
-		if (rect.left < 8) {
+		if (rect.left < limit.left) {
 			tooltipEl.style.left = '0';
 			tooltipEl.style.right = 'auto';
 			tooltipEl.style.transform = position === 'top' || position === 'bottom' ? 'none' : tooltipEl.style.transform;
@@ -60,6 +77,7 @@
 	class="tooltip-wrapper"
 	class:block
 	role="group"
+	bind:this={wrapperEl}
 	onmouseenter={show}
 	onmouseleave={hide}
 	onfocusin={show}
