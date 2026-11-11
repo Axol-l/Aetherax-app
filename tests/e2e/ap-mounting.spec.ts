@@ -152,23 +152,24 @@ async function selectAp(page: Page): Promise<void> {
 }
 
 /** Pixels the heatmap colours: the only coloured content on an empty dark plan. */
-async function colouredPixels(page: Page): Promise<number> {
+async function strongPixels(page: Page): Promise<number> {
 	return page.evaluate(() => {
 		const canvases = Array.from(document.querySelectorAll('canvas'));
 		const canvas = canvases.sort((a, b) => b.width * b.height - a.width * a.height)[0]!;
 		const d = canvas.getContext('2d')!.getImageData(0, 0, canvas.width, canvas.height).data;
-		let coloured = 0;
+		let strong = 0;
 		for (let i = 0; i < d.length; i += 4) {
 			const r = d[i]!;
 			const g = d[i + 1]!;
 			const b = d[i + 2]!;
-			// Warm ramp colours only: the plan, the grid and the chrome are grey, so a
-			// channel that stands out from the others is a coloured texel.
+			// Count the green (strong) end of the ramp, not every saturated texel.
+			// The wide beam covers more area but also spends more of it in the warm
+			// low-signal colours, so counting all colours made the two look equal.
 			const max = Math.max(r, g, b);
 			const min = Math.min(r, g, b);
-			if (max > 80 && max - min > 40) coloured++;
+			if (g > r && g > 100 && max - min > 40) strong++;
 		}
-		return coloured;
+		return strong;
 	});
 }
 
@@ -207,12 +208,12 @@ test('a narrower beam covers less, not more', async ({ page }) => {
 	await beamwidth.fill('180');
 	await beamwidth.blur();
 	await page.waitForTimeout(2500);
-	const wide = await colouredPixels(page);
+	const wide = await strongPixels(page);
 
 	await beamwidth.fill('40');
 	await beamwidth.blur();
 	await page.waitForTimeout(2500);
-	const narrow = await colouredPixels(page);
+	const narrow = await strongPixels(page);
 
 	expect(wide).toBeGreaterThan(500);
 	expect(narrow).toBeLessThan(wide);
