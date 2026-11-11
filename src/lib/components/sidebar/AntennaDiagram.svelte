@@ -94,8 +94,8 @@
 		return out;
 	});
 
-	const ceiling = Math.min(Math.max(ceilingHeightM, 1.8), 6);
-	const heightM = Math.min(Math.max(mountHeightM, 0), ceiling);
+	const ceiling = $derived(Math.min(Math.max(ceilingHeightM, 1.8), 6));
+	const heightM = $derived(Math.min(Math.max(mountHeightM, 0), ceiling));
 </script>
 
 <div class="antenna-figure">

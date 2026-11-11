@@ -204,6 +204,9 @@
 		return -10 * Math.log10(Math.max(c * c, 1e-6));
 	});
 
+	/** A 360° horizontal pattern has no facing to change. */
+	const facingEnabled = $derived((singleAp?.horizontalBeamwidthDeg ?? 360) < 360);
+
 	/** Sign is the direction: positive aims the peak down, negative aims it up. */
 	function handleAimChange(e: Event): void {
 		if (!singleAp) return;
@@ -593,24 +596,23 @@
 						<span class="mount-unit">{t('°')}</span>
 					</span>
 				</label>
-				{#if singleAp.mount === 'wall' || (singleAp.horizontalBeamwidthDeg ?? 360) < 360}
-					<label class="antenna-cell">
-						<span>{t('Facing')}</span>
-						<span class="antenna-input">
-							<input
-								class="mount-height"
-								type="number"
-								aria-label={t('Facing')}
-								value={Math.round(singleAp.facingDeg)}
-								min="0"
-								max="359"
-								step="5"
-								onchange={handleFacingChange}
-							/>
-							<span class="mount-unit">{t('°')}</span>
-						</span>
-					</label>
-				{/if}
+				<label class="antenna-cell" class:disabled={!facingEnabled}>
+					<span>{t('Facing')}</span>
+					<span class="antenna-input">
+						<input
+							class="mount-height"
+							type="number"
+							aria-label={t('Facing')}
+							value={Math.round(singleAp.facingDeg)}
+							min="0"
+							max="359"
+							step="5"
+							disabled={!facingEnabled}
+							onchange={handleFacingChange}
+						/>
+						<span class="mount-unit">{t('°')}</span>
+					</span>
+				</label>
 			</div>
 			<AntennaDiagram
 				beamwidthDeg={singleAp.beamwidthDeg}
@@ -1060,6 +1062,12 @@
 	.antenna-input .mount-height {
 		flex: 1;
 		min-width: 0;
+	}
+	.antenna-cell.disabled {
+		opacity: 0.45;
+	}
+	.antenna-cell.disabled input {
+		cursor: not-allowed;
 	}
 	.polarization-mismatch {
 		margin-top: var(--space-1);
