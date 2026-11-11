@@ -92,6 +92,10 @@ export function deserialize(json: string): void {
 
 export async function downloadJson(): Promise<void> {
 	const json = await serialize();
+	downloadTextFile(json);
+}
+
+function downloadTextFile(json: string): void {
 	const blob = new Blob([json], { type: 'application/json' });
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement('a');
@@ -99,6 +103,52 @@ export async function downloadJson(): Promise<void> {
 	a.download = `${projectMeta.name.replace(/[^a-zA-Z0-9-_]/g, '_')}.aetherax.json`;
 	a.click();
 	URL.revokeObjectURL(url);
+}
+
+/**
+ * Save the project to a file the user chooses.
+ *
+ * Chromium's File System Access API gives a native Save dialog; the Tauri webview
+ * supports it on current Windows builds. If it is unavailable, fall back to a
+ * regular download so the file still leaves the application.
+ */
+export async function saveProjectFile(): Promise<void> {
+	const json = await serialize();
+	const picker = (
+		window as Window & {
+			showSaveFilePicker?: (options: {
+				suggestedName: string;
+				types: Array<{ description: string; accept: Record<string, string[]> }>;
+			}) => Promise<{
+				createWritable: () => Promise<{
+					write: (data: string) => Promise<void>;
+					close: () => Promise<void>;
+				}>;
+			}>;
+		}
+	).showSaveFilePicker;
+	if (!picker) {
+		downloadTextFile(json);
+		return;
+	}
+	try {
+		const handle = await picker({
+			suggestedName: `${projectMeta.name.replace(/[^a-zA-Z0-9-_]/g, '_')}.aetherax.json`,
+			types: [
+				{
+					description: 'Aetherax project',
+					accept: { 'application/json': ['.aetherax.json', '.json'] }
+				}
+			]
+		});
+		const writable = await handle.createWritable();
+		await writable.write(json);
+		await writable.close();
+	} catch (error) {
+		// AbortError means the user cancelled the dialog; do not download behind their back.
+		if ((error as { name?: string }).name === 'AbortError') return;
+		downloadTextFile(json);
+	}
 }
 
 export function importJson(file: File): Promise<void> {

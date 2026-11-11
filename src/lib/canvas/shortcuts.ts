@@ -160,9 +160,13 @@ export function handleShortcut(e: KeyboardEvent, hooks: ShortcutHooks): void {
 	}
 
 	if (mod && (e.key === 's' || e.key === 'S')) {
-		// 浏览器的保存对话框与项目无关：拦截它，把项目写入应用存储，并给出可见反馈。
+		// Ctrl+S writes the project file, not just the webview's autosave slot.
+		// Keep the local save as a fallback for browsers that block downloads.
 		e.preventDefault();
-		void saveNow();
+		void saveNow().then(async () => {
+			const { saveProjectFile } = await import('$lib/export/json.js');
+			await saveProjectFile();
+		});
 		return;
 	}
 

@@ -8,7 +8,7 @@
 	import Tooltip from '$components/shared/Tooltip.svelte';
 	import ManualDialog from '$components/dialogs/ManualDialog.svelte';
 	import NewProjectDialog from '$components/dialogs/NewProjectDialog.svelte';
-	import { downloadJson, importJson } from '$lib/export/json.js';
+	import { importJson, saveProjectFile } from '$lib/export/json.js';
 	import { exportPng } from '$lib/export/png.js';
 	import { exportPdf } from '$lib/export/pdf.js';
 	import { canvasEngineRef } from '$state/canvas.svelte';
@@ -60,7 +60,7 @@
 	}
 
 	async function handleSaveProject() {
-		await downloadJson();
+		await saveProjectFile();
 		announce(t('Project exported as a JSON file'));
 	}
 
