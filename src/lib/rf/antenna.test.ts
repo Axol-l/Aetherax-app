@@ -184,9 +184,17 @@ describe('the wall mount’s horizontal cut', () => {
 		for (const bearing of [0, 45, 90, 180, -135]) {
 			expect(azimuthGainDb(bearing, omni5)).toBe(0);
 			expect(azimuthLossDb(bearing, omni5)).toBe(0);
-			// 180° 水平切片是文档中表示“完全没有水平方向性”的方式。
-			expect(azimuthGainDb(bearing, { ...omni5, azBeamwidthDeg: 180 })).toBe(0);
+			// 360° is the documented horizontal omni value; 180° is a broad but
+			// still directional panel.
+			expect(azimuthGainDb(bearing, { ...omni5, azBeamwidthDeg: 360 })).toBe(0);
 		}
+	});
+
+	it('keeps a 235° horizontal panel directional', () => {
+		const profile: AntennaProfile = { ...omni5, horizontalBeamwidthDeg: 235, facingDeg: 0 };
+		expect(azimuthGainDb(0, profile)).toBe(0);
+		expect(azimuthGainDb(180, profile)).toBeLessThan(-3);
+		expect(azimuthGainDb(90, profile)).toBeLessThan(0);
 	});
 
 	it('is 0 dB straight ahead, −3 dB at the half-power angle and the floor behind', () => {

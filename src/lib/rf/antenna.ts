@@ -72,7 +72,9 @@ export function antennaProfileForMount(input: {
 	const horizontal =
 		input.horizontalBeamwidthDeg ??
 		(input.mount === 'wall' ? WALL_MOUNT_AZIMUTH.azBeamwidthDeg : 360);
-	if (horizontal < MAX_BEAMWIDTH_DEG) {
+	// 360° is the horizontal omni case. Values between 180° and 359° are still
+	// directional panels; MAX_BEAMWIDTH_DEG is the *vertical* cutoff.
+	if (horizontal < 360) {
 		profile.horizontalBeamwidthDeg = horizontal;
 		profile.azBeamwidthDeg = horizontal;
 		profile.facingDeg = input.facingDeg ?? 0;
@@ -161,11 +163,14 @@ export function bearingDeg(dx: number, dy: number): number {
  */
 export function azimuthGainDb(bearing: number, profile: AntennaProfile): number {
 	const beamwidth = profile.horizontalBeamwidthDeg ?? profile.azBeamwidthDeg;
-	if (beamwidth === undefined || beamwidth >= MAX_BEAMWIDTH_DEG) return 0;
+	if (beamwidth === undefined || beamwidth >= 360) return 0;
 	const half = Math.max(1, beamwidth / 2);
 	const back = Math.max(3, profile.frontToBackDb ?? 20);
 	const offset = Math.abs(wrap180(bearing - (profile.facingDeg ?? 0)));
-	if (offset <= half) return -3 * (offset / half) ** 2;
+	if (offset <= half) {
+		const gain = -3 * (offset / half) ** 2;
+		return gain === 0 ? 0 : gain;
+	}
 	if (offset >= 180) return -back;
 	const t = (offset - half) / (180 - half);
 	return -3 - (back - 3) * t * t * (3 - 2 * t);
