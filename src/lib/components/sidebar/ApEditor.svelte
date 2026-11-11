@@ -672,6 +672,29 @@
 					<div class="polarization-mismatch">
 						{t('Polarization mismatch')}: {polarizationMismatchDb.toFixed(1)} dB
 					</div>
+					<div class="mount-row">
+						<Tooltip
+							position="top"
+							text={t('Client receive polarization: 0° is vertical, 90° is horizontal.')}
+						>
+							<span class="field-label">{t('Receiver polarization')}</span>
+						</Tooltip>
+						<input
+							class="mount-height"
+							type="number"
+							aria-label={t('Receiver polarization')}
+							value={projectMeta.receiverPolarizationAngleDeg}
+							min="0"
+							max="90"
+							step={5}
+							onchange={(e) =>
+								(projectMeta.receiverPolarizationAngleDeg = Math.min(
+									90,
+									Math.max(0, Number((e.currentTarget as HTMLInputElement).value))
+								))}
+						/>
+						<span class="mount-unit">{t('°')}</span>
+					</div>
 					{#if (singleAp.polarizationMode ?? 'single') === 'single'}
 						<div class="mount-row">
 							<Tooltip position="top" text={t('Transmit polarization: 0° is vertical, 90° is horizontal.')}>
@@ -787,6 +810,9 @@
 	.advanced {
 		display: flex;
 		flex-direction: column;
+		margin-top: var(--space-3);
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--border-subtle);
 	}
 
 	.advanced-head {
@@ -794,17 +820,22 @@
 		align-items: center;
 		gap: var(--space-1);
 		width: 100%;
-		padding: 0;
-		background: none;
-		border: none;
+		padding: var(--space-1) var(--space-2);
+		background: var(--bg-surface);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
 		color: var(--text-secondary);
 		font-family: var(--font-sans);
-		font-size: var(--text-sm);
+		font-size: var(--text-xs);
+		font-weight: 500;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
 		cursor: pointer;
 	}
 
 	.advanced-head:hover {
 		color: var(--text-primary);
+		border-color: var(--border-default);
 	}
 
 	.advanced-chevron {
@@ -821,7 +852,11 @@
 		display: flex;
 		flex-direction: column;
 		gap: var(--space-2);
-		padding-top: var(--space-2);
+		margin-top: var(--space-1);
+		padding: var(--space-2);
+		background: var(--bg-surface);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
 	}
 
 	.field {
@@ -1028,6 +1063,9 @@
 	}
 	.polarization-mismatch {
 		margin-top: var(--space-1);
+		padding: 4px 6px;
+		border-radius: var(--radius-xs);
+		background: var(--bg-surface-raised, var(--bg-surface));
 		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 	}

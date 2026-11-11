@@ -94,26 +94,6 @@
 		return out;
 	});
 
-	const halfH = Math.min(180, Math.max(1, (horizontalBeamwidthDeg ?? 360) / 2));
-	const planPath = $derived.by(() => {
-		const planW = 260;
-		const planH = 132;
-		const cx = planW / 2;
-		const cy = planH / 2;
-		const r = 52;
-		if ((horizontalBeamwidthDeg ?? 360) >= 360) {
-			return `M ${cx - r} ${cy} a ${r} ${r} 0 1 0 ${r * 2} 0 a ${r} ${r} 0 1 0 ${-r * 2} 0`;
-		}
-		const start = ((facingDeg - halfH) * Math.PI) / 180;
-		const end = ((facingDeg + halfH) * Math.PI) / 180;
-		const p1 = [cx + r * Math.cos(start), cy + r * Math.sin(start)];
-		const p2 = [cx + r * Math.cos(end), cy + r * Math.sin(end)];
-		const large = halfH > 90 ? 1 : 0;
-		return `M ${cx} ${cy} L ${p1[0]} ${p1[1]} A ${r} ${r} 0 ${large} 1 ${p2[0]} ${p2[1]} Z`;
-	});
-
-	const planCenter = { x: 130, y: 66 };
-	const planR = 52;
 	const ceiling = Math.min(Math.max(ceilingHeightM, 1.8), 6);
 	const heightM = Math.min(Math.max(mountHeightM, 0), ceiling);
 </script>
@@ -156,23 +136,6 @@
 		<span>{mount === 'ceiling' ? `${heightM.toFixed(1)} m` : ''}</span>
 		<span>{t('Pol')} {polarizationMode === 'dual' ? 'V+H' : 'single'}</span>
 	</div>
-</div>
-
-<div class="plan-wrap">
-	<div class="plan-label">{t('Plan view')}</div>
-	<svg viewBox="0 0 260 132" class="plan-diagram" role="img" aria-label="Antenna coverage in plan">
-		<path d={planPath} class="plan-lobe" />
-		<circle cx={planCenter.x} cy={planCenter.y} r="4" class="ap" />
-		{#if (horizontalBeamwidthDeg ?? 360) < 360}
-			<line
-				x1={planCenter.x}
-				y1={planCenter.y}
-				x2={planCenter.x + planR * Math.cos((facingDeg * Math.PI) / 180)}
-				y2={planCenter.y + planR * Math.sin((facingDeg * Math.PI) / 180)}
-				class="facing-line"
-			/>
-		{/if}
-	</svg>
 </div>
 
 <style>
@@ -225,29 +188,5 @@
 	}
 	.figure-foot {
 		padding-bottom: var(--space-1);
-	}
-	.plan-wrap {
-		margin-top: var(--space-2);
-		border-top: 1px solid var(--border-subtle);
-		padding-top: var(--space-1);
-	}
-	.plan-label {
-		font-size: var(--text-xs);
-		color: var(--text-tertiary);
-	}
-	.plan-diagram {
-		display: block;
-		width: 100%;
-		height: auto;
-	}
-	.plan-lobe {
-		fill: rgba(34, 197, 94, 0.16);
-		stroke: rgba(34, 197, 94, 0.75);
-		stroke-width: 1;
-	}
-	.facing-line {
-		stroke: rgba(234, 255, 246, 0.7);
-		stroke-width: 1;
-		stroke-dasharray: 3 3;
 	}
 </style>
