@@ -453,6 +453,42 @@
 		</div>
 
 		<div class="field">
+			<span class="field-label">{t('Position')}</span>
+			<div class="position-row">
+				<div class="position-field">
+					<span class="pos-label">X</span>
+					<span class="pos-value">{Math.round(singleAp.x)}</span>
+				</div>
+				<div class="position-field">
+					<span class="pos-label">Y</span>
+					<span class="pos-value">{Math.round(singleAp.y)}</span>
+				</div>
+			</div>
+			<!--
+				The pin is a constraint on the optimiser, not on the user.
+			-->
+			<button
+				class="pin-row"
+				class:on={singleAp.pinned}
+				role="switch"
+				aria-checked={singleAp.pinned}
+				aria-label={t('Pin position')}
+				onclick={() => {
+					pushState();
+					updateAp(singleAp.id, { pinned: !singleAp.pinned });
+				}}
+			>
+				<Tooltip
+					position="top"
+					text={t('The optimiser leaves this access point exactly where it is. It still counts for coverage, interference and channel planning — it is only its position that is fixed.')}
+				>
+					<span>{t('Pin position')}</span>
+				</Tooltip>
+				<span class="toggle-track"><span class="toggle-knob"></span></span>
+			</button>
+		</div>
+
+		<div class="field">
 			<Tooltip text={t('Transmit power, in dBm.')} position="top">
 				<span class="field-label">{t('TX Power')}</span>
 			</Tooltip>
@@ -587,42 +623,6 @@
 				facingDeg={singleAp.facingDeg}
 				polarizationMode={singleAp.polarizationMode ?? 'single'}
 			/>
-		</div>
-
-		<div class="field">
-			<span class="field-label">{t('Position')}</span>
-			<div class="position-row">
-				<div class="position-field">
-					<span class="pos-label">X</span>
-					<span class="pos-value">{Math.round(singleAp.x)}</span>
-				</div>
-				<div class="position-field">
-					<span class="pos-label">Y</span>
-					<span class="pos-value">{Math.round(singleAp.y)}</span>
-				</div>
-			</div>
-			<!--
-				The pin is a constraint on the optimiser, not on the user.
-			-->
-			<button
-				class="pin-row"
-				class:on={singleAp.pinned}
-				role="switch"
-				aria-checked={singleAp.pinned}
-				aria-label={t('Pin position')}
-				onclick={() => {
-					pushState();
-					updateAp(singleAp.id, { pinned: !singleAp.pinned });
-				}}
-			>
-				<Tooltip
-					position="top"
-					text={t('The optimiser leaves this access point exactly where it is. It still counts for coverage, interference and channel planning — it is only its position that is fixed.')}
-				>
-					<span>{t('Pin position')}</span>
-				</Tooltip>
-				<span class="toggle-track"><span class="toggle-knob"></span></span>
-			</button>
 		</div>
 
 		{#if interferers.length > 0}
