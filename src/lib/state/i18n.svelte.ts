@@ -576,6 +576,8 @@ const zh: Record<string, string> = {
 	'° vertical': '° 垂直',
 	'° horizontal': '° 水平',
 	'Plan view': '俯视图',
+	'3D lobe': '三维波瓣',
+	Pol: '极化',
 	'Single linear polarization, or dual V+H. Dual uses two equal-power ports; a single-polarized client receives about half the power.':
 		'单线极化，或 V+H 双极化。双极化使用两个等功率端口；单极化接收端大约只收到一半功率。',
 	'Vertical beam: the -3 dB width of the vertical pattern. Horizontal beam: the -3 dB width in plan. Aim: where the vertical peak points — positive down.':

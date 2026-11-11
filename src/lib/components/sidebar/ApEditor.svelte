@@ -182,11 +182,11 @@
 		});
 	}
 
-	function handlePolarizationModeChange(e: Event): void {
+	function handlePolarizationModeChange(value: string): void {
 		if (!singleAp) return;
 		pushState();
 		updateAp(singleAp.id, {
-			polarizationMode: (e.target as HTMLSelectElement).value === 'dual' ? 'dual' : 'single'
+			polarizationMode: value === 'dual' ? 'dual' : 'single'
 		});
 	}
 
@@ -654,15 +654,15 @@
 						<Tooltip position="top" text={t('Single linear polarization, or dual V+H. Dual uses two equal-power ports; a single-polarized client receives about half the power.')}>
 							<span class="field-label">{t('Polarization mode')}</span>
 						</Tooltip>
-						<select
-							class="mount-height"
-							aria-label={t('Polarization mode')}
+						<Select
 							value={singleAp.polarizationMode ?? 'single'}
+							options={[
+								{ value: 'single', label: t('Single') },
+								{ value: 'dual', label: t('Dual V+H') }
+							]}
+							aria-label={t('Polarization mode')}
 							onchange={handlePolarizationModeChange}
-						>
-							<option value="single">{t('Single')}</option>
-							<option value="dual">{t('Dual V+H')}</option>
-						</select>
+						/>
 					</div>
 					<div class="polarization-mismatch">
 						{t('Polarization mismatch')}: {polarizationMismatchDb.toFixed(1)} dB
