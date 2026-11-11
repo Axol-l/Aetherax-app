@@ -453,12 +453,14 @@
 						The tooltip wraps the label only: wrapping the whole row meant it stayed under
 						the cursor and covered the list when the select opened upwards.
 					-->
-					<Tooltip
-						position="top"
-						text={t('How much wall loss the distance model already contains. The tabulated value does include a wall allowance and this app also charges every wall the ray crosses, so the more completely the walls are drawn, the lower the value should be: too high makes coverage radii too small and the plan look like it needs more APs.')}
-					>
-						<span class="setting-title">{t('Propagation')}</span>
-					</Tooltip>
+					<span class="prop-label">
+						<Tooltip
+							position="top"
+							text={t('How much wall loss the distance model already contains. The tabulated value does include a wall allowance and this app also charges every wall the ray crosses, so the more completely the walls are drawn, the lower the value should be: too high makes coverage radii too small and the plan look like it needs more APs.')}
+						>
+							<span class="setting-title">{t('Propagation')}</span>
+						</Tooltip>
+					</span>
 					<div class="env-select">
 						<Select
 							value={projectMeta.pathLossScenario}
@@ -577,7 +579,7 @@
 
 	/* The shared Select, sized like the popup's other fields. */
 	.env-select {
-		display: flex;
+		display: block;
 		flex: 1 1 auto;
 		min-width: 0;
 	}
@@ -744,6 +746,14 @@
 
 	.settings-popup :global(.tooltip-wrapper) {
 		width: 100%;
+	}
+
+	/*
+	 * Every other row is a tooltip wrapper stretched across the popup; the propagation label
+	 * must keep its own width so the select beside it gets the rest of the row.
+	 */
+	.prop-label :global(.tooltip-wrapper) {
+		width: auto;
 	}
 
 	.setting-row {

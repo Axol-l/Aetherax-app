@@ -155,6 +155,7 @@
 	.select-wrapper {
 		position: relative;
 		display: flex;
+		min-width: 0;
 	}
 
 	.trigger {
@@ -162,6 +163,7 @@
 		align-items: center;
 		gap: var(--space-1);
 		width: 100%;
+		min-width: 0;
 		background: var(--bg-surface);
 		color: var(--text-primary);
 		border: 1px solid var(--border-default);
@@ -193,6 +195,15 @@
 		right: var(--space-2);
 		color: var(--text-tertiary);
 		transition: transform var(--transition-fast);
+	}
+
+	/* A long value truncates inside the trigger instead of widening it. */
+	.trigger-label {
+		flex: 1 1 auto;
+		min-width: 0;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
 	}
 
 	.chevron.open {
