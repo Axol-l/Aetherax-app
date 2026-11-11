@@ -251,23 +251,13 @@ export class FloorCardCache {
 		const plan = src.planUrl ? this.images.get(src.planUrl) : null;
 		if (opts.showPlan && plan?.complete && plan.naturalWidth > 0) {
 			ctx.globalAlpha = opts.planOpacity;
-			if (src.maskUrl && src.maskWidth > 0 && src.maskHeight > 0) {
-				/*
-				 * 有墙体掩码时，平面图和掩码是同一张图纸。总览必须把平面图铺到
-				 * 掩码框上，而不是用单独的 800 单位框；否则带 floorplanOffset 的
-				 * 楼层在单层视图里对齐，到了平铺视图却会错位。
-				 */
-				ctx.drawImage(
-					plan,
-					src.maskOriginX,
-					src.maskOriginY,
-					src.maskWidth,
-					src.maskHeight
-				);
-			} else {
-				const h = (plan.naturalHeight / plan.naturalWidth) * CARD_PLAN_WIDTH;
-				ctx.drawImage(plan, src.planOffsetX, src.planOffsetY, CARD_PLAN_WIDTH, h);
-			}
+			/*
+			 * 平面图有自己固定的 800 单位框和 floorplanOffset；墙体掩码的原点会
+			 * 随“墙画到图纸外”而扩展，不能拿掩码框去拉伸平面图，否则墙外新增
+			 * 房间后卡片里的平面图会整体偏移/缩放。
+			 */
+			const h = (plan.naturalHeight / plan.naturalWidth) * CARD_PLAN_WIDTH;
+			ctx.drawImage(plan, src.planOffsetX, src.planOffsetY, CARD_PLAN_WIDTH, h);
 		}
 
 		// 每个楼层的覆盖情况，用于跨楼层比较 AP 覆盖薄弱之处。
