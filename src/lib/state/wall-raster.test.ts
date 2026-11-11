@@ -45,6 +45,20 @@ describe('rasteriseWalls', () => {
 		expect(paintedPixels(wide)).toBeGreaterThan(paintedPixels(thin) * 2);
 	});
 
+	it('closes a small gap between two wall endpoints', () => {
+		const masks = rasteriseWalls(
+			[
+				{ ax: 100, ay: 100, bx: 100, by: 100, material: 2 },
+				{ ax: 108, ay: 100, bx: 108, by: 100, material: 2 }
+			],
+			6,
+			8
+		)!;
+		const x = 104 - masks.originX;
+		const y = 100 - masks.originY;
+		expect(masks.wall[y * masks.width + x]).toBe(1);
+	});
+
 	it('has nothing to paint for no walls', () => {
 		expect(rasteriseWalls([])).toBeNull();
 	});

@@ -134,6 +134,46 @@ export function rasteriseWalls(
 		}
 	}
 
+	/*
+	 * 连接处补缝：识别/手画线段端点常差 1–5 像素，两个端点圆盘之间仍可能留下
+	 * 一像素斜缝。把距离不超过一个墙带宽度、且不同线段的端点对连起来，堵住墙角；
+	 * 正常门洞远大于墙带宽度，不会被误封。
+	 */
+	const endpoints: Array<{ x: number; y: number; material: number; segment: number }> = [];
+	walls.forEach((segment, index) => {
+		endpoints.push(
+			{ x: segment.ax, y: segment.ay, material: segment.material, segment: index },
+			{ x: segment.bx, y: segment.by, material: segment.material, segment: index }
+		);
+	});
+	const joinDistance = bandWidth * 2;
+	for (let i = 0; i < endpoints.length; i++) {
+		for (let j = i + 1; j < endpoints.length; j++) {
+			const a = endpoints[i]!;
+			const b = endpoints[j]!;
+			if (a.segment === b.segment) continue;
+			const dx = b.x - a.x;
+			const dy = b.y - a.y;
+			if (dx * dx + dy * dy > joinDistance * joinDistance) continue;
+			const steps = Math.max(1, Math.ceil(Math.hypot(dx, dy)));
+			for (let step = 0; step <= steps; step++) {
+				const t = step / steps;
+				const cx = Math.round(a.x + dx * t - originX);
+				const cy = Math.round(a.y + dy * t - originY);
+				for (let oy = -radius; oy <= radius; oy++) {
+					for (let ox = -radius; ox <= radius; ox++) {
+						const x = cx + ox;
+						const y = cy + oy;
+						if (x < 0 || y < 0 || x >= width || y >= height) continue;
+						const index = y * width + x;
+						wall[index] = 1;
+						material[index] = a.material;
+					}
+				}
+			}
+		}
+	}
+
 	// 柱是填充的，不是描边：整个占地都算障碍。
 	for (const column of columns) {
 		const cx = column.ax - originX;
