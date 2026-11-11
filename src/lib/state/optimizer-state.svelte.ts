@@ -7,6 +7,7 @@ import { floorState } from './floor-state.svelte.js';
 import { isInsideInterior } from './ap-interior.js';
 import { projectMeta } from './project-meta.svelte.js';
 import { isUsablePlanningArea, pointInPlanningArea } from './planning-area.js';
+import { antennaSignature } from '$lib/rf/antenna.js';
 
 
 
@@ -100,7 +101,8 @@ export function coverageBasis(floorId: string): string {
 		.map(
 			(ap) =>
 				`${ap.id}:${Math.round(ap.x)},${Math.round(ap.y)}:${ap.power}:` +
-				`${ap.band}:${ap.channelWidth}:${ap.assignedChannel ?? ''}:${ap.mount}`
+				`${ap.band}:${ap.channelWidth}:${ap.assignedChannel ?? ''}:${ap.mount}:` +
+				`${ap.mountHeightM}:${antennaSignature(ap)}`
 		)
 		.sort()
 		.join('|');

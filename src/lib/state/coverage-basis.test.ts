@@ -65,6 +65,22 @@ describe('coverage basis', () => {
 		reseed();
 	});
 
+	it('changes when the antenna or its aim changes', () => {
+		addAp(10, 10);
+		const before = coverageBasis('floor-a');
+		const ap = apState.aps[0]!;
+
+		apState.aps = [{ ...ap, beamwidthDeg: 40 }];
+		const narrower = coverageBasis('floor-a');
+		expect(narrower).not.toBe(before);
+
+		apState.aps = [{ ...apState.aps[0]!, horizontalBeamwidthDeg: 235, facingDeg: 90 }];
+		expect(coverageBasis('floor-a')).not.toBe(narrower);
+
+		apState.aps = [{ ...apState.aps[0]!, mountHeightM: 1.1 }];
+		expect(coverageBasis('floor-a')).not.toBe(narrower);
+	});
+
 	it('changes when an access point moves', () => {
 		addAp(10, 10);
 		const before = coverageBasis('floor-a');
