@@ -848,7 +848,7 @@ async function runOptimization(
 			improvement: 0,
 			seed: runSeed,
 			error:
-				'No enclosed interior found, so APs were left where they are. A room only counts as inside once walls form a closed outline around it. Close the outlines, or turn on "Allow APs outside rooms".'
+				'No enclosed interior found, so APs were left where they are. A room only counts as inside once walls form a closed outline around it. Close the outlines, or turn on "Allow APs outside the floor boundary".'
 		});
 		return;
 	}

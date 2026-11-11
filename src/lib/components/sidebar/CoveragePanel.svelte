@@ -318,20 +318,20 @@
 			<div class="settings-popup" transition:slide={{ duration: motionDuration(180) }}>
 				<Tooltip
 					position="top"
-					text={t('Off by default: optimised APs stay inside the detected building interior. Turn on to let them land anywhere, walls included.')}
+					text={t('On lets APs land anywhere, walls included; off keeps them inside the floor boundary — the planning area if one is drawn, otherwise the detected building interior.')}
 				>
 					<button
 						class="setting-row switch-row"
 						class:on={projectMeta.allowOutsideRooms}
 						role="switch"
 						aria-checked={projectMeta.allowOutsideRooms}
-						aria-label={t('Allow APs outside rooms')}
+						aria-label={t('Allow APs outside the floor boundary')}
 						onclick={() => {
 							projectMeta.allowOutsideRooms = !projectMeta.allowOutsideRooms;
 							scheduleSave();
 						}}
 					>
-						<span class="setting-title">{t('Allow APs outside rooms')}</span>
+						<span class="setting-title">{t('Allow APs outside the floor boundary')}</span>
 						<span class="toggle-track"><span class="toggle-knob"></span></span>
 					</button>
 				</Tooltip>
@@ -377,7 +377,7 @@
 
 				<Tooltip
 					position="top"
-					text={t('ε-constraint: the minimum share of the floor the optimiser\'s result must cover. 0 is no constraint, which is the plain coverage-minus-interference trade. Setting a floor makes the requirement explicit — a weighted sum can only walk the convex part of the coverage/interference front, so a floor is how a non-convex stretch, or a guarantee like \'no less than 90%\', gets expressed.')}
+					text={t('The share the optimiser\'s result must cover; 0 leaves the search unconstrained, and the placement advice then has no target to measure against.')}
 				>
 					<label class="setting-row slider-row">
 						<span class="setting-title">{t('Min coverage')}</span>
@@ -400,28 +400,6 @@
 						>
 					</label>
 				</Tooltip>
-
-				{#if multiFloor && projectMeta.coverageFloorPct > 0}
-					<Tooltip
-						position="top"
-						text={t('Apply the floor to every storey, not just the one you optimise: an all-floors run gives the weakest floor that falls short one more pass with the floor as its own constraint. A1\'s "no floor below X%", which a weighted sum cannot express.')}
-					>
-						<button
-							class="setting-row switch-row"
-							class:on={projectMeta.coverageFloorEveryFloor}
-							role="switch"
-							aria-checked={projectMeta.coverageFloorEveryFloor}
-							aria-label={t('Every floor')}
-							onclick={() => {
-								projectMeta.coverageFloorEveryFloor = !projectMeta.coverageFloorEveryFloor;
-								scheduleSave();
-							}}
-						>
-							<span class="setting-title">{t('Every floor')}</span>
-							<span class="toggle-track"><span class="toggle-knob"></span></span>
-						</button>
-					</Tooltip>
-				{/if}
 
 				<Tooltip
 					position="top"

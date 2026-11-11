@@ -13,7 +13,7 @@ import {
 } from '../rf/propagation.js';
 
 export interface ProjectSettings {
-	/** 优化和手动放置是否允许 AP 落在识别出的楼层范围之外。 */
+	/** 优化和手动放置是否允许 AP 落在楼层边界之外（边界取规划范围，没有就用识别出的内部）。 */
 	allowOutsideRooms: boolean;
 	/** 覆盖率判定门限，单位 dBm。 */
 	coverageThresholdDbm: number;
@@ -30,8 +30,6 @@ export interface ProjectSettings {
 	coverageSoftnessDb: number;
 	/** 优化器必须达到的最低覆盖率，百分比；0 表示不约束。 */
 	coverageFloorPct: number;
-	/** 把覆盖下限应用到每一层，而不是只用在正在优化的那层。 */
-	coverageFloorEveryFloor: boolean;
 	/** 距离项按 ITU-R P.1238 的哪种环境建模。 */
 	pathLossScenario: PathLossScenario;
 }
@@ -49,6 +47,5 @@ export const DEFAULT_SETTINGS: Readonly<ProjectSettings> = {
 	interferenceWeight: 0.2,
 	coverageSoftnessDb: DEFAULT_COVERAGE_SOFTNESS_DB,
 	coverageFloorPct: 0,
-	coverageFloorEveryFloor: false,
 	pathLossScenario: DEFAULT_PATH_LOSS_SCENARIO
 };

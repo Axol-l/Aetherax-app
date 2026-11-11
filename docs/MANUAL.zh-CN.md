@@ -382,7 +382,7 @@ Wall mount 必须点击在距墙 1 米以内。AP 会自动吸附到墙面，并
 
 ### 9.5 AP 在楼层外的警告
 
-Allow APs outside rooms 关闭时，手动点击范围外会拒绝放置并给出提示；落到范围外的 AP 会在画布下方显示警告。打开 Allow APs outside rooms 后，放置和优化都允许 AP 在范围外，警告不再出现。警告可以单独关闭。
+Allow APs outside the floor boundary 关闭时，手动点击边界外会拒绝放置并给出提示；落到边界外的 AP 会在画布下方显示警告。打开后，放置和优化都允许 AP 在边界外，警告不再出现。警告可以单独关闭。
 
 ## 10. 覆盖率与优化器
 
@@ -408,7 +408,7 @@ Coverage 下方有一条 Capacity 容量条：显示本层当前 AP 数 / 按房
 
 多楼层工程有两个按钮：
 
-1. Optimize all floors：逐层轮流优化，直到整栋覆盖率不再提升。
+1. Optimize all floors：逐层轮流优化，直到整栋覆盖率不再提升。设了 Min coverage 时，还会对未达标的最弱层单独补跑（最多两轮，只在这层仍在提升时继续）。
 2. Optimize this floor：只优化当前楼层，其他楼层不动。
 
 优化过程中可以点击 Cancel 中止。
@@ -417,14 +417,13 @@ Coverage 下方有一条 Capacity 容量条：显示本层当前 AP 数 / 按房
 
 点击 Placement optimiser 右侧的齿轮：
 
-1. Allow APs outside rooms：允许 AP 落在房间外，默认关闭。
+1. Allow APs outside the floor boundary：允许 AP 落在楼层边界外（有规划范围时以它为准，否则按识别出的建筑内部），默认关闭。
 2. Coverage threshold：覆盖率判定门限，默认 -70 dBm；高密度办公区可提高到 -65 或 -60。热力图从门限下方 10 dB 开始着色，边缘仍保留梯度。
 3. Interference：同信道干扰在评分中的权重，0 到 1，步长 0.05。
-4. Min coverage：最低覆盖率约束，0 表示不约束。
-5. Every floor：多楼层时把最低覆盖率约束应用到每一层。
-6. Client height：客户端离地高度。
-7. Restarts：优化重启次数，1 到 8。
-8. Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。
+4. Min coverage：最低覆盖率约束，0 表示不约束（此时放置建议不估增删 AP 的数量）。
+5. Client height：客户端离地高度。
+6. Restarts：优化重启次数，1 到 8。
+7. Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。
 
 容量不在这里设置：每台 AP 的 Clients 数量在 AP 编辑页单独修改，未设置时默认为 25。
 
@@ -432,7 +431,7 @@ Coverage 下方有一条 Capacity 容量条：显示本层当前 AP 数 / 按房
 
 ### 10.4 放置建议
 
-Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。容量约束触发时会单独显示“Client capacity”，说明容量覆盖的终端数和建议增加的 AP 数；此时不会仅因为覆盖率高就提示删除 AP。点击 Dismiss 关闭。
+Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。增删 AP 的数量估计以 Min coverage 为目标；没设最低覆盖率时，面板只报容量、信道、干扰这些不依赖目标的问题。容量约束触发时会单独显示“Client capacity”，说明容量覆盖的终端数和建议增加的 AP 数；此时不会仅因为覆盖率高就提示删除 AP。点击 Dismiss 关闭。
 
 ### 10.5 信道分配
 
@@ -613,7 +612,7 @@ Layers 面板底部显示信号强度色标。色标范围随覆盖门限变化�
 1. 确认在单层视图。
 2. 确认 Place APs 已打开。
 3. Wall mount 需要点击距墙 1 米以内的位置。
-4. 范围外点击会被拒绝，除非在优化器设置中打开 Allow APs outside rooms。
+4. 范围外点击会被拒绝，除非在优化器设置中打开 Allow APs outside the floor boundary。
 
 ### 18.3 覆盖率明显偏低或偏高
 

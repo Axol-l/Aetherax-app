@@ -257,7 +257,7 @@ export function isPositionAllowed(
 ): boolean {
 	if (x < 0 || x >= w || y < 0 || y >= h) return false;
 	// void 是楼板上的洞——中庭、楼梯井——没地方装 AP。这是物理事实不是房间偏好，
-	// 所以即使用户允许 AP 放在房间外，这里也不放行。
+	// 所以即使用户允许 AP 放在楼层边界外，这里也不放行。
 	if (voidMask && voidMask[y * w + x] === 1) return false;
 	if (allowOutside || !interior) return true;
 	return interior[y * w + x] === 1;

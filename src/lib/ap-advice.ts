@@ -21,8 +21,6 @@ export interface AdviceFinding {
 	params: Record<string, string | number>;
 }
 
-export const DEFAULT_COVERAGE_TARGET = 80;
-
 /** Points above the target before an AP looks redundant rather than load-bearing.*/
 const SURPLUS_FOR_REMOVAL = 12;
 
@@ -55,7 +53,7 @@ export interface AdviceContext {
 	devices: number;
 	/** Sum of the client capacities of the APs on this floor. */
 	clientCapacity: number;
-	/** The requirement: the ε-constraint when set, otherwise the default target. */
+	/** The requirement: the ε-constraint when set, 0 when the project has none. */
 	target: number;
 	/** Access points with no channel from the solver. */
 	unassigned: number;
@@ -91,7 +89,15 @@ function estimateRedundantAps(apsOnFloor: number, coverage: number, target: numb
 /** Evaluate every rule against one context, in display order.*/
 export function evaluateApAdvice(ctx: AdviceContext): AdviceFinding[] {
 	const findings: AdviceFinding[] = [];
-	const target = ctx.target > 0 ? ctx.target : DEFAULT_COVERAGE_TARGET;
+	/*
+	 * 0 表示工程没有覆盖率要求，不是「用默认值」。
+	 *
+	 * 以前这里补一个默认目标，于是用户没设要求，面板也会说「离 80% 还差多少」，
+	 * 而那个 80 在界面上根本看不见。现在没要求就不产生以目标为准的建议：
+	 * 容量、信道、干扰这些不依赖目标的问题照报，增删 AP 的数量估计不报。
+	 */
+	const target = ctx.target;
+	const hasTarget = target > 0;
 	const base = { coverage: Math.round(ctx.coverage), target: Math.round(target) };
 	const perAp =
 		ctx.apsOnFloor > 0 && ctx.clientCapacity > 0
@@ -121,7 +127,7 @@ export function evaluateApAdvice(ctx: AdviceContext): AdviceFinding[] {
 		});
 	}
 
-	if (ctx.apsOnFloor > 0 && ctx.coverage < target) {
+	if (hasTarget && ctx.apsOnFloor > 0 && ctx.coverage < target) {
 		const count = estimateAdditionalAps(ctx.apsOnFloor, ctx.coverage, target);
 		const params: Record<string, string | number> = { ...base, count };
 
@@ -130,6 +136,7 @@ export function evaluateApAdvice(ctx: AdviceContext): AdviceFinding[] {
 		}
 		findings.push({ kind: 'add-aps', severity: 'action', params });
 	} else if (
+		hasTarget &&
 		!capacityShortfall &&
 		(requiredAps === 0 || ctx.apsOnFloor > requiredAps) &&
 		ctx.apsOnFloor >= 2 &&
@@ -159,7 +166,8 @@ export function evaluateApAdvice(ctx: AdviceContext): AdviceFinding[] {
 			kind: 'interference',
 			// Below target the honest reading is "this will get worse if you add
 			// APs"; at or above it, the interference is what is left to fix.
-			severity: ctx.coverage >= target ? 'action' : 'info',
+			// Without a target there is nothing to compare against, so it stays context.
+			severity: hasTarget && ctx.coverage >= target ? 'action' : 'info',
 			params: {
 				interference: Math.round(ctx.interference),
 				contention: Math.round(ctx.contention)
@@ -168,6 +176,7 @@ export function evaluateApAdvice(ctx: AdviceContext): AdviceFinding[] {
 	}
 
 	if (
+		hasTarget &&
 		ctx.multiFloor &&
 		ctx.buildingCoverage !== null &&
 		ctx.worstFloor &&
@@ -185,7 +194,7 @@ export function evaluateApAdvice(ctx: AdviceContext): AdviceFinding[] {
 		});
 	}
 
-	if (findings.length === 0 && ctx.coverage >= target) {
+	if (hasTarget && findings.length === 0 && ctx.coverage >= target) {
 		findings.push({
 			kind: 'meets-target',
 			severity: 'good',

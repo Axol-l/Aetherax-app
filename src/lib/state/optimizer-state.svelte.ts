@@ -142,7 +142,6 @@ export function scoringSettingsSignature(): string {
 		projectMeta.interferenceWeight,
 		projectMeta.coverageSoftnessDb,
 		projectMeta.coverageFloorPct,
-		projectMeta.coverageFloorEveryFloor ? '1' : '0',
 		projectMeta.pathLossScenario
 	].join('|');
 }

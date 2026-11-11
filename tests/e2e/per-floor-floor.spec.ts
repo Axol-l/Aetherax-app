@@ -7,11 +7,12 @@ import { test, expect, type Page } from '@playwright/test';
  * ε-constraint F3 added *can* say it one floor at a time, and one floor at a time is exactly
  * what a block of the alternating run sees.
  *
- * **What the switch actually changes is worth stating, because the name suggests otherwise.**
- * The floor is always applied per block: an all-floor run scores one floor at a time, so
- * "coverage ≥ X" is always that block's own floor. What the extra pass adds is enforcement for
- * the *building's weakest floor* — and it has to be a separate pass, because inside a pass
- * nobody knows which floor is weakest until every floor has been scored.
+ * **The weakest-floor retry is automatic, and bounded.**
+ * The floor is applied per block: an all-floor run scores one floor at a time, so
+ * "coverage ≥ X" is always that block's own floor. The retry is a separate, budgeted loop
+ * because inside a pass nobody knows which floor is weakest until every floor has been
+ * scored. Each pass draws new seeds, because a deterministic search re-run on the same
+ * layout and seeds only replays itself — see `state/optimizer-floor-passes.ts`.
  *
  * The scene is two storeys with deliberately unequal floors: a small 12 m floor that two APs
  * cover well and a wide 30 m floor they do not. So the weakest floor is predetermined, and a
@@ -24,11 +25,8 @@ import { test, expect, type Page } from '@playwright/test';
 
 const BLOCKS = 4;
 
-async function seedTwoFloors(
-	page: Page,
-	opts: { floorPct: number; everyFloor: boolean }
-): Promise<void> {
-	await page.addInitScript((arg: { floorPct: number; everyFloor: boolean }) => {
+async function seedTwoFloors(page: Page, opts: { floorPct: number }): Promise<void> {
+	await page.addInitScript((arg: { floorPct: number }) => {
 		localStorage.setItem('aetherax:welcomed', '1');
 		localStorage.removeItem('aetherax:project');
 		const mask = (w: number, h: number): string => {
@@ -103,7 +101,6 @@ async function seedTwoFloors(
 				interferenceWeight: 0,
 				coverageSoftnessDb: 0,
 				coverageFloorPct: arg.floorPct,
-				coverageFloorEveryFloor: arg.everyFloor,
 				floors: [
 					floor('f1', 'Floor 1', 0, { w: 400, h: 400 }),
 					floor('f2', 'Floor 2', 1, { w: 1000, h: 500 })
@@ -125,15 +122,6 @@ async function seedTwoFloors(
 /**
  * Run the all-floor optimiser, wait for the expected number of blocks, and wait for the run
  * itself to end before returning the console lines.
- *
- * `blocks` is the count of floor optimisations the run should perform: one per floor per
- * pass, plus one more when the per-floor pass fires.
- *
- * The second wait is not redundant. The last block's seed line is printed by the *loop*, and
- * the per-floor pass and its message come after the loop — so returning on the count alone
- * raced the app: the test could read a log that did not yet contain the line it asserts on,
- * which is how "at or above the requirement" failed once in every few runs. The Cancel button
- * exists only while a run is in progress, so its absence is the run being over.
  */
 async function optimizeAllFloors(page: Page, blocks: number): Promise<string[]> {
 	const lines: string[] = [];
@@ -142,18 +130,18 @@ async function optimizeAllFloors(page: Page, blocks: number): Promise<string[]> 
 
 	await page.getByRole('button', { name: 'Optimize all floors' }).click();
 	await expect.poll(blockLines, { timeout: 420_000 }).toBeGreaterThanOrEqual(blocks);
-	await expect(page.getByRole('button', { name: 'Cancel' })).toBeHidden({ timeout: 60_000 });
+	await expect(page.getByRole('button', { name: 'Cancel' })).toBeHidden({ timeout: 180_000 });
 	return lines;
 }
 
-test('the per-floor floor lifts the weakest floor, in one extra block', async ({ page }) => {
-	test.setTimeout(600_000);
-	await seedTwoFloors(page, { floorPct: 75, everyFloor: true });
+test('the weakest floor is retried on fresh seeds, within a budget', async ({ page }) => {
+	test.setTimeout(900_000);
+	await seedTwoFloors(page, { floorPct: 75 });
 	await page.goto('/');
 	await page.waitForSelector('canvas');
 	await page.waitForTimeout(4000);
 
-	// Four blocks for the loop plus one for the weakest floor.
+	// Four blocks for the loop, then at least one retry for the weakest floor.
 	const lines = await optimizeAllFloors(page, BLOCKS + 1);
 	const joined = lines.join('\n');
 	console.log(
@@ -167,36 +155,58 @@ test('the per-floor floor lifts the weakest floor, in one extra block', async ({
 	expect(joined).toMatch(/per-floor floor: .* is at \d+%, below the 75% requirement/);
 	expect(joined).toMatch(/per-floor floor: .* now at \d+%/);
 
-	// The requirement is a target for a stochastic search, not a guarantee, and this scene is a
-	// deliberately hard one: on a 12 m floor with a 15 m reach, two APs cannot cover more than
-	// about half of it and no arrangement covers the rest, so the extra pass has little room to
-	// win. What this test is for is that the pass runs, names the floor and states the outcome;
-	// the magnitude is a property of the scene, so it is printed rather than asserted.
-	const before = /is at (\d+)%, below/.exec(joined);
-	const after = /now at (\d+)%/.exec(joined);
-	const floorLine = /coverage floor 75%, reached ([\d.]+)%/.exec(joined);
+	const starts = [
+		...joined.matchAll(/is at (\d+)%, below the 75% requirement — pass (\d+)\/2/g)
+	];
+	const ends = [...joined.matchAll(/now at (\d+)% \(pass (\d+)\/2\)/g)];
+	expect(starts.length).toBeGreaterThanOrEqual(1);
+	expect(starts.length).toBeLessThanOrEqual(2);
+	expect(ends.length).toBe(starts.length);
+	// Pass numbers count up from 1: a third pass is over budget, a repeat is a bug.
+	expect(starts.map((m) => m[2])).toEqual(starts.map((_, i) => String(i + 1)));
+
+	// A retry must explore new seeds. Replaying the seeds the alternating loop already used
+	// reproduces its result exactly, which is what this mechanism used to do — the block it
+	// paid for could not change anything.
+	const seeds = lines
+		.filter((l) => l.includes('[optimizer] seed '))
+		.map((l) => Number(/seed (\d+)/.exec(l)?.[1]));
+	expect(seeds.length).toBeGreaterThanOrEqual(BLOCKS + 1);
+	expect(seeds[BLOCKS]).not.toBe(seeds[0]);
+	if (starts.length === 2) {
+		expect(seeds[BLOCKS + 1]).not.toBe(seeds[BLOCKS]);
+	}
+
+	// A second retry only follows a pass that actually lifted the floor.
+	if (starts.length === 2) {
+		expect(Number(starts[1]![1])).toBeGreaterThan(Number(starts[0]![1]));
+	}
+
+	// No retry lowers the panel number: the worker keeps its input layout when the search
+	// scores worse, and with the interference weight at 0 the score is monotone in coverage.
+	for (let i = 0; i < ends.length; i++) {
+		expect(Number(ends[i]![1])).toBeGreaterThanOrEqual(Number(starts[i]![1]));
+	}
 	console.log(
-		`weakest floor ${before?.[1]}% -> ${after?.[1]}% after the extra pass; ` +
-			`the block measured ${floorLine?.[1]}%`
+		starts.map((s, i) => `${s[1]}% -> ${ends[i]?.[1]}%`).join(', ') +
+			` (${starts.length} retry pass(es), seeds ${seeds.slice(BLOCKS).join(', ')})`
 	);
 
-	// The pass must not make the floor worse, and this is the honest bound: on this scene it
-	// does not make it *better* either, because the block search settles at the same local
-	// optimum whether the weak floor's APs start clustered or spread. The floor is a penalty the
-	// search climbs, not a projection onto the feasible set — a block already at a local optimum
-	// for the coverage term stays there, and the numbers are printed so the claim is checkable.
-	expect(Number(after?.[1])).toBeGreaterThanOrEqual(Number(before?.[1]));
-
-	// And it must not claim success it did not have: while the block's own report is short of
-	// the requirement, the per-floor line has to be short too.
-	if (floorLine && Number(floorLine[1]) < 75) {
-		expect(Number(after?.[1])).toBeLessThan(75);
+	// The run must state how the retries ended, and must not claim a floor it did not reach.
+	expect(joined).toMatch(
+		/per-floor floor: .* (?:requirement is met|no gain, stopping|budget spent|produced no result, stopping)/
+	);
+	const met = /reached (\d+)% — the 75% requirement is met/.exec(joined);
+	if (met) {
+		expect(Number(met[1])).toBeGreaterThanOrEqual(75);
+	} else {
+		expect(Number(ends.at(-1)?.[1])).toBeLessThan(75);
 	}
 });
 
 test('says so and spends nothing when the requirement is already met', async ({ page }) => {
 	test.setTimeout(600_000);
-	await seedTwoFloors(page, { floorPct: 5, everyFloor: true });
+	await seedTwoFloors(page, { floorPct: 5 });
 	await page.goto('/');
 	await page.waitForSelector('canvas');
 	await page.waitForTimeout(4000);
@@ -205,33 +215,13 @@ test('says so and spends nothing when the requirement is already met', async ({ 
 	const joined = lines.join('\n');
 
 	expect(joined).toContain('at or above the 5% requirement');
-	expect(joined).not.toContain('one more pass with it as the ε');
+	expect(joined).not.toContain('with it as the ε');
 	expect(lines.filter((l) => l.includes('[optimizer] seed ')).length).toBe(BLOCKS);
 });
-
-test('with the switch off, no extra block is spent on the weakest floor', async ({ page }) => {
-	test.setTimeout(600_000);
-	await seedTwoFloors(page, { floorPct: 75, everyFloor: false });
-	await page.goto('/');
-	await page.waitForSelector('canvas');
-	await page.waitForTimeout(4000);
-
-	const lines = await optimizeAllFloors(page, BLOCKS);
-	const joined = lines.join('\n');
-
-	// Nothing about the per-floor mechanism runs.
-	expect(joined).not.toContain('per-floor floor');
-	// But the floor IS enforced inside every block, because the floor is a project setting and
-	// a block only ever scores its own floor — which is exactly why a switch is needed to say
-	// "this one is a statement about the building".
-	expect(joined).toContain('coverage floor 75%');
-	expect(lines.filter((l) => l.includes('[optimizer] seed ')).length).toBe(BLOCKS);
-});
-
 
 test('the building row follows an all-floor run, not the first render', async ({ page }) => {
 	test.setTimeout(600_000);
-	await seedTwoFloors(page, { floorPct: 0, everyFloor: false });
+	await seedTwoFloors(page, { floorPct: 0 });
 	await page.goto('/');
 	await page.waitForSelector('canvas');
 	await page.waitForTimeout(4000);

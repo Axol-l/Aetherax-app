@@ -136,7 +136,7 @@
 		<div class="dialog" transition:fly={{ y: 8, duration: motionDuration(160), opacity: 0 }}>
 			<h2 class="heading">{t('Copy floor layout')}</h2>
 			<p class="hint">
-				{t('Copies this floor’s layout to another floor. Access points are never copied.')}
+				{t('Copies this floor’s layout to another floor.')}
 			</p>
 
 			<div class="field">

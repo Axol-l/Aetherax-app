@@ -777,7 +777,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				{#if appState.planningDrawMode}
 					<p class="planning-hint">
 						{#if appState.planningDraft.length < 3}
-							{t('Click the corners of this floor (at least three), then press Enter.')}
+							{t('Click the corners of this floor.')}
 						{:else}
 							{t('{count} corners · {area} m² — press Enter to close, Backspace to undo the last corner.', { count: appState.planningDraft.length, area: draftAreaSqm.toFixed(1) })}
 						{/if}

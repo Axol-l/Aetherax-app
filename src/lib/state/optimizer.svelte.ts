@@ -25,6 +25,7 @@ import { isUsablePlanningArea } from './planning-area.js';
 import type { ApInput } from '../workers/optimizer-protocol.js';
 import { apState } from '$state/ap-state.svelte.js';
 import { coverageBasis, optimizerState, floorCoverage, scoringSettingsSignature } from './optimizer-state.svelte.js';
+import { MAX_FLOOR_PASSES, nextFloorPass } from './optimizer-floor-passes.js';
 import { applyPositions, applyPowers, buildDensityMap, crossingSlabsFor, localVerticalDropFor, powerLevelsFor, sourceFloorMaskFor, toApInput, type FloorOutcome, type FloorRunOptions } from './optimizer-support.js';
 
 
@@ -709,6 +710,9 @@ function commitFloorOutcome(floorId: string, outcome: FloorOutcome): void {
  * 没有它，重启次数就是瞎猜——如果每次都落在同一个得分上，多跑几遍纯属浪费；如果散得开，
  * 说明搜索还有东西没捞到。
  *
+ * `seedBase` 让补跑接着上一轮的种子区间往下排。同一个布局配同一组种子是确定性的，不换种子
+ * 的话这一轮只会原样重放上一轮选中的方案，那个块就白花了（见 `runAlternatingPasses` 里补跑那段）。
+ *
  * 两个入口都走这里，所以单层按钮和交替运行里的「优化一层」是同一回事。
  */
 async function optimizeFloorBest(
@@ -719,9 +723,15 @@ async function optimizeFloorBest(
 	signal?: AbortSignal
 ): Promise<FloorOutcome | null> {
 	const n = Math.max(1, Math.floor(restarts));
+	const seedBase = Math.max(0, Math.floor(extra.seedBase ?? 0));
 
 	if (n === 1) {
-		const one = await optimizeFloor(floorId, { ...extra, apply }, signal);
+		// 没有指定种子区间时保持老路径：不传 seed，用 Worker 的默认种子。
+		const one = await optimizeFloor(
+			floorId,
+			seedBase > 0 ? { ...extra, seed: seedBase + 1, apply } : { ...extra, apply },
+			signal
+		);
 		if (!one.ok) return null;
 		if (apply) commitFloorOutcome(floorId, one);
 		return one;
@@ -732,8 +742,12 @@ async function optimizeFloorBest(
 	for (let i = 0; i < n; i++) {
 		if (signal?.aborted) break;
 		optimizerState.status = t('Restart {index} of {count}', { index: i + 1, count: n });
-		// 种子取 1..n 而不是随机的，这样多次重启和单次运行一样可复现。
-		const outcome = await optimizeFloor(floorId, { ...extra, seed: i + 1, apply: false }, signal);
+		// 种子取 1..n（加上 `seedBase`）而不是随机的，这样多次重启和单次运行一样可复现。
+		const outcome = await optimizeFloor(
+			floorId,
+			{ ...extra, seed: seedBase + i + 1, apply: false },
+			signal
+		);
 		if (!outcome.ok) continue;
 		scores.push(outcome.score);
 		if (!best || outcome.score > best.score) best = outcome;
@@ -843,41 +857,91 @@ async function runAlternatingPasses(signal: AbortSignal): Promise<void> {
 	// A1 的逐层保证，作为额外的一块。
 	//
 	// 上面的循环只会点出最弱的楼层，从不为它单独优化——这对*目标函数*是对的（min-max 难搜、
-	// 平均收益小），但后果是某层可能远远低于要求却没人管它。用户要求每层都达标时，
-	// 最弱的那层再跑一遍，把它自己的要求当 ε-约束：同一套 F3 机制，只用在这块上，其他层不动。
+	// 平均收益小），但后果是某层可能远远低于要求却没人管它。设了覆盖率下限时，最弱的那层
+	// 再跑，把它自己的要求当 ε-约束：同一套 F3 机制，只用在这块上，其他层不动。
 	//
 	// 特意做成额外一块而不是塞进每一块里：约束必须针对*整栋楼*最弱的那层才有意义，
 	// 而一轮里面，所有楼层都打过分之前没人知道最弱的是谁。
+	//
+	// 补跑是一个有预算的上限循环（`MAX_FLOOR_PASSES`），只在这层真的往上走时才续——判据
+	// 全在 `nextFloorPass` 里。每轮还必须换一段种子：同一个布局配同一组种子是确定性的，
+	// 照着重跑只会把上一轮选中的方案原样重放，那个块从来不改变任何东西。所以第一轮就从
+	// 交替循环用过的 `1…restarts` 之后起步。
 	if (
 		!signal.aborted &&
-		projectMeta.coverageFloorEveryFloor &&
 		projectMeta.coverageFloorPct > 0 &&
 		optimizerState.worstFloor
 	) {
 		const worst = optimizerState.worstFloor;
-		if (worst.coverage < projectMeta.coverageFloorPct) {
-			const target = runnable.find((f) => f.id === worst.id);
-			if (target) {
-				debug(
-					`[optimizer] per-floor floor: ${target.name} is at ${worst.coverage}%, below the ` +
-						`${projectMeta.coverageFloorPct}% requirement — one more pass with it as the ε`
-				);
-				optimizerState.status = t('Per-floor floor · {floor}', { floor: target.name });
-				const outcome = await optimizeFloorBest(
-					target.id,
-					optimizerState.restarts,
-					true,
-					{ floorPct: projectMeta.coverageFloorPct },
-					signal
-				);
-				if (outcome) {
-					optimizerState.worstFloor = {
-						id: target.id,
-						name: target.name,
-						coverage: Math.round(outcome.coverage * 100)
-					};
+		const target = projectMeta.coverageFloorPct;
+		if (worst.coverage < target) {
+			const floor = runnable.find((f) => f.id === worst.id);
+			if (floor) {
+				const restarts = Math.max(1, Math.floor(optimizerState.restarts));
+				/** 这一轮开始时面板上的覆盖率；续跑时换成上一轮结束的值。 */
+				let before = worst.coverage;
+				let after = before;
+				let seedBase = restarts;
+				/** 为什么停下来。取消不进这里：那不算跑完。 */
+				let stopped: 'met' | 'no-gain' | 'budget' | 'aborted' | 'failed' = 'budget';
+
+				for (let pass = 1; pass <= MAX_FLOOR_PASSES; pass++) {
+					if (signal.aborted) {
+						stopped = 'aborted';
+						break;
+					}
 					debug(
-						`[optimizer] per-floor floor: ${target.name} now at ${Math.round(outcome.coverage * 100)}%`
+						`[optimizer] per-floor floor: ${floor.name} is at ${before}%, below the ` +
+							`${target}% requirement — pass ${pass}/${MAX_FLOOR_PASSES} with it as the ε`
+					);
+					optimizerState.status = t('Per-floor floor · {floor}', { floor: floor.name });
+					const outcome = await optimizeFloorBest(
+						floor.id,
+						restarts,
+						true,
+						{ floorPct: target, seedBase },
+						signal
+					);
+					if (!outcome) {
+						stopped = signal.aborted ? 'aborted' : 'failed';
+						break;
+					}
+
+					// 达标与否、有没有进步，都按面板上的整数百分比说：那才是用户和要求共用的刻度。
+					after = Math.round(outcome.coverage * 100);
+					optimizerState.worstFloor = { id: floor.id, name: floor.name, coverage: after };
+					debug(
+						`[optimizer] per-floor floor: ${floor.name} now at ${after}% ` +
+							`(pass ${pass}/${MAX_FLOOR_PASSES})`
+					);
+
+					const next = nextFloorPass({ pass, before, after, target, restarts });
+					if (!next.run) {
+						stopped = next.stop;
+						break;
+					}
+					before = after;
+					seedBase = next.seedBase;
+				}
+
+				if (stopped === 'met') {
+					debug(
+						`[optimizer] per-floor floor: ${floor.name} reached ${after}% — the ` +
+							`${target}% requirement is met`
+					);
+				} else if (stopped === 'no-gain') {
+					debug(
+						`[optimizer] per-floor floor: ${floor.name} stayed at ${after}% ` +
+							`(${before}% before the pass) — no gain, stopping`
+					);
+				} else if (stopped === 'budget') {
+					debug(
+						`[optimizer] per-floor floor: ${floor.name} still ${target - after} points ` +
+							`short of ${target}% after ${MAX_FLOOR_PASSES} passes — budget spent`
+					);
+				} else if (stopped === 'failed') {
+					debug(
+						`[optimizer] per-floor floor: ${floor.name} — a pass produced no result, stopping`
 					);
 				}
 			}

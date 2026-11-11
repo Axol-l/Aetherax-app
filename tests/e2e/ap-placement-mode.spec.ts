@@ -191,8 +191,8 @@ test('a wall mount can be placed on a drawn vector wall', async ({ page }) => {
 	expect(Math.min(ap.x, ap.y, 800 - ap.x, 600 - ap.y)).toBeLessThan(80);
 });
 
-test('a wall mount can be placed while APs outside rooms are not allowed', async ({ page }) => {
-	// `Allow APs outside rooms` is off by default. The interior guard used to run before
+test('a wall mount can be placed while APs outside the floor boundary are not allowed', async ({ page }) => {
+	// `Allow APs outside the floor boundary` is off by default. The interior guard used to run before
 	// the wall snap, so a click on a wall — the one click a wall mount is placed with —
 	// was judged against the interior (which deliberately excludes the wall band) and
 	// refused. A wall mount is on a wall by construction, the same exemption the

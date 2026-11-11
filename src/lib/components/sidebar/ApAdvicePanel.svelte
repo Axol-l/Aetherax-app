@@ -7,7 +7,7 @@
 	import { optimizerState, floorCoverage } from '$state/optimizer.svelte';
 	import { floorState, currentFloor } from '$state/floor-state.svelte';
 	import type { AdviceFinding } from '$lib/ap-advice.js';
-	import { DEFAULT_COVERAGE_TARGET, evaluateApAdvice } from '$lib/ap-advice.js';
+	import { evaluateApAdvice } from '$lib/ap-advice.js';
 	import { polygonArea } from '$canvas/boundary-detect.js';
 	import { areaUnit as areaUnitFor, sqmToUnit } from '$lib/units.js';
 	import { t } from '$state/i18n.svelte';
@@ -23,10 +23,13 @@
 		return apState.aps.filter((ap) => ap.floorId === floorState.currentFloorId);
 	});
 
-	/** The requirement the advice measures against: the ε floor, else the default. */
-	const target = $derived(
-		projectMeta.coverageFloorPct > 0 ? projectMeta.coverageFloorPct : DEFAULT_COVERAGE_TARGET
-	);
+	/**
+	 * The requirement the advice measures against: the ε floor, 0 when none is set.
+	 *
+	 * 没设要求时不要替用户挑一个目标：面板只报不依赖目标的问题（容量、信道、干扰），
+	 * 增删 AP 的数量估计没有依据，就不报。
+	 */
+	const target = $derived(projectMeta.coverageFloorPct);
 
 	const deviceLoad = $derived(floorCoverage.get(floorState.currentFloorId)?.devices ?? 0);
 	const clientCapacity = $derived(
@@ -175,7 +178,7 @@
 								contention: param(finding, 'contention')
 							})}
 						{:else if finding.kind === 'rebalance-floor'}
-							{t('The building average is {building}% but {floor} is at {coverage}% — move an access point there, or run Optimize all floors with the per-floor minimum enabled.', {
+							{t('The building average is {building}% but {floor} is at {coverage}% — move an access point there, or run Optimize all floors, which retries the weakest floor when it falls short.', {
 								building: param(finding, 'building'),
 								floor: param(finding, 'floor'),
 								coverage: param(finding, 'coverage')

@@ -24,7 +24,7 @@ const zh: Record<string, string> = {
 	'Set by the ft/m switch in the toolbar.': '单位跟随工具栏的 m/ft 开关。',
 	'e.g. 12': '例如 12',
 	'Signal strength': '信号强度',
-	'Click the corners of this floor (at least three), then press Enter.': '依次点击本层的各个角点（至少三个）。',
+	'Click the corners of this floor.': '在图上点击绘制规划范围。',
 	'{count} corners — the next click continues the loop; press Enter to close it.': '已有 {count} 个角点——继续点击可延伸轮廓，按 Enter 闭合。',
 	'Confirm area': '确认范围',
 	'Planning area': '规划范围',
@@ -133,9 +133,9 @@ const zh: Record<string, string> = {
 		'只优化屏幕上这一层。',
 	'While this is on, a click on the canvas adds an access point. Escape stops.':
 		'打开时，在画布上点一下就会落一个 AP。按 Esc 退出。',
-	'Allow APs outside rooms': '允许 AP 放在房间外',
-	'Off by default: optimised APs stay inside the detected building interior. Turn on to let them land anywhere, walls included.':
-		'默认关闭：优化时 AP 只落在识别出的建筑内部。打开后可以落在任何位置，包括墙上。',
+	'Allow APs outside the floor boundary': '允许 AP 放在楼层边界外',
+	'On lets APs land anywhere, walls included; off keeps them inside the floor boundary — the planning area if one is drawn, otherwise the detected building interior.':
+		'打开后 AP 可落在任何位置（包括墙上）；关闭时只落在楼层边界内——画了规划范围就用它，否则用识别出的建筑内部。',
 	OK: '知道了',
 	'Placement warning': '放置警告',
 	'Coverage threshold': '覆盖门限',
@@ -146,8 +146,8 @@ const zh: Record<string, string> = {
 	'How much co-channel interference the optimiser trades against coverage: the score is coverage minus this weight times the share of the floor whose best access point is degraded by a co-channel second one. 0 scores coverage alone — the behaviour before the term existed — so it doubles as the A/B switch.':
 		'目标函数里同信道干扰项的权重：分数 = 覆盖率效用 − 权重 × 同信道干扰占比。',
 	'Min coverage': '最低覆盖率',
-	'ε-constraint: the minimum share of the floor the optimiser\'s result must cover. 0 is no constraint, which is the plain coverage-minus-interference trade. Setting a floor makes the requirement explicit — a weighted sum can only walk the convex part of the coverage/interference front, so a floor is how a non-convex stretch, or a guarantee like \'no less than 90%\', gets expressed.':
-		'优化结果至少要覆盖的楼面占比。',
+	'The share the optimiser\'s result must cover; 0 leaves the search unconstrained, and the placement advice then has no target to measure against.':
+		'优化结果至少要覆盖的楼面占比；0 表示不约束搜索，此时布点建议没有可对照的目标。',
 	'Client height': '客户端高度',
 	'Height of the client devices above the floor. APs are modelled as ceiling-mounted, so this is the other end of every cross-floor path: it changes both the vertical distance and, through it, the cross-floor loss.':
 		'客户端设备离地高度。',
@@ -187,8 +187,8 @@ const zh: Record<string, string> = {
 		'还有 {count} 个 AP 没有分配信道。',
 	'Co-channel interference {interference}% and contended airtime {contention}% — lower TX power on the overlapping APs, or space them further apart.':
 		'同信道干扰 {interference}%，争用的空口时间 {contention}%——可以调低重叠 AP 的发射功率，或者把它们拉开一些。',
-	'The building average is {building}% but {floor} is at {coverage}% — move an access point there, or run Optimize all floors with the per-floor minimum enabled.':
-		'整栋平均 {building}%，但 {floor} 只有 {coverage}%——可以往那一层挪一个 AP，或者勾选「每层都适用」后跑一次「优化全部楼层」。',
+	'The building average is {building}% but {floor} is at {coverage}% — move an access point there, or run Optimize all floors, which retries the weakest floor when it falls short.':
+		'整栋平均 {building}%，但 {floor} 只有 {coverage}%——可以往那一层挪一个 AP，或者跑一次「优化全部楼层」，它会补跑未达标的最弱层。',
 	'{count} AP(s) cover {coverage}% of this floor — no change suggested.':
 		'{count} 个 AP 覆盖了本层 {coverage}%——暂无调整建议。',
 	'Based on the last optimisation run.': '以上基于最近一次优化运行的结果。',
@@ -233,8 +233,8 @@ const zh: Record<string, string> = {
 	'Remove floorplan': '移除平面图',
 	'Copy layout…': '复制布局…',
 	'Copy floor layout': '复制楼层布局',
-	'Copies this floor’s layout to another floor. Access points are never copied.':
-		'把本层布局复制到另一层。AP 不会被复制。',
+	'Copies this floor’s layout to another floor.':
+		'把本层布局复制到另一层。',
 	'Target floor': '目标楼层',
 	'New floor': '新楼层',
 	'Plan and scale': '平面图与比例',
@@ -523,8 +523,8 @@ const zh: Record<string, string> = {
 	'Walls partly drawn': '墙画了一部分',
 	'Walls barely drawn': '几乎没画墙',
 	'How much wall loss the distance model already contains. The tabulated value does include a wall allowance and this app also charges every wall the ray crosses, so the more completely the walls are drawn, the lower the value should be: too high makes coverage radii too small and the plan look like it needs more APs.': '距离损耗模型里已经包含了多少墙体衰减。ITU 表格值本身含墙体补偿，而本程序又按穿越逐墙计费——所以墙画得越全，选得应越低；选高了会让覆盖半径偏小，看起来像需要更多 AP。',
-	'Outside the building. Turn on "Allow APs outside rooms" to place an access point here.': '这里在建筑之外。要在此放置 AP，请先打开「允许 AP 位于房间外」。',
-	'{count} access point(s) are outside the building: {names}. Re-run the optimiser, move them, or turn on "Allow APs outside rooms".': '有 {count} 个 AP 位于建筑之外：{names}。可以重跑优化器、手动移入，或打开「允许 AP 位于房间外」。',
+	'Outside the building. Turn on "Allow APs outside the floor boundary" to place an access point here.': '这里在楼层边界之外。要在此放置 AP，请先打开「允许 AP 放在楼层边界外」。',
+	'{count} access point(s) are outside the building: {names}. Re-run the optimiser, move them, or turn on "Allow APs outside the floor boundary".': '有 {count} 个 AP 位于楼层边界之外：{names}。可以重跑优化器、手动移入，或打开「允许 AP 放在楼层边界外」。',
 	'Mounting': '安装高度',
 	'Access point placement': 'AP 放置',
 	'Click within 1 m of a wall': '在离墙 1 m 以内点击',
@@ -565,8 +565,6 @@ const zh: Record<string, string> = {
 	'A selected access point also has its mount height and its antenna — the beam width and where the beam points — drawn as a bar chart of what they do to the floor.': '选中一个 AP 后还能改它的安装高度和天线（波束宽度与指向），下面那张柱子图就是它们对地面的效果。',
 	'Propagation': '传播环境',
 	'Propagation environment': '传播环境',
-	'Apply the floor to every storey, not just the one you optimise: an all-floors run gives the weakest floor that falls short one more pass with the floor as its own constraint. A1\'s "no floor below X%", which a weighted sum cannot express.': '把下限应用到每一层，而不只是你优化的那一层：整栋优化会给未达标的“最弱层”再加一轮，并以该下限作为它自己的约束。这就是 A1 的“每层都不低于 X%”，加权求和无法表达。',
-	'Every floor': '每层都适用',
 	'Load a floorplan first': '请先加载平面图',
 	'No APs on this floor': '本层没有 AP',
 	'No floors with both a floorplan and APs to place': '没有同时具备平面图和 AP 的楼层可优化',

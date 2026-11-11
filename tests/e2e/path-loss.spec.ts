@@ -30,7 +30,7 @@ async function seedClosedFloor(page: Page): Promise<void> {
 				version: 3, name: 'Propagation', band: '5ghz', channelWidth: 20, regulatoryDomain: 'fcc',
 				unitSystem: 'metric', ispSpeed: 0, targetThroughput: 25, allowOutsideRooms: false,
 				clientHeight: 1.5, heatmapRssiFloor: -70, interferenceWeight: 0.2, coverageSoftnessDb: 0,
-				coverageFloorPct: 0, coverageFloorEveryFloor: false,
+				coverageFloorPct: 0,
 				floors: [{
 					id: 'f1', name: 'Floor 1', level: 0, ceilingHeight: 3, floorMaterial: 1, floorThickness: 0.2,
 					floorplanScale: 1, floorplanOffsetX: 0, floorplanOffsetY: 0, calibration: null,

@@ -29,14 +29,14 @@ export class PlaceHandler {
 		const mount = appState.apPlaceMount ?? apState.aps.at(-1)?.mount ?? 'ceiling';
 
 		/*
-		 * `Allow APs outside rooms` 默认关闭，关闭时墙外空白处的点击会被拒绝。
+		 * `Allow APs outside the floor boundary` 默认关闭，关闭时墙外空白处的点击会被拒绝。
 		 * 壁挂设备不受此限制：它本就装在墙上，下方贴墙检查会拒绝一米内无墙的点击。
 		 */
 		const floorId = floorState.currentFloorId;
 		if (mount !== 'wall' && !projectMeta.allowOutsideRooms) {
 			if (floorId && !(await isInsideInterior(floorId, worldPoint.x, worldPoint.y))) {
 				appState.placementNotice = t(
-					'Outside the building. Turn on "Allow APs outside rooms" to place an access point here.'
+					'Outside the building. Turn on "Allow APs outside the floor boundary" to place an access point here.'
 				);
 				return;
 			}

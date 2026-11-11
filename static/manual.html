@@ -359,7 +359,7 @@
 <li>多选时点击 Delete All 删除选中的 AP。</li>
 </ol>
 <h3>9.5 AP 在楼层外的警告</h3>
-<p>Allow APs outside rooms 关闭时，手动点击范围外会拒绝放置并给出提示；落到范围外的 AP 会在画布下方显示警告。打开 Allow APs outside rooms 后，放置和优化都允许 AP 在范围外，警告不再出现。警告可以单独关闭。</p>
+<p>Allow APs outside the floor boundary 关闭时，手动点击边界外会拒绝放置并给出提示；落到边界外的 AP 会在画布下方显示警告。打开后，放置和优化都允许 AP 在边界外，警告不再出现。警告可以单独关闭。</p>
 <h2>10. 覆盖率与优化器</h2>
 <h3>10.1 查看覆盖率</h3>
 <ol>
@@ -380,18 +380,17 @@
 </ol>
 <p>多楼层工程有两个按钮：</p>
 <ol>
-<li>Optimize all floors：逐层轮流优化，直到整栋覆盖率不再提升。</li>
+<li>Optimize all floors：逐层轮流优化，直到整栋覆盖率不再提升。设了 Min coverage 时，还会对未达标的最弱层单独补跑（最多两轮，只在这层仍在提升时继续）。</li>
 <li>Optimize this floor：只优化当前楼层，其他楼层不动。</li>
 </ol>
 <p>优化过程中可以点击 Cancel 中止。</p>
 <h3>10.3 优化器设置</h3>
 <p>点击 Placement optimiser 右侧的齿轮：</p>
 <ol>
-<li>Allow APs outside rooms：允许 AP 落在房间外，默认关闭。</li>
+<li>Allow APs outside the floor boundary：允许 AP 落在楼层边界外（有规划范围时以它为准，否则按识别出的建筑内部），默认关闭。</li>
 <li>Coverage threshold：覆盖率判定门限，默认 -70 dBm；高密度办公区可提高到 -65 或 -60。热力图从门限下方 10 dB 开始着色，边缘仍保留梯度。</li>
 <li>Interference：同信道干扰在评分中的权重，0 到 1，步长 0.05。</li>
-<li>Min coverage：最低覆盖率约束，0 表示不约束。</li>
-<li>Every floor：多楼层时把最低覆盖率约束应用到每一层。</li>
+<li>Min coverage：最低覆盖率约束，0 表示不约束（此时放置建议不估增删 AP 的数量）。</li>
 <li>Client height：客户端离地高度。</li>
 <li>Restarts：优化重启次数，1 到 8。</li>
 <li>Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。</li>
@@ -399,7 +398,7 @@
 <p>容量不在这里设置：每台 AP 的 Clients 数量在 AP 编辑页单独修改，未设置时默认为 25。</p>
 <p>影响优化评分的设置需要重新运行优化才会生效；Coverage threshold 会立即重算覆盖率，热力图也跟着门限重画。改过评分设置又没重跑时，界面会提示屏幕上的布局是按旧设置选的。</p>
 <h3>10.4 放置建议</h3>
-<p>Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。容量约束触发时会单独显示“Client capacity”，说明容量覆盖的终端数和建议增加的 AP 数；此时不会仅因为覆盖率高就提示删除 AP。点击 Dismiss 关闭。</p>
+<p>Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。增删 AP 的数量估计以 Min coverage 为目标；没设最低覆盖率时，面板只报容量、信道、干扰这些不依赖目标的问题。容量约束触发时会单独显示“Client capacity”，说明容量覆盖的终端数和建议增加的 AP 数；此时不会仅因为覆盖率高就提示删除 AP。点击 Dismiss 关闭。</p>
 <h3>10.5 信道分配</h3>
 <p>信道由求解器自动分配。需要固定某个 AP 的信道时，在 AP 编辑页把 Channel 从 Auto 改为具体信道。固定后该 AP 不再参与信道重分配。</p>
 <h2>11. 热力图与图层</h2>
@@ -599,7 +598,7 @@
 <li>确认在单层视图。</li>
 <li>确认 Place APs 已打开。</li>
 <li>Wall mount 需要点击距墙 1 米以内的位置。</li>
-<li>范围外点击会被拒绝，除非在优化器设置中打开 Allow APs outside rooms。</li>
+<li>范围外点击会被拒绝，除非在优化器设置中打开 Allow APs outside the floor boundary。</li>
 </ol>
 <h3>18.3 覆盖率明显偏低或偏高</h3>
 <ol>

@@ -42,11 +42,11 @@ async function openFloorplanTab(page: Page) {
 
 test.describe('Optimizer', () => {
 	/*
-	 * The settings are inputs to placing the first AP — "Allow APs outside rooms"
-	 * decides whether the first click in the margin is accepted, and "Coverage
-	 * threshold" shapes the heatmap and the coverage figure that click produces —
-	 * so they cannot sit behind a plan that already has one. The run button can:
-	 * the optimiser only moves the APs already on the floor.
+	 * The settings are inputs to placing the first AP — "Allow APs outside the
+	 * floor boundary" decides whether the first click in the margin is accepted,
+	 * and "Coverage threshold" shapes the heatmap and the coverage figure that
+	 * click produces — so they cannot sit behind a plan that already has one.
+	 * The run button can: the optimiser only moves the APs already on the floor.
 	 */
 	test('optimizer settings open without access points', async ({ page }) => {
 		const gear = page.getByRole('button', { name: 'Placement optimiser settings' });
@@ -56,7 +56,7 @@ test.describe('Optimizer', () => {
 		await gear.click();
 		await expect(gear).toHaveAttribute('aria-expanded', 'true');
 		await expect(
-			page.getByRole('switch', { name: 'Allow APs outside rooms' })
+			page.getByRole('switch', { name: 'Allow APs outside the floor boundary' })
 		).toBeVisible();
 		await expect(page.getByRole('spinbutton', { name: 'Coverage threshold' })).toBeVisible();
 		await expect(page.getByRole('button', { name: /optimize placement/i })).toHaveCount(0);
@@ -74,7 +74,7 @@ test.describe('Optimizer', () => {
 		await page.waitForTimeout(500);
 
 		// Place 2 APs in bad locations (both stacked in one corner). The points have to be
-		// inside the apartment: with "Allow APs outside rooms" off, a click in the margin
+		// inside the apartment: with "Allow APs outside the floor boundary" off, a click in the margin
 		// outside the walls is refused now, with a notice saying so.
 		await enablePlaceMode(page);
 		const canvas = page.locator('canvas');

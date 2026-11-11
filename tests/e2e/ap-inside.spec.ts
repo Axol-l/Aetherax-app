@@ -1,7 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
 /**
- * "Allow APs outside rooms" means what it says.
+ * "Allow APs outside the floor boundary" means what it says.
  *
  * The optimiser has always respected it, but two other paths could put an access point in
  * the margin outside the walls and said nothing about it: a click on the canvas in placement
@@ -49,7 +49,6 @@ async function seed(
 				interferenceWeight: 0.2,
 				coverageSoftnessDb: 0,
 				coverageFloorPct: 0,
-				coverageFloorEveryFloor: false,
 				floors: [
 					{
 						id: 'f1',

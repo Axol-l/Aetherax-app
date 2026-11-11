@@ -43,7 +43,6 @@ function fixture(): Record<string, unknown> {
 		interferenceWeight: 0.35,
 		coverageSoftnessDb: 8,
 		coverageFloorPct: 90,
-		coverageFloorEveryFloor: true,
 		pathLossScenario: 'office',
 		customMaterials: [
 			{ id: 100, name: 'Lead door', dbPerCrossing: 30, thicknessM: 0.05, color: [10, 20, 30] }
@@ -198,7 +197,6 @@ describe('project document', () => {
 		expect(written.name).toBe('Fixture');
 		expect(written.unitSystem).toBe('metric');
 		expect(written.pathLossScenario).toBe('office');
-		expect(written.coverageFloorEveryFloor).toBe(true);
 		expect(written.coverageThresholdDbm).toBe(-68);
 
 		// 楼层和 AP，逐个字段对。
@@ -319,12 +317,14 @@ describe('project document', () => {
 		const doc = migrate({
 			...fixture(),
 			heatmapRssiFloor: -85,
-			receiverPolarizationAngleDeg: 90
+			receiverPolarizationAngleDeg: 90,
+			coverageFloorEveryFloor: true
 		});
 
 		expect(doc).not.toBeNull();
 		expect('heatmapRssiFloor' in doc!).toBe(false);
 		expect('receiverPolarizationAngleDeg' in doc!).toBe(false);
+		expect('coverageFloorEveryFloor' in doc!).toBe(false);
 		// 留下的门限照旧生效：热力图的下限现在由它推出来。
 		expect(doc!.coverageThresholdDbm).toBe(-68);
 	});

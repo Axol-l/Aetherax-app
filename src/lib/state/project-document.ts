@@ -111,7 +111,6 @@ export interface ProjectDocumentV3 {
 	interferenceWeight: number;
 	coverageSoftnessDb: number;
 	coverageFloorPct: number;
-	coverageFloorEveryFloor: boolean;
 	pathLossScenario: PathLossScenario;
 	customMaterials: DocumentCustomMaterial[];
 	floorCoverage: Record<string, FloorCoverageEntry>;
@@ -197,7 +196,6 @@ export function toDocument(options: ToDocumentOptions = {}): ProjectDocumentV3 {
 		interferenceWeight: projectMeta.interferenceWeight,
 		coverageSoftnessDb: projectMeta.coverageSoftnessDb,
 		coverageFloorPct: projectMeta.coverageFloorPct,
-		coverageFloorEveryFloor: projectMeta.coverageFloorEveryFloor,
 		pathLossScenario: projectMeta.pathLossScenario,
 		customMaterials: projectMeta.customMaterials.map(cloneMaterial),
 		floorCoverage,
@@ -347,8 +345,6 @@ export function migrate(raw: unknown): ProjectDocumentV3 | null {
 		interferenceWeight: data.interferenceWeight ?? DEFAULT_SETTINGS.interferenceWeight,
 		coverageSoftnessDb: data.coverageSoftnessDb ?? DEFAULT_SETTINGS.coverageSoftnessDb,
 		coverageFloorPct: data.coverageFloorPct ?? DEFAULT_SETTINGS.coverageFloorPct,
-		coverageFloorEveryFloor:
-			data.coverageFloorEveryFloor ?? DEFAULT_SETTINGS.coverageFloorEveryFloor,
 		pathLossScenario: data.pathLossScenario ?? DEFAULT_SETTINGS.pathLossScenario,
 		customMaterials: (data.customMaterials ?? []).map(cloneMaterial),
 		floorCoverage: filterCoverage(data.floorCoverage, floors),
@@ -499,7 +495,6 @@ export function applyDocument(
 	projectMeta.interferenceWeight = doc.interferenceWeight;
 	projectMeta.coverageSoftnessDb = doc.coverageSoftnessDb;
 	projectMeta.coverageFloorPct = doc.coverageFloorPct;
-	projectMeta.coverageFloorEveryFloor = doc.coverageFloorEveryFloor;
 	projectMeta.pathLossScenario = doc.pathLossScenario;
 	// 用户自定义材质要排在楼层前面，这样用这些材质刷的墙，读回来还是那个材质。
 	projectMeta.customMaterials = doc.customMaterials.map(cloneMaterial);

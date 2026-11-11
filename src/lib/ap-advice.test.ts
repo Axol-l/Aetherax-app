@@ -8,7 +8,15 @@
  * to think about it.
  */
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_COVERAGE_TARGET, evaluateApAdvice, type AdviceContext } from './ap-advice.js';
+import { evaluateApAdvice, type AdviceContext } from './ap-advice.js';
+
+/**
+ * A target the fixture sets explicitly.
+ *
+ * 规则本身不再有默认目标：`target: 0` 就是「没有要求」。这里固定用 80，好让下面的
+ * 算术（差 30 点 = 1.8 个 AP）保持可读。
+ */
+const TARGET = 80;
 
 /** A calibrated, measured, single-storey plan sitting on its coverage target. */
 function context(overrides: Partial<AdviceContext> = {}): AdviceContext {
@@ -19,7 +27,7 @@ function context(overrides: Partial<AdviceContext> = {}): AdviceContext {
 		contention: 5,
 		devices: 0,
 		clientCapacity: 0,
-		target: DEFAULT_COVERAGE_TARGET,
+		target: TARGET,
 		unassigned: 0,
 		calibrated: true,
 		floorAreaSqm: 300,
@@ -91,9 +99,39 @@ describe('coverage surplus', () => {
 	});
 
 	it('measures against the user floor when one is set', () => {
-		// 90% clears the default target, and is short against a 95% requirement.
+		// 90% clears the 80% target, and is short against a 95% requirement.
 		expect(kinds(context({ coverage: 90, target: 80 }))).toEqual(['meets-target']);
 		expect(kinds(context({ coverage: 90, target: 95 }))).toContain('add-aps');
+	});
+});
+
+describe('no target', () => {
+	it('does not invent one when the project has no requirement', () => {
+		expect(evaluateApAdvice(context({ target: 0, coverage: 40, apsOnFloor: 4 }))).toEqual([]);
+	});
+
+	it('still reports problems that do not need a target', () => {
+		const findings = evaluateApAdvice(
+			context({ target: 0, coverage: 40, devices: 100, clientCapacity: 50, apsOnFloor: 2 })
+		);
+		expect(findings.map((f) => f.kind)).toEqual(['capacity']);
+	});
+
+	it('reports interference as context, not as an action', () => {
+		const finding = evaluateApAdvice(context({ target: 0, interference: 30 })).find(
+			(f) => f.kind === 'interference'
+		);
+		expect(finding?.severity).toBe('info');
+	});
+
+	it('never suggests removing APs, however high coverage is', () => {
+		expect(kinds(context({ target: 0, coverage: 100, apsOnFloor: 6 }))).not.toContain(
+			'remove-aps'
+		);
+	});
+
+	it('does not claim the plan meets a target nobody set', () => {
+		expect(kinds(context({ target: 0, coverage: 100 }))).not.toContain('meets-target');
 	});
 });
 

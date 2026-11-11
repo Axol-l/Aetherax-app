@@ -194,6 +194,14 @@ export interface FloorRunOptions {
 	 * 这一段用的覆盖率下限，百分比，会盖掉项目设置。
 	 */
 	floorPct?: number;
+	/**
+	 * 重启种子从这里往后排：第 i 个重启用 `seedBase + i + 1`。
+	 *
+	 * 补跑最弱层要用它接着往后走。同一个布局配同一组种子跑出来是同一个结果，所以
+	 * 照着重跑只会重放上一轮选中的方案——那一轮就白花了（见 `optimizer-floor-passes.ts`）。
+	 * 0 表示还按老样子：单次运行不传 seed，用 Worker 的默认种子。
+	 */
+	seedBase?: number;
 }
 
 /** 把指定 AP 挪到指定世界坐标，整个动作算一步可撤销操作。 */
