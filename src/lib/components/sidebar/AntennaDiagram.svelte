@@ -48,11 +48,14 @@
 		const x = Math.cos(theta) * Math.cos(bearing);
 		const y = Math.cos(theta) * Math.sin(bearing);
 		const z = Math.sin(theta);
+		// Plan axes stay plan axes: +x right, +y down; z is the vertical axis.
 		return {
-			x: CX + (x - y) * R * radius,
-			y: CY + (x + y) * R * 0.34 * radius + z * R * 0.82 * radius
+			x: CX + x * R * 0.92 * radius,
+			y: CY + y * R * 0.52 * radius + z * R * 0.86 * radius
 		};
 	}
+
+	const facingPoint = $derived(project(0, facingDeg, 1));
 
 	/** Constant-elevation rings of the 3D pattern; radius is linear field strength. */
 	const rings = $derived.by(() => {
@@ -111,9 +114,24 @@
 	</div>
 
 	<svg viewBox="0 0 {W} {H}" class="lobe" role="img" aria-label="Antenna 3D lobe">
+		<defs>
+			<marker id="facing-arrow" viewBox="0 0 6 6" refX="5" refY="3" markerWidth="5" markerHeight="5" orient="auto">
+				<path d="M 0 0 L 6 3 L 0 6 Z" fill="currentColor" />
+			</marker>
+		</defs>
 		<ellipse cx={CX} cy={CY + R * 0.9} rx={R * 0.95} ry={R * 0.32} class="ground-plane" />
 		<line x1={CX} y1={CY - R * 0.8} x2={CX} y2={CY + R * 1.1} class="axis" />
 		<line x1={CX - R} y1={CY} x2={CX + R} y2={CY} class="axis" />
+		{#if (horizontalBeamwidthDeg ?? 360) < 360}
+			<line
+				x1={CX}
+				y1={CY}
+				x2={facingPoint.x}
+				y2={facingPoint.y}
+				class="facing-arrow"
+				marker-end="url(#facing-arrow)"
+			/>
+		{/if}
 
 		{#each rings as ring (ring.key)}
 			<path d={ring.d} fill="none" stroke={ring.color} stroke-width="1.35" opacity="0.92" />
@@ -180,6 +198,11 @@
 		stroke: rgba(234, 255, 246, 0.45);
 		stroke-width: 1;
 		stroke-dasharray: 3 3;
+	}
+	.facing-arrow {
+		color: rgba(234, 255, 246, 0.6);
+		stroke: currentColor;
+		stroke-width: 1.2;
 	}
 	.ap {
 		fill: #22c55e;
