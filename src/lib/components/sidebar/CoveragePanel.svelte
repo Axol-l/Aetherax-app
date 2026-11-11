@@ -114,6 +114,9 @@
 
 	const buildingPct = $derived(getBuildingCoverage());
 	const deviceLoad = $derived(floorCoverage.get(floorState.currentFloorId)?.devices ?? 0);
+	const capacityEstimated = $derived(
+		floorCoverage.get(floorState.currentFloorId)?.devicesSource === 'estimated'
+	);
 	const clientCapacity = $derived(
 		(floorState.floors.length <= 1
 			? apState.aps
@@ -202,7 +205,9 @@
 		{#if capacityAps > 0}			<div class="metric capacity-metric">
 				<div class="metric-head">
 					<span class="metric-name">{t('Capacity')}</span>
-					<span class="metric-value">{apsOnFloor} / {capacityAps} APs</span>
+					<span class="metric-value">
+						{capacityEstimated ? '≈ ' : ''}{apsOnFloor} / {capacityAps} APs
+					</span>
 				</div>
 				<div class="coverage-bar-track">
 					<div

@@ -1349,7 +1349,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			maskTag: heatmapMaskTag(floor),
 			surfaces: (floor.surfaces ?? []).map((surface) => ({ ...surface })),
 			clipPolygon:
-				(floor.planningArea ?? floorplanState.floorplanBoundary ?? null)?.map((point) => ({
+				(floor.planningArea ?? floor.floorplanBoundary ?? null)?.map((point) => ({
 					x: point.x,
 					y: point.y
 				})) ?? null,

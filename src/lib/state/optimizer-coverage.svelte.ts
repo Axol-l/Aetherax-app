@@ -4,6 +4,7 @@
  * （解码后的掩码、采样网格、密度图）也只有这里用。
  */
 import { debug } from '$lib/log.js';
+import { DEFAULT_DEVICE_DENSITY } from '$lib/domain/client-capacity.js';
 import {
 	apHeightAboveFloor,
 	apSplitFor,
@@ -598,15 +599,19 @@ export async function updateCoverage(): Promise<void> {
 	// 缓存每层的覆盖率（用采样点数当面积权重）
 	const pixelsPerSample =
 		cachedSamples.length > 0 ? cachedInteriorPixelCount / cachedSamples.length : 0;
-	const devices = densityResult
+	const areaSqm =
+		wupmForGap > 0 ? cachedInteriorPixelCount / (wupmForGap * wupmForGap) : 0;
+	const measuredDevices = densityResult
 		? sampleDensity.reduce((sum, value) => sum + value, 0) *
 			pixelsPerSample *
 			(1 / (wupmForGap * wupmForGap))
-		: 0;
+		: null;
+	const devices = measuredDevices ?? areaSqm * DEFAULT_DEVICE_DENSITY;
 	floorCoverage.set(curFloorId, {
 		coverage: optimizerState.coverage,
 		samples: cachedSamples.length,
 		devices: Math.round(devices),
+		devicesSource: densityResult ? 'measured' : 'estimated',
 		basis: coverageBasis(curFloorId)
 	});
 }

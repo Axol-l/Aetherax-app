@@ -65,7 +65,7 @@ const zh: Record<string, string> = {
 	'Hide the list': '收起列表',
 	'Show the list': '展开列表',
 	'(empty note)': '（空标注）',
-	'Click on the plan to place a note. Escape cancels.': '点击图上位置放置标注，Esc 取消。',
+	'Click on the plan to place a note.': '点击图上位置放置标注。',
 	'What should a reader know about this spot?': '这个位置有什么需要读者知道的？',
 	'Delete note': '删除标注',
 	'Add note': '添加标注',
@@ -75,6 +75,7 @@ const zh: Record<string, string> = {
 	'Redraw planning area': '重新绘制规划范围',
 	'Use the detected area': '改用自动识别的范围',
 	'Signal strength scale in dBm': '信号强度色标（dBm）',
+	'Click one corner of the raised area, then the other.': '点击抬升区域的一个角，再点击对角。',
 	'No vector walls on this floor: reflections and scattering need wall segments.':
 		'本层没有矢量墙线段；反射和散射需要墙线段，纯栅格墙体只能计算直射和穿墙衰减。',
 	'Below the floor: no usable signal': '低于门限：无可用信号',
@@ -245,7 +246,7 @@ const zh: Record<string, string> = {
 	'Not set': '未设置',
 	'Derived from these walls: the mask, the interior and the coverage.':
 		'掩码、室内范围与覆盖率均由这些墙线推导。',
-	'Click an outline to select it; Delete removes it.': '单击轮廓可选中，按 Delete 删除。',
+	'Click an outline to select it.': '单击轮廓可选中。',
 	'Measure a distance': '量一段距离',
 	'Set the scale by measuring one distance on the plan.': '在图上量一段已知长度来确定比例。',
 	'Material': '材质',
@@ -468,13 +469,13 @@ const zh: Record<string, string> = {
 	'Solid base floor': '实心底座',
 	'Low end': '低端',
 	'High end': '高端',
-	'Click the opposite corner. Escape cancels.': '点击对角；Esc 取消。',
-	'Click one corner of the raised area, then the other.': '先点抬升区域的一角，再点对角。',
+	'Click the opposite corner.': '点击绘制。',
+	'Click the corner of the raised area.': '点击绘制抬升区域。',
 	'Draw raised area': '绘制抬升面',
 	'Editing the selected raised area': '正在编辑选中的抬升面',
 	'Delete raised area': '删除抬升面',
-	'A client on a raised area is measured from its own floor, not the slab. Click an outline to select it; Delete removes it.':
-		'抬升面上的终端以其自身高度计算。单击轮廓可选中，按 Delete 删除。',
+	'A client on a raised area is measured from its own floor, not the slab. Click an outline to select it.':
+		'抬升面上的终端以其自身高度计算。单击轮廓可选中。',
 	'Store': '储藏',
 	'WC': '卫',
 	'Elev': '电梯',
