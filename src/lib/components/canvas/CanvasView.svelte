@@ -190,6 +190,45 @@ import { wallState } from '$state/wall-state.svelte.js';
 		scheduleSave();
 	}
 
+	/**
+	 * Keep the floorplan frame, but grow it to contain vector walls/columns drawn
+	 * outside that frame. Without this, a new room added beyond the imported plan is
+	 * rasterised outside the mask and can never become an enclosed room.
+	 */
+	function wallMaskExtent(
+		frame: { width: number; height: number; originX: number; originY: number },
+		walls: Floor['walls'],
+		columns: Floor['columns']
+	): { width: number; height: number; originX: number; originY: number } {
+		if ((walls?.length ?? 0) === 0 && (columns?.length ?? 0) === 0) return frame;
+		const padding = 8;
+		let minX = frame.originX;
+		let minY = frame.originY;
+		let maxX = frame.originX + frame.width;
+		let maxY = frame.originY + frame.height;
+		for (const wall of walls ?? []) {
+			minX = Math.min(minX, wall.ax, wall.bx);
+			minY = Math.min(minY, wall.ay, wall.by);
+			maxX = Math.max(maxX, wall.ax, wall.bx);
+			maxY = Math.max(maxY, wall.ay, wall.by);
+		}
+		for (const column of columns ?? []) {
+			const r = column.shape === 'circle' ? Math.hypot(column.bx - column.ax, column.by - column.ay) : 0;
+			minX = Math.min(minX, column.ax - r, column.bx - r);
+			minY = Math.min(minY, column.ay - r, column.by - r);
+			maxX = Math.max(maxX, column.ax + r, column.bx + r);
+			maxY = Math.max(maxY, column.ay + r, column.by + r);
+		}
+		const originX = Math.floor(minX - padding);
+		const originY = Math.floor(minY - padding);
+		return {
+			originX,
+			originY,
+			width: Math.max(1, Math.ceil(maxX + padding - originX)),
+			height: Math.max(1, Math.ceil(maxY + padding - originY))
+		};
+	}
+
 	function syncVectorWallsToMask(forceEmpty = false): void {
 		const floor = floorState.floors.find((f) => f.id === floorState.currentFloorId);
 		if (!floor) return;
@@ -199,12 +238,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const noSegments = walls.length === 0 && columns.length === 0;
 		if (noSegments && !forceEmpty) return;
 		const extent = frame
-			? {
-					width: frame.width,
-					height: frame.height,
-					originX: frame.originX,
-					originY: frame.originY
-				}
+			? wallMaskExtent(frame, walls, columns)
 			: undefined;
 		const masks = noSegments
 			? frame
@@ -1085,7 +1119,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 				outside.length === 0
 					? null
 					: t(
-							'{count} access point(s) are outside the building: {names}. Re-run the optimiser, move them, or turn on "Allow APs outside rooms".',
+							'{count} access point(s) are outside the building: {names}. Re-run the optimiser, move them, or turn on "Allow APs outside the floor boundary".',
 							{ count: outside.length, names: outside.join(', ') }
 						);
 		})();
