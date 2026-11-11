@@ -63,6 +63,7 @@ import { rayWallLossDb } from '../../rf/wall-crossings.js';
 import { diffuseLevelDb } from '../../rf/scattering.js';
 import { productionDirectGpu, type ProductionDirectInput } from '../../gpu/production-direct.js';
 import { pathLossN } from '../../rf/propagation.js';
+import { estimatedPhyRateMbps } from '../../rf/mcs.js';
 import {
 	diffractionCandidatesForAp,
 	DIFFRACTION_MAX_CLEARANCE_M,
@@ -251,7 +252,7 @@ export interface HeatmapInput {
 	clipStrict?: boolean;
 	reflectingWalls?: ReflectingWall[];
 	wallHeightM?: number;
-	metric?: 'rssi' | 'sinr';
+	metric?: 'rssi' | 'sinr' | 'rate';
 	pathLossExponent?: number;
 }
 
@@ -313,7 +314,7 @@ export class HeatmapLayer implements Layer {
 	 */
 	rssiFloor = DEFAULT_RSSI_FLOOR;
 	/** 显示指标；SINR 使用固定的 -5..30 dB 色阶。 */
-	metric: 'rssi' | 'sinr' = 'rssi';
+	metric: 'rssi' | 'sinr' | 'rate' = 'rssi';
 	/** 当前生成所属楼层；缓存按楼层分开，切回时可直接命中。 */
 	floorId = '';
 
@@ -979,8 +980,10 @@ export class HeatmapLayer implements Layer {
 		}
 
 		// 色阶从门限延伸到最强接入点 1 m 处的电平；所有接入点都不高于门限时无需绘制。
-		const levelFloor = this.metric === 'sinr' ? -5 : this.rssiFloor;
-		const levelTop = this.metric === 'sinr' ? 30 : rampTop;
+		const levelFloor =
+			this.metric === 'sinr' ? -5 : this.metric === 'rate' ? 0 : this.rssiFloor;
+		const levelTop = this.metric === 'sinr' ? 30 : this.metric === 'rate' ? 1200 : rampTop;
+		const bandSize = this.metric === 'rate' ? 100 : BAND_DB;
 		const span = levelTop - levelFloor;
 		if (!(span > 0)) return null;
 
@@ -1692,7 +1695,7 @@ export class HeatmapLayer implements Layer {
 						reflectedMw > 0 ? 10 * Math.log10(10 ** (bestDb / 10) + reflectedMw) : bestDb;
 				}
 				let value = totalDb;
-				if (this.metric === 'sinr' && this.coherent) {
+				if ((this.metric === 'sinr' || this.metric === 'rate') && this.coherent) {
 					let strongest = 0;
 					let strongestIndex = -1;
 					let total = 0;
@@ -1706,7 +1709,9 @@ export class HeatmapLayer implements Layer {
 					}
 					const interference = Math.max(0, total - strongest);
 					const width = this.aps[strongestIndex]?.channelWidth ?? 20;
-					value = sinrDb(strongest, interference, thermalNoiseFloorDbm(width));
+					const sinr = sinrDb(strongest, interference, thermalNoiseFloorDbm(width));
+					value =
+						this.metric === 'rate' ? estimatedPhyRateMbps(sinr, width, 2) : sinr;
 				}
 				/*
 				 * 这里保存电平而非颜色，以便先做平滑。
@@ -1733,11 +1738,11 @@ export class HeatmapLayer implements Layer {
 		 * 色阶在当前参数下覆盖的色带数量。
 		 * 由 span 推导而非固定值，使相同 dBm 在不同发射功率下对应同一颜色。
 		 */
-		const bandCount = Math.max(1, Math.ceil(span / BAND_DB));
+		const bandCount = Math.max(1, Math.ceil(span / bandSize));
 		for (let i = 0; i < levelBands.length; i++) {
 			const level = smooth[i]!;
 			if (!Number.isFinite(level) || level < levelFloor) continue;
-			const index = Math.floor((level - levelFloor) / BAND_DB);
+			const index = Math.floor((level - levelFloor) / bandSize);
 			levelBands[i] = Math.max(0, Math.min(bandCount - 1, index));
 		}
 

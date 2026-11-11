@@ -72,8 +72,6 @@ export interface FloorCoverageEntry {
 	samples: number;
 	/** 估算的并发终端数；没有房间密度数据时为 0。 */
 	devices?: number;
-	/** `devices` 是逐房间密度量出来的，还是按面积/默认密度估算的。 */
-	devicesSource?: 'measured' | 'estimated';
 	/** 这个数字对应的方案。从文件恢复的数据没有这一项。 */
 	basis?: string;
 }

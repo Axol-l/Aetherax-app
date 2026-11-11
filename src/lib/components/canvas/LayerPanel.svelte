@@ -38,9 +38,16 @@
 		void projectMeta.coverageThresholdDbm;
 		return heatmapDisplayFloorDbm();
 	});
-	const legendFloor = $derived(appState.heatmapMetric === 'sinr' ? -5 : floorDb);
-	const legendTop = $derived(appState.heatmapMetric === 'sinr' ? 30 : 0);
-	const LEGEND_BAND_DB = 5;
+	const legendFloor = $derived(
+		appState.heatmapMetric === 'sinr' ? -5 : appState.heatmapMetric === 'rate' ? 0 : floorDb
+	);
+	const legendTop = $derived(
+		appState.heatmapMetric === 'sinr' ? 30 : appState.heatmapMetric === 'rate' ? 1200 : 0
+	);
+	const legendUnit = $derived(
+		appState.heatmapMetric === 'rate' ? 'Mbps' : appState.heatmapMetric === 'sinr' ? 'dB' : 'dBm'
+	);
+	const LEGEND_BAND_DB = $derived(appState.heatmapMetric === 'rate' ? 100 : 5);
 	const legendBands = $derived.by(() => {
 		const span = Math.max(LEGEND_BAND_DB, legendTop - legendFloor);
 		const count = Math.max(1, Math.ceil(span / LEGEND_BAND_DB));
@@ -89,11 +96,19 @@
 					class="layer-row"
 					onclick={() =>
 						(appState.heatmapMetric =
-							appState.heatmapMetric === 'rssi' ? 'sinr' : 'rssi')}
+							appState.heatmapMetric === 'rssi'
+								? 'sinr'
+								: appState.heatmapMetric === 'sinr'
+									? 'rate'
+									: 'rssi')}
 				>
 					<span class="eye-icon"><Icon name="sparkles" size={14} /></span>
 					<span class="layer-label">
-						{appState.heatmapMetric === 'rssi' ? t('Show SINR') : t('Show RSSI')}
+						{appState.heatmapMetric === 'rssi'
+							? t('Show SINR')
+							: appState.heatmapMetric === 'sinr'
+								? t('Show rate')
+								: t('Show RSSI')}
 					</span>
 				</button>
 			{/if}
@@ -183,10 +198,20 @@
 				<div class="legend-divider"></div>
 				<div class="legend">
 					<div class="scale-head">
-						<span>{t('Signal strength')}</span>
-						<span class="scale-unit">dBm</span>
+						<span>
+							{appState.heatmapMetric === 'rate'
+								? t('Estimated PHY rate')
+								: t('Signal strength')}
+						</span>
+						<span class="scale-unit">{legendUnit}</span>
 					</div>
-					<div class="scale-bar" role="img" aria-label={t('Signal strength scale in dBm')}>
+					<div
+						class="scale-bar"
+						role="img"
+						aria-label={appState.heatmapMetric === 'rate'
+							? t('Estimated PHY rate scale in Mbps')
+							: t('Signal strength scale in dBm')}
+					>
 						<span
 							class="scale-cell dead"
 							title={t('Below the floor: no usable signal')}></span>
@@ -194,7 +219,7 @@
 							<span
 								class="scale-cell band"
 								style:background={band.color}
-								title="{band.from} dBm"></span>
+								title="{band.from} {legendUnit}"></span>
 						{/each}
 					</div>
 					<div class="scale-ticks">

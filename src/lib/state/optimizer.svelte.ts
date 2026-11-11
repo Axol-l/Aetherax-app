@@ -692,7 +692,6 @@ function commitFloorOutcome(floorId: string, outcome: FloorOutcome): void {
 		samples: outcome.samples,
 		// Keep the measured device load; the optimizer only replaces the coverage number.
 		devices: floorCoverage.get(floorId)?.devices,
-		devicesSource: floorCoverage.get(floorId)?.devicesSource,
 		// 这次运行量过这一层，所以这个数字说的是它刚提交的方案。
 		basis: coverageBasis(floorId)
 	});
