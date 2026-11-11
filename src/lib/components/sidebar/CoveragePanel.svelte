@@ -19,6 +19,8 @@
 	import Select from '$components/shared/Select.svelte';
 	import Tooltip from '$components/shared/Tooltip.svelte';
 	import { t } from '$state/i18n.svelte';
+	import { slide } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 	import { wallState } from '$state/wall-state.svelte';
 	import { applyPathLossScenario } from '$state/path-loss-state.svelte';
 	import { scheduleSave } from '$state/persistence.svelte.js';
@@ -313,7 +315,7 @@
 		{/if}
 
 		{#if settingsOpen}
-			<div class="settings-popup">
+			<div class="settings-popup" transition:slide={{ duration: motionDuration(180) }}>
 				<Tooltip
 					position="top"
 					text={t('Off by default: optimised APs stay inside the detected building interior. Turn on to let them land anywhere, walls included.')}
