@@ -5,6 +5,15 @@ export { CHANNELS_5GHZ, DFS_CHANNELS_5GHZ } from './bands/band-5ghz.js';
 export { CHANNELS_6GHZ, PSC_CHANNELS_6GHZ } from './bands/band-6ghz.js';
 export { channelsInterfere, getFrequencyRange, overlapFraction } from './overlap.js';
 export {
+	ADJACENT_GAP_MHZ,
+	DEFAULT_ACIR_DB,
+	channelCenterMhz,
+	channelInterferenceWeight,
+	channelOccupancy,
+	type ChannelOccupancy,
+	type ChannelRef
+} from './interference.js';
+export {
 	getAvailableChannels,
 	nonOverlappingChannels,
 	planningCandidates,

@@ -42,6 +42,7 @@ import { computeBuildingInterior } from '../morphology.js';
 import type { WallMaterialId } from '$lib/domain/materials.js';
 import { getMaterialDbTable, getFlatAttenuation, getCrossPolarizationRatio } from '$lib/domain/materials.js';
 import type { Band } from '@aetherax/channels';
+import { channelInterferenceWeight } from '@aetherax/channels';
 import { crossFloorSegments, pointAlong, slabIsVoid } from '$lib/rf/cross-floor.js';
 import { heatmapRegion } from './heatmap-region.js';
 import {
@@ -1777,17 +1778,25 @@ export class HeatmapLayer implements Layer {
 				if ((this.metric === 'sinr' || this.metric === 'rate') && this.coherent) {
 					let strongest = 0;
 					let strongestIndex = -1;
-					let total = 0;
 					for (let i = 0; i < n; i++) {
 						const p = apPowers[i]!;
-						total += p;
 						if (p > strongest) {
 							strongest = p;
 							strongestIndex = i;
 						}
 					}
-					const interference = Math.max(0, total - strongest);
-					const width = this.aps[strongestIndex]?.channelWidth ?? 20;
+					const server = this.aps[strongestIndex];
+					let interference = 0;
+					for (let i = 0; i < n; i++) {
+						if (i === strongestIndex) continue;
+						const ap = this.aps[i];
+						if (!ap) continue;
+						const weight = server
+							? channelInterferenceWeight(server, ap)
+							: 1;
+						interference += apPowers[i]! * weight;
+					}
+					const width = server?.channelWidth ?? 20;
 					const sinr = sinrDb(strongest, interference, thermalNoiseFloorDbm(width));
 					value =
 						this.metric === 'rate' ? estimatedPhyRateMbps(sinr, width, 2) : sinr;
