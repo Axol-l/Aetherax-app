@@ -74,6 +74,8 @@ const zh: Record<string, string> = {
 	'Draw planning area': '绘制规划范围',
 	'Redraw planning area': '重新绘制规划范围',
 	'Use the detected area': '改用自动识别的范围',
+	'The building figure is each measured floor’s coverage weighted by that floor’s sample count.':
+		'整栋数字按每个已测量楼层的采样点数加权平均。',
 	'Signal strength scale in dBm': '信号强度色标（dBm）',
 	'Click one corner of the raised area, then the other.': '点击抬升区域的一个角，再点击对角。',
 	'{count} access point(s) are inside a column: {names}. Move them out of the column.':
@@ -628,7 +630,7 @@ const zh: Record<string, string> = {
 	'{count} floor measured': '已测 {count} 层',
 	'{count} floors measured': '已测 {count} 层',
 	'{count} below 50%': '{count} 层低于 50%',
-	'The building figure is each measured floor’s coverage weighted by that floor’s sample count, so a small storey does not count as much as a large one. Optimising it means optimising the floors in turn and repeating until the building-wide number stops improving — "passes" counts those rounds, and the weakest floor is named rather than folded in, because a mean hides exactly the storey you would want to know about. It is never optimised *for*: a min-max objective is far sharper to search and buys little on average.': '整栋楼的数值是各已测楼层覆盖率按该层采样点数加权的结果，因此小楼层不会和大楼层等权。优化它意味着逐层优化并反复迭代，直到整栋楼的数值不再提升——“轮数”统计的就是这些迭代；最弱的一层会被单独列出而不是并入平均，因为平均值恰好会掩盖你最想知道的那一层。它从不会被直接当作优化目标：min-max 目标搜索起来锐利得多，平均下来收益却很小。',
+	'The building figure is each measured floor’s coverage weighted by that floor’s sample count, so a small storey does not count as much as a large one.': '整栋楼的数值是各已测楼层覆盖率按该层采样点数加权的结果，因此小楼层不会和大楼层等权。',
 	'All APs ({count})': '全部 AP（{count}）',
 	'Custom (manual settings)': '自定义（手动设置）',
 	// ── 报告与控制台输出 ─────────────────────────────────────────────

@@ -11,6 +11,8 @@
 	import type { ElementRole } from '$canvas/vector-elements.js';
 	import Icon from '$components/shared/Icon.svelte';
 	import { t } from '$state/i18n.svelte';
+	import { slide } from 'svelte/transition';
+	import { motionDuration } from '$lib/motion.js';
 
 	/** How many rows to render. A labelled plan can leave dozens of unknowns. */
 	const MAX_ROWS = 24;
@@ -152,7 +154,7 @@
 {#if review}
 	<div class="review">
 		<button
-			class="review-head"
+			class="review-head no-press-scale"
 			aria-expanded={expanded}
 			title={t('Read from vector geometry')}
 			onclick={() => (expanded = !expanded)}
@@ -174,48 +176,55 @@
 		</button>
 
 		{#if expanded}
-			{#if rows.length > 0}
-				<ul class="rows">
-					{#each shown as element (element.id)}
-						<li
-							class="row"
-							class:overridden={isOverridden(element.id)}
-							onmouseenter={() => highlight(element)}
-							onmouseleave={() => highlight(null)}
-							onfocusin={() => highlight(element)}
-							onfocusout={() => highlight(null)}
-						>
-							<span class="role" data-role={element.role}>{element.role}</span>
-							<span class="label" title={labelFor(element)}>{labelFor(element)}</span>
-							<span class="choices">
-								{#each CHOICES as choice (choice.role)}
-									<button
-										class="choice"
-										class:current={element.role === choice.role}
-										disabled={busy}
-										title={t('Treat this element as') + ' ' + t(choice.label)}
-										onclick={() => setRole(element.id, choice.role)}
-									>
-										{t(choice.label)}
-									</button>
-								{/each}
-							</span>
-						</li>
-					{/each}
-				</ul>
-			{/if}
-
-			{#if failed}
-				<span class="error">{t('That change left no walls at all — undo it or re-detect.')}</span>
-			{/if}
-
-			<div class="review-actions">
-				{#if review.overrides.size > 0}
-					<button class="link" onclick={reset} disabled={busy}>{t('Reset')}</button>
+			<div class="review-body" transition:slide={{ duration: motionDuration(180) }}>
+				{#if rows.length > 0}
+					<ul class="rows">
+						{#each shown as element (element.id)}
+							<li
+								class="row"
+								class:overridden={isOverridden(element.id)}
+								onmouseenter={() => highlight(element)}
+								onmouseleave={() => highlight(null)}
+								onfocusin={() => highlight(element)}
+								onfocusout={() => highlight(null)}
+							>
+								<span class="role" data-role={element.role}>{element.role}</span>
+								<span class="label" title={labelFor(element)}>{labelFor(element)}</span>
+								<span class="choices">
+									{#each CHOICES as choice (choice.role)}
+										<button
+											class="choice no-press-scale"
+											class:current={element.role === choice.role}
+											disabled={busy}
+											title={t('Treat this element as') + ' ' + t(choice.label)}
+											onclick={() => setRole(element.id, choice.role)}
+										>
+											{t(choice.label)}
+										</button>
+									{/each}
+								</span>
+							</li>
+						{/each}
+					</ul>
 				{/if}
-				<button class="link" data-action="raster-detect" onclick={usePixels} disabled={busy}>
-					{t('Read walls from pixels instead')}
-				</button>
+
+				{#if failed}
+					<span class="error">{t('That change left no walls at all — undo it or re-detect.')}</span>
+				{/if}
+
+				<div class="review-actions">
+					{#if review.overrides.size > 0}
+						<button class="link no-press-scale" onclick={reset} disabled={busy}>{t('Reset')}</button>
+					{/if}
+					<button
+						class="link no-press-scale"
+						data-action="raster-detect"
+						onclick={usePixels}
+						disabled={busy}
+					>
+						{t('Read walls from pixels instead')}
+					</button>
+				</div>
 			</div>
 		{/if}
 	</div>
@@ -235,11 +244,11 @@
 	.review {
 		display: flex;
 		flex-direction: column;
-		gap: 2px;
 		margin-top: var(--space-2);
-		padding: var(--space-2);
+		background: var(--bg-elevated);
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-sm);
+		overflow: hidden;
 	}
 
 	.raster-note {
@@ -253,27 +262,41 @@
 	}
 
 	.review-head {
-		display: flex;
+		display: grid;
+		grid-template-columns: minmax(0, 1fr) 14px;
 		align-items: center;
-		justify-content: space-between;
-		gap: var(--space-2);
+		column-gap: var(--space-2);
+		row-gap: 2px;
+		padding: 8px;
 	}
 
 	button.review-head {
 		width: 100%;
-		padding: 0;
 		font: inherit;
 		color: inherit;
 		text-align: left;
 		background: none;
 		border: 0;
 		cursor: pointer;
+		transition: background var(--transition-fast);
+	}
+
+	button.review-head:hover {
+		background: var(--bg-hover);
+	}
+
+	.review-head:focus-visible {
+		outline: 2px solid var(--accent-primary);
+		outline-offset: -2px;
 	}
 
 	.chev {
-		flex: none;
+		display: inline-flex;
+		grid-column: 2;
+		grid-row: 1 / span 2;
+		justify-content: center;
 		color: var(--text-tertiary);
-		transition: transform 120ms ease;
+		transition: transform 160ms ease;
 	}
 
 	.chev.open {
@@ -295,47 +318,77 @@
 	}
 
 	.review-title {
+		grid-column: 1;
+		grid-row: 1;
 		display: inline-flex;
 		align-items: center;
-		gap: var(--space-1);
+		gap: 6px;
+		min-width: 0;
 		font-size: var(--text-xs);
 		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.counts {
+		grid-column: 1;
+		grid-row: 2;
+		min-width: 0;
+		padding-left: 18px;
 		font-family: var(--font-mono);
-		font-size: var(--text-xs);
-		color: var(--text-primary);
+		font-size: 10px;
+		font-variant-numeric: tabular-nums;
+		color: var(--text-tertiary);
+		line-height: 1.35;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+	}
+
+	.review-body {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		padding: 8px;
+		border-top: 1px solid var(--border-subtle);
 	}
 
 	.rows {
 		display: flex;
 		flex-direction: column;
-		gap: 4px;
-		margin: var(--space-1) 0 0;
+		margin: 0;
 		padding: 0;
 		list-style: none;
 	}
 
 	.row {
-		display: flex;
+		display: grid;
+		grid-template-columns: 3.4em minmax(0, 1fr);
 		align-items: center;
-		flex-wrap: wrap;
-		gap: 4px;
-		padding-left: var(--space-1);
-		border-left: 2px solid var(--border-default);
+		column-gap: 8px;
+		row-gap: 5px;
+		padding: 7px 0;
+		border-bottom: 1px solid var(--border-subtle);
 	}
 
-	.row.overridden {
-		border-left-color: var(--accent-primary);
+	.row:last-child {
+		border-bottom: 0;
+		padding-bottom: 0;
+	}
+
+	.row.overridden .role {
+		color: var(--accent-primary);
 	}
 
 	.role {
-		flex: 0 0 auto;
+		grid-column: 1;
 		font-family: var(--font-mono);
-		font-size: 0.625rem;
+		font-size: 10px;
 		text-transform: uppercase;
 		color: var(--text-tertiary);
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 
 	.role[data-role='door'] {
@@ -347,31 +400,35 @@
 	}
 
 	.label {
-		flex: 1 1 100%;
-		order: 3;
+		grid-column: 2;
+		min-width: 0;
 		font-size: var(--text-xs);
-		color: var(--text-tertiary);
+		color: var(--text-secondary);
 		white-space: nowrap;
 		overflow: hidden;
 		text-overflow: ellipsis;
 	}
 
 	.choices {
+		grid-column: 1 / -1;
 		display: flex;
-		flex: 1 1 auto;
-		gap: 2px;
-		justify-content: flex-end;
+		flex-wrap: wrap;
+		gap: 3px;
 	}
 
 	.choice {
-		padding: 1px 4px;
+		padding: 2px 6px;
 		font-family: var(--font-sans);
-		font-size: 0.625rem;
+		font-size: 10px;
 		color: var(--text-tertiary);
 		background: none;
 		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-sm);
 		cursor: pointer;
+		transition:
+			color var(--transition-fast),
+			background var(--transition-fast),
+			border-color var(--transition-fast);
 	}
 
 	.choice:hover:not(:disabled) {
@@ -394,22 +451,35 @@
 		outline-offset: 1px;
 	}
 
+	.review-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--space-2);
+		padding-top: var(--space-2);
+		border-top: 1px solid var(--border-subtle);
+	}
+
 	.link {
-		align-self: flex-start;
-		margin-top: 0;
-		padding: 3px 8px;
+		padding: 4px 8px;
 		font-family: inherit;
-		font-size: var(--text-xs);
+		font-size: 11px;
 		color: var(--text-secondary);
-		background: var(--bg-surface);
-		border: 1px solid var(--border-default);
+		background: transparent;
+		border: 1px solid var(--border-subtle);
 		border-radius: var(--radius-sm);
 		text-decoration: none;
 		cursor: pointer;
+		transition:
+			color var(--transition-fast),
+			background var(--transition-fast),
+			border-color var(--transition-fast);
 	}
 
 	.link:hover:not(:disabled) {
-		color: var(--text-secondary);
+		color: var(--text-primary);
+		background: var(--bg-hover);
+		border-color: var(--border-default);
 	}
 
 	.error {
