@@ -27,6 +27,7 @@ import { apState } from '$state/ap-state.svelte.js';
 import { coverageBasis, optimizerState, floorCoverage, scoringSettingsSignature } from './optimizer-state.svelte.js';
 import { MAX_FLOOR_PASSES, nextFloorPass } from './optimizer-floor-passes.js';
 import { applyPositions, applyPowers, buildDensityMap, crossingSlabsFor, localVerticalDropFor, powerLevelsFor, sourceFloorMaskFor, toApInput, type FloorOutcome, type FloorRunOptions } from './optimizer-support.js';
+import { updateCoverage } from './optimizer-coverage.svelte.js';
 
 
 
@@ -697,6 +698,16 @@ function commitFloorOutcome(floorId: string, outcome: FloorOutcome): void {
 		// 这次运行量过这一层，所以这个数字说的是它刚提交的方案。
 		basis: coverageBasis(floorId)
 	});
+	/*
+	 * The worker's coverage is part of its scoring model; the panel's number is the
+	 * live coverage of the layout now on screen. Recompute the current floor instead
+	 * of freezing the worker figure — they can disagree, and the user sees the panel
+	 * next to the heatmap.
+	 */
+	if (floorId === floorState.currentFloorId) {
+		floorCoverage.delete(floorId);
+		void updateCoverage();
+	}
 	scheduleSave();
 }
 

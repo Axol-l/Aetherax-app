@@ -1485,11 +1485,17 @@ import { wallState } from '$state/wall-state.svelte.js';
 	// Update coverage score when APs or wall mask change
 	let coverageTimeout: ReturnType<typeof setTimeout> | null = null;
 	$effect(() => {
-		const _key = autoSolveKey;
+		// Coverage depends on the same AP geometry/antenna and floor/mask inputs as the
+		// heatmap. `autoSolveKey` rounds AP positions to 2 * wupm, so using it here
+		// let a small move (especially one towards a metal wall) leave a stale figure.
+		trackHeatmapInputs();
+		void projectMeta.coverageThresholdDbm;
+		void projectMeta.coverageSoftnessDb;
+		void projectMeta.pathLossScenario;
+		void projectMeta.allowOutsideRooms;
 		const _mask = wallState.wallMask;
 		const _rtMask = wallState.roomTypeMask;
-		
-		for (const ap of apState.aps) void ap.assignedChannel;
+
 		if (apState.aps.length === 0 || !_mask) return;
 		if (coverageTimeout) clearTimeout(coverageTimeout);
 		coverageTimeout = setTimeout(() => updateCoverage(), 300);
