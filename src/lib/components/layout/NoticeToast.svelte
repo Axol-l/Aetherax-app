@@ -15,12 +15,14 @@
 		if (appState.storageNotice) appState.storageNotice = null;
 		else if (appState.placementNotice) appState.placementNotice = null;
 		else if (appState.outsideNotice) appState.outsideNotice = null;
+		else if (appState.columnNotice) appState.columnNotice = null;
 		else appState.staleSettingsNotice = null;
 	}
 
 	const text = $derived(
 		appState.storageNotice ??
 			appState.placementNotice ??
+			appState.columnNotice ??
 			appState.outsideNotice ??
 			appState.staleSettingsNotice
 	);

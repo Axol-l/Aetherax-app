@@ -76,6 +76,8 @@ const zh: Record<string, string> = {
 	'Use the detected area': '改用自动识别的范围',
 	'Signal strength scale in dBm': '信号强度色标（dBm）',
 	'Click one corner of the raised area, then the other.': '点击抬升区域的一个角，再点击对角。',
+	'{count} access point(s) are inside a column: {names}. Move them out of the column.':
+		'{count} 个 AP 落在柱子内部：{names}。请把它们移到柱子外。',
 	'No vector walls on this floor: reflections and scattering need wall segments.':
 		'本层没有矢量墙线段；反射和散射需要墙线段，纯栅格墙体只能计算直射和穿墙衰减。',
 	'Below the floor: no usable signal': '低于门限：无可用信号',

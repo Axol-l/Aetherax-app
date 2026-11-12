@@ -45,6 +45,7 @@
 		DEFAULT_WALL_BAND
 	} from '$state/wall-raster.js';
 	import { forgetInterior } from '$state/ap-interior.js';
+	import { apsInsideColumns } from '$state/ap-column-check.js';
 	import { ReferenceFloorLayer } from '$canvas/renderers/reference-floor.js';
 	import { FloorTilesLayer } from '$canvas/renderers/floor-tiles.js';
 	import { StackedFloorsLayer, MAX_PITCH } from '$canvas/renderers/stacked-floors.js';
@@ -1144,6 +1145,31 @@ import { wallState } from '$state/wall-state.svelte.js';
 		return () => {
 			cancelled = true;
 		};
+	});
+
+	$effect(() => {
+		for (const floor of floorState.floors) {
+			for (const column of floor.columns ?? []) {
+				void column.shape;
+				void column.ax;
+				void column.ay;
+				void column.bx;
+				void column.by;
+			}
+		}
+		for (const ap of apState.aps) {
+			void ap.x;
+			void ap.y;
+			void ap.floorId;
+		}
+		const inside = apsInsideColumns();
+		appState.columnNotice =
+			inside.length === 0
+				? null
+				: t(
+						'{count} access point(s) are inside a column: {names}. Move them out of the column.',
+						{ count: inside.length, names: inside.join(', ') }
+					);
 	});
 
 	$effect(() => {

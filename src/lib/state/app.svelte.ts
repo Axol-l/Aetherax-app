@@ -35,6 +35,8 @@ export const appState = $state({
 	 * 有 AP 落在建筑外面时的常驻警告
 	 */
 	outsideNotice: null as string | null,
+	/** 有 AP 落在柱子内部时的常驻警告。 */
+	columnNotice: null as string | null,
 	/**
 	 * 优化设置改过、但还没重跑时的一次性提示。
 	 *
