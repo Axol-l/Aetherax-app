@@ -23,6 +23,7 @@
   - `office`
   - `closedPlan`
 - 墙体损耗来自墙体掩码或矢量墙；
+- 柱子按填充的实体障碍写入掩码，一次穿越按该材质的典型厚度计一次损耗；不按柱子的实际宽度做厚度衰减，也不计成两面墙；
 - 楼板损耗来自楼层材质和厚度；
 - 客户端高度默认 1.5 m，可由工程设置修改；
 - AP 安装高度、天花板高度和抬高面参与垂直距离。
@@ -316,7 +317,7 @@ RSSI 规划可以暂时忽略极化，但这会使：
 
 ### 3.10 噪声、干扰与 SINR
 
-**状态：已实现基础逐点 SINR。**
+**状态：已实现基础逐点 SINR 和估算 PHY 速率视图。**
 
 当前：
 
@@ -337,7 +338,7 @@ Sionna 的 radio map 直接使用：
 SINR = RSS / (N0 + Σ 其他 AP 的 RSS)
 ```
 
-Aetherax 已提供 RSSI / SINR 两种视图；容量模型仍是独立的客户端数估算。
+Aetherax 已提供 RSSI / SINR / Rate 三种视图；容量模型仍是独立的客户端数估算。
 
 ### 3.11 天线与阵列
 
@@ -353,7 +354,13 @@ Aetherax 已提供 RSSI / SINR 两种视图；容量模型仍是独立的客户�
 - 天线效率、损耗、端口方向图；
 - 天线倾角的机械/电子区分。
 
-当前 `beamwidthDeg + aimDeg + facingDeg` 只是垂直/水平切面的解析近似。
+当前 `beamwidthDeg + horizontalBeamwidthDeg + aimDeg + facingDeg` 只是垂直/水平切面的解析近似。
+
+- 垂直切面由 `beamwidthDeg` 和 `aimDeg` 描述，180° 表示平坦垂直方向图；
+- 水平切面由 `horizontalBeamwidthDeg` 和 `facingDeg` 描述，360° 表示全向；
+- 180° 到 359° 仍是有限宽度的水平面板，不会退化成全向；
+- 水平切面包含前后比，背面按 `frontToBackDb` 衰减；
+- 天线参数会同时进入热力图、覆盖率和优化器 worker。
 
 ### 3.12 移动性与多普勒
 
