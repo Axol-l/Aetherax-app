@@ -438,14 +438,20 @@ export async function updateCoverage(): Promise<void> {
 						targetRun,
 						ap.sourceT,
 						ap.targetT,
-						{ x: ap.x - ox, y: ap.y - oy },
-						{ x: sample.x, y: sample.y },
+						{ x: ap.x, y: ap.y },
+						{ x: sample.x + ox, y: sample.y + oy },
 						1
 					)
 				: null;
 			let dbLoss =
 				splitLoss ??
-				wallRunLoss(targetRun, { x: ap.x - ox, y: ap.y - oy }, { x: sample.x, y: sample.y }, 1);
+				// `WallRun` takes world coordinates; `sample` is in mask pixels.
+				wallRunLoss(
+					targetRun,
+					{ x: ap.x, y: ap.y },
+					{ x: sample.x + ox, y: sample.y + oy },
+					1
+				);
 
 			const wallLossDb = dbLoss;
 			dbLoss += slabLoss;
