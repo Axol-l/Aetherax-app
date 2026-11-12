@@ -80,11 +80,6 @@
 		}
 	});
 
-	let openNote = $state<'building' | null>(null);
-	function toggleNote(which: 'building'): void {
-		openNote = openNote === which ? null : which;
-	}
-
 	const multiFloor = $derived(floorState.floors.length > 1);
 
 	const scenarioOptions = $derived(
@@ -219,14 +214,7 @@
 		{#if multiFloor && buildingStats.measured > 0}
 			<div class="building">
 				<div class="building-head">
-					<button
-						type="button"
-						class="building-title as-button"
-						aria-expanded={openNote === 'building'}
-						onclick={() => toggleNote('building')}
-					>
-						{t('Whole building')}
-					</button>
+					<span class="building-title">{t('Whole building')}</span>
 					<span class="building-value">{buildingPct}%</span>
 				</div>
 				<div class="building-detail">
@@ -242,11 +230,6 @@
 							· {t('{count} below 50%', { count: buildingStats.belowHalf })}{/if}
 					</span>
 				</div>
-				{#if openNote === 'building'}
-					<p class="metric-note">
-						{t('The building figure is each measured floor’s coverage weighted by that floor’s sample count, so a small storey does not count as much as a large one. Optimising it means optimising the floors in turn and repeating until the building-wide number stops improving — "passes" counts those rounds, and the weakest floor is named rather than folded in, because a mean hides exactly the storey you would want to know about. It is never optimised *for*: a min-max objective is far sharper to search and buys little on average.')}
-					</p>
-				{/if}
 			</div>
 		{/if}
 
@@ -551,27 +534,6 @@
 		color: inherit;
 	}
 
-	.as-button {
-		padding: 0;
-		background: none;
-		border: none;
-		cursor: pointer;
-		text-align: left;
-	}
-
-	.as-button:hover {
-		color: var(--text-secondary);
-	}
-
-	.as-button[aria-expanded='true'] {
-		color: var(--text-primary);
-	}
-
-	.as-button:focus-visible {
-		outline: 2px solid var(--accent-primary);
-		outline-offset: 2px;
-	}
-
 	.metric-value {
 		font-family: var(--font-mono);
 		color: var(--text-secondary);
@@ -590,13 +552,6 @@
 	}
 
 
-
-	.metric-note {
-		margin: 2px 0 0;
-		font-size: var(--text-xs);
-		line-height: 1.5;
-		color: var(--text-tertiary);
-	}
 
 	.settings-head {
 		display: flex;
