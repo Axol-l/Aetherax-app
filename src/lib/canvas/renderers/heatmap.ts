@@ -64,7 +64,7 @@ import { rayWallLossDb } from '../../rf/wall-crossings.js';
 import { diffuseLevelDb } from '../../rf/scattering.js';
 import { productionDirectGpu, type ProductionDirectInput } from '../../gpu/production-direct.js';
 import { pathLossN } from '../../rf/propagation.js';
-import { estimatedPhyRateMbps, maxPhyRateMbps } from '../../rf/mcs.js';
+import { estimatedPhyRateMbps, estimatedThroughputMbps, maxPhyRateMbps, sinrToMcs } from '../../rf/mcs.js';
 import { columnLossDelta, type ColumnObstacle } from '../../rf/columns.js';
 import {
 	diffractionCandidatesForAp,
@@ -260,6 +260,14 @@ export interface HeatmapInput {
 	pathLossExponent?: number;
 }
 
+export interface HeatmapProbe {
+	mcs: number;
+	widthMhz: number;
+	streams: number;
+	phyMbps: number;
+	throughputMbps: number;
+}
+
 export class HeatmapLayer implements Layer {
 	id = 'heatmap';
 	visible = false;
@@ -326,8 +334,22 @@ export class HeatmapLayer implements Layer {
 	/** 当前生成所属楼层；缓存按楼层分开，切回时可直接命中。 */
 	floorId = '';
 
+
 	private cache: HeatmapImage | null = null;
 	private cacheKey = '';
+	private probeData:
+		| {
+				key: string;
+				levels: Float32Array;
+				mcs: Int8Array;
+				cols: number;
+				rows: number;
+				x0: number;
+				y0: number;
+				texel: number;
+				widthMhz: number;
+		  }
+		| null = null;
 	/** 当前输入下 GPU 生成的逐 AP 直射基础电平。 */
 	private gpuDirect: { key: string; levels: Float32Array; apCount: number; pixels: number } | null =
 		null;
@@ -788,6 +810,26 @@ export class HeatmapLayer implements Layer {
 		ctx.restore();
 	}
 
+	/** Read the last generated Rate grid at a world point; null outside the raster. */
+	probe(wx: number, wy: number): HeatmapProbe | null {
+		const data = this.probeData;
+		if (!data || data.key !== this.cacheKey) return null;
+		const tx = Math.floor((wx - data.x0) / data.texel);
+		const ty = Math.floor((wy - data.y0) / data.texel);
+		if (tx < 0 || ty < 0 || tx >= data.cols || ty >= data.rows) return null;
+		const index = ty * data.cols + tx;
+		const phyMbps = data.levels[index]!;
+		const mcs = data.mcs[index] ?? -1;
+		if (!Number.isFinite(phyMbps) || mcs < 0) return null;
+		return {
+			mcs,
+			widthMhz: data.widthMhz,
+			streams: 2,
+			phyMbps,
+			throughputMbps: estimatedThroughputMbps(phyMbps)
+		};
+	}
+
 	private drawCache(
 		ctx: CanvasRenderingContext2D,
 		image: HeatmapImage,
@@ -1074,6 +1116,9 @@ export class HeatmapLayer implements Layer {
 		const u32 = new Uint32Array(imgData.data.buffer);
 		/** 每个纹素的接收电平，单位 dBm；低于色阶门限处为 NaN。 */
 		const levels = new Float32Array(cols * rows).fill(Number.NaN);
+		const rateWidth = Math.max(20, ...this.aps.map((ap) => ap.channelWidth ?? 20));
+		const probeMcs =
+			this.metric === 'rate' ? new Int8Array(cols * rows).fill(-1) : null;
 		// 抬高面场，采用本循环使用的单位；只解析一次，使内层循环只需一次乘法和一次查表。
 		const surfaces = this.surfaces;
 		const surfaceScale = this.worldUnitsPerMeter;
@@ -1814,6 +1859,7 @@ export class HeatmapLayer implements Layer {
 					const sinr = sinrDb(strongest, interference, thermalNoiseFloorDbm(width));
 					value =
 						this.metric === 'rate' ? estimatedPhyRateMbps(sinr, width, 2) : sinr;
+					if (probeMcs) probeMcs[rowOff + tx] = sinrToMcs(sinr);
 				}
 				/*
 				 * 这里保存电平而非颜色，以便先做平滑。
@@ -1829,6 +1875,19 @@ export class HeatmapLayer implements Layer {
 		 * 低于色阶门限的缺失电平不参与平均，否则会在覆盖区外产生亮边。
 		 */
 		const smooth = boxBlurLevels(levels, cols, rows);
+		if (probeMcs) {
+			this.probeData = {
+				key: this.cacheKey,
+				levels: smooth,
+				mcs: probeMcs,
+				cols,
+				rows,
+				x0,
+				y0,
+				texel,
+				widthMhz: rateWidth
+			};
+		}
 
 		/*
 		 * 使用等值色带而非连续渐变。

@@ -50,6 +50,13 @@ export const appState = $state({
 	showHeatmap: false,
 	/** 热力图指标：RSSI、SINR 或估算 PHY 速率。 */
 	heatmapMetric: 'rssi' as 'rssi' | 'sinr' | 'rate',
+	heatmapProbe: null as {
+		mcs: number;
+		widthMhz: number;
+		streams: number;
+		phyMbps: number;
+		throughputMbps: number;
+	} | null,
 	showNotes: true,
 	/**
 	 * 当前启用的编辑工具。

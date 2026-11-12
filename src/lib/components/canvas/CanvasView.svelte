@@ -605,6 +605,30 @@ import { wallState } from '$state/wall-state.svelte.js';
 		heatmapLayer.attachWorker(worker);
 		heatmapLayer.onGenerated = () => engine?.markDirty();
 	}
+
+	function updateHeatmapProbe(event: PointerEvent): void {
+		if (
+			appState.heatmapMetric !== 'rate' ||
+			!appState.showHeatmap ||
+			appState.floorView !== 'single' ||
+			!engine ||
+			!heatmapLayer
+		) {
+			appState.heatmapProbe = null;
+			return;
+		}
+		const canvas = event.currentTarget as HTMLCanvasElement;
+		const rect = canvas.getBoundingClientRect();
+		const world = engine.camera.screenToWorld({
+			x: event.clientX - rect.left,
+			y: event.clientY - rect.top
+		});
+		appState.heatmapProbe = heatmapLayer.probe(world.x, world.y);
+	}
+
+	function clearHeatmapProbe(): void {
+		appState.heatmapProbe = null;
+	}
 	const wallLayer = new WallLayer();
 	const roomLabelsLayer = new RoomLabelsLayer();
 	const apLayer = new ApLayer();
@@ -1914,11 +1938,17 @@ import { wallState } from '$state/wall-state.svelte.js';
 		role="application"
 		aria-label={t('Channel planning canvas')}
 		onpointerdown={(e) => gestures.handlePointerDown(e)}
-		onpointermove={(e) => gestures.handlePointerMove(e)}
+		onpointermove={(e) => {
+			gestures.handlePointerMove(e);
+			updateHeatmapProbe(e);
+		}}
 		ondblclick={handleCanvasDoubleClick}
 		class:drawing-area={appState.planningDrawMode}
 		onpointerup={(e) => gestures.handlePointerUp(e)}
-		onpointerleave={() => gestures.handlePointerLeave()}
+		onpointerleave={() => {
+			gestures.handlePointerLeave();
+			clearHeatmapProbe();
+		}}
 		oncontextmenu={handleContextMenu}
 		ontouchstart={(e) => gestures.handleTouchStart(e)}
 		ontouchmove={(e) => gestures.handleTouchMove(e)}

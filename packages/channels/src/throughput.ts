@@ -86,7 +86,8 @@ export interface ThroughputInput {
 export interface ThroughputOptions {
 	ispSpeed: number; // Mbps, 0 = no limit
 	targetThroughput: number; // minimum acceptable Mbps per AP
-	macEfficiency?: number; // default 0.5
+	/** 理想上限，帧聚合充分、低碰撞；不是实测 MAC 效率。 */
+	macEfficiency?: number; // default 0.45
 }
 
 // 计算每个 AP 的有效吞吐量
@@ -94,7 +95,7 @@ export function estimateThroughput(
 	aps: ThroughputInput[],
 	options: ThroughputOptions
 ): ThroughputEstimate[] {
-	const efficiency = options.macEfficiency ?? 0.5;
+	const efficiency = options.macEfficiency ?? 0.45;
 
 	return aps.map((ap) => {
 		// Use model-specific PHY rate if available, otherwise generic fallback

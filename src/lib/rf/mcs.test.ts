@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { estimatedPhyRateMbps, maxPhyRateMbps, sinrToMcs } from './mcs.js';
+import {
+	DEFAULT_MAC_EFFICIENCY,
+	estimatedPhyRateMbps,
+	estimatedThroughputMbps,
+	maxPhyRateMbps,
+	sinrToMcs
+} from './mcs.js';
 
 describe('SINR to MCS/rate mapping', () => {
 	it('selects higher MCS as SNR improves', () => {
@@ -19,5 +25,11 @@ describe('SINR to MCS/rate mapping', () => {
 	it('reports the scale top for the current width', () => {
 		expect(maxPhyRateMbps(20, 2)).toBeCloseTo(286.8, 3);
 		expect(maxPhyRateMbps(80, 2)).toBeCloseTo(1147.2, 3);
+	});
+
+	it('separates PHY reference rate from MAC-adjusted throughput', () => {
+		expect(DEFAULT_MAC_EFFICIENCY).toBe(0.45);
+		expect(estimatedThroughputMbps(1000)).toBeCloseTo(450, 6);
+		expect(estimatedThroughputMbps(1000, 0.6)).toBeCloseTo(500, 6);
 	});
 });

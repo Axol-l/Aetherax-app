@@ -15,7 +15,12 @@
 	import { heatmapDisplayFloorDbm } from '$canvas/heatmap-display.js';
 	import { projectMeta } from '$state/project-meta.svelte';
 	import { apState } from '$state/ap-state.svelte';
-	import { maxPhyRateMbps } from '$lib/rf/mcs.js';
+	import {
+		DEFAULT_MAC_EFFICIENCY,
+		PHY_REFERENCE_STREAMS,
+		estimatedThroughputMbps,
+		maxPhyRateMbps
+	} from '$lib/rf/mcs.js';
 
 	let collapsed = $state(typeof window !== 'undefined' && window.innerWidth <= 768);
 
@@ -40,9 +45,13 @@
 		void projectMeta.coverageThresholdDbm;
 		return heatmapDisplayFloorDbm();
 	});
+	const rateWidth = $derived(
+		Math.max(20, ...apState.aps.map((ap) => ap.channelWidth ?? 20))
+	);
 	const rateTop = $derived(
 		Math.max(300, ...apState.aps.map((ap) => maxPhyRateMbps(ap.channelWidth ?? 20, 2)))
 	);
+	const rateThroughputTop = $derived(estimatedThroughputMbps(rateTop));
 	const legendFloor = $derived(
 		appState.heatmapMetric === 'sinr' ? -5 : appState.heatmapMetric === 'rate' ? 0 : floorDb
 	);
@@ -210,7 +219,7 @@
 					<div class="scale-head">
 						<span>
 							{appState.heatmapMetric === 'rate'
-								? t('Estimated PHY rate')
+								? t('PHY reference rate')
 								: t('Signal strength')}
 						</span>
 						<span class="scale-unit">{legendUnit}</span>
@@ -237,6 +246,32 @@
 							<span>{tick.label}</span>
 						{/each}
 					</div>
+					{#if appState.heatmapMetric === 'rate'}
+						<div class="rate-note">
+							<div>
+								{t('Scale maximum')}: {Math.round(legendTop)} Mbps PHY · ≈
+								{Math.round(rateThroughputTop)} Mbps {t('throughput')}
+							</div>
+							<div>
+								{t('Assumption')}: {rateWidth} MHz · MCS 0–11 · {PHY_REFERENCE_STREAMS}
+								{t('streams')}
+							</div>
+							<div>
+								{t('Estimated throughput (MAC-adjusted)')}: PHY ×
+								{Math.round(DEFAULT_MAC_EFFICIENCY * 100)}% ·
+								{t('ideal upper bound with full aggregation and low contention')}
+							</div>
+							<div>{t('1-stream client ≈ half; not measured throughput.')}</div>
+							{#if appState.heatmapProbe}
+								<div class="rate-probe">
+									{t('Current sample')}: MCS {appState.heatmapProbe.mcs} · {appState.heatmapProbe.widthMhz}
+									MHz · {appState.heatmapProbe.streams} {t('streams')} · PHY
+									{Math.round(appState.heatmapProbe.phyMbps)} Mbps · ≈
+									{Math.round(appState.heatmapProbe.throughputMbps)} Mbps {t('throughput')}
+								</div>
+							{/if}
+						</div>
+					{/if}
 				</div>
 				{#if (floorState.floors.find((f) => f.id === floorState.currentFloorId)?.walls?.length ?? 0) === 0}
 					<p class="no-vector-walls">
@@ -432,5 +467,19 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--text-tertiary);
+	}
+
+	.rate-note {
+		display: flex;
+		flex-direction: column;
+		gap: 2px;
+		margin-top: 6px;
+		font-size: var(--text-xs);
+		line-height: 1.35;
+		color: var(--text-tertiary);
+	}
+
+	.rate-probe {
+		color: var(--text-secondary);
 	}
 </style>
