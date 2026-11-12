@@ -1535,12 +1535,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 		void projectMeta.pathLossScenario;
 		void projectMeta.allowOutsideRooms;
 		void canvasState.isDragging;
+		void solverState.isRunning;
 		const _mask = wallState.wallMask;
 		const _rtMask = wallState.roomTypeMask;
 
 		// Dragging an AP fires many position changes; do not start an O(samples × APs)
 		// coverage pass until the gesture settles.
-		if (canvasState.isDragging) return;
+		if (canvasState.isDragging || solverState.isRunning) return;
 		if (apState.aps.length === 0 || !_mask) return;
 		if (coverageTimeout) clearTimeout(coverageTimeout);
 		coverageTimeout = setTimeout(() => updateCoverage(), 300);

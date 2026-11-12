@@ -400,19 +400,23 @@ export class HeatmapLayer implements Layer {
 		this.pendingWorkerKey = key;
 		this.workerJobs.set(id, key);
 		if (this.workerTimer) clearTimeout(this.workerTimer);
+		// Five APs with reflections take longer than one; do not turn a slow worker
+		// into a synchronous main-thread fallback after eight seconds.
+		const workerTimeoutMs = Math.min(30_000, 8_000 + this.aps.length * 2_000);
 		this.workerTimer = setTimeout(() => {
 			if (this.pendingWorkerKey === key) {
-				console.warn('[heatmap] worker timed out after 8 s, falling back to CPU');
+				console.warn(
+					`[heatmap] worker timed out after ${workerTimeoutMs / 1000} s, falling back to CPU`
+				);
 				this.workerBusy = false;
 				this.queuedWorker = null;
-				this.worker = null;
-				this.workerJobs.clear();
+				// Keep the worker and the previous raster. A synchronous CPU fallback
+				// here would freeze the main thread for the same long calculation.
 				this.pendingWorkerKey = '';
 				this.cacheKey = '';
-				this.cache = null;
 				this.onGenerated?.();
 			}
-		}, 8000);
+		}, workerTimeoutMs);
 		try {
 			this.worker.postMessage({ id, key, input });
 		} catch {

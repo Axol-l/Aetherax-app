@@ -9,30 +9,30 @@ export interface McsStep {
 	mcs: number;
 	/** 20 MHz、单空间流速率，Mbps。 */
 	rate20Mhz: number;
-	/** 达到该 MCS 所需的最小 SINR，dB。 */
-	minSinrDb: number;
+	/** 达到该 MCS 所需的最小 SNR，dB；不是接收灵敏度 dBm。 */
+	minSnrDb: number;
 }
 
 export const MCS_TABLE: readonly McsStep[] = [
-	{ mcs: 0, rate20Mhz: 8.6, minSinrDb: -82 },
-	{ mcs: 1, rate20Mhz: 17.2, minSinrDb: -79 },
-	{ mcs: 2, rate20Mhz: 25.9, minSinrDb: -77 },
-	{ mcs: 3, rate20Mhz: 34.4, minSinrDb: -74 },
-	{ mcs: 4, rate20Mhz: 51.6, minSinrDb: -70 },
-	{ mcs: 5, rate20Mhz: 68.8, minSinrDb: -66 },
-	{ mcs: 6, rate20Mhz: 77.4, minSinrDb: -62 },
-	{ mcs: 7, rate20Mhz: 86.0, minSinrDb: -59 },
-	{ mcs: 8, rate20Mhz: 103.2, minSinrDb: -57 },
-	{ mcs: 9, rate20Mhz: 114.7, minSinrDb: -54 },
-	{ mcs: 10, rate20Mhz: 129.0, minSinrDb: -52 },
-	{ mcs: 11, rate20Mhz: 143.4, minSinrDb: -49 }
+	{ mcs: 0, rate20Mhz: 8.6, minSnrDb: 2 },
+	{ mcs: 1, rate20Mhz: 17.2, minSnrDb: 5 },
+	{ mcs: 2, rate20Mhz: 25.9, minSnrDb: 8 },
+	{ mcs: 3, rate20Mhz: 34.4, minSnrDb: 11 },
+	{ mcs: 4, rate20Mhz: 51.6, minSnrDb: 15 },
+	{ mcs: 5, rate20Mhz: 68.8, minSnrDb: 19 },
+	{ mcs: 6, rate20Mhz: 77.4, minSnrDb: 22 },
+	{ mcs: 7, rate20Mhz: 86.0, minSnrDb: 25 },
+	{ mcs: 8, rate20Mhz: 103.2, minSnrDb: 27 },
+	{ mcs: 9, rate20Mhz: 114.7, minSnrDb: 30 },
+	{ mcs: 10, rate20Mhz: 129.0, minSnrDb: 32 },
+	{ mcs: 11, rate20Mhz: 143.4, minSnrDb: 35 }
 ];
 
 /** 给定 SINR 可用的最高 MCS；低于 MCS0 时返回 -1。 */
 export function sinrToMcs(sinrDb: number): number {
 	if (!Number.isFinite(sinrDb)) return -1;
 	for (let i = MCS_TABLE.length - 1; i >= 0; i--) {
-		if (sinrDb >= MCS_TABLE[i]!.minSinrDb) return MCS_TABLE[i]!.mcs;
+		if (sinrDb >= MCS_TABLE[i]!.minSnrDb) return MCS_TABLE[i]!.mcs;
 	}
 	return -1;
 }
