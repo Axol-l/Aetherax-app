@@ -15,7 +15,7 @@ import { floorState, getFloorSlabAttenuation } from './floor-state.svelte.js';
 import { getMaterialDbTable, getFlatAttenuation, type WallMaterialId } from '$lib/domain/materials.js';
 import { rayMarchWallAtten } from '../rf/propagation.js';
 import { balanceAssignment, widenAssignment } from '../rf/interference.js';
-import { makeOverlapLookup } from '../rf/channel-overlap.js';
+import { makeInterferenceLookup } from '../rf/channel-overlap.js';
 import { wallState } from './wall-state.svelte.js';
 import {
 	getFloorMask,
@@ -418,7 +418,7 @@ export async function runSolver(): Promise<void> {
 			const widths = bandNodes.map(
 				(id) => apState.aps.find((ap) => ap.id === id)?.channelWidth ?? 20
 			);
-			const overlap = makeOverlapLookup(bandNames, widths);
+			const overlap = makeInterferenceLookup(bandNames, widths);
 			// 图的权重，放在这个频段自己的下标空间里，加宽那一趟才分得清共用一个信道是便宜
 			// 还是贵。完全不冲突的位置是 0，也就是所有不是边的对。
 			const weightMatrix = new Float32Array(bandNodes.length * bandNodes.length);

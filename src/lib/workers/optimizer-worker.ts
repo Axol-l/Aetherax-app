@@ -43,7 +43,7 @@ import {
 	markSampleConflicts,
 	resolveChannels
 } from '../rf/interference.js';
-import { makeOverlapLookup } from '../rf/channel-overlap.js';
+import { makeInterferenceLookup } from '../rf/channel-overlap.js';
 import {
 	getMaterialDbTable,
 	registerCustomMaterials,
@@ -1080,7 +1080,7 @@ async function runOptimization(
 	const sourceBands = [...aps, ...fixedAps].map((ap) => ap.band as string);
 	// 区间模型，整理成干扰项要的形式：「i 和 j 两个信号源共用较窄那个信道的比例」。
 	const sourceWidths = [...aps, ...fixedAps].map((ap) => ap.channelWidth ?? 20);
-	const overlap = makeOverlapLookup(sourceBands, sourceWidths);
+	const overlap = makeInterferenceLookup(sourceBands, sourceWidths);
 	// 从安装位置到客户端的竖直距离
 	const apGaps = new Float64Array(aps.length);
 	for (let i = 0; i < aps.length; i++) apGaps[i] = aps[i]!.verticalGap ?? 0;

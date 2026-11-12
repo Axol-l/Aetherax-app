@@ -2,10 +2,12 @@ import {
 	CHANNELS_2_4GHZ,
 	CHANNELS_5GHZ,
 	CHANNELS_6GHZ,
+	channelInterferenceWeight,
 	overlapFraction,
 	type Band,
 	type Channel,
-	type ChannelWidth
+	type ChannelWidth,
+	type RegulatoryDomain
 } from '@aetherax/channels';
 
 /**
@@ -61,6 +63,32 @@ export function makeOverlapLookup(
 			b,
 			(widths[i] ?? 20) as ChannelWidth,
 			(widths[j] ?? 20) as ChannelWidth
+		);
+	};
+}
+
+/**
+ * 优化器的干扰耦合权重：同频 1，邻频按重叠比例与 ACIR 衰减，紧邻但不相交给最低泄漏权重。
+ *
+ * `interferenceAt` / `colourConflicts` 只要求 0..1 的耦合值；这里把功率权重直接作为
+ * 耦合值，因此邻频不会像 `makeOverlapLookup` 那样被当成完整同频冲突。
+ */
+export function makeInterferenceLookup(
+	bands: readonly string[],
+	widths: readonly number[],
+	acirDb?: number,
+	domain: RegulatoryDomain = 'fcc'
+): OverlapLookup {
+	const bandOf = (i: number): Band => bands[i] as Band;
+	const widthOf = (i: number): ChannelWidth => (widths[i] ?? 20) as ChannelWidth;
+	return (i, channelI, j, channelJ) => {
+		const band = bandOf(i);
+		if (band !== bandOf(j)) return 0;
+		return channelInterferenceWeight(
+			{ band, assignedChannel: channelI, channelWidth: widthOf(i) },
+			{ band, assignedChannel: channelJ, channelWidth: widthOf(j) },
+			acirDb,
+			domain
 		);
 	};
 }

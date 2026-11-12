@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeOverlapLookup, SAME_CHANNEL_OVERLAP } from './channel-overlap.js';
+import { makeInterferenceLookup, makeOverlapLookup, SAME_CHANNEL_OVERLAP } from './channel-overlap.js';
 
 /**
  * 干扰模型的频率侧：给定两源的频段与带宽，计算其信道的共享频谱比例。
@@ -51,5 +51,16 @@ describe('channel overlap lookup', () => {
 	it('the pre-stage-two default still rounds to "same number or nothing"', () => {
 		expect(SAME_CHANNEL_OVERLAP(0, 36, 1, 40)).toBe(0);
 		expect(SAME_CHANNEL_OVERLAP(0, 36, 1, 36)).toBe(1);
+	});
+
+	it('optimiser coupling keeps adjacent channels weak instead of fully shared', () => {
+		const a = 10 ** (-25 / 10);
+		const lookup = makeInterferenceLookup(['5ghz', '5ghz'], [20, 20]);
+		expect(lookup(0, 36, 1, 36)).toBe(1);
+		expect(lookup(0, 36, 1, 40)).toBeCloseTo(a, 6);
+		expect(lookup(0, 36, 1, 44)).toBe(0);
+
+		const wide = makeInterferenceLookup(['5ghz', '5ghz'], [80, 20]);
+		expect(wide(0, 36, 1, 48)).toBeCloseTo(0.25, 6);
 	});
 });
