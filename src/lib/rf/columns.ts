@@ -83,9 +83,9 @@ function circleCrossing(
 	dy: number,
 	length: number
 ): { t0: number; t1: number; cosTheta: number } | null {
-	const cx = (column.ax + column.bx) / 2;
-	const cy = (column.ay + column.by) / 2;
-	const radius = Math.hypot(column.bx - column.ax, column.by - column.ay) / 2;
+	const cx = column.ax;
+	const cy = column.ay;
+	const radius = Math.hypot(column.bx - column.ax, column.by - column.ay);
 	if (!(radius > 0)) return null;
 	const ox = from.x - cx;
 	const oy = from.y - cy;

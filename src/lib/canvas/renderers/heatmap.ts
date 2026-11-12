@@ -1343,6 +1343,10 @@ export class HeatmapLayer implements Layer {
 							 * 墙体是六像素宽的带状区域，两步的步长不会跨过它，同时把步进开销减半。
 							 */
 							const materialDb = matDbByBand.get(band) ?? getMaterialDbTable(band);
+							// Column correction subtracts the raster's one-shot material
+							// loss. Use single-pixel steps when columns are present so the
+							// base march cannot skip a thin column and overcharge it.
+							const stride = this.columnObstacles.length > 0 ? 1 : 2;
 							wallLoss = wallRunLoss(
 								{
 									mask: mask.data,
@@ -1358,7 +1362,7 @@ export class HeatmapLayer implements Layer {
 								},
 								{ x: apX[i]!, y: apY[i]! },
 								{ x: wx, y: wy },
-								2
+								stride
 							);
 							// Columns have real geometry; replace the raster's one-shot
 							// material loss with the actual chord and incidence angle.
