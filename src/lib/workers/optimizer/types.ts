@@ -9,6 +9,7 @@ import type { AntennaProfile } from '../../rf/antenna.js';
 import type { SlabCrossing } from '../../rf/cross-floor.js';
 import type { OverlapLookup } from '../../rf/interference.js';
 import type { SurfaceRect } from '../../rf/surface-height.js';
+import type { ReflectionPair, ReflectingWall } from '../../rf/reflection.js';
 
 export interface ApInput {
 	id: string;
@@ -221,6 +222,9 @@ export interface EvalContext {
 		by: number;
 		material: number;
 	}>;
+	/** 本层墙段，掩码坐标；二次反射用。 */
+	reflectingWalls?: ReflectingWall[];
+	secondPairsByBand?: Map<string, ReflectionPair[]>;
 	defaultMaterial: number;
 	/**
 	 * 每个固定 AP 的路径数据：墙体的两段拆分，以及每个采样点要不要算楼板损耗（洞就不算）。

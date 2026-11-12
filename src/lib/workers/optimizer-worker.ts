@@ -24,6 +24,9 @@ import {
 import { slabLossFactor } from '../rf/cross-floor.js';
 import { splitWallRunLoss, wallRunLoss, type WallRun } from '../rf/link-budget.js';
 import { columnLossDelta } from '../rf/columns.js';
+import { rayWallLossDb } from '../rf/wall-crossings.js';
+import { secondOrderReflection, type ReflectionPair, type ReflectingWall } from '../rf/reflection.js';
+import { reflectionPairsForAp } from '../rf/path-candidates.js';
 import { surfaceHeightAt } from '../rf/surface-height.js';
 import {
 	antennaRayLossDb,
@@ -367,6 +370,55 @@ function sourceMargin(
 }
 
 /**
+ * 二次反射在采样点上的余量；没有墙段或没有候选时返回 -Infinity。
+ */
+function secondReflectionMargin(
+	ap: { x: number; y: number; band: Band; radius: number },
+	sx: number,
+	sy: number,
+	profile: AntennaProfile,
+	gap: number,
+	ctx: EvalContext
+): number {
+	const walls = ctx.reflectingWalls;
+	if (!walls || walls.length === 0) return -Infinity;
+	let pairs = ctx.secondPairsByBand?.get(ap.band);
+	if (!pairs) {
+		pairs = reflectionPairsForAp(walls, ap.band, 8);
+		ctx.secondPairsByBand?.set(ap.band, pairs);
+	}
+	let best = -Infinity;
+	for (const pair of pairs) {
+		const second = secondOrderReflection({ x: ap.x, y: ap.y }, { x: sx, y: sy }, walls, pair, ap.band);
+		if (!second) continue;
+		const legLoss =
+			rayWallLossDb({ x: ap.x, y: ap.y }, { x: second.x, y: second.y }, walls, ap.band, [
+				second.wallIndex
+			]) +
+			rayWallLossDb(
+				{ x: second.x, y: second.y },
+				{ x: second.x2, y: second.y2 },
+				walls,
+				ap.band,
+				[second.wallIndex, second.wallIndex2]
+			) +
+			rayWallLossDb(
+				{ x: second.x2, y: second.y2 },
+				{ x: sx, y: sy },
+				walls,
+				ap.band,
+				[second.wallIndex2]
+			);
+		const margin =
+			sourceMargin(second.length, ap.radius, legLoss, gap, -ctx.coverageSoftnessDb) +
+			10 * Math.log10(second.powerRatio * second.powerRatio2) -
+			antennaRayLossDb(profile, gap, second.x - ap.x, second.y - ap.y);
+		if (margin > best) best = margin;
+	}
+	return best;
+}
+
+/**
  * 一个信号源至少要往外算到多远的水平距离。
  * 取评估器要用的两个边界里更大的那个：干扰边界和效用边界。
  */
@@ -534,10 +586,19 @@ function fillMargins(positions: Position[], ctx: EvalContext): MarginField {
 					gap,
 					-horizon
 				) - antennaRayLossDb(apProfiles[ai]!, gap, dx, dy);
-			allMargins[base + k] = margin > 0 ? margin : -Infinity;
-			ccaMargins[base + k] = margin > -CCA_BELOW_THRESHOLD_DB ? margin : -Infinity;
+			const reflected = secondReflectionMargin(
+				{ x: ap.x, y: ap.y, band: ap.band, radius: ap.radius },
+				sample.x,
+				sample.y,
+				apProfiles[ai]!,
+				gap,
+				ctx
+			);
+			const bestMargin = reflected > margin ? reflected : margin;
+			allMargins[base + k] = bestMargin > 0 ? bestMargin : -Infinity;
+			ccaMargins[base + k] = bestMargin > -CCA_BELOW_THRESHOLD_DB ? bestMargin : -Infinity;
 			k++;
-			if (margin > best) best = margin;
+			if (bestMargin > best) best = bestMargin;
 		}
 		for (let fi = 0; fi < fixedAps.length; fi++) {
 			const fap = fixedAps[fi]!;
@@ -1038,6 +1099,8 @@ async function runOptimization(
 		sampleDensity,
 		materialMask,
 		columns: msg.columns ?? [],
+		reflectingWalls: msg.reflectingWalls ?? [],
+		secondPairsByBand: new Map(),
 		defaultMaterial,
 		sourceChannels: resolvedChannels.channels,
 		sourceAllowed,

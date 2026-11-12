@@ -150,6 +150,14 @@ export class OptimizerBridge {
 				by: number;
 				material: number;
 			}>;
+			/** 本层墙段，掩码坐标；二次反射用。 */
+			reflectingWalls?: Array<{
+				ax: number;
+				ay: number;
+				bx: number;
+				by: number;
+				material: number;
+			}>;
 			/** 原始房间类型 id */
 			roomTypeMask?: Uint8Array | null;
 			defaultMaterial?: number;
@@ -299,6 +307,7 @@ export class OptimizerBridge {
 					maskHeight,
 					materialMask: materialCopy,
 					columns: options?.columns ?? [],
+					reflectingWalls: options?.reflectingWalls ?? [],
 					densityMap: densityCopy,
 					medianDensity: options?.medianDensity ?? 0,
 					roomTypeMask: roomTypeCopy
@@ -357,6 +366,7 @@ export class OptimizerBridge {
 					roomTypeMask?: Uint8Array | null;
 					densityMap?: Float32Array | null;
 					columns?: readonly unknown[];
+					reflectingWalls?: readonly unknown[];
 					fixedAps?: ReadonlyArray<{
 						source?: { data: Uint8Array; materialMask?: Uint8Array | null } | null;
 						slabs?: ReadonlyArray<{ roomTypes?: Uint8Array | null }> | null;
@@ -369,7 +379,10 @@ export class OptimizerBridge {
 			inputId(options?.materialMask),
 			inputId(options?.roomTypeMask),
 			inputId(options?.densityMap),
-			inputId(options?.columns)
+			// These are rebuilt for every run, so use their content rather than array
+			// identity; otherwise the worker can never reuse the plan.
+			JSON.stringify(options?.columns ?? []),
+			JSON.stringify(options?.reflectingWalls ?? [])
 		];
 		for (const fixed of options?.fixedAps ?? []) {
 			parts.push(inputId(fixed.source?.data), inputId(fixed.source?.materialMask));

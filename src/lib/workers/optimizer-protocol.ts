@@ -98,6 +98,14 @@ export interface OptimizeMessage {
 		by: number;
 		material: number;
 	}>;
+	/** 本层墙段，掩码坐标；二次反射用。 */
+	reflectingWalls?: Array<{
+		ax: number;
+		ay: number;
+		bx: number;
+		by: number;
+		material: number;
+	}>;
 	/** 没有显式材质标签的像素用的材质 id。 */
 	defaultMaterial: number;
 	/** 每个像素对应多少米，用于覆盖和关联距离；0 表示未标定。 */
@@ -220,6 +228,7 @@ export type WireGeometry = Pick<
 	| 'maskHeight'
 	| 'materialMask'
 	| 'columns'
+	| 'reflectingWalls'
 	| 'densityMap'
 	| 'medianDensity'
 	| 'roomTypeMask'

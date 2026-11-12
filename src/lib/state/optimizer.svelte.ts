@@ -279,6 +279,13 @@ async function optimizeFloor(
 						by: column.by - originY,
 						material: column.material
 					})),
+					reflectingWalls: (floor.walls ?? []).map((wall) => ({
+						ax: wall.ax - originX,
+						ay: wall.ay - originY,
+						bx: wall.bx - originX,
+						by: wall.by - originY,
+						material: wall.material
+					})),
 					roomTypeMask: densityResult?.roomTypeData ?? null,
 					defaultMaterial: floor.wallMaterial,
 					metersPerPixel: 1 / wupmCur,
@@ -334,6 +341,13 @@ async function optimizeFloor(
 					bx: column.bx - originX,
 					by: column.by - originY,
 					material: column.material
+				})),
+				reflectingWalls: (floor.walls ?? []).map((wall) => ({
+					ax: wall.ax - originX,
+					ay: wall.ay - originY,
+					bx: wall.bx - originX,
+					by: wall.by - originY,
+					material: wall.material
 				})),
 				roomTypeMask: densityResult?.roomTypeData ?? null,
 				defaultMaterial: floor.wallMaterial,
