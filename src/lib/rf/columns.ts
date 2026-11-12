@@ -53,12 +53,12 @@ function rectCrossing(
 		enter = Math.max(enter, Math.min(t1, t2));
 		exit = Math.min(exit, Math.max(t1, t2));
 	}
-	if (!Number.isFinite(enter) || !Number.isFinite(exit) || exit <= Math.max(0, enter)) {
-		return null;
-	}
-	// The loop writes the normal for the last axis that advanced `enter`; recover it
-	// from the entry point instead of relying on which axis won.
+	if (!Number.isFinite(enter) || !Number.isFinite(exit)) return null;
+	// The segment is [0, 1]; an interval entirely before or after it is a miss.
+	if (enter > 1 || exit < 0) return null;
 	const entry = Math.max(0, enter);
+	const finalExit = Math.min(1, exit);
+	if (finalExit <= entry) return null;
 	const px = from.x + dx * entry;
 	const py = from.y + dy * entry;
 	const distanceToLeft = Math.abs(px - minX);
@@ -73,7 +73,7 @@ function rectCrossing(
 	else if (nearest === distanceToTop) ny = -1;
 	else ny = 1;
 	const cosTheta = Math.abs((dx / length) * nx + (dy / length) * ny);
-	return { t0: entry, t1: exit, cosTheta };
+	return { t0: entry, t1: finalExit, cosTheta };
 }
 
 function circleCrossing(

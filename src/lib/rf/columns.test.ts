@@ -47,4 +47,31 @@ describe('column direct-path loss', () => {
 			columnLossDelta([rect], { x: -5, y: 20 }, { x: 15, y: 20 }, '5ghz', getMaterialDbTable('5ghz'), 40)
 		).toBe(0);
 	});
+
+	it('does not charge the segment before a column', () => {
+		const column = {
+			shape: 'rect' as const,
+			ax: 351.97787935218116,
+			ay: 364.0595903165735,
+			bx: 380.53157271034377,
+			by: 390.0174933694487,
+			material: 4
+		};
+		const ap = { x: 356, y: 536 };
+		const target = { x: 366, y: 377 };
+		const values = Array.from({ length: 11 }, (_, i) => {
+			const t = i / 10;
+			return columnLossDelta(
+				[column],
+				ap,
+				{ x: ap.x + (target.x - ap.x) * t, y: ap.y + (target.y - ap.y) * t },
+				'5ghz',
+				getMaterialDbTable('5ghz'),
+				38.69466425225979
+			);
+		});
+		// Points before the column must not be charged; the last point is inside it.
+		expect(values.slice(0, 8)).toEqual([0, 0, 0, 0, 0, 0, 0, 0]);
+		expect(values[10]).toBeGreaterThan(0);
+	});
 });
