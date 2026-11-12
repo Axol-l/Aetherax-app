@@ -37,6 +37,12 @@ export function sinrToMcs(sinrDb: number): number {
 	return -1;
 }
 
+/** 给定带宽/空间流时这套映射能达到的最高 PHY rate，Mbps。 */
+export function maxPhyRateMbps(channelWidthMhz = 20, spatialStreams = 2): number {
+	const widthFactor = Math.max(1, Math.round(channelWidthMhz / 20));
+	return MCS_TABLE[MCS_TABLE.length - 1]!.rate20Mhz * widthFactor * Math.max(1, spatialStreams);
+}
+
 /** 估算 PHY 速率，Mbps；`channelWidthMhz` 取 20/40/80/160。 */
 export function estimatedPhyRateMbps(
 	sinrDb: number,

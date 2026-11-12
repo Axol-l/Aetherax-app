@@ -69,6 +69,7 @@ export function trackHeatmapInputs(): void {
 		// 一旦项目建模了安装高度，它就参与每条路径的几何；
 		// 图层的缓存键包含它产生的垂直偏移，所以这里的改动必须重建信号源列表，而不只是图像。
 		void ap.mountHeightM;
+		void ap.mount;
 		/*
 		 * 天线本身的切分属于图层绘制的内容，改动后必须重建信号源列表：
 		 * 图层缓存键包含 `antennaSignature`，但只有画布被标记为需要重绘时才会重新读取。

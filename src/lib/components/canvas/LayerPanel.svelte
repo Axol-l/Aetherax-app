@@ -14,6 +14,8 @@
 	import { rampCss } from '$canvas/heatmap-ramp.js';
 	import { heatmapDisplayFloorDbm } from '$canvas/heatmap-display.js';
 	import { projectMeta } from '$state/project-meta.svelte';
+	import { apState } from '$state/ap-state.svelte';
+	import { maxPhyRateMbps } from '$lib/rf/mcs.js';
 
 	let collapsed = $state(typeof window !== 'undefined' && window.innerWidth <= 768);
 
@@ -38,16 +40,28 @@
 		void projectMeta.coverageThresholdDbm;
 		return heatmapDisplayFloorDbm();
 	});
+	const rateTop = $derived(
+		Math.max(300, ...apState.aps.map((ap) => maxPhyRateMbps(ap.channelWidth ?? 20, 2)))
+	);
 	const legendFloor = $derived(
 		appState.heatmapMetric === 'sinr' ? -5 : appState.heatmapMetric === 'rate' ? 0 : floorDb
 	);
 	const legendTop = $derived(
-		appState.heatmapMetric === 'sinr' ? 30 : appState.heatmapMetric === 'rate' ? 1200 : 0
+		appState.heatmapMetric === 'sinr' ? 30 : appState.heatmapMetric === 'rate' ? rateTop : 0
 	);
 	const legendUnit = $derived(
 		appState.heatmapMetric === 'rate' ? 'Mbps' : appState.heatmapMetric === 'sinr' ? 'dB' : 'dBm'
 	);
-	const LEGEND_BAND_DB = $derived(appState.heatmapMetric === 'rate' ? 100 : 5);
+	const LEGEND_BAND_DB = $derived(
+		appState.heatmapMetric === 'rate' ? Math.max(25, rateTop / 12) : 5
+	);
+	const metricName = $derived(
+		appState.heatmapMetric === 'rssi'
+			? 'RSSI'
+			: appState.heatmapMetric === 'sinr'
+				? 'SINR'
+				: t('Rate')
+	);
 	const legendBands = $derived.by(() => {
 		const span = Math.max(LEGEND_BAND_DB, legendTop - legendFloor);
 		const count = Math.max(1, Math.ceil(span / LEGEND_BAND_DB));
@@ -94,6 +108,8 @@
 			{#if appState.showHeatmap}
 				<button
 					class="layer-row"
+					title={t('Cycle heatmap view')}
+					aria-label="{t('Heatmap view')}: {metricName}"
 					onclick={() =>
 						(appState.heatmapMetric =
 							appState.heatmapMetric === 'rssi'
@@ -103,13 +119,7 @@
 									: 'rssi')}
 				>
 					<span class="eye-icon"><Icon name="sparkles" size={14} /></span>
-					<span class="layer-label">
-						{appState.heatmapMetric === 'rssi'
-							? t('Show SINR')
-							: appState.heatmapMetric === 'sinr'
-								? t('Show rate')
-								: t('Show RSSI')}
-					</span>
+					<span class="layer-label">{t('Heatmap view')}: {metricName}</span>
 				</button>
 			{/if}
 

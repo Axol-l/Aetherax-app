@@ -64,7 +64,7 @@ import { rayWallLossDb } from '../../rf/wall-crossings.js';
 import { diffuseLevelDb } from '../../rf/scattering.js';
 import { productionDirectGpu, type ProductionDirectInput } from '../../gpu/production-direct.js';
 import { pathLossN } from '../../rf/propagation.js';
-import { estimatedPhyRateMbps } from '../../rf/mcs.js';
+import { estimatedPhyRateMbps, maxPhyRateMbps } from '../../rf/mcs.js';
 import { columnLossDelta, type ColumnObstacle } from '../../rf/columns.js';
 import {
 	diffractionCandidatesForAp,
@@ -557,28 +557,16 @@ export class HeatmapLayer implements Layer {
 	 */
 	/** 只传 plain data；Svelte 的 state proxy 不能直接 postMessage。 */
 	private workerInput(): HeatmapInput {
-		const mask = this.wallMask
-			? {
-					...this.wallMask,
-					data: new Uint8Array(this.wallMask.data)
-				}
-			: null;
+		// postMessage structured-clones typed arrays itself; copying them here just
+		// duplicates a full-floor mask on the main thread on every AP edit.
+		const mask = this.wallMask ? { ...this.wallMask } : null;
 		const aps = this.aps.map((ap) => {
 			const crossFloor = ap.crossFloor
 				? {
 						...ap.crossFloor,
-						mask: {
-							...ap.crossFloor.mask,
-							data: new Uint8Array(ap.crossFloor.mask.data)
-						},
-						materialMap: ap.crossFloor.materialMap
-							? new Uint8Array(ap.crossFloor.materialMap)
-							: null,
+						mask: { ...ap.crossFloor.mask },
 						slabRoomType: ap.crossFloor.slabRoomType
-							? {
-									...ap.crossFloor.slabRoomType,
-									data: new Uint8Array(ap.crossFloor.slabRoomType.data)
-								}
+							? { ...ap.crossFloor.slabRoomType }
 							: null
 					}
 				: null;
@@ -587,7 +575,7 @@ export class HeatmapLayer implements Layer {
 		return {
 			aps,
 			wallMask: mask,
-			materialMap: this.materialMap ? new Uint8Array(this.materialMap) : null,
+			materialMap: this.materialMap,
 			defaultMaterial: this.defaultMaterial,
 			worldUnitsPerMeter: this.worldUnitsPerMeter,
 			rssiFloor: this.rssiFloor,
@@ -762,6 +750,19 @@ export class HeatmapLayer implements Layer {
 		const smoothing = ctx.imageSmoothingEnabled;
 		ctx.imageSmoothingEnabled = true;
 		ctx.imageSmoothingQuality = 'high';
+
+		// The raster is clipped per texel, but high-quality upscaling and the 3×3
+		// level blur can still paint a thin fringe outside the planning polygon.
+		// Clip the final image to the exact world polygon as well.
+		if (this.clipStrict && !this.isDragging && this.clipPolygon && this.clipPolygon.length >= 3) {
+			ctx.beginPath();
+			ctx.moveTo(this.clipPolygon[0]!.x, this.clipPolygon[0]!.y);
+			for (let i = 1; i < this.clipPolygon.length; i++) {
+				ctx.lineTo(this.clipPolygon[i]!.x, this.clipPolygon[i]!.y);
+			}
+			ctx.closePath();
+			ctx.clip();
+		}
 
 		const fading = this.previousCache !== null;
 		if (fading) {
@@ -1043,10 +1044,19 @@ export class HeatmapLayer implements Layer {
 		}
 
 		// 色阶从门限延伸到最强接入点 1 m 处的电平；所有接入点都不高于门限时无需绘制。
+		const rateTop =
+			this.metric === 'rate'
+				? Math.max(
+						300,
+						...this.aps.map((ap) => maxPhyRateMbps(ap.channelWidth ?? 20, 2))
+					)
+				: 0;
 		const levelFloor =
 			this.metric === 'sinr' ? -5 : this.metric === 'rate' ? 0 : this.rssiFloor;
-		const levelTop = this.metric === 'sinr' ? 30 : this.metric === 'rate' ? 1200 : rampTop;
-		const bandSize = this.metric === 'rate' ? 100 : BAND_DB;
+		const levelTop =
+			this.metric === 'sinr' ? 30 : this.metric === 'rate' ? rateTop : rampTop;
+		const bandSize =
+			this.metric === 'rate' ? Math.max(25, rateTop / 12) : BAND_DB;
 		const span = levelTop - levelFloor;
 		if (!(span > 0)) return null;
 

@@ -929,6 +929,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 		trackHeatmapInputs();
 		void appState.showHeatmap;
 		void appState.floorView;
+		// A drag uses the coarse heatmap path; once it ends the exact inputs must be
+		// rebuilt even if the antenna itself did not change.
+		void canvasState.isDragging;
 		// With the heatmap off there is no image to prepare; decoding other floors'
 		// masks on every floor switch is pure latency.
 		if (!appState.showHeatmap || appState.floorView !== 'single') return;
@@ -954,7 +957,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 			const antennaKey = resolved
 				.map((ap) => `${ap.id}:${antennaSignature(ap)}`)
 				.join('|');
-			if (antennaKey !== lastAntennaSignature) {
+			if (antennaKey !== lastAntennaSignature || !canvasState.isDragging) {
 				lastAntennaSignature = antennaKey;
 				heatmapLayer.invalidateRasterCache();
 			} else {
@@ -1531,9 +1534,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 		void projectMeta.coverageSoftnessDb;
 		void projectMeta.pathLossScenario;
 		void projectMeta.allowOutsideRooms;
+		void canvasState.isDragging;
 		const _mask = wallState.wallMask;
 		const _rtMask = wallState.roomTypeMask;
 
+		// Dragging an AP fires many position changes; do not start an O(samples × APs)
+		// coverage pass until the gesture settles.
+		if (canvasState.isDragging) return;
 		if (apState.aps.length === 0 || !_mask) return;
 		if (coverageTimeout) clearTimeout(coverageTimeout);
 		coverageTimeout = setTimeout(() => updateCoverage(), 300);

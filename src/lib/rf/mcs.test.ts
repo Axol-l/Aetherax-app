@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { estimatedPhyRateMbps, sinrToMcs } from './mcs.js';
+import { estimatedPhyRateMbps, maxPhyRateMbps, sinrToMcs } from './mcs.js';
 
 describe('SINR to MCS/rate mapping', () => {
 	it('selects higher MCS as SINR improves', () => {
@@ -13,5 +13,10 @@ describe('SINR to MCS/rate mapping', () => {
 		expect(rate20).toBeCloseTo(143.4, 3);
 		expect(estimatedPhyRateMbps(-49, 80, 2)).toBeCloseTo(rate20 * 8, 3);
 		expect(estimatedPhyRateMbps(-90, 80, 2)).toBe(0);
+	});
+
+	it('reports the scale top for the current width', () => {
+		expect(maxPhyRateMbps(20, 2)).toBeCloseTo(286.8, 3);
+		expect(maxPhyRateMbps(80, 2)).toBeCloseTo(1147.2, 3);
 	});
 });
