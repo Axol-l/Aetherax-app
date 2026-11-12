@@ -306,6 +306,34 @@ test.describe('Walls as segments', () => {
 		expect(await savedWallPixels(page)).toBeGreaterThan(0);
 	});
 
+	test('right-click cancels a half-drawn column', async ({ page }) => {
+		await page.goto('/');
+		await page.waitForSelector('canvas');
+		await page.getByRole('tab', { name: 'Floorplan' }).click();
+		await page.getByRole('button', { name: 'Draw from Scratch' }).click();
+		await page.waitForTimeout(300);
+
+		const toolbar = page.getByRole('toolbar', { name: 'Wall tools' });
+		await toolbar.getByRole('button', { name: 'Columns' }).click();
+		await toolbar.getByRole('button', { name: 'Circle' }).click();
+
+		const canvas = page.locator('canvas');
+		const box = (await canvas.boundingBox())!;
+		const cx = box.width * 0.5;
+		const cy = box.height * 0.5;
+		await canvas.click({ position: { x: cx, y: cy } });
+		await canvas.click({ button: 'right', position: { x: cx + 80, y: cy } });
+		await page.waitForTimeout(300);
+		await toolbar.getByRole('button', { name: 'Done' }).click();
+
+		// The first click only started a draft; right-click must discard it rather than
+		// commit a column at the pointer.
+		await page.waitForTimeout(500);
+		expect(
+			((await saved(page)).floors[0] as { columns?: unknown[] })?.columns?.length ?? 0
+		).toBe(0);
+	});
+
 	test('the wall toolbar draws a circle column as an obstruction', async ({ page }) => {
 		await page.goto('/');
 		await page.waitForSelector('canvas');

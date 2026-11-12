@@ -370,6 +370,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 				appState.wallVectorDraft = null;
 				engine?.markDirty();
 			}
+			if (appState.columnDraft) {
+				appState.columnDraft = null;
+				engine?.markDirty();
+			}
 			return true;
 		}
 		if (appState.planningDrawMode) {
