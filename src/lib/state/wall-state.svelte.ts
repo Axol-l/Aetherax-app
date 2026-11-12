@@ -7,6 +7,7 @@ import type { WallMaterialId } from '$lib/domain/materials.js';
 import type { RasterReason } from '$canvas/detect-floorplan.js';
 import type { ElementRole } from '$canvas/vector-elements.js';
 import type { ReviewableElement, VectorDetectionSummary } from '$canvas/vector-detect.js';
+import { SvelteMap } from 'svelte/reactivity';
 import { currentFloor, type Floor } from './floor-state.svelte.js';
 
 export interface WallMaskData {
@@ -40,20 +41,23 @@ export interface VectorReview {
 }
 
 /**
- * 只属于会话的墙体状态：这次检测读出了什么、怎么失败的。
+ * 只属于会话的墙体状态：每层这次检测读出了什么、怎么失败的。
  *
- * 这些都不属于某一层——从存储载入的平面图有掩膜，但不记得产生它的那次运行——
- * 所以它是 `wallState` 里唯一还自己存着的东西。
+ * 从存储载入的平面图有掩膜，但不记得产生它的那次运行；所以它是 `wallState` 里
+ * 唯一还自己存着的东西。按楼层分开放，切换楼层时不能把别层的检测记录带过来。
  */
 const session = $state({
-	vectorReview: null as VectorReview | null,
+	/**
+	 * 按楼层保存检测记录。2F 的 SVG 读取结果不能出现在 1F 的 Floorplan 卡片上。
+	 */
+	vectorReviewByFloor: new SvelteMap<string, VectorReview>(),
 	/**
 	 * 像素检测器为什么跑起来（跑了的话）。
 	 *
 	 * 侧边栏会显示它。靠阈值得到的掩膜和靠读图里对象得到的掩膜，是对同一份平面图的两种
 	 * 不同说法，只有用户能判断哪个不对——但前提是有人告诉他现在看的是哪一种。
 	 */
-	rasterReason: null as RasterReason | null
+	rasterReasonByFloor: new SvelteMap<string, RasterReason>()
 });
 
 /**
@@ -104,16 +108,24 @@ export const wallState = {
 	},
 
 	get vectorReview(): VectorReview | null {
-		return session.vectorReview;
+		const id = currentFloor()?.id;
+		return id ? (session.vectorReviewByFloor.get(id) ?? null) : null;
 	},
 	set vectorReview(review: VectorReview | null) {
-		session.vectorReview = review;
+		const id = currentFloor()?.id;
+		if (!id) return;
+		if (review) session.vectorReviewByFloor.set(id, review);
+		else session.vectorReviewByFloor.delete(id);
 	},
 
 	get rasterReason(): RasterReason | null {
-		return session.rasterReason;
+		const id = currentFloor()?.id;
+		return id ? (session.rasterReasonByFloor.get(id) ?? null) : null;
 	},
 	set rasterReason(reason: RasterReason | null) {
-		session.rasterReason = reason;
+		const id = currentFloor()?.id;
+		if (!id) return;
+		if (reason) session.rasterReasonByFloor.set(id, reason);
+		else session.rasterReasonByFloor.delete(id);
 	}
 };
