@@ -213,6 +213,14 @@ export interface EvalContext {
 	fixedAps: FixedApInput[];
 	sampleDensity: number[];
 	materialMask: Uint8Array | null;
+	columns?: Array<{
+		shape: 'rect' | 'circle';
+		ax: number;
+		ay: number;
+		bx: number;
+		by: number;
+		material: number;
+	}>;
 	defaultMaterial: number;
 	/**
 	 * 每个固定 AP 的路径数据：墙体的两段拆分，以及每个采样点要不要算楼板损耗（洞就不算）。

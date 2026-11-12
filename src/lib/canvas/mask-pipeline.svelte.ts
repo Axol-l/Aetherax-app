@@ -1,4 +1,4 @@
-﻿/**
+/**
  * 画布绘制与点击处理所读取的墙体、材质和房间栅格。
  * 每层楼的掩码依次经历解码、发布和重置，本类持有缓存并承担其中的异步工作。
  */
@@ -416,6 +416,14 @@ export class MaskPipeline {
 				bx: wall.bx,
 				by: wall.by,
 				material: wall.material
+			}));
+			heatmapLayer.columnObstacles = (currentFloor()?.columns ?? []).map((column) => ({
+				shape: column.shape,
+				ax: column.ax,
+				ay: column.ay,
+				bx: column.bx,
+				by: column.by,
+				material: column.material
 			}));
 			/*
 			 * 热力图裁剪所用的轮廓：存在绘制的规划区域时用该区域，否则用检测到的边界。

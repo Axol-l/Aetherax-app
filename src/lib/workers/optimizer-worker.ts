@@ -23,6 +23,7 @@ import {
 } from '../rf/propagation.js';
 import { slabLossFactor } from '../rf/cross-floor.js';
 import { splitWallRunLoss, wallRunLoss, type WallRun } from '../rf/link-budget.js';
+import { columnLossDelta } from '../rf/columns.js';
 import { surfaceHeightAt } from '../rf/surface-height.js';
 import {
 	antennaRayLossDb,
@@ -249,7 +250,16 @@ function evaluateCoverage(
 				allMargins[base + k++] = -Infinity;
 				continue;
 			}
-			const row = apRows[a]![s]!;
+			const row =
+				apRows[a]![s]! +
+				columnLossDelta(
+					ctx.columns ?? [],
+					{ x: ap.x, y: ap.y },
+					{ x: samples[s]!.x, y: samples[s]!.y },
+					ap.band,
+					getMaterialDbTable(ap.band),
+					1 / Math.max(1e-9, ctx.wupm ?? 1)
+				);
 			// 同一层，但不是纯平面：接入点自己的安装高度要算进距离，天线切面要算进损耗。
 			// 两点之间有抬升面也在这里扣，规则和热力图、实时数值一致。
 			const deckLoss = deckLossAt(ctx, samples[s]!.x, samples[s]!.y, gap);
@@ -269,10 +279,18 @@ function evaluateCoverage(
 			const path = fixedPaths[f];
 			const split = path?.split;
 			const wallDb = split ? split.source[s]! + split.suffix[s]! : fixedRows[f]![s]!;
+			const columnDb = columnLossDelta(
+				ctx.columns ?? [],
+				{ x: fap.x, y: fap.y },
+				{ x: samples[s]!.x, y: samples[s]!.y },
+				fap.band,
+				getMaterialDbTable(fap.band),
+				1 / Math.max(1e-9, ctx.wupm ?? 1)
+			);
 			// 楼板上有洞的地方，楼板损耗算 0。
 			const slabDb =
 				path?.slabFactor != null ? fixedSlabDb[f]! * path.slabFactor[s]! : fixedSlabDb[f]!;
-			const loss = wallDb + slabDb;
+			const loss = wallDb + slabDb + columnDb;
 			// 固定接入点的高度差是相对本层地面量的；客户端可能比地面高。
 			const fixedGap = fap.verticalGap - (ctx.sampleLift?.[s] ?? 0);
 			const wide =
@@ -1019,6 +1037,7 @@ async function runOptimization(
 		fixedAps,
 		sampleDensity,
 		materialMask,
+		columns: msg.columns ?? [],
 		defaultMaterial,
 		sourceChannels: resolvedChannels.channels,
 		sourceAllowed,

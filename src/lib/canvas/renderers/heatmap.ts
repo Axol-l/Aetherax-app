@@ -64,6 +64,7 @@ import { diffuseLevelDb } from '../../rf/scattering.js';
 import { productionDirectGpu, type ProductionDirectInput } from '../../gpu/production-direct.js';
 import { pathLossN } from '../../rf/propagation.js';
 import { estimatedPhyRateMbps } from '../../rf/mcs.js';
+import { columnLossDelta, type ColumnObstacle } from '../../rf/columns.js';
 import {
 	diffractionCandidatesForAp,
 	DIFFRACTION_MAX_CLEARANCE_M,
@@ -251,6 +252,7 @@ export interface HeatmapInput {
 	clipPolygon?: Array<{ x: number; y: number }> | null;
 	clipStrict?: boolean;
 	reflectingWalls?: ReflectingWall[];
+	columns?: ColumnObstacle[];
 	wallHeightM?: number;
 	metric?: 'rssi' | 'sinr' | 'rate';
 	receiverPolarizationAngleDeg?: number;
@@ -278,6 +280,8 @@ export class HeatmapLayer implements Layer {
 	 * 与 `wallMask` 分开：掩码只表达遮挡，反射需要线段自身的走向。
 	 */
 	reflectingWalls: ReflectingWall[] = [];
+	/** 柱子的真实几何；直射路径用它替换栅格的一次材质损耗。 */
+	columnObstacles: ColumnObstacle[] = [];
 	/**
 	 * 裁剪所用的建筑内部区域，按生成它的掩码缓存。
 	 * 该结果只取决于墙体掩码，掩码签名变化时失效。
@@ -591,6 +595,7 @@ export class HeatmapLayer implements Layer {
 			clipPolygon: this.clipPolygon?.map((point) => ({ x: point.x, y: point.y })) ?? null,
 			clipStrict: this.clipStrict,
 			reflectingWalls: this.reflectingWalls.map((wall) => ({ ...wall })),
+			columns: this.columnObstacles.map((column) => ({ ...column })),
 			wallHeightM: this.wallHeightM,
 			metric: this.metric,
 			receiverPolarizationAngleDeg: this.receiverPolarizationAngleDeg,
@@ -843,7 +848,10 @@ export class HeatmapLayer implements Layer {
 				.join(';')}` +
 			// 裁剪决定哪些纹素存在，因此属于图像的一部分。
 			`|clip:${this.clipPolygon?.map((p) => `${p.x},${p.y}`).join(';') ?? ''}` +
-			`|clipstrict:${this.clipStrict ? 1 : 0}`
+			`|clipstrict:${this.clipStrict ? 1 : 0}` +
+			`|cols:${this.columnObstacles
+				.map((c) => `${c.shape}:${c.ax},${c.ay},${c.bx},${c.by}:${c.material}`)
+				.join(';')}`
 		);
 	}
 
@@ -1334,13 +1342,14 @@ export class HeatmapLayer implements Layer {
 							 * 每步两个像素而不是一个。
 							 * 墙体是六像素宽的带状区域，两步的步长不会跨过它，同时把步进开销减半。
 							 */
+							const materialDb = matDbByBand.get(band) ?? getMaterialDbTable(band);
 							wallLoss = wallRunLoss(
 								{
 									mask: mask.data,
 									width: mask.width,
 									height: mask.height,
 									materialMask: this.materialMap,
-									materialDb: matDbByBand.get(band) ?? getMaterialDbTable(band),
+									materialDb,
 									fallbackDb:
 										defaultDbByBand.get(band) ?? getFlatAttenuation(this.defaultMaterial, band),
 									originX: mask.originX,
@@ -1350,6 +1359,16 @@ export class HeatmapLayer implements Layer {
 								{ x: apX[i]!, y: apY[i]! },
 								{ x: wx, y: wy },
 								2
+							);
+							// Columns have real geometry; replace the raster's one-shot
+							// material loss with the actual chord and incidence angle.
+							wallLoss += columnLossDelta(
+								this.columnObstacles,
+								{ x: apX[i]!, y: apY[i]! },
+								{ x: wx, y: wy },
+								band,
+								materialDb,
+								this.worldUnitsPerMeter
 							);
 						} else {
 							wallLoss = lookupAtten(field, wx, wy);

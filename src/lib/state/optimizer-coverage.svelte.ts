@@ -13,8 +13,10 @@ import {
 } from './ap-state.svelte.js';
 import { scaleBetween } from './floor-scale.js';
 import { antennaRayLossDb } from '$lib/rf/antenna.js';
+import { columnLossDelta } from '$lib/rf/columns.js';
 import { surfaceHeightAt, deckCrossing } from '$lib/rf/surface-height.js';
-import { bestReflection } from '$lib/rf/reflection.js';
+import { bestReflection, secondOrderReflection } from '$lib/rf/reflection.js';
+import { reflectionPairsForAp } from '$lib/rf/path-candidates.js';
 import { bandWavelengthM, diffractionPaths, edgesOf } from '$lib/rf/diffraction.js';
 import { rayWallLossDb } from '$lib/rf/wall-crossings.js';
 import { scatteringFactor } from '$lib/rf/scattering.js';
@@ -337,6 +339,14 @@ export async function updateCoverage(): Promise<void> {
 	];
 
 	// 覆盖就是（按密度加权的）楼面里，落在至少一个 AP 覆盖圈内的比例
+	const columnObstacles = (currentFloor()?.columns ?? []).map((column) => ({
+		shape: column.shape,
+		ax: column.ax,
+		ay: column.ay,
+		bx: column.bx,
+		by: column.by,
+		material: column.material
+	}));
 	let coveredWeight = 0;
 	let totalWeight = 0;
 
@@ -353,6 +363,11 @@ export async function updateCoverage(): Promise<void> {
 		material: wall.material
 	}));
 	const reflectionReach = 24 * surfaceWupm;
+	const secondOrderPairs = allAps.map((ap) =>
+		reflectingWalls.length > 0
+			? reflectionPairsForAp(reflectingWalls, ap.band as Band, 8)
+			: []
+	);
 	/** 每个墙头都是刀锋，用来算墙后面的阴影。 */
 	const diffractionEdges =
 		reflectingWalls.length > 0
@@ -364,7 +379,7 @@ export async function updateCoverage(): Promise<void> {
 	const floorHeightM = currentFloor()?.ceilingHeight ?? 3;
 	const scatterByAp = allAps.map((ap) =>
 		scatterSamplesForAp(
-			{ x: ap.x - ox, y: ap.y - oy },
+			{ x: ap.x, y: ap.y },
 			reflectingWalls,
 			ap.band as Band,
 			1 / surfaceWupm,
@@ -383,6 +398,8 @@ export async function updateCoverage(): Promise<void> {
 
 	for (let i = 0; i < cachedSamples.length; i++) {
 		const sample = cachedSamples[i]!;
+		const sx = sample.x + ox;
+		const sy = sample.y + oy;
 		let bestMargin = -Infinity;
 		margins.fill(-Infinity);
 		let sourceIndex = 0;
@@ -452,6 +469,14 @@ export async function updateCoverage(): Promise<void> {
 					{ x: sample.x + ox, y: sample.y + oy },
 					1
 				);
+			dbLoss += columnLossDelta(
+				columnObstacles,
+				{ x: ap.x, y: ap.y },
+				{ x: sample.x + ox, y: sample.y + oy },
+				ap.band,
+				tablesFor(ap.band),
+				wupmForGap
+			);
 
 			const wallLossDb = dbLoss;
 			dbLoss += slabLoss;
@@ -471,8 +496,8 @@ export async function updateCoverage(): Promise<void> {
 			const diffractionGate = Math.min(1, Math.max(0, (wallLossDb - 3) / 6));
 			if (diffractionGate > 0 && diffractionEdges.length > 0) {
 				const paths = diffractionPaths(
-					{ x: ap.x - ox, y: ap.y - oy, z: vertical },
-					{ x: sample.x, y: sample.y, z: 0 },
+					{ x: ap.x, y: ap.y, z: vertical },
+					{ x: sx, y: sy, z: 0 },
 					diffractionEdges,
 					bandWavelengthM(ap.band as '2.4ghz' | '5ghz' | '6ghz'),
 					undefined,
@@ -480,7 +505,7 @@ export async function updateCoverage(): Promise<void> {
 					1 / wupmForGap,
 					(edge) =>
 						rayWallLossDb(
-							{ x: ap.x - ox, y: ap.y - oy },
+							{ x: ap.x, y: ap.y },
 							{ x: edge.x, y: edge.y },
 							reflectingWalls,
 							ap.band as Band,
@@ -488,7 +513,7 @@ export async function updateCoverage(): Promise<void> {
 						) <= 1e-9 &&
 						rayWallLossDb(
 							{ x: edge.x, y: edge.y },
-							{ x: sample.x, y: sample.y },
+							{ x: sx, y: sy },
 							reflectingWalls,
 							ap.band as Band,
 							edge.wallIndices ?? []
@@ -514,8 +539,8 @@ export async function updateCoverage(): Promise<void> {
 
 			if (reflectingWalls.length > 0) {
 				const bounce = bestReflection(
-					{ x: ap.x - ox, y: ap.y - oy },
-					{ x: sample.x, y: sample.y },
+					{ x: ap.x, y: ap.y },
+					{ x: sx, y: sy },
 					reflectingWalls,
 					ap.band as Band,
 					reflectionReach
@@ -523,7 +548,7 @@ export async function updateCoverage(): Promise<void> {
 				if (bounce) {
 					const legLoss =
 						rayWallLossDb(
-							{ x: ap.x - ox, y: ap.y - oy },
+							{ x: ap.x, y: ap.y },
 							{ x: bounce.x, y: bounce.y },
 							reflectingWalls,
 							ap.band as Band,
@@ -531,7 +556,7 @@ export async function updateCoverage(): Promise<void> {
 						) +
 						rayWallLossDb(
 							{ x: bounce.x, y: bounce.y },
-							{ x: sample.x, y: sample.y },
+							{ x: sx, y: sy },
 							reflectingWalls,
 							ap.band as Band,
 							[bounce.wallIndex]
@@ -544,11 +569,50 @@ export async function updateCoverage(): Promise<void> {
 					if (reflectedMargin > margins[index]!) margins[index] = reflectedMargin;
 				}
 
+				for (const pair of secondOrderPairs[index]!) {
+					const second = secondOrderReflection(
+						{ x: ap.x, y: ap.y },
+						{ x: sx, y: sy },
+						reflectingWalls,
+						pair,
+						ap.band as Band
+					);
+					if (!second) continue;
+					const legLoss =
+						rayWallLossDb(
+							{ x: ap.x, y: ap.y },
+							{ x: second.x, y: second.y },
+							reflectingWalls,
+							ap.band as Band,
+							[second.wallIndex]
+						) +
+						rayWallLossDb(
+							{ x: second.x, y: second.y },
+							{ x: second.x2, y: second.y2 },
+							reflectingWalls,
+							ap.band as Band,
+							[second.wallIndex, second.wallIndex2]
+						) +
+						rayWallLossDb(
+							{ x: second.x2, y: second.y2 },
+							{ x: sx, y: sy },
+							reflectingWalls,
+							ap.band as Band,
+							[second.wallIndex2]
+						);
+					const reflectedMargin =
+						coverageMarginDb(second.length, ap.interferenceRadius) +
+						10 * Math.log10(second.powerRatio * second.powerRatio2) -
+						legLoss;
+					if (reflectedMargin > bestMargin) bestMargin = reflectedMargin;
+					if (reflectedMargin > margins[index]!) margins[index] = reflectedMargin;
+				}
+
 				for (const scatter of scatterByAp[index]!) {
 					if (
 						rayWallLossDb(
 							{ x: scatter.x, y: scatter.y },
-							{ x: sample.x, y: sample.y },
+							{ x: sx, y: sy },
 							reflectingWalls,
 							ap.band as Band,
 							[scatter.wallIndex]
@@ -556,15 +620,15 @@ export async function updateCoverage(): Promise<void> {
 					) {
 						continue;
 					}
-					const horizontal = Math.hypot(sample.x - scatter.x, sample.y - scatter.y);
+					const horizontal = Math.hypot(sx - scatter.x, sy - scatter.y);
 					const d1M = Math.hypot(horizontal, scatter.z - vertical) / surfaceWupm;
 					const d2M = Math.hypot(horizontal, scatter.z) / surfaceWupm;
 					const factor =
 						scatteringFactor({
 							wall: scatter.wall,
-							ap: { x: ap.x - ox, y: ap.y - oy },
+							ap: { x: ap.x, y: ap.y },
 							hit: { x: scatter.x, y: scatter.y },
-							target: { x: sample.x, y: sample.y },
+							target: { x: sx, y: sy },
 							material: scatter.wall.material,
 							band: ap.band as Band,
 							normalization: scatter.directiveNorm

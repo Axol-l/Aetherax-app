@@ -22,6 +22,7 @@ self.onmessage = (event: MessageEvent<HeatmapWorkerRequest>) => {
 	layer.coherent = true;
 	layer.gpuDirectEnabled = false;
 	layer.reflectingWalls = input.reflectingWalls ?? [];
+	layer.columnObstacles = input.columns ?? [];
 	layer.wallHeightM = input.wallHeightM ?? 3;
 	layer.metric = input.metric ?? 'rssi';
 	layer.receiverPolarizationAngleDeg = input.receiverPolarizationAngleDeg ?? 0;

@@ -1375,6 +1375,14 @@ import { wallState } from '$state/wall-state.svelte.js';
 				by: wall.by,
 				material: wall.material
 			})),
+			columns: (floor.columns ?? []).map((column) => ({
+				shape: column.shape,
+				ax: column.ax,
+				ay: column.ay,
+				bx: column.bx,
+				by: column.by,
+				material: column.material
+			})),
 			pathLossExponent: pathLossN()
 		};
 		const image = await heatmapRasterService.request(input);

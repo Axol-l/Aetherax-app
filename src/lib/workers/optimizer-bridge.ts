@@ -141,6 +141,15 @@ export class OptimizerBridge {
 			densityMap?: Float32Array | null;
 			medianDensity?: number;
 			materialMask?: Uint8Array | null;
+			/** 本层柱子，掩码坐标。 */
+			columns?: Array<{
+				shape: 'rect' | 'circle';
+				ax: number;
+				ay: number;
+				bx: number;
+				by: number;
+				material: number;
+			}>;
 			/** 原始房间类型 id */
 			roomTypeMask?: Uint8Array | null;
 			defaultMaterial?: number;
@@ -289,6 +298,7 @@ export class OptimizerBridge {
 					maskWidth,
 					maskHeight,
 					materialMask: materialCopy,
+					columns: options?.columns ?? [],
 					densityMap: densityCopy,
 					medianDensity: options?.medianDensity ?? 0,
 					roomTypeMask: roomTypeCopy
@@ -346,6 +356,7 @@ export class OptimizerBridge {
 					materialMask?: Uint8Array | null;
 					roomTypeMask?: Uint8Array | null;
 					densityMap?: Float32Array | null;
+					columns?: readonly unknown[];
 					fixedAps?: ReadonlyArray<{
 						source?: { data: Uint8Array; materialMask?: Uint8Array | null } | null;
 						slabs?: ReadonlyArray<{ roomTypes?: Uint8Array | null }> | null;
@@ -357,7 +368,8 @@ export class OptimizerBridge {
 			inputId(wallMask),
 			inputId(options?.materialMask),
 			inputId(options?.roomTypeMask),
-			inputId(options?.densityMap)
+			inputId(options?.densityMap),
+			inputId(options?.columns)
 		];
 		for (const fixed of options?.fixedAps ?? []) {
 			parts.push(inputId(fixed.source?.data), inputId(fixed.source?.materialMask));

@@ -271,6 +271,14 @@ async function optimizeFloor(
 					densityMap: densityResult?.map ?? null,
 					medianDensity: densityResult?.medianDensity ?? 0,
 					materialMask,
+					columns: (floor.columns ?? []).map((column) => ({
+						shape: column.shape,
+						ax: column.ax - originX,
+						ay: column.ay - originY,
+						bx: column.bx - originX,
+						by: column.by - originY,
+						material: column.material
+					})),
 					roomTypeMask: densityResult?.roomTypeData ?? null,
 					defaultMaterial: floor.wallMaterial,
 					metersPerPixel: 1 / wupmCur,
@@ -319,6 +327,14 @@ async function optimizeFloor(
 				densityMap: densityResult?.map ?? null,
 				medianDensity: densityResult?.medianDensity ?? 0,
 				materialMask,
+				columns: (floor.columns ?? []).map((column) => ({
+					shape: column.shape,
+					ax: column.ax - originX,
+					ay: column.ay - originY,
+					bx: column.bx - originX,
+					by: column.by - originY,
+					material: column.material
+				})),
 				roomTypeMask: densityResult?.roomTypeData ?? null,
 				defaultMaterial: floor.wallMaterial,
 				metersPerPixel: 1 / wupmCur,

@@ -89,6 +89,15 @@ export interface OptimizeMessage {
 	wallAttenuation: number;
 	/** 解码后的逐像素墙体材质 id；没有标注就是 null。 */
 	materialMask: Uint8Array | null;
+	/** 本层柱子，掩码坐标；用于直射路径的实际厚度/入射角修正。 */
+	columns?: Array<{
+		shape: 'rect' | 'circle';
+		ax: number;
+		ay: number;
+		bx: number;
+		by: number;
+		material: number;
+	}>;
 	/** 没有显式材质标签的像素用的材质 id。 */
 	defaultMaterial: number;
 	/** 每个像素对应多少米，用于覆盖和关联距离；0 表示未标定。 */
@@ -210,6 +219,7 @@ export type WireGeometry = Pick<
 	| 'maskWidth'
 	| 'maskHeight'
 	| 'materialMask'
+	| 'columns'
 	| 'densityMap'
 	| 'medianDensity'
 	| 'roomTypeMask'
