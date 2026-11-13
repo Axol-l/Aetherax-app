@@ -34,6 +34,7 @@ self.onmessage = (event: MessageEvent<HeatmapWorkerRequest>) => {
 	}
 	const context = (result.canvas as unknown as OffscreenCanvas).getContext('2d')!;
 	const image = context.getImageData(0, 0, result.canvas.width, result.canvas.height);
+	const probe = layer.exportProbe();
 	let colored = 0;
 	for (let i = 0; i < image.data.length; i += 4) {
 		const r = image.data[i]!;
@@ -57,7 +58,15 @@ self.onmessage = (event: MessageEvent<HeatmapWorkerRequest>) => {
 			height: image.height,
 			x0: result.x0,
 			y0: result.y0,
-			texel: result.texel
+			texel: result.texel,
+			probeLevels: probe?.levels,
+			probeMcs: probe?.mcs,
+			probeWidthMhz: probe?.widthMhz,
+			probeX0: probe?.x0,
+			probeY0: probe?.y0,
+			probeTexel: probe?.texel,
+			probeCols: probe?.cols,
+			probeRows: probe?.rows
 		},
 		[image.data.buffer]
 	);};

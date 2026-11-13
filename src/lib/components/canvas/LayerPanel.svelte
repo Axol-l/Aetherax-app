@@ -210,10 +210,12 @@
 					<div class="scale-head">
 						<span>
 							{appState.heatmapMetric === 'rate'
-								? t('PHY reference rate')
+								? `${t('PHY reference rate')} · Mbps`
 								: t('Signal strength')}
 						</span>
-						<span class="scale-unit">{legendUnit}</span>
+						{#if appState.heatmapMetric !== 'rate'}
+							<span class="scale-unit">{legendUnit}</span>
+						{/if}
 					</div>
 					<div
 						class="scale-bar"
@@ -237,6 +239,14 @@
 							<span>{tick.label}</span>
 						{/each}
 					</div>
+					{#if appState.heatmapMetric === 'rate' && appState.heatmapProbe}
+						<div class="rate-probe-min">
+							MCS {appState.heatmapProbe.mcs} · {appState.heatmapProbe.widthMhz} MHz · {appState
+								.heatmapProbe.streams}×{appState.heatmapProbe.streams} · {Math.round(
+								appState.heatmapProbe.phyMbps
+							)} / ≈{Math.round(appState.heatmapProbe.throughputMbps)} Mbps
+						</div>
+					{/if}
 				</div>
 				{#if (floorState.floors.find((f) => f.id === floorState.currentFloorId)?.walls?.length ?? 0) === 0}
 					<p class="no-vector-walls">
@@ -432,5 +442,12 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--text-tertiary);
+	}
+
+	.rate-probe-min {
+		margin-top: 3px;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--text-secondary);
 	}
 </style>

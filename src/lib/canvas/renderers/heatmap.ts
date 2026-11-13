@@ -468,6 +468,14 @@ export class HeatmapLayer implements Layer {
 			x0: number;
 			y0: number;
 			texel: number;
+			probeLevels?: Float32Array;
+			probeMcs?: Int8Array;
+			probeWidthMhz?: number;
+			probeX0?: number;
+			probeY0?: number;
+			probeTexel?: number;
+			probeCols?: number;
+			probeRows?: number;
 		}>) => {
 			const { id, key, pixels, colored, wallCount, wupm, wallHeightM, surfaceCount, width, height, x0, y0, texel } = event.data;
 			if (this.workerTimer) {
@@ -511,6 +519,22 @@ export class HeatmapLayer implements Layer {
 			this.cacheFloorId = this.floorId;
 			this.cacheKey = key;
 			this.cacheEntries.set(key, { canvas, x0, y0, texel });
+			const probeLevels = event.data.probeLevels;
+			const probeMcs = event.data.probeMcs;
+			this.probeData =
+				probeLevels && probeMcs && event.data.probeCols && event.data.probeRows
+					? {
+							key,
+							levels: probeLevels,
+							mcs: probeMcs,
+							cols: event.data.probeCols,
+							rows: event.data.probeRows,
+							x0: event.data.probeX0 ?? x0,
+							y0: event.data.probeY0 ?? y0,
+							texel: event.data.probeTexel ?? texel,
+							widthMhz: event.data.probeWidthMhz ?? 20
+						}
+					: null;
 			// The wall editor can finish a frame between the message and the callback;
 			// queue one more repaint so the worker raster is guaranteed to be seen.
 			this.onGenerated?.();
@@ -828,6 +852,32 @@ export class HeatmapLayer implements Layer {
 			phyMbps,
 			throughputMbps: estimatedThroughputMbps(phyMbps)
 		};
+	}
+
+	/** Worker needs the rate probe grid as well as the pixels to answer hover. */
+	exportProbe(): {
+		levels: Float32Array;
+		mcs: Int8Array;
+		cols: number;
+		rows: number;
+		x0: number;
+		y0: number;
+		texel: number;
+		widthMhz: number;
+	} | null {
+		const data = this.probeData;
+		return data
+			? {
+					levels: data.levels,
+					mcs: data.mcs,
+					cols: data.cols,
+					rows: data.rows,
+					x0: data.x0,
+					y0: data.y0,
+					texel: data.texel,
+					widthMhz: data.widthMhz
+				}
+			: null;
 	}
 
 	private drawCache(
