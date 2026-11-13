@@ -387,6 +387,7 @@ export async function updateCoverage(): Promise<void> {
 		(sample) => surfaceHeightAt(surfaces, sample.x + ox, sample.y + oy) * surfaceWupm
 	);
 	const apMargins: number[][] = allAps.map(() => []);
+	const bestMargins: number[] = [];
 	const floorHeightM = currentFloor()?.ceilingHeight ?? 3;
 	const scatterByAp = allAps.map((ap) =>
 		scatterSamplesForAp(
@@ -658,6 +659,7 @@ export async function updateCoverage(): Promise<void> {
 			}
 		}
 		const w = sampleDensity[i] ?? 1;
+		bestMargins.push(bestMargin);
 		if (bestMargin >= coverageThresholdMarginDb()) coveredWeight += w;
 		for (let k = 0; k < margins.length; k++) {
 			if (!(margins[k]! > 0)) margins[k] = -Infinity;
@@ -712,15 +714,13 @@ export async function updateCoverage(): Promise<void> {
 		return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(sorted.length * q)))]!;
 	};
 	let supplyMbps = 0;
-	const edgeMargins: number[] = [];
 	for (let i = 0; i < localAps.length; i++) {
 		const ap = localAps[i]!;
 		const margin = medianOf(apMargins[i] ?? []);
 		const snr = COVERAGE_SNR_DB + margin;
 		supplyMbps += apCapacityMbps(snr, ap.channelWidth ?? 20);
-		const edge = quantileOf(apMargins[i] ?? [], 0.05);
-		edgeMargins.push(COVERAGE_SNR_DB + edge);
 	}
+	const edgeSnrDb = COVERAGE_SNR_DB + quantileOf(bestMargins, 0.05);
 	const perApCapacityMbps = localAps.length > 0 ? supplyMbps / localAps.length : 0;
 	const traffic =
 		demandMbps > 0 && localAps.length > 0
@@ -732,7 +732,7 @@ export async function updateCoverage(): Promise<void> {
 					apCount: localAps.length,
 					utilization: CAPACITY_UTILIZATION,
 					activityFactor: DEFAULT_ACTIVITY_FACTOR,
-					medianEdgeSnrDb: Math.round(medianOf(edgeMargins))
+					medianEdgeSnrDb: Math.round(edgeSnrDb)
 				}
 			: undefined;
 	floorCoverage.set(curFloorId, {

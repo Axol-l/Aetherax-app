@@ -616,6 +616,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let canvasEl: HTMLCanvasElement;
 	let containerEl: HTMLDivElement;
 	let engine: CanvasEngine;
+	let heatmapLoading = $state(false);
 	let panZoom: PanZoomHandler;
 	let selectHandler: SelectHandler;
 	let dragHandler: DragHandler;
@@ -637,6 +638,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const worker = new HeatmapWorker();
 		heatmapLayer.attachWorker(worker);
 		heatmapLayer.onGenerated = () => engine?.markDirty();
+		heatmapLayer.onLoading = (loading) => {
+			heatmapLoading = loading;
+		};
 	}
 
 	function updateHeatmapProbe(event: PointerEvent): void {
@@ -2002,6 +2006,13 @@ import { wallState } from '$state/wall-state.svelte.js';
 		ontouchend={(e) => gestures.handleTouchEnd(e)}
 		ontouchcancel={(e) => gestures.handleTouchEnd(e)}
 	></canvas>
+
+	{#if heatmapLoading && appState.showHeatmap}
+		<div class="heatmap-loading" role="status" aria-live="polite">
+			<span class="heatmap-loading-spinner"></span>
+			<span>{t('Updating heatmap…')}</span>
+		</div>
+	{/if}
 	
 	<div
 		class="view-fade"
@@ -2222,4 +2233,33 @@ import { wallState } from '$state/wall-state.svelte.js';
 		opacity: 0.6;
 	}
 
+	.heatmap-loading {
+		position: absolute;
+		inset: 0;
+		z-index: 3;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		gap: var(--space-2);
+		pointer-events: none;
+		background: rgb(0 0 0 / 0.16);
+		color: var(--text-primary);
+		font-size: var(--text-sm);
+		text-shadow: 0 1px 2px rgb(0 0 0 / 0.8);
+	}
+
+	.heatmap-loading-spinner {
+		width: 14px;
+		height: 14px;
+		border: 2px solid rgb(255 255 255 / 0.3);
+		border-top-color: var(--accent-primary);
+		border-radius: 50%;
+		animation: heatmap-spin 0.8s linear infinite;
+	}
+
+	@keyframes heatmap-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
 </style>

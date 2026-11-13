@@ -394,6 +394,13 @@ export class HeatmapLayer implements Layer {
 	}
 	worker: Worker | null = null;
 	onGenerated: (() => void) | null = null;
+	onLoading: ((loading: boolean) => void) | null = null;
+
+	private setWorkerBusy(value: boolean): void {
+		if (this.workerBusy === value) return;
+		this.workerBusy = value;
+		this.onLoading?.(value);
+	}
 	private workerRequestId = 0;
 	private workerJobs = new Map<number, string>();
 	private workerTimer: ReturnType<typeof setTimeout> | null = null;
@@ -418,7 +425,7 @@ export class HeatmapLayer implements Layer {
 	private postWorker(input: HeatmapInput, key: string): void {
 		if (!this.worker) return;
 		const id = ++this.workerRequestId;
-		this.workerBusy = true;
+		this.setWorkerBusy(true);
 		this.pendingWorkerKey = key;
 		this.workerJobs.set(id, key);
 		if (this.workerTimer) clearTimeout(this.workerTimer);
@@ -430,7 +437,7 @@ export class HeatmapLayer implements Layer {
 				console.warn(
 					`[heatmap] worker timed out after ${workerTimeoutMs / 1000} s, falling back to CPU`
 				);
-				this.workerBusy = false;
+				this.setWorkerBusy(false);
 				this.queuedWorker = null;
 				// Keep the worker and the previous raster. A synchronous CPU fallback
 				// here would freeze the main thread for the same long calculation.
@@ -442,7 +449,7 @@ export class HeatmapLayer implements Layer {
 		try {
 			this.worker.postMessage({ id, key, input });
 		} catch {
-			this.workerBusy = false;
+			this.setWorkerBusy(false);
 			this.queuedWorker = null;
 			this.worker = null;
 			this.workerJobs.clear();
@@ -482,7 +489,7 @@ export class HeatmapLayer implements Layer {
 				clearTimeout(this.workerTimer);
 				this.workerTimer = null;
 			}
-			this.workerBusy = false;
+			this.setWorkerBusy(false);
 			debug(
 				`[heatmap-worker] id=${id} key=${key.slice(-18)} pixels=${pixels?.byteLength ?? 0} colored=${colored ?? 0} walls=${wallCount ?? 0} wupm=${wupm ?? 0} h=${wallHeightM ?? 0} surfaces=${surfaceCount ?? 0} at ${x0},${y0} texel=${texel}`
 			);
@@ -543,7 +550,7 @@ export class HeatmapLayer implements Layer {
 		};
 		worker.onerror = (event) => {
 			console.warn('[heatmap] worker failed, falling back to CPU:', event.message);
-			this.workerBusy = false;
+			this.setWorkerBusy(false);
 			this.queuedWorker = null;
 			if (this.workerTimer) {
 				clearTimeout(this.workerTimer);

@@ -151,7 +151,9 @@
 	const capacityOk = $derived(
 		(capacityAps === 0 || apsOnFloor >= capacityAps) &&
 			(!traffic ||
-				(traffic.demandMbps <= traffic.supplyMbps && traffic.requiredAps <= traffic.apCount))
+				(traffic.demandMbps <= traffic.supplyMbps &&
+					traffic.requiredAps <= traffic.apCount &&
+					traffic.medianEdgeSnrDb >= 20))
 	);
 
 	const worstFloor = $derived.by(() => {
@@ -229,6 +231,9 @@
 			>
 				<div class="metric-head">
 					<span class="metric-name">{t('Capacity')}</span>
+					<span class="capacity-status" class:ok={capacityOk}>
+						{capacityOk ? t('Sufficient') : t('Insufficient')}
+					</span>
 				</div>
 				{#if capacityAps > 0}
 					<div class="capacity-row">
@@ -251,15 +256,15 @@
 					></div>
 				</div>
 				{#if traffic}
-					<div class="traffic-detail" class:warn={traffic.medianEdgeSnrDb < 20}>
-						{t('{required} / {current} APs', {
-							required: traffic.requiredAps,
-							current: traffic.apCount
-						})}
-						· {t('edge SNR')} {traffic.medianEdgeSnrDb} dB · {Math.round(
-							traffic.activityFactor * 100
-						)}% {t('active')}
-					</div>
+					{#if traffic.requiredAps > traffic.apCount || traffic.medianEdgeSnrDb < 20}
+						<div class="traffic-detail" class:warn={traffic.medianEdgeSnrDb < 20}>
+							{t('{required} / {current} APs', {
+								required: traffic.requiredAps,
+								current: traffic.apCount
+							})}
+							· {t('edge SNR')} {traffic.medianEdgeSnrDb} dB
+						</div>
+					{/if}
 				{/if}
 			</div>
 		{/if}
@@ -578,6 +583,16 @@
 		font-size: var(--text-xs);
 		color: var(--text-tertiary);
 		margin-top: 2px;
+	}
+
+	.capacity-status {
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--color-error);
+	}
+
+	.capacity-status.ok {
+		color: var(--accent-primary);
 	}
 
 	.traffic-detail {
