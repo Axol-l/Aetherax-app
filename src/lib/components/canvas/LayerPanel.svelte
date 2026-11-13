@@ -241,9 +241,9 @@
 					</div>
 					{#if appState.heatmapMetric === 'rate' && appState.heatmapProbe}
 						<div class="rate-probe-min">
-							MCS {appState.heatmapProbe.mcs} · {Math.round(appState.heatmapProbe.phyMbps)} / ≈{Math.round(
-								appState.heatmapProbe.throughputMbps
-							)} Mbps
+							MCS {appState.heatmapProbe.mcs} · PHY {Math.round(appState.heatmapProbe.phyMbps)} · {t(
+								'throughput'
+							)} ≈{Math.round(appState.heatmapProbe.throughputMbps)} Mbps
 						</div>
 					{/if}
 				</div>
