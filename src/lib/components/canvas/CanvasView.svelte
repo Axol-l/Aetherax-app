@@ -125,6 +125,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	import SurfaceToolbar from '$components/canvas/SurfaceToolbar.svelte';
 	import PlanningToolbar from '$components/canvas/PlanningToolbar.svelte';
 	import RoomTypePopup from '$components/canvas/RoomTypePopup.svelte';
+	import { areaUnit, displayArea } from '$lib/units.js';
 	import ConfirmDialog from '$components/dialogs/ConfirmDialog.svelte';
 	import { t, i18nState } from '$state/i18n.svelte';
 	import { displayLength, formatMeasure, lengthUnit } from '$lib/units.js';
@@ -337,7 +338,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	} | null>(null);
 
 	// Room type popup state
-	let roomPopup = $state<{ x: number; y: number; typeId: number; density: number; customLabel: string; regionId: number } | null>(null);
+	let roomPopup = $state<{ x: number; y: number; typeId: number; density: number; customLabel: string; regionId: number; areaLabel: string } | null>(null);
 
 	function handleWallClick(screenX: number, screenY: number): boolean {
 		if (!engine || !maskPipeline.wallData || !maskPipeline.wallLabels) return false;
@@ -378,8 +379,18 @@ import { wallState } from '$state/wall-state.svelte.js';
 		const roomType = ROOM_TYPES.find(t => t.id === typeId);
 		const density = densityOverride ?? roomType?.defaultDensity ?? 0;
 		const customLabel = floor.roomCustomLabels?.[String(regionId)] ?? '';
+		let areaPixels = 0;
+		const labels = maskPipeline.roomLabels.labels;
+		for (let i = 0; i < labels.length; i++) {
+			if (labels[i] === regionId) areaPixels++;
+		}
+		const wupm = wupmForFloor(floor.id);
+		const areaSqm = wupm > 0 ? areaPixels / (wupm * wupm) : 0;
+		const unit = areaUnit(floorplanState.unitSystem);
+		const shownArea = displayArea(areaSqm, unit);
+		const areaLabel = `${shownArea.text} ${unit === 'sqm' ? 'm²' : 'ft²'}`;
 
-		roomPopup = { x: screenX, y: screenY, typeId, density, customLabel, regionId };
+		roomPopup = { x: screenX, y: screenY, typeId, density, customLabel, regionId, areaLabel };
 		return true;
 	}
 
@@ -2095,6 +2106,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		currentTypeId={roomPopup.typeId}
 		currentDensity={roomPopup.density}
 		currentLabel={roomPopup.customLabel}
+		areaLabel={roomPopup.areaLabel}
 		onselect={handleRoomTypeSelect}
 		onclose={() => { roomPopup = null; }}
 	/>

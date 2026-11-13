@@ -10,6 +10,7 @@
 		currentTypeId = 0,
 		currentDensity,
 		currentLabel,
+		areaLabel,
 		category,
 		onselect,
 		onclose
@@ -20,6 +21,7 @@
 		currentTypeId: number;
 		currentDensity?: number;
 		currentLabel?: string;
+		areaLabel?: string;
 		category?: BuildingCategory;
 		onselect: (typeId: number, density: number, customLabel?: string) => void;
 		onclose: () => void;
@@ -161,6 +163,9 @@
 					style="background: rgb({activeType.color[0]},{activeType.color[1]},{activeType.color[2]})"
 				></span>
 				<span class="current-type-name">{t(activeType.name)}</span>
+				{#if areaLabel}
+					<span class="current-type-area">{areaLabel}</span>
+				{/if}
 			</div>
 		{/if}
 	{/if}
@@ -255,6 +260,14 @@
 		font-size: var(--text-sm);
 		font-weight: 500;
 		color: var(--text-primary);
+	}
+
+	.current-type-area {
+		margin-left: auto;
+		font-family: var(--font-mono);
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+		white-space: nowrap;
 	}
 
 	.search-box {
