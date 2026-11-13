@@ -113,6 +113,20 @@ export class MaskPipeline {
 	private version = 0;
 	/** 这些缓存所属的楼层，参见 `syncWallMask` 中的重置逻辑。 */
 	private syncedFloorId = '';
+	/** 每层最近一次可用的房间标签；切回该层时先恢复它们，避免异步解码期间空白。 */
+	private labelWidth = 0;
+	private labelHeight = 0;
+	private labelCache = new Map<
+		string,
+		{
+			roomTypeData: Uint8Array | null;
+			roomLabels: RegionLabels | null;
+			width: number;
+			height: number;
+			originX: number;
+			originY: number;
+		}
+	>();
 
 	constructor(private readonly host: MaskPipelineHost) {}
 
@@ -130,6 +144,7 @@ export class MaskPipeline {
 		 */
 		const floorId = floorState.currentFloorId;
 		if (floorId !== this.syncedFloorId) {
+			this.rememberLabels();
 			this.syncedFloorId = floorId;
 			this.reset();
 		}
@@ -225,6 +240,8 @@ export class MaskPipeline {
 				);
 				this.interior = domain.interior;
 				this.roomLabels = { labels: domain.labels, regionCount: domain.regionCount };
+				this.labelWidth = decoded.width;
+				this.labelHeight = decoded.height;
 
 				// 若已持久化，则解码房间类型掩码
 				const roomTypeMask = wallState.roomTypeMask;
@@ -259,6 +276,7 @@ export class MaskPipeline {
 					layers.roomLabelsLayer.customLabels = currentFloor().roomCustomLabels ?? {};
 					layers.roomLabelsLayer.invalidateCache();
 				}
+				this.rememberLabels();
 
 				this.host.markDirty();
 			})
@@ -401,6 +419,33 @@ export class MaskPipeline {
 	 * 丢弃由当前楼层掩码派生的一切。
 	 * 在切换楼层时调用，避免期间绘制或点击到即将过期的栅格，因此渲染器引用也一并清空。
 	 */
+	private rememberLabels(floorId = this.syncedFloorId): void {
+		if (!floorId || !this.roomLabels) return;
+		this.labelCache.set(floorId, {
+			roomTypeData: this.roomTypeData,
+			roomLabels: this.roomLabels,
+			width: this.labelWidth,
+			height: this.labelHeight,
+			originX: this.originX,
+			originY: this.originY
+		});
+	}
+
+	private restoreLabels(floorId: string): void {
+		const cached = this.labelCache.get(floorId);
+		const { roomLabelsLayer } = this.host.layers();
+		if (!cached || !roomLabelsLayer) return;
+		this.roomLabels = cached.roomLabels;
+		this.roomTypeData = cached.roomTypeData;
+		roomLabelsLayer.roomTypeData = cached.roomTypeData;
+		roomLabelsLayer.roomLabels = cached.roomLabels;
+		roomLabelsLayer.maskWidth = cached.width;
+		roomLabelsLayer.maskHeight = cached.height;
+		roomLabelsLayer.originX = cached.originX;
+		roomLabelsLayer.originY = cached.originY;
+		roomLabelsLayer.invalidateCache();
+	}
+
 	reset(): void {
 		this.wallUrl = null;
 		this.materialUrl = null;
@@ -430,6 +475,9 @@ export class MaskPipeline {
 			roomLabelsLayer.roomTypeData = null;
 			roomLabelsLayer.roomLabels = null;
 			roomLabelsLayer.invalidateCache();
+			// Switching back to a floor should not blank its labels while the wall
+			// raster decodes again.
+			this.restoreLabels(floorState.currentFloorId);
 		}
 	}
 
