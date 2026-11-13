@@ -1077,6 +1077,20 @@ import { wallState } from '$state/wall-state.svelte.js';
 		maskPipeline.syncRoomTypes();
 	});
 
+	/**
+	 * Deleting/switching a floor clears the label layer's decoded type mask. The
+	 * independent sync can then hit its "same data URL" shortcut while the layer is
+	 * still empty. Force one rebuild whenever the floor set or the current floor
+	 * changes.
+	 */
+	let lastRoomLabelKey = `${floorState.floors.map((f) => f.id).join(',')}:${floorState.currentFloorId}`;
+	$effect(() => {
+		const key = `${floorState.floors.map((f) => f.id).join(',')}:${floorState.currentFloorId}`;
+		if (key === lastRoomLabelKey) return;
+		lastRoomLabelKey = key;
+		queueMicrotask(() => maskPipeline.syncRoomTypes(true));
+	});
+
 	$effect(() => {
 		apLayer.showLabels = appState.showLabels;
 		engine.markDirty();

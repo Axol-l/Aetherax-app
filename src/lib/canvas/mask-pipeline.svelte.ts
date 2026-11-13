@@ -238,13 +238,15 @@ export class MaskPipeline {
 	 * 单独解码房间类型掩码。
 	 * 它独立于墙体掩码变化；单独成 effect 可避免为改标签而重解码整个墙体栅格。
 	 */
-	syncRoomTypes(): void {
+	syncRoomTypes(force = false): void {
 		const { roomLabelsLayer } = this.host.layers();
 		if (!roomLabelsLayer) return;
 
 		const roomTypeMask = wallState.roomTypeMask;
 		const roomTypeUrl = roomTypeMask?.dataUrl ?? null;
-		if (roomTypeUrl === this.roomTypeUrl) return;
+		// The layer can have been cleared by a floor reset while the URL stayed the
+		// same; a URL-only shortcut would leave it blank forever.
+		if (!force && roomTypeUrl === this.roomTypeUrl && roomLabelsLayer.roomLabels) return;
 		this.roomTypeUrl = roomTypeUrl;
 
 		const mask = wallState.wallMask;
