@@ -202,11 +202,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 		columns: Floor['columns']
 	): { width: number; height: number; originX: number; originY: number } {
 		if ((walls?.length ?? 0) === 0 && (columns?.length ?? 0) === 0) return frame;
-		const padding = 8;
-		let minX = frame.originX;
-		let minY = frame.originY;
-		let maxX = frame.originX + frame.width;
-		let maxY = frame.originY + frame.height;
+		let minX = Infinity;
+		let minY = Infinity;
+		let maxX = -Infinity;
+		let maxY = -Infinity;
 		for (const wall of walls ?? []) {
 			minX = Math.min(minX, wall.ax, wall.bx);
 			minY = Math.min(minY, wall.ay, wall.by);
@@ -214,19 +213,42 @@ import { wallState } from '$state/wall-state.svelte.js';
 			maxY = Math.max(maxY, wall.ay, wall.by);
 		}
 		for (const column of columns ?? []) {
-			const r = column.shape === 'circle' ? Math.hypot(column.bx - column.ax, column.by - column.ay) : 0;
+			const r =
+				column.shape === 'circle'
+					? Math.hypot(column.bx - column.ax, column.by - column.ay)
+					: 0;
 			minX = Math.min(minX, column.ax - r, column.bx - r);
 			minY = Math.min(minY, column.ay - r, column.by - r);
 			maxX = Math.max(maxX, column.ax + r, column.bx + r);
 			maxY = Math.max(maxY, column.ay + r, column.by + r);
 		}
-		const originX = Math.floor(minX - padding);
-		const originY = Math.floor(minY - padding);
+		/*
+		 * Everything already fits: keep the imported frame byte-for-byte. Adding
+		 * padding on every sync used to grow the mask by 8 px on project load,
+		 * which invalidated the room-type mask and made the first label paint vanish.
+		 */
+		if (
+			minX >= frame.originX &&
+			minY >= frame.originY &&
+			maxX <= frame.originX + frame.width &&
+			maxY <= frame.originY + frame.height
+		) {
+			return frame;
+		}
+		const padding = 8;
+		const originX = Math.floor(Math.min(minX, frame.originX) - padding);
+		const originY = Math.floor(Math.min(minY, frame.originY) - padding);
 		return {
 			originX,
 			originY,
-			width: Math.max(1, Math.ceil(maxX + padding - originX)),
-			height: Math.max(1, Math.ceil(maxY + padding - originY))
+			width: Math.max(
+				1,
+				Math.ceil(Math.max(maxX, frame.originX + frame.width) + padding - originX)
+			),
+			height: Math.max(
+				1,
+				Math.ceil(Math.max(maxY, frame.originY + frame.height) + padding - originY)
+			)
 		};
 	}
 
