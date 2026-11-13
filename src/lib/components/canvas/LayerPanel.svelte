@@ -241,9 +241,9 @@
 					</div>
 					{#if appState.heatmapMetric === 'rate' && appState.heatmapProbe}
 						<div class="rate-probe-min">
-							MCS {appState.heatmapProbe.mcs} · PHY {Math.round(appState.heatmapProbe.phyMbps)} · {t(
-								'throughput'
-							)} ≈{Math.round(appState.heatmapProbe.throughputMbps)} Mbps
+							MCS {appState.heatmapProbe.mcs} · PHY {Math.round(appState.heatmapProbe.phyMbps)} · ≈{Math.round(
+								appState.heatmapProbe.throughputMbps
+							)} Mbps
 						</div>
 					{/if}
 				</div>
@@ -450,5 +450,8 @@
 		font-family: var(--font-mono);
 		font-size: var(--text-xs);
 		color: var(--text-secondary);
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
 	}
 </style>
