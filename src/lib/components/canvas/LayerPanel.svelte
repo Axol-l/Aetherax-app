@@ -241,10 +241,9 @@
 					</div>
 					{#if appState.heatmapMetric === 'rate' && appState.heatmapProbe}
 						<div class="rate-probe-min">
-							MCS {appState.heatmapProbe.mcs} · {appState.heatmapProbe.widthMhz} MHz · {appState
-								.heatmapProbe.streams}×{appState.heatmapProbe.streams} · {Math.round(
-								appState.heatmapProbe.phyMbps
-							)} / ≈{Math.round(appState.heatmapProbe.throughputMbps)} Mbps
+							MCS {appState.heatmapProbe.mcs} · {Math.round(appState.heatmapProbe.phyMbps)} / ≈{Math.round(
+								appState.heatmapProbe.throughputMbps
+							)} Mbps
 						</div>
 					{/if}
 				</div>
@@ -264,7 +263,9 @@
 		bottom: 32px;
 		left: var(--space-3, 12px);
 		z-index: 5;
-		min-width: 140px;		max-height: calc(100% - 80px);
+		box-sizing: border-box;
+		width: min(248px, calc(100vw - 24px));
+		max-height: calc(100% - 80px);
 		overflow-y: auto;
 		background: var(--bg-secondary, #1e2130);
 		border: 1px solid var(--border-subtle);
