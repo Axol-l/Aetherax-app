@@ -22,6 +22,41 @@ import { updateCoverage } from '$state/optimizer.svelte.js';
 import { scheduleSave } from '$state/persistence.svelte.js';
 import { minRoomRadiusWu } from '$state/room-domain.js';
 
+/**
+ * 房间类型掩码比墙体掩码旧时（例如墙画到图纸外，掩码扩大过），把它按世界坐标
+ * 对齐到当前墙体掩码。否则切回该层时尺寸不等，标签会被整层清空。
+ */
+function alignRoomTypes(
+	data: Uint8Array,
+	source: { width: number; height: number; originX?: number; originY?: number },
+	width: number,
+	height: number,
+	originX: number,
+	originY: number
+): Uint8Array {
+	const sx = source.originX ?? 0;
+	const sy = source.originY ?? 0;
+	if (
+		source.width === width &&
+		source.height === height &&
+		sx === originX &&
+		sy === originY
+	) {
+		return data;
+	}
+	const out = new Uint8Array(width * height);
+	for (let y = 0; y < height; y++) {
+		const srow = y + originY - sy;
+		if (srow < 0 || srow >= source.height) continue;
+		for (let x = 0; x < width; x++) {
+			const scol = x + originX - sx;
+			if (scol < 0 || scol >= source.width) continue;
+			out[y * width + x] = data[srow * source.width + scol]!;
+		}
+	}
+	return out;
+}
+
 /** 墙体编辑器或线段栅格化器生成的栅格。 */
 export interface MaterialisedMask {
 	data: Uint8Array;
@@ -193,18 +228,21 @@ export class MaskPipeline {
 
 				// 若已持久化，则解码房间类型掩码
 				const roomTypeMask = wallState.roomTypeMask;
-				if (
-					roomTypeMask &&
-					roomTypeMask.width === decoded.width &&
-					roomTypeMask.height === decoded.height
-				) {
+				if (roomTypeMask) {
 					const roomTypeData = await decodeMaterialMask(
 						roomTypeMask.dataUrl,
 						roomTypeMask.width,
 						roomTypeMask.height
 					);
 					if (this.version !== thisVersion) return;
-					this.roomTypeData = roomTypeData;
+					this.roomTypeData = alignRoomTypes(
+						roomTypeData,
+						roomTypeMask,
+						decoded.width,
+						decoded.height,
+						decoded.originX,
+						decoded.originY
+					);
 				} else {
 					this.roomTypeData = null;
 				}
@@ -250,12 +288,7 @@ export class MaskPipeline {
 		this.roomTypeUrl = roomTypeUrl;
 
 		const mask = wallState.wallMask;
-		if (
-			!roomTypeMask ||
-			!mask ||
-			roomTypeMask.width !== mask.width ||
-			roomTypeMask.height !== mask.height
-		) {
+		if (!roomTypeMask || !mask) {
 			this.roomTypeData = null;
 			roomLabelsLayer.roomTypeData = null;
 			roomLabelsLayer.invalidateCache();
@@ -264,11 +297,23 @@ export class MaskPipeline {
 		}
 
 		decodeMaterialMask(roomTypeMask.dataUrl, roomTypeMask.width, roomTypeMask.height).then(
-			(roomTypeData) => {
+			(decodedTypes) => {
 				// 已过期：解码期间有更新的掩码到达。
 				if (wallState.roomTypeMask?.dataUrl !== roomTypeMask.dataUrl) return;
+				const roomTypeData = alignRoomTypes(
+					decodedTypes,
+					roomTypeMask,
+					mask.width,
+					mask.height,
+					mask.originX ?? 0,
+					mask.originY ?? 0
+				);
 				this.roomTypeData = roomTypeData;
 				roomLabelsLayer.roomTypeData = roomTypeData;
+				roomLabelsLayer.maskWidth = mask.width;
+				roomLabelsLayer.maskHeight = mask.height;
+				roomLabelsLayer.originX = mask.originX ?? 0;
+				roomLabelsLayer.originY = mask.originY ?? 0;
 				roomLabelsLayer.roomLabels = this.roomLabels;
 				roomLabelsLayer.densityOverrides = currentFloor().roomDensityOverrides;
 				roomLabelsLayer.customLabels = currentFloor().roomCustomLabels ?? {};
