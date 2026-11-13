@@ -73,6 +73,16 @@ export interface FloorCoverageEntry {
 	samples: number;
 	/** 估算的并发终端数；没有房间密度数据时为 0。 */
 	devices?: number;
+	/** 粗粒度业务容量规划；没有房间类型/密度数据时缺省。 */
+	traffic?: {
+		demandMbps: number;
+		supplyMbps: number;
+		perApCapacityMbps: number;
+		requiredAps: number;
+		apCount: number;
+		utilization: number;
+		medianEdgeSnrDb: number;
+	};
 	/** 这个数字对应的方案。从文件恢复的数据没有这一项。 */
 	basis?: string;
 }

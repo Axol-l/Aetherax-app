@@ -109,6 +109,12 @@
 
 	const buildingPct = $derived(getBuildingCoverage());
 	const deviceLoad = $derived(floorCoverage.get(floorState.currentFloorId)?.devices ?? 0);
+	const traffic = $derived(floorCoverage.get(floorState.currentFloorId)?.traffic ?? null);
+	const trafficPercent = $derived(
+		traffic && traffic.supplyMbps > 0
+			? Math.min(100, (traffic.demandMbps / traffic.supplyMbps) * 100)
+			: 0
+	);
 	const clientCapacity = $derived(
 		(floorState.floors.length <= 1
 			? apState.aps
@@ -207,6 +213,39 @@
 						class:high={apsOnFloor >= capacityAps}
 						style="width: {Math.min(100, (apsOnFloor / capacityAps) * 100)}%"
 					></div>
+				</div>
+			</div>
+		{/if}
+
+		{#if traffic}
+			<div
+				class="metric traffic-metric"
+				title={t('Planning estimate, not measured throughput.')}
+			>
+				<div class="metric-head">
+					<span class="metric-name">{t('Traffic capacity')}</span>
+					<span class="metric-value">
+						{(traffic.demandMbps / 1000).toFixed(1)} / {(traffic.supplyMbps / 1000).toFixed(1)}
+						Gbps
+					</span>
+				</div>
+				<div class="coverage-bar-track">
+					<div
+						class="coverage-bar-fill"
+						class:low={traffic.demandMbps > traffic.supplyMbps}
+						class:med={traffic.demandMbps <= traffic.supplyMbps &&
+							traffic.requiredAps > traffic.apCount}
+						class:high={traffic.demandMbps <= traffic.supplyMbps &&
+							traffic.requiredAps <= traffic.apCount}
+						style="width: {trafficPercent}%"
+					></div>
+				</div>
+				<div class="traffic-detail" class:warn={traffic.medianEdgeSnrDb < 20}>
+					{t('{required} / {current} APs', {
+						required: traffic.requiredAps,
+						current: traffic.apCount
+					})}
+					· {t('edge SNR')} {traffic.medianEdgeSnrDb} dB
 				</div>
 			</div>
 		{/if}
@@ -515,6 +554,16 @@
 
 	.capacity-metric {
 		margin-top: 2px;
+	}
+
+	.traffic-detail {
+		margin-top: 2px;
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+	}
+
+	.traffic-detail.warn {
+		color: var(--danger, #e06c75);
 	}
 
 	.metric-head {

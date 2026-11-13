@@ -26,10 +26,16 @@ import { decodeMask, type DecodedWallMask } from '$canvas/mask-codec.js';
 import { decodeMaterialMask } from '$canvas/region-labels.js';
 import { getMaterialDbTable } from '$lib/domain/materials.js';
 import { buildRoomDomain } from '$canvas/rooms.js';
-import { coverageMarginDb, coverageThresholdMarginDb, coverageHorizontalReach, slabDbOf } from '$lib/rf/propagation.js';
+import { coverageMarginDb, coverageThresholdMarginDb, coverageHorizontalReach, slabDbOf, COVERAGE_SNR_DB } from '$lib/rf/propagation.js';
 import { violatesAt } from '$lib/rf/interference.js';
 import { slabLossFactor, type SlabCrossing } from '$lib/rf/cross-floor.js';
 import { splitWallRunLoss, wallRunLoss, type WallRun } from '$lib/rf/link-budget.js';
+import {
+	CAPACITY_UTILIZATION,
+	apCapacityMbps,
+	requiredAps,
+	roomDemandMbps
+} from '$lib/rf/capacity-plan.js';
 import { floorState, currentFloor, getFloorSlabAttenuation, type Floor } from './floor-state.svelte.js';
 import { projectMeta } from './project-meta.svelte.js';
 import { wallState } from './wall-state.svelte.js';
@@ -53,6 +59,8 @@ let cachedMask: DecodedWallMask | null = null;
 let cachedSamples: Array<{ x: number; y: number }> | null = null;
 let cachedSamplePixelIdx: number[] | null = null;
 let cachedInteriorPixelCount = 0;
+/** 当前覆盖采样集的室内掩膜，用来做全楼层的容量需求聚合。 */
+let cachedInteriorMask: Uint8Array | null = null;
 /**
  * 密度图和它的输入。为什么缓存见使用处；缓存安不安全全靠这个 key。
  */
@@ -146,6 +154,7 @@ async function ensureCoverageCache(): Promise<boolean> {
 	 */
 	const sampleCount = Math.min(140, interiorPixels.length);
 	cachedInteriorPixelCount = interiorPixels.length;
+	cachedInteriorMask = interior;
 	const step = interiorPixels.length / sampleCount;
 	cachedSamples = [];
 	cachedSamplePixelIdx = [];
@@ -376,6 +385,7 @@ export async function updateCoverage(): Promise<void> {
 	const sampleHeightWu = cachedSamples.map(
 		(sample) => surfaceHeightAt(surfaces, sample.x + ox, sample.y + oy) * surfaceWupm
 	);
+	const apMargins: number[][] = allAps.map(() => []);
 	const floorHeightM = currentFloor()?.ceilingHeight ?? 3;
 	const scatterByAp = allAps.map((ap) =>
 		scatterSamplesForAp(
@@ -490,6 +500,7 @@ export async function updateCoverage(): Promise<void> {
 			const margin = coverageMarginDb(dist, ap.interferenceRadius) - dbLoss;
 			if (margin > bestMargin) bestMargin = margin;
 			if (margin > margins[index]!) margins[index] = margin;
+			apMargins[index]!.push(margin);
 			/*
 			 * 绕过墙头的绕射，墙挡得越多它的分量越大
 			 */
@@ -668,15 +679,63 @@ export async function updateCoverage(): Promise<void> {
 	// 缓存每层的覆盖率（用采样点数当面积权重）
 	const pixelsPerSample =
 		cachedSamples.length > 0 ? cachedInteriorPixelCount / cachedSamples.length : 0;
-	const devices = densityResult
-		? sampleDensity.reduce((sum, value) => sum + value, 0) *
-			pixelsPerSample *
-			(1 / (wupmForGap * wupmForGap))
+	const areaPerPixel = 1 / (wupmForGap * wupmForGap);
+	let devices = densityResult
+		? sampleDensity.reduce((sum, value) => sum + value, 0) * pixelsPerSample * areaPerPixel
 		: 0;
+	let demandMbps = 0;
+	if (densityResult && cachedInteriorMask && densityResult.roomTypeData) {
+		// Full interior walk for the coarse traffic plan: 140 samples are enough for
+		// coverage, but they can miss a small high-demand room.
+		const baseline = densityResult.medianDensity > 0 ? densityResult.medianDensity : 0.3;
+		devices = 0;
+		for (let i = 0; i < cachedInteriorMask.length; i++) {
+			if (!cachedInteriorMask[i]) continue;
+			const raw = densityResult.map[i]!;
+			const density = raw >= 0 ? raw : baseline;
+			devices += density * areaPerPixel;
+			demandMbps += density * areaPerPixel * roomDemandMbps(densityResult.roomTypeData[i] ?? 0);
+		}
+	}
+
+	const medianOf = (values: number[]): number => {
+		if (values.length === 0) return -Infinity;
+		const sorted = [...values].sort((a, b) => a - b);
+		return sorted[Math.floor(sorted.length / 2)]!;
+	};
+	const quantileOf = (values: number[], q: number): number => {
+		if (values.length === 0) return -Infinity;
+		const sorted = [...values].sort((a, b) => a - b);
+		return sorted[Math.min(sorted.length - 1, Math.max(0, Math.floor(sorted.length * q)))]!;
+	};
+	let supplyMbps = 0;
+	const edgeMargins: number[] = [];
+	for (let i = 0; i < localAps.length; i++) {
+		const ap = localAps[i]!;
+		const margin = medianOf(apMargins[i] ?? []);
+		const snr = COVERAGE_SNR_DB + margin;
+		supplyMbps += apCapacityMbps(snr, ap.channelWidth ?? 20);
+		const edge = quantileOf(apMargins[i] ?? [], 0.05);
+		edgeMargins.push(COVERAGE_SNR_DB + edge);
+	}
+	const perApCapacityMbps = localAps.length > 0 ? supplyMbps / localAps.length : 0;
+	const traffic =
+		demandMbps > 0 && localAps.length > 0
+			? {
+					demandMbps: Math.round(demandMbps),
+					supplyMbps: Math.round(supplyMbps),
+					perApCapacityMbps: Math.round(perApCapacityMbps),
+					requiredAps: requiredAps(demandMbps, perApCapacityMbps),
+					apCount: localAps.length,
+					utilization: CAPACITY_UTILIZATION,
+					medianEdgeSnrDb: Math.round(medianOf(edgeMargins))
+				}
+			: undefined;
 	floorCoverage.set(curFloorId, {
 		coverage: optimizerState.coverage,
 		samples: cachedSamples.length,
 		devices: Math.round(devices),
+		traffic,
 		basis: coverageBasis(curFloorId)
 	});
 }
