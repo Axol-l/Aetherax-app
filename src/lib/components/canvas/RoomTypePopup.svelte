@@ -27,12 +27,21 @@
 		onclose: () => void;
 	} = $props();
 
-	let activeTypeId = $state(currentTypeId);
-	let densityOverride = $state(currentDensity ?? ROOM_TYPES.find((t) => t.id === currentTypeId)?.defaultDensity ?? 0.3);
-	let customLabel = $state(currentLabel ?? '');
+	let activeTypeId = $state(0);
+	let densityOverride = $state(0.3);
+	let customLabel = $state('');
 	let search = $state('');
 	let searchInput: HTMLInputElement;
 	let highlightIndex = $state(-1);
+
+	// The popup can stay mounted while the user right-clicks another room. Re-sync
+	// the editable state then, instead of keeping the first room's density/label.
+	$effect(() => {
+		activeTypeId = currentTypeId;
+		densityOverride =
+			currentDensity ?? ROOM_TYPES.find((t) => t.id === currentTypeId)?.defaultDensity ?? 0.3;
+		customLabel = currentLabel ?? '';
+	});
 
 	const CATEGORY_ORDER: BuildingCategory[] = ['commercial', 'residential', 'education', 'healthcare', 'hospitality', 'industrial'];
 	const CATEGORY_LABELS: Record<BuildingCategory, string> = {
@@ -105,6 +114,23 @@
 	function handleClear() {
 		onselect(0, 0, undefined);
 		onclose();
+	}
+
+	/**
+	 * Read the value from the event, not from `densityOverride` bound to the same
+	 * input. Depending on listener order the bound state can still hold the previous
+	 * value when `oninput` runs, which saved 0.2 after the user moved the slider to
+	 * 0.15.
+	 */
+	function handleDensityInput(event: Event): void {
+		const value = Number((event.currentTarget as HTMLInputElement).value);
+		densityOverride = value;
+		onselect(activeTypeId, value, customLabel || undefined);
+	}
+
+	function handleCustomLabelInput(event: Event): void {
+		customLabel = (event.currentTarget as HTMLInputElement).value;
+		onselect(activeTypeId, densityOverride, customLabel || undefined);
 	}
 
 	function findTypeAtIndex(idx: number): typeof ROOM_TYPES[number] | undefined {
@@ -219,8 +245,8 @@
 						type="text"
 						class="label-input"
 						placeholder={t('Custom label...')}
-						bind:value={customLabel}
-						oninput={() => onselect(activeTypeId, densityOverride, customLabel || undefined)}
+						value={customLabel}
+						oninput={handleCustomLabelInput}
 						onkeydown={(e) => { if (e.key === 'Enter') { onselect(activeTypeId, densityOverride, customLabel || undefined); onclose(); } }}
 					/>
 					{#if customLabel}
@@ -239,8 +265,8 @@
 				min="0"
 				max="2"
 				step="0.05"
-				bind:value={densityOverride}
-				oninput={() => onselect(activeTypeId, densityOverride, customLabel || undefined)}
+				value={densityOverride}
+				oninput={handleDensityInput}
 			/>
 		</div>
 		<button class="clear-btn" onclick={handleClear}>{t('Clear')}</button>
