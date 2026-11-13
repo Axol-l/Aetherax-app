@@ -348,6 +348,7 @@ const zh: Record<string, string> = {
 	'1-stream client ≈ half; not measured throughput.': '1 流终端约为一半；非实测吞吐。',
 	'Current sample': '当前采样点',
 	'Traffic capacity': '业务容量',
+	'Traffic': '业务',
 	'Planning estimate, not measured throughput.': '规划估算，非实测吞吐。',
 	'{required} / {current} APs': '{required} / {current} APs（需要 / 当前）',
 	'edge SNR': '边缘 SNR',

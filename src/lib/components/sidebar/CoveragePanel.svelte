@@ -144,6 +144,15 @@
 			? Math.ceil(deviceLoad / (clientCapacity / apsOnFloor))
 			: 0
 	);
+	const clientsPercent = $derived(
+		capacityAps > 0 ? Math.min(100, (apsOnFloor / capacityAps) * 100) : 0
+	);
+	const capacityPercent = $derived(Math.max(clientsPercent, trafficPercent));
+	const capacityOk = $derived(
+		(capacityAps === 0 || apsOnFloor >= capacityAps) &&
+			(!traffic ||
+				(traffic.demandMbps <= traffic.supplyMbps && traffic.requiredAps <= traffic.apCount))
+	);
 
 	const worstFloor = $derived.by(() => {
 		let worst: { id: string; name: string; coverage: number } | null = null;
@@ -213,52 +222,43 @@
 			</div>
 		{/if}
 
-		{#if capacityAps > 0}			<div class="metric capacity-metric">
-				<div class="metric-head">
-					<span class="metric-name">{t('Capacity')}</span>
-					<span class="metric-value">{apsOnFloor} / {capacityAps} APs</span>
-				</div>
-				<div class="coverage-bar-track">
-					<div
-						class="coverage-bar-fill"
-						class:low={apsOnFloor < capacityAps * 0.5}
-						class:med={apsOnFloor >= capacityAps * 0.5 && apsOnFloor < capacityAps}
-						class:high={apsOnFloor >= capacityAps}
-						style="width: {Math.min(100, (apsOnFloor / capacityAps) * 100)}%"
-					></div>
-				</div>
-			</div>
-		{/if}
-
-		{#if traffic}
+		{#if capacityAps > 0 || traffic}
 			<div
-				class="metric traffic-metric"
+				class="metric capacity-metric"
 				title={t('Planning estimate, not measured throughput.')}
 			>
 				<div class="metric-head">
-					<span class="metric-name">{t('Traffic capacity')}</span>
-					<span class="metric-value">
-						{trafficText?.demand} / {trafficText?.supply} {trafficText?.unit}
-					</span>
+					<span class="metric-name">{t('Capacity')}</span>
 				</div>
+				{#if capacityAps > 0}
+					<div class="capacity-row">
+						<span>{t('Clients')}</span>
+						<span>{apsOnFloor} / {capacityAps} APs</span>
+					</div>
+				{/if}
+				{#if traffic}
+					<div class="capacity-row">
+						<span>{t('Traffic')}</span>
+						<span>{trafficText?.demand} / {trafficText?.supply} {trafficText?.unit}</span>
+					</div>
+				{/if}
 				<div class="coverage-bar-track">
 					<div
 						class="coverage-bar-fill"
-						class:low={traffic.demandMbps > traffic.supplyMbps}
-						class:med={traffic.demandMbps <= traffic.supplyMbps &&
-							traffic.requiredAps > traffic.apCount}
-						class:high={traffic.demandMbps <= traffic.supplyMbps &&
-							traffic.requiredAps <= traffic.apCount}
-						style="width: {trafficPercent}%"
+						class:low={!capacityOk}
+						class:high={capacityOk}
+						style="width: {capacityPercent}%"
 					></div>
 				</div>
-				<div class="traffic-detail" class:warn={traffic.medianEdgeSnrDb < 20}>
-					{t('{required} / {current} APs', {
-						required: traffic.requiredAps,
-						current: traffic.apCount
-					})}
-					· {t('edge SNR')} {traffic.medianEdgeSnrDb} dB
-				</div>
+				{#if traffic}
+					<div class="traffic-detail" class:warn={traffic.medianEdgeSnrDb < 20}>
+						{t('{required} / {current} APs', {
+							required: traffic.requiredAps,
+							current: traffic.apCount
+						})}
+						· {t('edge SNR')} {traffic.medianEdgeSnrDb} dB
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -565,6 +565,16 @@
 	}
 
 	.capacity-metric {
+		margin-top: 2px;
+	}
+
+	.capacity-row {
+		display: flex;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: var(--space-2);
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
 		margin-top: 2px;
 	}
 
