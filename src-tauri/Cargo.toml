@@ -1,6 +1,6 @@
 [package]
 name = "aetherax"
-version = "0.4.0"
+version = "0.5.0"
 description = "Aetherax — WiFi coverage and channel planner"
 authors = ["Axol-l"]
 edition = "2024"

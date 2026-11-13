@@ -160,13 +160,10 @@ export function handleShortcut(e: KeyboardEvent, hooks: ShortcutHooks): void {
 	}
 
 	if (mod && (e.key === 's' || e.key === 'S')) {
-		// Ctrl+S writes the project file, not just the webview's autosave slot.
-		// Keep the local save as a fallback for browsers that block downloads.
+		// Ctrl+S is the app's own save: write the storage slot and answer visibly.
+		// Handing the user a file is a different action — File → Export Project File.
 		e.preventDefault();
-		void saveNow().then(async () => {
-			const { saveProjectFile } = await import('$lib/export/json.js');
-			await saveProjectFile();
-		});
+		void saveNow();
 		return;
 	}
 

@@ -2,8 +2,8 @@
  * 只测文件往返：`serialize` → 文本 → `deserialize`。
  * 确认画出的几何、标注和规划区域能写进文件并原样读回。
  */
-import { describe, expect, it } from 'vitest';
-import { deserialize, serialize } from './json.js';
+import { describe, expect, it, vi } from 'vitest';
+import { deserialize, saveProjectFile, serialize } from './json.js';
 import { floorState } from '$state/floor-state.svelte.js';
 import { applyDocument, migrate } from '$state/project-document.js';
 
@@ -125,5 +125,45 @@ describe('project file', () => {
 		expect(() => deserialize('{"version":3,"floors":[]}')).toThrow(
 			'Invalid project file: no floors'
 		);
+	});
+});
+
+/*
+ * 另存为对话框关掉之后，文件并没有出去。
+ *
+ * 这里锁住的是“导出的返回值”：调用方靠它决定要不要弹“已导出”，所以取消必须报 false。
+ */
+describe('save project file', () => {
+	it('reports no export when the dialog is cancelled', async () => {
+		applyDocument(migrate(project())!);
+		vi.stubGlobal('window', {
+			showSaveFilePicker: () => Promise.reject(new DOMException('cancelled', 'AbortError'))
+		});
+		try {
+			await expect(saveProjectFile()).resolves.toBe(false);
+		} finally {
+			vi.unstubAllGlobals();
+		}
+	});
+
+	it('reports the export once the file is written', async () => {
+		applyDocument(migrate(project())!);
+		let written = '';
+		vi.stubGlobal('window', {
+			showSaveFilePicker: async () => ({
+				createWritable: async () => ({
+					write: async (data: string) => {
+						written = data;
+					},
+					close: async () => {}
+				})
+			})
+		});
+		try {
+			await expect(saveProjectFile()).resolves.toBe(true);
+			expect(JSON.parse(written).name).toBe('File round trip');
+		} finally {
+			vi.unstubAllGlobals();
+		}
 	});
 });

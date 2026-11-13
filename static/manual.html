@@ -31,7 +31,7 @@
 </head>
 <body>
 <h1>Aetherax 使用说明书</h1>
-<p>适用版本：Windows 桌面版 0.1.0。本手册按 English 界面编写；点击工具栏右侧的 EN/中 可以切换中文界面。</p>
+<p>适用版本：Windows 桌面版 0.4.0。本手册按 English 界面编写；点击工具栏右侧的 EN/中 可以切换中文界面。</p>
 <h2>目录</h2>
 <ol>
 <li>启动与界面</li>
@@ -91,9 +91,9 @@
 <h3>2.3 保存工程</h3>
 <ol>
 <li>按 Ctrl+S。</li>
-<li>界面显示 Saved 即完成。</li>
+<li>界面显示 Project saved 即完成。</li>
 </ol>
-<p>保存写入程序自己的本地存储，不会生成文件。日常编辑会自动保存，Ctrl+S 用于立即落盘。File 菜单没有单独的保存项。</p>
+<p>保存写入程序自己的本地存储，不会生成文件；日常编辑会自动保存，Ctrl+S 用于立即落盘。要生成文件用 File → Export Project File...（相当于另存为），它才会打开系统保存对话框。</p>
 <h3>2.4 导出工程文件</h3>
 <ol>
 <li>点击 File。</li>
@@ -215,9 +215,6 @@
 <li>点击 Recalibrate。</li>
 <li>重复 5.1 的步骤。</li>
 </ol>
-<p>重新标定只影响当前楼层。</p>
-<h3>5.3 未标定的影响</h3>
-<p>未标定时，比例显示 Not set，所有距离和 AP 半径按世界单位计算，覆盖率和优化结果不能当作真实物理结果使用。先完成标定，再评估覆盖率。</p>
 <h2>6. 楼层属性与对齐</h2>
 <h3>6.1 楼层属性</h3>
 <p>在 Floorplan 标签页展开 Floor properties：</p>
@@ -251,7 +248,7 @@
 <li>按 Esc 退出墙体工具或取消未完成的墙段。</li>
 <li>点击 Done 退出墙体工具。</li>
 </ol>
-<p>绘制时端点会吸附到已有墙体。墙体掩膜、室内范围和覆盖率都由这些墙线推导。</p>
+<p>绘制时端点会吸附到已有墙体。</p>
 <h3>7.2 修改墙体材质</h3>
 <ol>
 <li>点击一段墙体将其选中。</li>
@@ -391,17 +388,15 @@
 <p>点击 Placement optimiser 右侧的齿轮：</p>
 <ol>
 <li>Allow APs outside the floor boundary：允许 AP 落在楼层边界外（有规划范围时以它为准，否则按识别出的建筑内部），默认关闭。</li>
-<li>Coverage threshold：覆盖率判定门限，默认 -70 dBm；高密度办公区可提高到 -65 或 -60。热力图从门限下方 10 dB 开始着色，边缘仍保留梯度。</li>
-<li>Interference：同信道干扰在评分中的权重，0 到 1，步长 0.05。</li>
-<li>Min coverage：最低覆盖率约束，0 表示不约束（此时放置建议不估增删 AP 的数量）。</li>
+<li>Coverage threshold：覆盖率判定门限，默认 -70 dBm；高密度办公区可提高到 -65 或 -60。</li>
+<li>Interference：同信道干扰在评分中的权重。</li>
+<li>Min coverage：最低覆盖率约束，0 表示不约束。</li>
 <li>Client height：客户端离地高度。</li>
 <li>Restarts：优化重启次数，1 到 8。</li>
 <li>Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。</li>
 </ol>
-<p>容量不在这里设置：每台 AP 的 Clients 数量在 AP 编辑页单独修改，未设置时默认为 25。</p>
-<p>影响优化评分的设置需要重新运行优化才会生效；Coverage threshold 会立即重算覆盖率，热力图也跟着门限重画。改过评分设置又没重跑时，界面会提示屏幕上的布局是按旧设置选的。</p>
 <h3>10.4 放置建议</h3>
-<p>Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。增删 AP 的数量估计以 Min coverage 为目标；没设最低覆盖率时，面板只报容量、信道、干扰这些不依赖目标的问题。容量约束触发时会单独显示“Client capacity”，说明容量覆盖的终端数和建议增加的 AP 数；此时不会仅因为覆盖率高就提示删除 AP。点击 Dismiss 关闭。</p>
+<p>Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。容量约束触发时会单独显示“Client capacity”，说明容量覆盖的终端数和建议增加的 AP 数。点击 Dismiss 关闭。</p>
 <h3>10.5 信道分配</h3>
 <p>信道由求解器自动分配。需要固定某个 AP 的信道时，在 AP 编辑页把 Channel 从 Auto 改为具体信道。固定后该 AP 不再参与信道重分配。</p>
 <h2>11. 热力图与图层</h2>
@@ -415,10 +410,9 @@
 <p>Layers 面板中的按钮会显示当前视图，例如 `Heatmap view: RSSI`；点击后循环切换：</p>
 <ol>
 <li>RSSI：接收信号强度，色标单位 dBm；</li>
-<li>SINR：最强 AP 与服务小区干扰的比值，色标固定 -5..30 dB；</li>
-<li>Rate：PHY 参考速率，色标按当前 AP 的信道带宽自动缩放；预估吞吐按 MAC 折损，不是实测吞吐。</li>
+<li>SINR：最强 AP 与服务小区干扰的比值；</li>
+<li>Rate：PHY 参考速率。预估吞吐按 MAC 折损，不是实测吞吐。</li>
 </ol>
-<p>SINR 会把同频和邻频 AP 计入干扰，其他频段的 AP 不计入同一次 SINR。Rate 色标是 PHY 参考速率；预估吞吐按 MAC 折损，是帧聚合充分、低碰撞时的理想上限，不是实测吞吐。</p>
 <h3>11.2 图层开关</h3>
 <p>Layers 面板包含：</p>
 <ol>
@@ -432,12 +426,10 @@
 <li>Notes：标注。</li>
 <li>Grid：网格。</li>
 </ol>
-<p>Room labels、Floor below、Labels、Notes、Grid 只在单层视图显示。</p>
 <h3>11.3 底图不透明度</h3>
 <ol>
 <li>在 Layers 面板找到 Plan opacity。</li>
 <li>拖动滑块调整底图透明度。</li>
-<li>该值同时作用于单层视图和多层卡片。</li>
 </ol>
 <h3>11.4 信号色标</h3>
 <p>Layers 面板底部显示当前指标的色标。RSSI 色标范围随覆盖门限变化；SINR 固定 -5..30 dB；Rate 按当前信道带宽自动缩放。最左侧的深色格表示低于门限、无可用信号。</p>
@@ -473,8 +465,7 @@
 <li>显示当前楼层，墙体按真实高度拉伸，并使用墙体材质颜色。</li>
 <li>按住左键拖动旋转视角。</li>
 <li>Layers 面板的 Rotate 和 Tilt 可以精确设置角度。</li>
-<li>画布上方的 ↑ 和 ↓ 按钮切换上下楼层：旧楼层先向下（下楼时向上）淡出，新楼层再从另一侧淡入。</li>
-<li>也可以使用楼层条直接切换；楼层条是立即切换，不播动画。</li>
+<li>画布上方的 ↑ 和 ↓ 按钮切换上下楼层，也可以使用楼层条直接切换。</li>
 <li>3D 视图只读。</li>
 </ol>
 <h2>13. 抬升面</h2>

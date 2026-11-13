@@ -133,6 +133,13 @@ test('a saved project round-trips through File → Save and Open', async ({ page
 	await page.waitForTimeout(12_000);
 
 	await page.getByRole('button', { name: 'File' }).click();
+	// Headless Chromium has the native picker but no UI for it; take the download fallback.
+	await page.evaluate(() => {
+		Object.defineProperty(window, 'showSaveFilePicker', {
+			value: undefined,
+			configurable: true
+		});
+	});
 	const download = page.waitForEvent('download', { timeout: 15_000 });
 	await page.getByText('Export Project File...', { exact: true }).click();
 	const file = await download;

@@ -619,6 +619,8 @@
 		align-items: baseline;
 		gap: var(--space-2);
 		font: inherit;
+		/* Section label, not a value: the weight is what separates it from the row below. */
+		font-weight: 600;
 		color: inherit;
 	}
 

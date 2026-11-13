@@ -111,8 +111,11 @@ function downloadTextFile(json: string): void {
  * Chromium's File System Access API gives a native Save dialog; the Tauri webview
  * supports it on current Windows builds. If it is unavailable, fall back to a
  * regular download so the file still leaves the application.
+ *
+ * Returns whether the file actually left the app. Cancelling the dialog is not an
+ * export, so it reports false — the caller announces success only on true.
  */
-export async function saveProjectFile(): Promise<void> {
+export async function saveProjectFile(): Promise<boolean> {
 	const json = await serialize();
 	const picker = (
 		window as Window & {
@@ -129,7 +132,7 @@ export async function saveProjectFile(): Promise<void> {
 	).showSaveFilePicker;
 	if (!picker) {
 		downloadTextFile(json);
-		return;
+		return true;
 	}
 	try {
 		const handle = await picker({
@@ -144,10 +147,13 @@ export async function saveProjectFile(): Promise<void> {
 		const writable = await handle.createWritable();
 		await writable.write(json);
 		await writable.close();
+		return true;
 	} catch (error) {
-		// AbortError means the user cancelled the dialog; do not download behind their back.
-		if ((error as { name?: string }).name === 'AbortError') return;
+		// AbortError means the user cancelled the dialog; do not download behind their back,
+		// and do not claim an export either.
+		if ((error as { name?: string }).name === 'AbortError') return false;
 		downloadTextFile(json);
+		return true;
 	}
 }
 

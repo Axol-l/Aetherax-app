@@ -60,8 +60,8 @@
 	}
 
 	async function handleSaveProject() {
-		await saveProjectFile();
-		announce(t('Project exported as a JSON file'));
+		// Only say the file left the app when it did. Closing the Save dialog is not an export.
+		if (await saveProjectFile()) announce(t('Project exported as a JSON file'));
 	}
 
 	function handleOpenClick() {
