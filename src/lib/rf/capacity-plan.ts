@@ -25,6 +25,15 @@ export const TERMINAL_PROFILES: readonly TerminalProfile[] = [
 /** 规划可用率：给突发/竞争留的余量，不是实测效率。 */
 export const CAPACITY_UTILIZATION = 0.7;
 
+/**
+ * 并发率/活动因子。
+ *
+ * 思科高密度设计指南给出办公场景约 1 人/8 m² 的平均占用，并把
+ * “20–30% concurrent use”列为低到中等密度活动的参考值；这里取 0.3，
+ * 表示只有约三成终端在同一时刻产生业务。
+ */
+export const DEFAULT_ACTIVITY_FACTOR = 0.3;
+
 /** 业务量档位，Mbps/终端；20 是高档，25 留给 4K/高码率专用场景。 */
 export const ROOM_DEMAND_MBPS = {
 	low: 2,

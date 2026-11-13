@@ -32,6 +32,7 @@ import { slabLossFactor, type SlabCrossing } from '$lib/rf/cross-floor.js';
 import { splitWallRunLoss, wallRunLoss, type WallRun } from '$lib/rf/link-budget.js';
 import {
 	CAPACITY_UTILIZATION,
+	DEFAULT_ACTIVITY_FACTOR,
 	apCapacityMbps,
 	requiredAps,
 	roomDemandMbps
@@ -694,7 +695,9 @@ export async function updateCoverage(): Promise<void> {
 			const raw = densityResult.map[i]!;
 			const density = raw >= 0 ? raw : baseline;
 			devices += density * areaPerPixel;
-			demandMbps += density * areaPerPixel * roomDemandMbps(densityResult.roomTypeData[i] ?? 0);
+			demandMbps +=
+				density * areaPerPixel * roomDemandMbps(densityResult.roomTypeData[i] ?? 0) *
+				DEFAULT_ACTIVITY_FACTOR;
 		}
 	}
 
@@ -728,6 +731,7 @@ export async function updateCoverage(): Promise<void> {
 					requiredAps: requiredAps(demandMbps, perApCapacityMbps),
 					apCount: localAps.length,
 					utilization: CAPACITY_UTILIZATION,
+					activityFactor: DEFAULT_ACTIVITY_FACTOR,
 					medianEdgeSnrDb: Math.round(medianOf(edgeMargins))
 				}
 			: undefined;

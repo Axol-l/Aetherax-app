@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
 	CAPACITY_UTILIZATION,
+	DEFAULT_ACTIVITY_FACTOR,
 	ROOM_DEMAND_MBPS,
 	apCapacityMbps,
 	effectivePhyMbps,
@@ -9,6 +10,10 @@ import {
 } from './capacity-plan.js';
 
 describe('coarse capacity plan', () => {
+	it('uses a 30% activity factor for the coarse plan', () => {
+		expect(DEFAULT_ACTIVITY_FACTOR).toBe(0.3);
+	});
+
 	it('does not invent demand for unlabelled area', () => {
 		expect(roomDemandMbps(0)).toBe(0);
 	});

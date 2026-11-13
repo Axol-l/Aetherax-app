@@ -81,6 +81,7 @@ export interface FloorCoverageEntry {
 		requiredAps: number;
 		apCount: number;
 		utilization: number;
+		activityFactor: number;
 		medianEdgeSnrDb: number;
 	};
 	/** 这个数字对应的方案。从文件恢复的数据没有这一项。 */

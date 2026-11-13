@@ -256,7 +256,9 @@
 							required: traffic.requiredAps,
 							current: traffic.apCount
 						})}
-						· {t('edge SNR')} {traffic.medianEdgeSnrDb} dB
+						· {t('edge SNR')} {traffic.medianEdgeSnrDb} dB · {Math.round(
+							traffic.activityFactor * 100
+						)}% {t('active')}
 					</div>
 				{/if}
 			</div>
