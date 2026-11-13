@@ -723,16 +723,16 @@ import { wallState } from '$state/wall-state.svelte.js';
 					const u = x / fieldSize;
 					const v = y / fieldSize;
 					const phase =
-						Math.sin(u * Math.PI * 4 + time * 1.7) +
-						0.65 * Math.sin(v * Math.PI * 3 - time * 1.15) +
-						0.35 * Math.sin((u + v) * Math.PI * 5 + time * 0.8);
+						Math.sin(u * Math.PI * 2.4 + time * 0.55) +
+						0.55 * Math.sin(v * Math.PI * 1.8 - time * 0.4) +
+						0.25 * Math.sin((u - v) * Math.PI * 3.2 + time * 0.3);
+					const light = 0.5 + 0.5 * Math.sin(phase);
 					const index = (y * fieldSize + x) * 4;
-					pixels[index] = 128 + 127 * Math.sin(phase);
-					pixels[index + 1] = 128 + 127 * Math.sin(phase + 2.094);
-					pixels[index + 2] = 128 + 127 * Math.sin(phase + 4.188);
-					// Higher transparency than the old wash; the cached raster stays
-					// readable underneath, but is visibly marked as provisional.
-					pixels[index + 3] = 64;
+					// Muted aurora (teal → blue → violet), not a full rainbow.
+					pixels[index] = 28 + 48 * light;
+					pixels[index + 1] = 88 + 78 * light;
+					pixels[index + 2] = 150 + 75 * (0.5 + 0.5 * Math.sin(phase + 1.35));
+					pixels[index + 3] = 48;
 				}
 			}
 			fieldContext.putImageData(fieldImage, 0, 0);
@@ -745,8 +745,8 @@ import { wallState } from '$state/wall-state.svelte.js';
 		draw();
 		return () => {
 			cancelAnimationFrame(frame);
-			context.setTransform(1, 0, 0, 1, 0, 0);
-			context.clearRect(0, 0, canvas.width, canvas.height);
+			// Keep the last field painted: the CSS opacity transition fades it out
+			// instead of snapping the overlay away.
 		};
 	});
 	const wallLayer = new WallLayer();
@@ -2090,8 +2090,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 		ontouchcancel={(e) => gestures.handleTouchEnd(e)}
 	></canvas>
 
-	{#if heatmapLoading && appState.showHeatmap}
-		<canvas class="heatmap-loading-wave" bind:this={heatmapLoadingCanvas}></canvas>
+	{#if appState.showHeatmap}
+		<canvas
+			class="heatmap-loading-wave"
+			class:visible={heatmapLoading}
+			bind:this={heatmapLoadingCanvas}
+		></canvas>
 	{/if}
 	
 	<div
@@ -2320,5 +2324,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 		pointer-events: none;
 		width: 100%;
 		height: 100%;
+		opacity: 0;
+		transition: opacity 220ms ease;
+		will-change: opacity;
+	}
+
+	.heatmap-loading-wave.visible {
+		opacity: 1;
 	}
 </style>
