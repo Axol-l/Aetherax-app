@@ -8,17 +8,17 @@ interface ChannelDef {
 }
 
 const UNII_1: ChannelDef[] = [
-	{ number: 36, frequency: 5180, dfs: false, maxWidth: 80 },
-	{ number: 40, frequency: 5200, dfs: false, maxWidth: 80 },
-	{ number: 44, frequency: 5220, dfs: false, maxWidth: 80 },
-	{ number: 48, frequency: 5240, dfs: false, maxWidth: 80 }
+	{ number: 36, frequency: 5180, dfs: false, maxWidth: 160 },
+	{ number: 40, frequency: 5200, dfs: false, maxWidth: 160 },
+	{ number: 44, frequency: 5220, dfs: false, maxWidth: 160 },
+	{ number: 48, frequency: 5240, dfs: false, maxWidth: 160 }
 ];
 
 const UNII_2: ChannelDef[] = [
-	{ number: 52, frequency: 5260, dfs: true, maxWidth: 80 },
-	{ number: 56, frequency: 5280, dfs: true, maxWidth: 80 },
-	{ number: 60, frequency: 5300, dfs: true, maxWidth: 80 },
-	{ number: 64, frequency: 5320, dfs: true, maxWidth: 80 }
+	{ number: 52, frequency: 5260, dfs: true, maxWidth: 160 },
+	{ number: 56, frequency: 5280, dfs: true, maxWidth: 160 },
+	{ number: 60, frequency: 5300, dfs: true, maxWidth: 160 },
+	{ number: 64, frequency: 5320, dfs: true, maxWidth: 160 }
 ];
 
 const UNII_2_EXT: ChannelDef[] = [

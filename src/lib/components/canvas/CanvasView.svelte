@@ -617,6 +617,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	let containerEl: HTMLDivElement;
 	let engine: CanvasEngine;
 	let heatmapLoading = $state(false);
+	let heatmapLoadingCanvas = $state<HTMLCanvasElement | null>(null);
 	let panZoom: PanZoomHandler;
 	let selectHandler: SelectHandler;
 	let dragHandler: DragHandler;
@@ -666,6 +667,84 @@ import { wallState } from '$state/wall-state.svelte.js';
 	function clearHeatmapProbe(): void {
 		appState.heatmapProbe = null;
 	}
+
+	/**
+	 * While the worker rebuilds the heatmap, cover the planning area with an
+	 * animated colour wash. It is intentionally clipped to the plan, so the old
+	 * raster cannot be mistaken for the new one outside the planning boundary.
+	 */
+	$effect(() => {
+		const active = heatmapLoading && appState.showHeatmap;
+		const canvas = heatmapLoadingCanvas;
+		if (!active || !canvas || !engine || !containerEl) return;
+
+		const context = canvas.getContext('2d');
+		if (!context) return;
+		let frame = 0;
+		const startedAt = performance.now();
+
+		const draw = () => {
+			const rect = containerEl!.getBoundingClientRect();
+			const width = Math.max(1, Math.round(rect.width));
+			const height = Math.max(1, Math.round(rect.height));
+			const dpr = Math.min(2, window.devicePixelRatio || 1);
+			if (canvas.width !== width * dpr || canvas.height !== height * dpr) {
+				canvas.width = width * dpr;
+				canvas.height = height * dpr;
+				canvas.style.width = `${width}px`;
+				canvas.style.height = `${height}px`;
+			}
+			context.setTransform(dpr, 0, 0, dpr, 0, 0);
+			context.clearRect(0, 0, width, height);
+
+			const area = floorState.floors.find((f) => f.id === floorState.currentFloorId)?.planningArea;
+			if (!area || area.length < 3) return;
+			const screen = area.map((point) => engine!.camera.worldToScreen(point));
+			context.save();
+			context.beginPath();
+			context.moveTo(screen[0]!.x, screen[0]!.y);
+			for (let i = 1; i < screen.length; i++) context.lineTo(screen[i]!.x, screen[i]!.y);
+			context.closePath();
+			context.clip();
+
+			const time = (performance.now() - startedAt) / 1000;
+			const hue = (time * 36) % 360;
+			const gradient = context.createLinearGradient(0, 0, width, height);
+			gradient.addColorStop(0, `hsla(${hue}, 95%, 62%, 0.52)`);
+			gradient.addColorStop(0.5, `hsla(${(hue + 90) % 360}, 95%, 55%, 0.42)`);
+			gradient.addColorStop(1, `hsla(${(hue + 190) % 360}, 95%, 60%, 0.52)`);
+			context.fillStyle = gradient;
+			context.fillRect(0, 0, width, height);
+
+			context.globalCompositeOperation = 'screen';
+			for (let band = 0; band < 4; band++) {
+				const yBase = (height * (band + 1)) / 5;
+				const amplitude = height * 0.08;
+				const phase = time * (1.2 + band * 0.25) + band * 1.7;
+				context.beginPath();
+				context.moveTo(0, yBase);
+				for (let x = 0; x <= width; x += 4) {
+					const y = yBase + Math.sin(x / 90 + phase) * amplitude;
+					context.lineTo(x, y);
+				}
+				context.lineTo(width, height);
+				context.lineTo(0, height);
+				context.closePath();
+				context.fillStyle = `hsla(${(hue + band * 55) % 360}, 95%, 66%, 0.12)`;
+				context.fill();
+			}
+			context.globalCompositeOperation = 'source-over';
+			context.restore();
+			frame = requestAnimationFrame(draw);
+		};
+
+		draw();
+		return () => {
+			cancelAnimationFrame(frame);
+			context.setTransform(1, 0, 0, 1, 0, 0);
+			context.clearRect(0, 0, canvas.width, canvas.height);
+		};
+	});
 	const wallLayer = new WallLayer();
 	const roomLabelsLayer = new RoomLabelsLayer();
 	const apLayer = new ApLayer();
@@ -2008,10 +2087,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	></canvas>
 
 	{#if heatmapLoading && appState.showHeatmap}
-		<div class="heatmap-loading" role="status" aria-live="polite">
-			<span class="heatmap-loading-spinner"></span>
-			<span>{t('Updating heatmap…')}</span>
-		</div>
+		<canvas class="heatmap-loading-wave" bind:this={heatmapLoadingCanvas}></canvas>
 	{/if}
 	
 	<div
@@ -2233,33 +2309,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 		opacity: 0.6;
 	}
 
-	.heatmap-loading {
+	.heatmap-loading-wave {
 		position: absolute;
 		inset: 0;
 		z-index: 3;
-		display: flex;
-		align-items: center;
-		justify-content: center;
-		gap: var(--space-2);
 		pointer-events: none;
-		background: rgb(0 0 0 / 0.16);
-		color: var(--text-primary);
-		font-size: var(--text-sm);
-		text-shadow: 0 1px 2px rgb(0 0 0 / 0.8);
-	}
-
-	.heatmap-loading-spinner {
-		width: 14px;
-		height: 14px;
-		border: 2px solid rgb(255 255 255 / 0.3);
-		border-top-color: var(--accent-primary);
-		border-radius: 50%;
-		animation: heatmap-spin 0.8s linear infinite;
-	}
-
-	@keyframes heatmap-spin {
-		to {
-			transform: rotate(360deg);
-		}
+		width: 100%;
+		height: 100%;
 	}
 </style>

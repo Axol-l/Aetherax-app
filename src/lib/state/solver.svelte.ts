@@ -289,9 +289,12 @@ function widestWidthOn(band: Band): ChannelWidth {
 
 /** 规划器在某频段可以分配的信道：互不重叠，所以 `number_a === number_b` 就等于"互相干扰"。 */
 function planningChannelNumbers(band: Band): number[] {
-	return planningChannels(band, apState.regulatoryDomain, widestWidthOn(band)).map(
-		(ch) => ch.number
-	);
+	const width = widestWidthOn(band);
+	// 160 MHz has only 36–64 and 100–128; without DFS the band has one useful
+	// palette entry, so open DFS for the wide-channel palette.
+	return planningChannels(band, apState.regulatoryDomain, width, {
+		includeDfs: width >= 160
+	}).map((ch) => ch.number);
 }
 
 function getColorOptions(): number[] {

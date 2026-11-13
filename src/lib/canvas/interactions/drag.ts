@@ -38,7 +38,6 @@ export class DragHandler {
 			beginMove();
 			this._isDragging = true;
 			this.dragApId = hit.id;
-			canvasState.isDragging = true;
 			this.startWorld = this.engine.camera.screenToWorld(screenPoint);
 
 			// 记录所有选中 AP 的起始位置
@@ -85,6 +84,10 @@ export class DragHandler {
 	private apply(worldPoint: { x: number; y: number }): void {
 		const dx = worldPoint.x - this.startWorld.x;
 		const dy = worldPoint.y - this.startWorld.y;
+
+		// A plain click selects an AP but must not enter the drag/loading path.
+		if (!canvasState.isDragging && dx === 0 && dy === 0) return;
+		canvasState.isDragging = true;
 
 		// 按位移量移动所有选中的 AP
 		for (const [id, start] of this.apStartPositions) {

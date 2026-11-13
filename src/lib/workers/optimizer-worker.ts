@@ -1072,9 +1072,10 @@ async function runOptimization(
 	const sourceAllowed: number[][] | null = msg.regulatoryDomain
 		? [...aps, ...fixedAps].map((ap) => {
 				if (ap.fixedChannel !== null && ap.fixedChannel !== undefined) return [ap.fixedChannel];
-				return planningCandidates(ap.band, msg.regulatoryDomain!, paletteWidth(ap.band)).map(
-					(c) => c.number
-				);
+				const width = paletteWidth(ap.band);
+				return planningCandidates(ap.band, msg.regulatoryDomain!, width, {
+					includeDfs: width >= 160
+				}).map((c) => c.number);
 			})
 		: null;
 	const sourceBands = [...aps, ...fixedAps].map((ap) => ap.band as string);

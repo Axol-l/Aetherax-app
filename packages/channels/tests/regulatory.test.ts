@@ -80,6 +80,19 @@ describe('planningChannels', () => {
 		expect(planningChannels('5ghz', 'fcc', 20).map((c) => c.number)).toEqual(available);
 	});
 
+	it('does not bond 149 or 165 to 160 MHz', () => {
+		const channels160 = planningChannels('5ghz', 'fcc', 160, { includeDfs: true }).map(
+			(c) => c.number
+		);
+		expect(channels160).toContain(36);
+		expect(channels160).toContain(100);
+		expect(channels160).not.toContain(149);
+		expect(channels160).not.toContain(165);
+		expect(
+			planningCandidates('5ghz', 'fcc', 160, { includeDfs: true }).map((c) => c.number)
+		).not.toContain(149);
+	});
+
 	it('costs real channels once 5 GHz is bonded', () => {
 		// An 80 MHz channel needs four 20 MHz blocks, so most of the band's channel
 		// numbers are no longer usable side by side. This is the case the interval
@@ -135,7 +148,7 @@ describe('planningCandidates', () => {
 		// actually conflicts with can use far more centres than that.
 		const wide = planningChannels('5ghz', 'fcc', 80).map((c) => c.number);
 		const narrow = planningCandidates('5ghz', 'fcc', 20).map((c) => c.number);
-		expect(wide).toEqual([36, 149, 165]);
+		expect(wide).toEqual([36, 149]);
 		expect(narrow.filter((n) => !wide.includes(n)).length).toBeGreaterThan(3);
 	});
 });

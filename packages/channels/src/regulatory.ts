@@ -51,7 +51,10 @@ export function planningChannels(
 	width: ChannelWidth,
 	options?: AvailableChannelsOptions
 ): Channel[] {
-	return nonOverlappingChannels(getAvailableChannels(band, domain, options), width);
+	const available = getAvailableChannels(band, domain, options).filter(
+		(channel) => channel.maxWidth >= width
+	);
+	return nonOverlappingChannels(available, width);
 }
 
 // 优先返回无重叠频道，再补充其它可用频道
@@ -61,7 +64,9 @@ export function planningCandidates(
 	width: ChannelWidth,
 	options?: AvailableChannelsOptions
 ): Channel[] {
-	const available = getAvailableChannels(band, domain, options);
+	const available = getAvailableChannels(band, domain, options).filter(
+		(channel) => channel.maxWidth >= width
+	);
 	const palette = nonOverlappingChannels(available, width);
 	const inPalette = new Set(palette.map((ch) => ch.number));
 	return [...palette, ...available.filter((ch) => !inPalette.has(ch.number))];

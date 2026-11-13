@@ -310,8 +310,8 @@ describe('conflict matrix and colouring', () => {
 		const two20 = planningCandidates('2.4ghz', 'fcc', 20).map((c) => c.number);
 
 		it('finds a clear narrower centre where the palette ran out', () => {
-			// 四个互相冲突的 AP：三个 80 MHz 占满常用信道表，一个 20 MHz 无表项可用；
-			// 扩宽候选集后，后者能找到与各 80 MHz 跨度都不重叠的窄信道，重叠为 0 而不是完全复用。
+			// 5 GHz 80 MHz 只有 36 和 149 两个非重叠信道；第三个 80 MHz 只能复用。
+			// 扩宽候选集后，窄信道仍能找到与各 80 MHz 跨度都不重叠的中心。
 			const k4 = conflictMatrix(4);
 			for (let i = 0; i < 4; i++)
 				for (let j = 0; j < 4; j++) if (i !== j) k4[i * 4 + j] = 1;
@@ -323,7 +323,7 @@ describe('conflict matrix and colouring', () => {
 				[five80, five80, five80, five20],
 				overlap
 			);
-			expect(channels.slice(0, 3)).toEqual([36, 149, 165]);
+			expect(channels.slice(0, 3)).toEqual([36, 149, 36]);
 			expect(channels[3]).toBe(48);
 			// 结果确实无重叠，这正是取它的意义。
 			for (let i = 0; i < 3; i++) expect(overlap(3, channels[3]!, i, channels[i]!)).toBe(0);
