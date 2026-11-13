@@ -682,6 +682,15 @@ import { wallState } from '$state/wall-state.svelte.js';
 		if (!context) return;
 		let frame = 0;
 		const startedAt = performance.now();
+		// A low-resolution colour field is cheaper than thousands of 1 px paths and
+		// gives the top-down "moving colour wave" rather than side-on sine bands.
+		const fieldSize = 128;
+		const field = document.createElement('canvas');
+		field.width = fieldSize;
+		field.height = fieldSize;
+		const fieldContext = field.getContext('2d')!;
+		const fieldImage = fieldContext.createImageData(fieldSize, fieldSize);
+		fieldContext.imageSmoothingEnabled = true;
 
 		const draw = () => {
 			const rect = containerEl!.getBoundingClientRect();
@@ -708,32 +717,27 @@ import { wallState } from '$state/wall-state.svelte.js';
 			context.clip();
 
 			const time = (performance.now() - startedAt) / 1000;
-			const hue = (time * 36) % 360;
-			const gradient = context.createLinearGradient(0, 0, width, height);
-			gradient.addColorStop(0, `hsla(${hue}, 95%, 62%, 0.52)`);
-			gradient.addColorStop(0.5, `hsla(${(hue + 90) % 360}, 95%, 55%, 0.42)`);
-			gradient.addColorStop(1, `hsla(${(hue + 190) % 360}, 95%, 60%, 0.52)`);
-			context.fillStyle = gradient;
-			context.fillRect(0, 0, width, height);
-
-			context.globalCompositeOperation = 'screen';
-			for (let band = 0; band < 4; band++) {
-				const yBase = (height * (band + 1)) / 5;
-				const amplitude = height * 0.08;
-				const phase = time * (1.2 + band * 0.25) + band * 1.7;
-				context.beginPath();
-				context.moveTo(0, yBase);
-				for (let x = 0; x <= width; x += 4) {
-					const y = yBase + Math.sin(x / 90 + phase) * amplitude;
-					context.lineTo(x, y);
+			const pixels = fieldImage.data;
+			for (let y = 0; y < fieldSize; y++) {
+				for (let x = 0; x < fieldSize; x++) {
+					const u = x / fieldSize;
+					const v = y / fieldSize;
+					const phase =
+						Math.sin(u * Math.PI * 4 + time * 1.7) +
+						0.65 * Math.sin(v * Math.PI * 3 - time * 1.15) +
+						0.35 * Math.sin((u + v) * Math.PI * 5 + time * 0.8);
+					const index = (y * fieldSize + x) * 4;
+					pixels[index] = 128 + 127 * Math.sin(phase);
+					pixels[index + 1] = 128 + 127 * Math.sin(phase + 2.094);
+					pixels[index + 2] = 128 + 127 * Math.sin(phase + 4.188);
+					// Higher transparency than the old wash; the cached raster stays
+					// readable underneath, but is visibly marked as provisional.
+					pixels[index + 3] = 64;
 				}
-				context.lineTo(width, height);
-				context.lineTo(0, height);
-				context.closePath();
-				context.fillStyle = `hsla(${(hue + band * 55) % 360}, 95%, 66%, 0.12)`;
-				context.fill();
 			}
-			context.globalCompositeOperation = 'source-over';
+			fieldContext.putImageData(fieldImage, 0, 0);
+			context.imageSmoothingEnabled = true;
+			context.drawImage(field, 0, 0, width, height);
 			context.restore();
 			frame = requestAnimationFrame(draw);
 		};
