@@ -9,6 +9,10 @@ import {
 } from './capacity-plan.js';
 
 describe('coarse capacity plan', () => {
+	it('does not invent demand for unlabelled area', () => {
+		expect(roomDemandMbps(0)).toBe(0);
+	});
+
 	it('weights room demand in three tiers', () => {
 		expect(roomDemandMbps(2)).toBe(ROOM_DEMAND_MBPS.low);
 		expect(roomDemandMbps(10)).toBe(ROOM_DEMAND_MBPS.standard);

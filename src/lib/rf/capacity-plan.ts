@@ -36,6 +36,9 @@ const HIGH_ROOMS = new Set([8, 11, 20, 21, 23, 43]);
 const LOW_ROOMS = new Set([2, 3, 4, 5, 6, 7, 35, 36, 37, 38, 39, 45, 46, 48]);
 
 export function roomDemandMbps(roomTypeId: number): number {
+	// 未标注（0）的区域不应当被当成标准办公室，否则整层未分类面积会凭空变成
+	// 大量业务需求。容量只统计有房间类型标签的面积。
+	if (roomTypeId === 0) return 0;
 	if (HIGH_ROOMS.has(roomTypeId)) return ROOM_DEMAND_MBPS.high;
 	if (LOW_ROOMS.has(roomTypeId)) return ROOM_DEMAND_MBPS.low;
 	return ROOM_DEMAND_MBPS.standard;

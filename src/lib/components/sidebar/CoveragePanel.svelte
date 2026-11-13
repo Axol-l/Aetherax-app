@@ -115,6 +115,19 @@
 			? Math.min(100, (traffic.demandMbps / traffic.supplyMbps) * 100)
 			: 0
 	);
+	const trafficText = $derived.by(() => {
+		if (!traffic) return null;
+		const useMbps = Math.max(traffic.demandMbps, traffic.supplyMbps) < 1000;
+		return {
+			demand: useMbps
+				? `${Math.round(traffic.demandMbps)}`
+				: (traffic.demandMbps / 1000).toFixed(1),
+			supply: useMbps
+				? `${Math.round(traffic.supplyMbps)}`
+				: (traffic.supplyMbps / 1000).toFixed(1),
+			unit: useMbps ? 'Mbps' : 'Gbps'
+		};
+	});
 	const clientCapacity = $derived(
 		(floorState.floors.length <= 1
 			? apState.aps
@@ -225,8 +238,7 @@
 				<div class="metric-head">
 					<span class="metric-name">{t('Traffic capacity')}</span>
 					<span class="metric-value">
-						{(traffic.demandMbps / 1000).toFixed(1)} / {(traffic.supplyMbps / 1000).toFixed(1)}
-						Gbps
+						{trafficText?.demand} / {trafficText?.supply} {trafficText?.unit}
 					</span>
 				</div>
 				<div class="coverage-bar-track">
