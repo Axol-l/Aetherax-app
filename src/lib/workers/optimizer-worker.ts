@@ -25,7 +25,7 @@ import { slabLossFactor } from '../rf/cross-floor.js';
 import { splitWallRunLoss, wallRunLoss, type WallRun } from '../rf/link-budget.js';
 import { columnLossDelta } from '../rf/columns.js';
 import { rayWallLossDb } from '../rf/wall-crossings.js';
-import { secondOrderReflection, type ReflectionPair, type ReflectingWall } from '../rf/reflection.js';
+import { secondOrderReflection } from '../rf/reflection.js';
 import { reflectionPairsForAp } from '../rf/path-candidates.js';
 import { surfaceHeightAt } from '../rf/surface-height.js';
 import {
@@ -50,6 +50,7 @@ import {
 	type WallMaterialId
 } from '$lib/domain/materials.js';
 import {
+	getAvailableChannels,
 	planningCandidates,
 	type Band,
 	type ChannelWidth
@@ -1071,7 +1072,16 @@ async function runOptimization(
 	const paletteWidth = (band: Band): ChannelWidth => (widthByBand.get(band) ?? 20) as ChannelWidth;
 	const sourceAllowed: number[][] | null = msg.regulatoryDomain
 		? [...aps, ...fixedAps].map((ap) => {
-				if (ap.fixedChannel !== null && ap.fixedChannel !== undefined) return [ap.fixedChannel];
+				if (ap.fixedChannel !== null && ap.fixedChannel !== undefined) {
+					const valid = getAvailableChannels(ap.band, msg.regulatoryDomain!, {
+						includeDfs: true
+					}).some(
+						(channel) =>
+							channel.number === ap.fixedChannel &&
+							channel.maxWidth >= (ap.channelWidth ?? 20)
+					);
+					if (valid) return [ap.fixedChannel];
+				}
 				const width = paletteWidth(ap.band);
 				return planningCandidates(ap.band, msg.regulatoryDomain!, width, {
 					includeDfs: width >= 160

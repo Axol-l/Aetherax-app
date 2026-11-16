@@ -5,7 +5,7 @@
  */
 import { debug } from '$lib/log.js';
 import { buildInterferenceGraph } from '@aetherax/geometry';
-import { planningChannels, planningCandidates, estimateThroughput } from '@aetherax/channels';
+import { planningChannels, planningCandidates, estimateThroughput, getAvailableChannels } from '@aetherax/channels';
 import type { ChannelWidth, ThroughputEstimate, ThroughputInput } from '@aetherax/channels';
 import type { Band } from '@aetherax/channels';
 import type { SolverResult, ComparisonResult } from '@aetherax/solver';
@@ -318,7 +318,10 @@ function getFixedAssignments(): [string, number][] {
 	const fixed: [string, number][] = [];
 	for (const ap of apState.aps) {
 		if (ap.fixedChannel !== null) {
-			fixed.push([ap.id, ap.fixedChannel]);
+			const valid = getAvailableChannels(ap.band, apState.regulatoryDomain, {
+				includeDfs: true
+			}).some((channel) => channel.number === ap.fixedChannel && channel.maxWidth >= ap.channelWidth);
+			if (valid) fixed.push([ap.id, ap.fixedChannel]);
 		}
 	}
 	return fixed;

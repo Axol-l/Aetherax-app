@@ -274,10 +274,9 @@
 
 	let channelOptions = $derived.by(() => {
 		if (!singleAp) return [];
-		const channels = getAvailableChannels(
-			singleAp.band,
-			apState.regulatoryDomain
-		);
+		const channels = getAvailableChannels(singleAp.band, apState.regulatoryDomain, {
+			includeDfs: singleAp.channelWidth >= 160
+		}).filter((channel) => channel.maxWidth >= singleAp.channelWidth);
 		const opts: Array<{ value: string; label: string }> = [
 			{ value: '', label: 'Auto' }
 		];
@@ -286,6 +285,12 @@
 		}
 		return opts;
 	});
+
+	function supportsWidth(band: Band, channel: number, width: ChannelWidth): boolean {
+		return getAvailableChannels(band, apState.regulatoryDomain, { includeDfs: true }).some(
+			(candidate) => candidate.number === channel && candidate.maxWidth >= width
+		);
+	}
 
 	function handleBandChange(val: string) {
 		pushState();
@@ -305,10 +310,21 @@
 		pushState();
 		const channelWidth = Number(val) as ChannelWidth;
 		if (singleAp) {
-			updateAp(singleAp.id, { channelWidth });
+			const fixedInvalid =
+				singleAp.fixedChannel !== null &&
+				!supportsWidth(singleAp.band, singleAp.fixedChannel, channelWidth);
+			updateAp(singleAp.id, {
+				channelWidth,
+				...(fixedInvalid ? { fixedChannel: null, assignedChannel: null } : {})
+			});
 		} else if (multiSelect) {
 			for (const ap of selectedAps) {
-				updateAp(ap.id, { channelWidth });
+				const fixedInvalid =
+					ap.fixedChannel !== null && !supportsWidth(ap.band, ap.fixedChannel, channelWidth);
+				updateAp(ap.id, {
+					channelWidth,
+					...(fixedInvalid ? { fixedChannel: null, assignedChannel: null } : {})
+				});
 			}
 		}
 	}
