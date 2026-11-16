@@ -296,7 +296,10 @@
 		if (!singleAp) return null;
 		const width = singleAp.channelWidth;
 		const sameBand = apState.aps.filter(
-			(ap) => ap.band === singleAp.band && ap.channelWidth === width
+			(ap) =>
+				ap.band === singleAp.band &&
+				ap.channelWidth === width &&
+				ap.floorId === singleAp.floorId
 		);
 		if (sameBand.length < 2) return null;
 		const palette = planningChannels(singleAp.band, apState.regulatoryDomain, width, {
