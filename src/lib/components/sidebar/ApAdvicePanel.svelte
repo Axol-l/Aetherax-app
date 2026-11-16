@@ -4,7 +4,7 @@
 	 */
 	
 	import { projectMeta } from '$state/project-meta.svelte';
-	import { optimizerState, floorCoverage } from '$state/optimizer.svelte';
+	import { optimizerState, floorCoverage, measuredBuildingCoverage } from '$state/optimizer.svelte';
 	import { floorState, currentFloor } from '$state/floor-state.svelte';
 	import type { AdviceFinding } from '$lib/ap-advice.js';
 	import { evaluateApAdvice } from '$lib/ap-advice.js';
@@ -61,6 +61,15 @@
 		return worst;
 	});
 
+	/**
+	 * 整栋均值，现读 `floorCoverage`。
+	 *
+	 * 以前读的是运行时抄下的快照：最弱层补跑改完某一层之后，快照还停在最后一整轮，
+	 * 于是建议里的“整栋 X%”和面板上的整栋数字说的是两个时刻，15 个点的差距判据也会
+	 * 跟着判错。
+	 */
+	const buildingCoverage = $derived(measuredBuildingCoverage());
+
 	const findings = $derived(
 		evaluateApAdvice({
 			apsOnFloor: apsOnFloor.length,
@@ -74,7 +83,7 @@
 			calibrated: floorState.floors[0]?.calibration != null,
 			floorAreaSqm,
 			multiFloor: floorState.floors.length > 1,
-			buildingCoverage: optimizerState.buildingCoverage,
+			buildingCoverage,
 			worstFloor
 		})
 	);

@@ -202,6 +202,11 @@ test('the weakest floor is retried on fresh seeds, within a budget', async ({ pa
 	} else {
 		expect(Number(ends.at(-1)?.[1])).toBeLessThan(75);
 	}
+
+	// The badge under "Whole building" reads the project's requirement, not a fixed 70%, so a
+	// floor that fell short of it has to look like a warning. Paired with the next test, where
+	// the same ~53% floor clears a 5% requirement: the old constant could not tell them apart.
+	await expect(page.locator('.worst')).toHaveClass(/below/);
 });
 
 test('says so and spends nothing when the requirement is already met', async ({ page }) => {
@@ -217,6 +222,10 @@ test('says so and spends nothing when the requirement is already met', async ({ 
 	expect(joined).toContain('at or above the 5% requirement');
 	expect(joined).not.toContain('with it as the ε');
 	expect(lines.filter((l) => l.includes('[optimizer] seed ')).length).toBe(BLOCKS);
+
+	// The weakest floor is around 53%: below the old hard-coded 70, above this project's 5%.
+	// The badge must follow the requirement and stay neutral, or the two tests disagree.
+	await expect(page.locator('.worst')).not.toHaveClass(/below/);
 });
 
 test('the building row follows an all-floor run, not the first render', async ({ page }) => {
@@ -242,5 +251,8 @@ test('the building row follows an all-floor run, not the first render', async ({
 	await expect(meta).toContainText('2 floors measured');
 	await expect(page.locator('.building-value')).not.toHaveText('0%');
 	await expect(page.locator('.worst')).toContainText('at');
+	// No requirement is set (0 = off), so there is nothing to judge the weakest floor against:
+	// it is a number, not a warning. A fixed 70% would paint it either way.
+	await expect(page.locator('.worst')).not.toHaveClass(/below/);
 	console.log('building meta after the run: ' + ((await meta.textContent()) ?? '').trim());
 });

@@ -881,7 +881,6 @@ async function runAlternatingPasses(signal: AbortSignal): Promise<void> {
 		passes = pass;
 		if (weight <= 0) break;
 		const building = weighted / weight;
-		optimizerState.buildingCoverage = Math.round(building * 100);
 
 		// 把最弱的那层点出来。只报告，不为它单独优化：min-max 目标函数难搜得多，
 		// 收益却很小，而按层跑真正提升的是平均值。
@@ -1027,6 +1026,7 @@ export { optimizerState, floorCoverage };
 export {
 	apsOutsideInterior,
 	getBuildingCoverage,
+	measuredBuildingCoverage,
 	resultIsStale
 } from './optimizer-state.svelte.js';
 export { updateCoverage } from './optimizer-coverage.svelte.js';

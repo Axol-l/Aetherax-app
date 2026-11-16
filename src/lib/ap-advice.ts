@@ -63,7 +63,7 @@ export interface AdviceContext {
 	floorAreaSqm: number | null;
 	/** True when the project has more than one storey. */
 	multiFloor: boolean;
-	/** Density-weighted building mean, or null when no all-floor run has happened. */
+	/** Density-weighted mean of the measured floors, or null when none has been measured. */
 	buildingCoverage: number | null;
 	/** Weakest measured floor, or null. */
 	worstFloor: { name: string; coverage: number } | null;
