@@ -194,6 +194,12 @@
 					traffic.requiredAps <= traffic.apCount &&
 					traffic.medianEdgeSnrDb >= 20))
 	);
+	const capacityProfileOptions = [
+		{ value: 'office', label: t('Office') },
+		{ value: 'highDensity', label: t('High density') },
+		{ value: 'iot', label: t('IoT / hotel') },
+		{ value: 'custom', label: t('Custom') }
+	];
 
 	/** 最低覆盖率要求；0 表示工程没设，面板就不对最弱层下判断。 */
 	const requirement = $derived(projectMeta.coverageFloorPct);
@@ -296,7 +302,7 @@
 				{#if traffic}
 					<div class="capacity-row">
 						<span>{t('Traffic')}</span>
-						<span>{trafficText?.demand} / {trafficText?.supply} {trafficText?.unit}</span>
+						<span>{trafficText?.supply} / {trafficText?.demand} {trafficText?.unit}</span>
 					</div>
 				{/if}
 				<div class="coverage-bar-track">
@@ -319,22 +325,21 @@
 					{/if}
 				{/if}
 				{#if capacitySettingsOpen}
-					<div class="capacity-popover">
-						<label>
-							<span>{t('Profile')}</span>
-							<select
+					<div
+						class="settings-popup capacity-popover"
+						transition:slide={{ duration: motionDuration(180) }}
+					>
+						<label class="setting-row slider-row">
+							<span class="setting-title">{t('Profile')}</span>
+							<Select
 								value={projectMeta.capacityProfile}
-								onchange={(e) =>
-									applyCapacityProfile((e.currentTarget as HTMLSelectElement).value as CapacityProfile)}
-							>
-								<option value="office">{t('Office')}</option>
-								<option value="highDensity">{t('High density')}</option>
-								<option value="iot">{t('IoT / hotel')}</option>
-								<option value="custom">{t('Custom')}</option>
-							</select>
+								options={capacityProfileOptions}
+								aria-label={t('Profile')}
+								onchange={(value) => applyCapacityProfile(value as CapacityProfile)}
+							/>
 						</label>
-						<label>
-							<span>{t('Activity')}</span>
+						<label class="setting-row slider-row">
+							<span class="setting-title">{t('Activity')}</span>
 							<input
 								type="range"
 								min="0.1"
@@ -350,10 +355,12 @@
 									void updateCoverage();
 								}}
 							/>
-							<span>{Math.round(projectMeta.activityFactor * 100)}%</span>
+							<span class="setting-value"
+								>{Math.round(projectMeta.activityFactor * 100)}%</span
+							>
 						</label>
-						<label>
-							<span>{t('1 stream')}</span>
+						<label class="setting-row slider-row">
+							<span class="setting-title">{t('1 stream')}</span>
 							<input
 								type="range"
 								min="0"
@@ -367,7 +374,9 @@
 									updateCapacityAssumption();
 								}}
 							/>
-							<span>{Math.round(projectMeta.oneStreamShare * 100)}%</span>
+							<span class="setting-value"
+								>{Math.round(projectMeta.oneStreamShare * 100)}%</span
+							>
 						</label>
 						<div class="capacity-assumption-line">
 							{t('2 stream')} {Math.round(projectMeta.twoStreamShare * 100)}% · {t('4 stream')}
@@ -717,29 +726,7 @@
 	}
 
 	.capacity-popover {
-		display: flex;
-		flex-direction: column;
-		gap: var(--space-2);
 		margin-top: var(--space-2);
-		padding: var(--space-2);
-		border: 1px solid var(--border-subtle);
-		border-radius: var(--radius-sm);
-		background: var(--bg-primary);
-	}
-
-	.capacity-popover label {
-		display: grid;
-		grid-template-columns: 70px 1fr 36px;
-		align-items: center;
-		gap: var(--space-1);
-		font-size: var(--text-xs);
-		color: var(--text-tertiary);
-	}
-
-	.capacity-popover select,
-	.capacity-popover input[type='range'] {
-		min-width: 0;
-		accent-color: var(--accent-primary);
 	}
 
 	.capacity-assumption-line {
