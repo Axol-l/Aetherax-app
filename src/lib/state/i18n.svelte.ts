@@ -383,6 +383,7 @@ const zh: Record<string, string> = {
 	'The current floor in 3D: walls at their real height, in their material colours. Drag to turn the view.':
 		'当前楼层的三维视图。',
 	'Plan opacity': '底图不透明度',
+	'Heatmap opacity': '热力图不透明度',
 	'Floor plan opacity': '底图不透明度',
 	'Stack rotation': '堆叠旋转',
 	'Stack spacing': '堆叠间距',

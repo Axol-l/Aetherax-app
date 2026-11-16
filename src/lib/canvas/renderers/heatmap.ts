@@ -331,6 +331,8 @@ export class HeatmapLayer implements Layer {
 	 * 色阶从该值延伸到最强接入点 1 m 处的电平（`P_tx - PL0`）。
 	 */
 	rssiFloor = DEFAULT_RSSI_FLOOR;
+	/** Opacity of the whole heatmap image; the legend and colors stay unchanged. */
+	opacity = 1;
 	/** 显示指标；SINR 使用固定的 -5..30 dB 色阶。 */
 	metric: 'rssi' | 'sinr' | 'rate' = 'rssi';
 	/** 接收端线极化角；0 为垂直。 */
@@ -842,17 +844,18 @@ export class HeatmapLayer implements Layer {
 		const fading = this.previousCache !== null;
 		if (fading) {
 			const progress = Math.min(1, (performance.now() - this.fadeStartedAt) / 180);
-			ctx.globalAlpha = 1 - progress;
+			ctx.globalAlpha = (1 - progress) * this.opacity;
 			this.drawCache(ctx, this.previousCache!, this.previousX0, this.previousY0, this.previousTexel);
-			ctx.globalAlpha = progress;
+			ctx.globalAlpha = progress * this.opacity;
 			this.drawCache(ctx, this.cache, this.cacheX0, this.cacheY0, this.cacheTexel);
-			ctx.globalAlpha = 1;
+			ctx.globalAlpha = this.opacity;
 			if (progress < 1) {
 				this.requestFadeFrame();
 			} else {
 				this.previousCache = null;
 			}
 		} else {
+			ctx.globalAlpha = this.opacity;
 			this.drawCache(ctx, this.cache, this.cacheX0, this.cacheY0, this.cacheTexel);
 		}
 		ctx.imageSmoothingEnabled = smoothing;

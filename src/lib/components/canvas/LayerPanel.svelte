@@ -133,6 +133,23 @@
 				</button>
 			{/if}
 
+			{#if appState.showHeatmap}
+				<div class="opacity-row">
+					<span class="layer-label">{t('Heatmap opacity')}</span>
+					<input
+						type="range"
+						min="0.1"
+						max="1"
+						step="0.05"
+						value={appState.heatmapOpacity}
+						oninput={(e) =>
+							(appState.heatmapOpacity = Number((e.currentTarget as HTMLInputElement).value))}
+						aria-label={t('Heatmap opacity')}
+					/>
+					<span class="opacity-value">{Math.round(appState.heatmapOpacity * 100)}%</span>
+				</div>
+			{/if}
+
 			<!-- Underlay opacity for the tiled overview. -->
 			{#if appState.floorView === 'tiled'}
 				<div class="opacity-row">

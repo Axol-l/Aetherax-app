@@ -50,6 +50,8 @@ export const appState = $state({
 	showHeatmap: false,
 	/** 热力图指标：RSSI、SINR 或估算 PHY 速率。 */
 	heatmapMetric: 'rssi' as 'rssi' | 'sinr' | 'rate',
+	/** Heatmap image opacity, independent of the metric and legend. */
+	heatmapOpacity: 1,
 	heatmapProbe: null as {
 		mcs: number;
 		widthMhz: number;
