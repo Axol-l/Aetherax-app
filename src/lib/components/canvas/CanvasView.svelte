@@ -1068,7 +1068,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 	// Sync heatmap APs — current floor plus every other floor's, as fixed sources.
 	/** Guards the async mask lookup against a superseded run publishing late. */
 	let heatmapApsVersion = 0;
-	let lastAntennaSignature = '';
+	let lastHeatmapInputSignature = '';
 	$effect(() => {
 		trackHeatmapInputs();
 		void appState.showHeatmap;
@@ -1095,14 +1095,17 @@ import { wallState } from '$state/wall-state.svelte.js';
 			}
 			if (version !== heatmapApsVersion) return;
 			heatmapLayer.aps = resolved;
-			// Beam/aim/polarization changes alter the antenna signature, but an old
-			// cached raster under the previous key can still be present. Clear the
-			// raster entries, not just the key, so a stale antenna result cannot win.
-			const antennaKey = resolved
-				.map((ap) => `${ap.id}:${antennaSignature(ap)}`)
+			// Invalidate only when an AP input changed, not merely because the
+			// heatmap layer was switched off and on. Otherwise every toggle throws
+			// away the raster cache and re-runs the worker.
+			const inputSignature = resolved
+				.map(
+					(ap) =>
+						`${ap.id}:${Math.round(ap.x)},${Math.round(ap.y)}:${ap.power}:${ap.band}:${ap.channelWidth}:${ap.assignedChannel ?? ''}:${ap.mountHeightM}:${ap.verticalOffset ?? 0}:${antennaSignature(ap)}`
+				)
 				.join('|');
-			if (antennaKey !== lastAntennaSignature || !canvasState.isDragging) {
-				lastAntennaSignature = antennaKey;
+			if (inputSignature !== lastHeatmapInputSignature) {
+				lastHeatmapInputSignature = inputSignature;
 				heatmapLayer.invalidateRasterCache();
 			} else {
 				heatmapLayer.markWallsDirty();
@@ -1189,6 +1192,9 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	$effect(() => {
 		roomLabelsLayer.visible = singleFloorView && appState.showRoomLabels;
+		// The heatmap is painted below the labels; keep the room-type tint readable
+		// instead of letting the colour wash hide it.
+		roomLabelsLayer.tintAlpha = appState.showHeatmap ? 0.32 : 0.18;
 		engine.markDirty();
 	});
 

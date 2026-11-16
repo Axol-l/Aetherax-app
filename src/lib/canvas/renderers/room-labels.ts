@@ -19,6 +19,8 @@ export class RoomLabelsLayer implements Layer {
 	roomTypeData: Uint8Array | null = null;
 	/** 由 labelRooms 生成的区域标签（内部连通分量）。 */
 	roomLabels: RegionLabels | null = null;
+	/** Room-type tint opacity; raised while the heatmap is painted underneath. */
+	tintAlpha = 0.18;
 	/** 掩码尺寸与世界坐标原点。 */
 	maskWidth = 0;
 	maskHeight = 0;
@@ -67,7 +69,7 @@ export class RoomLabelsLayer implements Layer {
 		if (this.cachedTint) {
 			ctx.save();
 			ctx.setTransform(a * dpr, b * dpr, c * dpr, d * dpr, e * dpr, f * dpr);
-			ctx.globalAlpha = 0.18;
+			ctx.globalAlpha = this.tintAlpha;
 			ctx.drawImage(this.cachedTint, this.originX, this.originY);
 			ctx.restore();
 		}
