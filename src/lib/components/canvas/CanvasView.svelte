@@ -2331,11 +2331,12 @@ import { wallState } from '$state/wall-state.svelte.js';
 		width: 100%;
 		height: 100%;
 		opacity: 0;
-		transition: opacity 220ms ease;
+		transition: opacity 80ms ease-out;
 		will-change: opacity;
 	}
 
 	.heatmap-loading-wave.visible {
 		opacity: 1;
+		transition: opacity 220ms ease-in;
 	}
 </style>
