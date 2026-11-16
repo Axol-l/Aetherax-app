@@ -11,6 +11,10 @@ import {
 	DEFAULT_PATH_LOSS_SCENARIO,
 	type PathLossScenario
 } from '../rf/propagation.js';
+import {
+	DEFAULT_CAPACITY_ASSUMPTIONS,
+	type CapacityProfile
+} from '../rf/capacity-plan.js';
 
 export interface ProjectSettings {
 	/** 优化和手动放置是否允许 AP 落在楼层边界之外（边界取规划范围，没有就用识别出的内部）。 */
@@ -34,6 +38,13 @@ export interface ProjectSettings {
 	coverageFloorPct: number;
 	/** 距离项按 ITU-R P.1238 的哪种环境建模。 */
 	pathLossScenario: PathLossScenario;
+	/** 容量规划预设；自定义时以下四项可独立调整。 */
+	capacityProfile: CapacityProfile;
+	activityFactor: number;
+	oneStreamShare: number;
+	twoStreamShare: number;
+	fourStreamShare: number;
+	densityScale: number;
 }
 
 /**
@@ -50,5 +61,11 @@ export const DEFAULT_SETTINGS: Readonly<ProjectSettings> = {
 	interferenceWeight: 0.2,
 	coverageSoftnessDb: DEFAULT_COVERAGE_SOFTNESS_DB,
 	coverageFloorPct: 0,
-	pathLossScenario: DEFAULT_PATH_LOSS_SCENARIO
+	pathLossScenario: DEFAULT_PATH_LOSS_SCENARIO,
+	capacityProfile: DEFAULT_CAPACITY_ASSUMPTIONS.profile,
+	activityFactor: DEFAULT_CAPACITY_ASSUMPTIONS.activityFactor,
+	oneStreamShare: DEFAULT_CAPACITY_ASSUMPTIONS.oneStreamShare,
+	twoStreamShare: DEFAULT_CAPACITY_ASSUMPTIONS.twoStreamShare,
+	fourStreamShare: DEFAULT_CAPACITY_ASSUMPTIONS.fourStreamShare,
+	densityScale: DEFAULT_CAPACITY_ASSUMPTIONS.densityScale
 };

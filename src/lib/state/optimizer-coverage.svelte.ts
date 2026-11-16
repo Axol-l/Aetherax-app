@@ -32,7 +32,6 @@ import { slabLossFactor, type SlabCrossing } from '$lib/rf/cross-floor.js';
 import { splitWallRunLoss, wallRunLoss, type WallRun } from '$lib/rf/link-budget.js';
 import {
 	CAPACITY_UTILIZATION,
-	DEFAULT_ACTIVITY_FACTOR,
 	apCapacityMbps,
 	requiredAps,
 	roomDemandMbps
@@ -687,6 +686,14 @@ export async function updateCoverage(): Promise<void> {
 		? sampleDensity.reduce((sum, value) => sum + value, 0) * pixelsPerSample * areaPerPixel
 		: 0;
 	let demandMbps = 0;
+	const capacityAssumptions = {
+		profile: projectMeta.capacityProfile,
+		activityFactor: projectMeta.activityFactor,
+		oneStreamShare: projectMeta.oneStreamShare,
+		twoStreamShare: projectMeta.twoStreamShare,
+		fourStreamShare: projectMeta.fourStreamShare,
+		densityScale: projectMeta.densityScale
+	};
 	if (densityResult && cachedInteriorMask && densityResult.roomTypeData) {
 		// Full interior walk for the coarse traffic plan: 140 samples are enough for
 		// coverage, but they can miss a small high-demand room.
@@ -695,11 +702,13 @@ export async function updateCoverage(): Promise<void> {
 		for (let i = 0; i < cachedInteriorMask.length; i++) {
 			if (!cachedInteriorMask[i]) continue;
 			const raw = densityResult.map[i]!;
-			const density = raw >= 0 ? raw : baseline;
+			const density = (raw >= 0 ? raw : baseline) * projectMeta.densityScale;
 			devices += density * areaPerPixel;
 			demandMbps +=
-				density * areaPerPixel * roomDemandMbps(densityResult.roomTypeData[i] ?? 0) *
-				DEFAULT_ACTIVITY_FACTOR;
+				density *
+				areaPerPixel *
+				roomDemandMbps(densityResult.roomTypeData[i] ?? 0) *
+				projectMeta.activityFactor;
 		}
 	}
 
@@ -718,7 +727,7 @@ export async function updateCoverage(): Promise<void> {
 		const ap = localAps[i]!;
 		const margin = medianOf(apMargins[i] ?? []);
 		const snr = COVERAGE_SNR_DB + margin;
-		supplyMbps += apCapacityMbps(snr, ap.channelWidth ?? 20);
+		supplyMbps += apCapacityMbps(snr, ap.channelWidth ?? 20, capacityAssumptions);
 	}
 	const edgeSnrDb = COVERAGE_SNR_DB + quantileOf(bestMargins, 0.05);
 	const perApCapacityMbps = localAps.length > 0 ? supplyMbps / localAps.length : 0;
@@ -731,7 +740,7 @@ export async function updateCoverage(): Promise<void> {
 					requiredAps: requiredAps(demandMbps, perApCapacityMbps),
 					apCount: localAps.length,
 					utilization: CAPACITY_UTILIZATION,
-					activityFactor: DEFAULT_ACTIVITY_FACTOR,
+					activityFactor: projectMeta.activityFactor,
 					medianEdgeSnrDb: Math.round(edgeSnrDb)
 				}
 			: undefined;

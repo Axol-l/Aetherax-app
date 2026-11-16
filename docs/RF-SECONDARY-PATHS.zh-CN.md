@@ -352,7 +352,7 @@ RSSI 规划可以暂时忽略极化，但这会使：
 
 PHY 参考速率乘 MAC 折损得到“预估吞吐”。当前默认 MAC 效率 45%，只代表帧聚合充分、低碰撞时的理想上限，不是实测吞吐；1 流终端约为 2 流的一半。
 
-粗粒度业务容量还使用 30% 的并发率/活动因子，取自 Cisco 高密度设计指南中“20–30% concurrent use”的工程参考：
+粗粒度业务容量默认使用 Office 预设：1 流 60% / 2 流 35% / 4 流 5%（4 流暂不参与）、活动因子 30%。活动因子取自 Cisco 高密度设计指南中“20–30% concurrent use”的工程参考，并可在 Capacity assumptions 中切换 High density / IoT / Custom：
 <https://www.cisco.com/c/en/us/td/docs/wireless/controller/technotes/8-7/b_wireless_high_client_density_design_guide.html>。
 
 Sionna 的 radio map 直接使用：

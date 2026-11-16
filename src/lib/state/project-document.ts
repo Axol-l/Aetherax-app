@@ -23,6 +23,7 @@ import { clearHistory } from './history.svelte.js';
 import { projectMeta } from './project-meta.svelte.js';
 import { resetRunHistory } from './optimizer-state.svelte.js';
 import { DEFAULT_SETTINGS } from './project-settings.js';
+import type { CapacityProfile } from '../rf/capacity-plan.js';
 
 /** 本模块写出的版本号。存储字段的含义一变就要加一。 */
 export const DOCUMENT_VERSION = 3;
@@ -113,6 +114,12 @@ export interface ProjectDocumentV3 {
 	coverageSoftnessDb: number;
 	coverageFloorPct: number;
 	pathLossScenario: PathLossScenario;
+	capacityProfile?: CapacityProfile;
+	activityFactor?: number;
+	oneStreamShare?: number;
+	twoStreamShare?: number;
+	fourStreamShare?: number;
+	densityScale?: number;
 	customMaterials: DocumentCustomMaterial[];
 	floorCoverage: Record<string, FloorCoverageEntry>;
 	floors: DocumentFloor[];
@@ -199,6 +206,12 @@ export function toDocument(options: ToDocumentOptions = {}): ProjectDocumentV3 {
 		coverageSoftnessDb: projectMeta.coverageSoftnessDb,
 		coverageFloorPct: projectMeta.coverageFloorPct,
 		pathLossScenario: projectMeta.pathLossScenario,
+		capacityProfile: projectMeta.capacityProfile,
+		activityFactor: projectMeta.activityFactor,
+		oneStreamShare: projectMeta.oneStreamShare,
+		twoStreamShare: projectMeta.twoStreamShare,
+		fourStreamShare: projectMeta.fourStreamShare,
+		densityScale: projectMeta.densityScale,
 		customMaterials: projectMeta.customMaterials.map(cloneMaterial),
 		floorCoverage,
 		floors: floorState.floors.map(toDocumentFloor),
@@ -352,6 +365,12 @@ export function migrate(raw: unknown): ProjectDocumentV3 | null {
 		coverageSoftnessDb: data.coverageSoftnessDb ?? DEFAULT_SETTINGS.coverageSoftnessDb,
 		coverageFloorPct: data.coverageFloorPct ?? DEFAULT_SETTINGS.coverageFloorPct,
 		pathLossScenario: data.pathLossScenario ?? DEFAULT_SETTINGS.pathLossScenario,
+		capacityProfile: data.capacityProfile ?? DEFAULT_SETTINGS.capacityProfile,
+		activityFactor: data.activityFactor ?? DEFAULT_SETTINGS.activityFactor,
+		oneStreamShare: data.oneStreamShare ?? DEFAULT_SETTINGS.oneStreamShare,
+		twoStreamShare: data.twoStreamShare ?? DEFAULT_SETTINGS.twoStreamShare,
+		fourStreamShare: data.fourStreamShare ?? DEFAULT_SETTINGS.fourStreamShare,
+		densityScale: data.densityScale ?? DEFAULT_SETTINGS.densityScale,
 		customMaterials: (data.customMaterials ?? []).map(cloneMaterial),
 		floorCoverage: filterCoverage(data.floorCoverage, floors),
 		floors,
@@ -506,6 +525,12 @@ export function applyDocument(
 	projectMeta.coverageSoftnessDb = doc.coverageSoftnessDb;
 	projectMeta.coverageFloorPct = doc.coverageFloorPct;
 	projectMeta.pathLossScenario = doc.pathLossScenario;
+	projectMeta.capacityProfile = doc.capacityProfile ?? DEFAULT_SETTINGS.capacityProfile;
+	projectMeta.activityFactor = doc.activityFactor ?? DEFAULT_SETTINGS.activityFactor;
+	projectMeta.oneStreamShare = doc.oneStreamShare ?? DEFAULT_SETTINGS.oneStreamShare;
+	projectMeta.twoStreamShare = doc.twoStreamShare ?? DEFAULT_SETTINGS.twoStreamShare;
+	projectMeta.fourStreamShare = doc.fourStreamShare ?? DEFAULT_SETTINGS.fourStreamShare;
+	projectMeta.densityScale = doc.densityScale ?? DEFAULT_SETTINGS.densityScale;
 	// 用户自定义材质要排在楼层前面，这样用这些材质刷的墙，读回来还是那个材质。
 	projectMeta.customMaterials = doc.customMaterials.map(cloneMaterial);
 

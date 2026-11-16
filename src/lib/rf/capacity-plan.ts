@@ -16,6 +16,40 @@ export interface TerminalProfile {
 	enabled: boolean;
 }
 
+export type CapacityProfile = 'office' | 'highDensity' | 'iot' | 'custom';
+
+export interface CapacityAssumptions {
+	profile: CapacityProfile;
+	activityFactor: number;
+	oneStreamShare: number;
+	twoStreamShare: number;
+	fourStreamShare: number;
+	densityScale: number;
+}
+
+export const DEFAULT_CAPACITY_ASSUMPTIONS: CapacityAssumptions = {
+	profile: 'office',
+	activityFactor: 0.3,
+	oneStreamShare: 0.6,
+	twoStreamShare: 0.35,
+	fourStreamShare: 0.05,
+	densityScale: 1
+};
+
+/** 工程预设；是规划假设，不是实测终端普查。 */
+export const CAPACITY_PROFILES: Readonly<
+	Record<Exclude<CapacityProfile, 'custom'>, Omit<CapacityAssumptions, 'profile' | 'densityScale'>>
+> = {
+	office: { activityFactor: 0.3, oneStreamShare: 0.6, twoStreamShare: 0.35, fourStreamShare: 0.05 },
+	highDensity: {
+		activityFactor: 0.3,
+		oneStreamShare: 0.7,
+		twoStreamShare: 0.3,
+		fourStreamShare: 0
+	},
+	iot: { activityFactor: 0.2, oneStreamShare: 0.9, twoStreamShare: 0.1, fourStreamShare: 0 }
+};
+
 export const TERMINAL_PROFILES: readonly TerminalProfile[] = [
 	{ id: '1ss', label: '1-stream', streams: 1, maxMcs: 9, share: 0.6, enabled: true },
 	{ id: '2ss', label: '2-stream', streams: 2, maxMcs: 11, share: 0.35, enabled: true },
@@ -57,8 +91,20 @@ export function roomDemandMbps(roomTypeId: number): number {
  * 终端构成下的等效 PHY：每个终端占用的空口比例按占比加权，
  * 再取倒数，得到“一个混合终端平均能拿到的 PHY”。
  */
-export function effectivePhyMbps(sinrDb: number, channelWidthMhz: number): number {
-	const active = TERMINAL_PROFILES.filter((profile) => profile.enabled);
+export function effectivePhyMbps(
+	sinrDb: number,
+	channelWidthMhz: number,
+	assumptions: CapacityAssumptions = DEFAULT_CAPACITY_ASSUMPTIONS
+): number {
+	const active = TERMINAL_PROFILES.filter((profile) => profile.enabled).map((profile) => ({
+		...profile,
+		share:
+			profile.id === '1ss'
+				? assumptions.oneStreamShare
+				: profile.id === '2ss'
+					? assumptions.twoStreamShare
+					: 0
+	}));
 	const shareTotal = active.reduce((sum, profile) => sum + profile.share, 0);
 	if (shareTotal <= 0) return 0;
 	const mcs = sinrToMcs(sinrDb);
@@ -67,14 +113,22 @@ export function effectivePhyMbps(sinrDb: number, channelWidthMhz: number): numbe
 	for (const profile of active) {
 		const rate = phyRateMbps(Math.min(mcs, profile.maxMcs), channelWidthMhz, profile.streams);
 		if (rate <= 0) return 0;
-		airtimePerDevice += (profile.share / shareTotal) / rate;
+		airtimePerDevice += profile.share / shareTotal / rate;
 	}
 	return airtimePerDevice > 0 ? 1 / airtimePerDevice : 0;
 }
 
 /** 单个 AP 在给定中位 SINR 下的规划容量，Mbps。 */
-export function apCapacityMbps(sinrDb: number, channelWidthMhz: number): number {
-	return effectivePhyMbps(sinrDb, channelWidthMhz) * DEFAULT_MAC_EFFICIENCY * CAPACITY_UTILIZATION;
+export function apCapacityMbps(
+	sinrDb: number,
+	channelWidthMhz: number,
+	assumptions: CapacityAssumptions = DEFAULT_CAPACITY_ASSUMPTIONS
+): number {
+	return (
+		effectivePhyMbps(sinrDb, channelWidthMhz, assumptions) *
+		DEFAULT_MAC_EFFICIENCY *
+		CAPACITY_UTILIZATION
+	);
 }
 
 export function requiredAps(demandMbps: number, perApCapacityMbps: number): number {

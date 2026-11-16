@@ -19,10 +19,6 @@ export const optimizerState = $state({
 	error: null as string | null,
 	/** 多楼层运行当前在干什么 */
 	status: '',
-	/**
-	 * 上一次全楼运行得到的整栋覆盖率：按各层样本数加权平均。
-	 */
-	buildingCoverage: null as number | null,
 	/** 上次全楼运行里最差的楼层：百分比和名称。 */
 	worstFloor: null as { id: string; name: string; coverage: number } | null,
 	/**
@@ -137,6 +133,12 @@ export function coverageBasis(floorId: string): string {
 		projectMeta.coverageThresholdDbm,
 		Math.round(projectMeta.clientHeight * 100),
 		projectMeta.coverageSoftnessDb,
+		projectMeta.capacityProfile,
+		Math.round(projectMeta.activityFactor * 1000),
+		Math.round(projectMeta.oneStreamShare * 1000),
+		Math.round(projectMeta.twoStreamShare * 1000),
+		Math.round(projectMeta.fourStreamShare * 1000),
+		Math.round(projectMeta.densityScale * 100),
 		aps
 	].join('~');
 }
@@ -209,7 +211,6 @@ export async function apsOutsideInterior(): Promise<string[]> {
 export function resetRunHistory(): void {
 	optimizerState.lastRunAt = null;
 	optimizerState.settingsAtRun = null;
-	optimizerState.buildingCoverage = null;
 	optimizerState.worstFloor = null;
 	optimizerState.passes = 0;
 }
@@ -224,4 +225,17 @@ export function getBuildingCoverage(): number {
 		totalSamples += samples;
 	}
 	return totalSamples > 0 ? Math.round(totalWeighted / totalSamples) : 0;
+}
+
+/**
+ * 整栋覆盖率，但一层都还没测过时是 `null`。
+ *
+ * 面板上显示 0% 就够了，可布点建议要区分「0%」和「没测过」：`rebalance-floor` 那条
+ * 拿它和最弱层的差值开药方，把「没测过」当成 0 会凭空造出一段差距。
+ *
+ * 读的必须是 `floorCoverage` 这份缓存，而不是某次运行结束时抄下来的快照——补跑改完
+ * 某一层之后，快照就再也对不上了（见 `runAlternatingPasses` 里最弱层补跑那段）。
+ */
+export function measuredBuildingCoverage(): number | null {
+	return floorCoverage.size > 0 ? getBuildingCoverage() : null;
 }

@@ -41,9 +41,15 @@
 	import { apState } from '$state/ap-state.svelte.js';
 	import { floorplanState } from '$state/floorplan-state.svelte.js';
 	import { DEFAULT_CLIENTS_PER_AP } from '$lib/domain/client-capacity.js';
+	import {
+		CAPACITY_PROFILES,
+		DEFAULT_CAPACITY_ASSUMPTIONS,
+		type CapacityProfile
+	} from '$lib/rf/capacity-plan.js';
 	import WarningDialog from '$components/dialogs/WarningDialog.svelte';
 
 	let settingsOpen = $state(false);
+	let capacitySettingsOpen = $state(false);
 	let optimizerErrorOpen = $state(false);
 
 	/*
@@ -107,6 +113,39 @@
 		void updateCoverage();
 	}
 
+	function applyCapacityProfile(profile: CapacityProfile): void {
+		projectMeta.capacityProfile = profile;
+		if (profile !== 'custom') {
+			const preset = CAPACITY_PROFILES[profile];
+			projectMeta.activityFactor = preset.activityFactor;
+			projectMeta.oneStreamShare = preset.oneStreamShare;
+			projectMeta.twoStreamShare = preset.twoStreamShare;
+			projectMeta.fourStreamShare = preset.fourStreamShare;
+		}
+		scheduleSave();
+		void updateCoverage();
+	}
+
+	function updateCapacityAssumption(): void {
+		projectMeta.capacityProfile = 'custom';
+		projectMeta.twoStreamShare = Math.max(
+			0,
+			Math.min(1, 1 - projectMeta.oneStreamShare - projectMeta.fourStreamShare)
+		);
+		scheduleSave();
+		void updateCoverage();
+	}
+
+	function resetCapacityAssumptions(): void {
+		projectMeta.capacityProfile = DEFAULT_CAPACITY_ASSUMPTIONS.profile;
+		projectMeta.activityFactor = DEFAULT_CAPACITY_ASSUMPTIONS.activityFactor;
+		projectMeta.oneStreamShare = DEFAULT_CAPACITY_ASSUMPTIONS.oneStreamShare;
+		projectMeta.twoStreamShare = DEFAULT_CAPACITY_ASSUMPTIONS.twoStreamShare;
+		projectMeta.fourStreamShare = DEFAULT_CAPACITY_ASSUMPTIONS.fourStreamShare;
+		scheduleSave();
+		void updateCoverage();
+	}
+
 	const buildingPct = $derived(getBuildingCoverage());
 	const deviceLoad = $derived(floorCoverage.get(floorState.currentFloorId)?.devices ?? 0);
 	const traffic = $derived(floorCoverage.get(floorState.currentFloorId)?.traffic ?? null);
@@ -155,6 +194,9 @@
 					traffic.requiredAps <= traffic.apCount &&
 					traffic.medianEdgeSnrDb >= 20))
 	);
+
+	/** 最低覆盖率要求；0 表示工程没设，面板就不对最弱层下判断。 */
+	const requirement = $derived(projectMeta.coverageFloorPct);
 
 	const worstFloor = $derived.by(() => {
 		let worst: { id: string; name: string; coverage: number } | null = null;
@@ -230,7 +272,17 @@
 				title={t('Planning estimate, not measured throughput.')}
 			>
 				<div class="metric-head">
-					<span class="metric-name">{t('Capacity')}</span>
+					<span class="metric-name">
+						{t('Capacity')}
+						<button
+							class="capacity-assumptions-btn"
+							aria-label={t('Capacity assumptions')}
+							title={t('Capacity assumptions')}
+							onclick={() => (capacitySettingsOpen = !capacitySettingsOpen)}
+						>
+							ⓘ
+						</button>
+					</span>
 					<span class="capacity-status" class:ok={capacityOk}>
 						{capacityOk ? t('Sufficient') : t('Insufficient')}
 					</span>
@@ -266,6 +318,66 @@
 						</div>
 					{/if}
 				{/if}
+				{#if capacitySettingsOpen}
+					<div class="capacity-popover">
+						<label>
+							<span>{t('Profile')}</span>
+							<select
+								value={projectMeta.capacityProfile}
+								onchange={(e) =>
+									applyCapacityProfile((e.currentTarget as HTMLSelectElement).value as CapacityProfile)}
+							>
+								<option value="office">{t('Office')}</option>
+								<option value="highDensity">{t('High density')}</option>
+								<option value="iot">{t('IoT / hotel')}</option>
+								<option value="custom">{t('Custom')}</option>
+							</select>
+						</label>
+						<label>
+							<span>{t('Activity')}</span>
+							<input
+								type="range"
+								min="0.1"
+								max="0.5"
+								step="0.05"
+								value={projectMeta.activityFactor}
+								oninput={(e) => {
+									projectMeta.activityFactor = Number(
+										(e.currentTarget as HTMLInputElement).value
+									);
+									projectMeta.capacityProfile = 'custom';
+									scheduleSave();
+									void updateCoverage();
+								}}
+							/>
+							<span>{Math.round(projectMeta.activityFactor * 100)}%</span>
+						</label>
+						<label>
+							<span>{t('1 stream')}</span>
+							<input
+								type="range"
+								min="0"
+								max="1"
+								step="0.05"
+								value={projectMeta.oneStreamShare}
+								oninput={(e) => {
+									projectMeta.oneStreamShare = Number(
+										(e.currentTarget as HTMLInputElement).value
+									);
+									updateCapacityAssumption();
+								}}
+							/>
+							<span>{Math.round(projectMeta.oneStreamShare * 100)}%</span>
+						</label>
+						<div class="capacity-assumption-line">
+							{t('2 stream')} {Math.round(projectMeta.twoStreamShare * 100)}% · {t('4 stream')}
+							{Math.round(projectMeta.fourStreamShare * 100)}% ({t('not used')})
+						</div>
+						<button class="capacity-reset" onclick={resetCapacityAssumptions}>
+							{t('Reset')}
+						</button>
+					</div>
+				{/if}
 			</div>
 		{/if}
 
@@ -277,7 +389,7 @@
 				</div>
 				<div class="building-detail">
 					{#if worstFloor}
-						<span class="worst" class:ok={worstFloor.coverage >= 70}>
+						<span class="worst" class:below={requirement > 0 && worstFloor.coverage < requirement}>
 							{t('Weakest')} {worstFloor.name} at {worstFloor.coverage}%
 						</span>
 					{/if}
@@ -595,6 +707,56 @@
 		color: var(--accent-primary);
 	}
 
+	.capacity-assumptions-btn {
+		border: none;
+		background: none;
+		padding: 0 2px;
+		color: var(--text-tertiary);
+		cursor: pointer;
+		font-size: var(--text-xs);
+	}
+
+	.capacity-popover {
+		display: flex;
+		flex-direction: column;
+		gap: var(--space-2);
+		margin-top: var(--space-2);
+		padding: var(--space-2);
+		border: 1px solid var(--border-subtle);
+		border-radius: var(--radius-sm);
+		background: var(--bg-primary);
+	}
+
+	.capacity-popover label {
+		display: grid;
+		grid-template-columns: 70px 1fr 36px;
+		align-items: center;
+		gap: var(--space-1);
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+	}
+
+	.capacity-popover select,
+	.capacity-popover input[type='range'] {
+		min-width: 0;
+		accent-color: var(--accent-primary);
+	}
+
+	.capacity-assumption-line {
+		font-size: var(--text-xs);
+		color: var(--text-tertiary);
+	}
+
+	.capacity-reset {
+		align-self: flex-start;
+		border: none;
+		background: none;
+		padding: 0;
+		font-size: var(--text-xs);
+		color: var(--accent-primary);
+		cursor: pointer;
+	}
+
 	.traffic-detail {
 		margin-top: 2px;
 		font-size: var(--text-xs);
@@ -691,12 +853,18 @@
 	}
 
 	.building-detail .worst {
-		color: var(--color-warning, #ffb800);
+		color: var(--text-tertiary);
 	}
 
-	/* A weakest floor that is genuinely fine should not read as a warning. */
-	.building-detail .worst.ok {
-		color: var(--text-tertiary);
+	/*
+	 * 只有设了最低覆盖率、而最弱层又低于它时才读成警告。
+	 *
+	 * 没设要求时界面就没有判据（面板只报不依赖目标的问题），这时最弱层只是一个数字，
+	 * 不该被染成告警色。以前这里写死 70%：设了 80% 的要求，78% 的楼层显示正常；
+	 * 设了 50%，55% 的楼层反而在报警。
+	 */
+	.building-detail .worst.below {
+		color: var(--color-warning, #ffb800);
 	}
 
 	.building-meta {
