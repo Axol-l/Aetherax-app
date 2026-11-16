@@ -355,7 +355,8 @@ const zh: Record<string, string> = {
 	'Planning estimate, not measured throughput.': '规划估算，非实测吞吐。',
 	'{required} / {current} APs': '{required} / {current} APs（需要 / 当前）',
 	'edge SNR': '边缘 SNR',
-	'active': '活跃',
+	'{aps} APs at {width} MHz, but only {channels} non-overlapping channels. Use 40/80 MHz or fewer APs.':
+		'{aps} 台 AP 使用 {width} MHz，但只有 {channels} 个非重叠信道。请改用 40/80 MHz 或减少 AP。',
 	'Estimated PHY rate scale in Mbps': '估算 PHY 速率色标（Mbps）',
 	Polarization: '极化角',
 	'°': '°',

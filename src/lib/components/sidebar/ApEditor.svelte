@@ -18,7 +18,7 @@
 	import { floorState } from '$state/floor-state.svelte.js';
 	import { canvasState, clearSelection, selectAp } from '$state/canvas.svelte';
 	import { pushState } from '$state/history.svelte';
-	import { getAvailableChannels } from '@aetherax/channels';
+	import { getAvailableChannels, planningChannels } from '@aetherax/channels';
 	import type { Band, ChannelWidth } from '@aetherax/channels';
 	import { solverState, edgeSignals } from '$state/solver.svelte.js';
 	import { projectMeta } from '$state/project-meta.svelte';
@@ -292,6 +292,20 @@
 		);
 	}
 
+	const widthWarning = $derived.by(() => {
+		if (!singleAp) return null;
+		const width = singleAp.channelWidth;
+		const sameBand = apState.aps.filter(
+			(ap) => ap.band === singleAp.band && ap.channelWidth === width
+		);
+		if (sameBand.length < 2) return null;
+		const palette = planningChannels(singleAp.band, apState.regulatoryDomain, width, {
+			includeDfs: width >= 160
+		});
+		if (sameBand.length <= palette.length) return null;
+		return { aps: sameBand.length, channels: palette.length, width };
+	});
+
 	function handleBandChange(val: string) {
 		pushState();
 		const band = val as Band;
@@ -458,6 +472,15 @@
 				options={getWidths(singleAp.band)}
 				onchange={handleWidthChange}
 			/>
+			{#if widthWarning}
+				<p class="channel-width-warning">
+					{t('{aps} APs at {width} MHz, but only {channels} non-overlapping channels. Use 40/80 MHz or fewer APs.', {
+						aps: widthWarning.aps,
+						width: widthWarning.width,
+						channels: widthWarning.channels
+					})}
+				</p>
+			{/if}
 		</div>
 
 		<div class="field">
@@ -1233,5 +1256,12 @@
 	.field :global(.tooltip-wrapper) {
 		display: flex;
 		width: 100%;
+	}
+
+	.channel-width-warning {
+		margin: 4px 0 0;
+		font-size: var(--text-xs);
+		line-height: 1.35;
+		color: var(--color-warning, #d9a441);
 	}
 </style>
