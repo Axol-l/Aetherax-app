@@ -6,8 +6,7 @@ import type { AccessPoint } from '$state/ap-state.svelte.js';
 /** 主线程同步生成用 canvas，Worker 返回 ImageBitmap。 */
 type HeatmapImage = HTMLCanvasElement | ImageBitmap;
 
-type HeatmapAp = AccessPoint & {
-	verticalOffset?: number; // 单位米：层高 × 间隔楼层数
+type HeatmapAp = AccessPoint & {	verticalOffset?: number; // 单位米：层高 × 间隔楼层数
 	floorDbPerMeter?: number; // 单位 dB/m：穿过楼板材料的损耗
 	floorThickness?: number; // 楼板厚度，单位米
 	/**
@@ -37,6 +36,10 @@ type HeatmapAp = AccessPoint & {
 		slabT?: number;
 	} | null;
 };
+
+function phyStandardForAp(ap: HeatmapAp | undefined): PhyStandard {
+	return phyStandardForWifiStandard(findModel(ap?.modelId ?? '')?.wifiStandard);
+}
 import type { DecodedWallMask } from '../mask-codec.js';
 import { computeBuildingInterior } from '../morphology.js';
 import type { WallMaterialId } from '$lib/domain/materials.js';
@@ -64,7 +67,8 @@ import { rayWallLossDb } from '../../rf/wall-crossings.js';
 import { diffuseLevelDb } from '../../rf/scattering.js';
 import { productionDirectGpu, type ProductionDirectInput } from '../../gpu/production-direct.js';
 import { pathLossN } from '../../rf/propagation.js';
-import { estimatedPhyRateMbps, estimatedThroughputMbps, maxPhyRateMbps, sinrToMcs } from '../../rf/mcs.js';
+import { estimatedPhyRateMbps, estimatedThroughputMbps, maxPhyRateMbps, phyStandardForWifiStandard, sinrToMcs, type PhyStandard } from '../../rf/mcs.js';
+import { findModel } from '$lib/data/ap-models.js';
 import { columnLossDelta, type ColumnObstacle } from '../../rf/columns.js';
 import {
 	diffractionCandidatesForAp,
@@ -1151,7 +1155,9 @@ export class HeatmapLayer implements Layer {
 			this.metric === 'rate'
 				? Math.max(
 						300,
-						...this.aps.map((ap) => maxPhyRateMbps(ap.channelWidth ?? 20, 2))
+						...this.aps.map((ap) =>
+							maxPhyRateMbps(ap.channelWidth ?? 20, 2, phyStandardForAp(ap))
+						)
 					)
 				: 0;
 		const levelFloor =
@@ -1915,7 +1921,9 @@ export class HeatmapLayer implements Layer {
 					const width = server?.channelWidth ?? 20;
 					const sinr = sinrDb(strongest, interference, thermalNoiseFloorDbm(width));
 					value =
-						this.metric === 'rate' ? estimatedPhyRateMbps(sinr, width, 2) : sinr;
+						this.metric === 'rate'
+							? estimatedPhyRateMbps(sinr, width, 2, phyStandardForAp(server))
+							: sinr;
 					if (probeMcs) probeMcs[rowOff + tx] = sinrToMcs(sinr);
 				}
 				/*

@@ -15,7 +15,8 @@
 	import { heatmapDisplayFloorDbm } from '$canvas/heatmap-display.js';
 	import { projectMeta } from '$state/project-meta.svelte';
 	import { apState } from '$state/ap-state.svelte';
-	import { maxPhyRateMbps } from '$lib/rf/mcs.js';
+	import { maxPhyRateMbps, phyStandardForWifiStandard } from '$lib/rf/mcs.js';
+	import { findModel } from '$lib/data/ap-models.js';
 
 	let collapsed = $state(typeof window !== 'undefined' && window.innerWidth <= 768);
 
@@ -41,7 +42,16 @@
 		return heatmapDisplayFloorDbm();
 	});
 	const rateTop = $derived(
-		Math.max(300, ...apState.aps.map((ap) => maxPhyRateMbps(ap.channelWidth ?? 20, 2)))
+		Math.max(
+			300,
+			...apState.aps.map((ap) =>
+				maxPhyRateMbps(
+					ap.channelWidth ?? 20,
+					2,
+					phyStandardForWifiStandard(findModel(ap.modelId ?? '')?.wifiStandard)
+				)
+			)
+		)
 	);
 	const legendFloor = $derived(
 		appState.heatmapMetric === 'sinr' ? -5 : appState.heatmapMetric === 'rate' ? 0 : floorDb
