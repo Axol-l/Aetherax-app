@@ -1193,9 +1193,10 @@ import { wallState } from '$state/wall-state.svelte.js';
 
 	$effect(() => {
 		roomLabelsLayer.visible = singleFloorView && appState.showRoomLabels;
-		// The heatmap is painted below the labels; keep the room-type tint readable
-		// instead of letting the colour wash hide it.
-		roomLabelsLayer.tintAlpha = appState.showHeatmap ? 0.32 : 0.18;
+		// The heatmap is painted below the labels; multiply the room tint instead
+		// of laying a pale wash over it, which reads as white fog at 30% opacity.
+		roomLabelsLayer.tintAlpha = appState.showHeatmap ? 0.28 : 0.18;
+		roomLabelsLayer.tintBlend = appState.showHeatmap ? 'multiply' : 'source-over';
 		engine.markDirty();
 	});
 

@@ -21,6 +21,8 @@ export class RoomLabelsLayer implements Layer {
 	roomLabels: RegionLabels | null = null;
 	/** Room-type tint opacity; raised while the heatmap is painted underneath. */
 	tintAlpha = 0.18;
+	/** Multiply keeps the tint from washing the heatmap out to white. */
+	tintBlend: GlobalCompositeOperation = 'source-over';
 	/** 掩码尺寸与世界坐标原点。 */
 	maskWidth = 0;
 	maskHeight = 0;
@@ -70,6 +72,7 @@ export class RoomLabelsLayer implements Layer {
 			ctx.save();
 			ctx.setTransform(a * dpr, b * dpr, c * dpr, d * dpr, e * dpr, f * dpr);
 			ctx.globalAlpha = this.tintAlpha;
+			ctx.globalCompositeOperation = this.tintBlend;
 			ctx.drawImage(this.cachedTint, this.originX, this.originY);
 			ctx.restore();
 		}
