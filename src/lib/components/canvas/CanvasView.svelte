@@ -2331,7 +2331,7 @@ import { wallState } from '$state/wall-state.svelte.js';
 		width: 100%;
 		height: 100%;
 		opacity: 0;
-		transition: opacity 80ms ease-out;
+		transition: opacity 220ms ease-out;
 		will-change: opacity;
 	}
 
