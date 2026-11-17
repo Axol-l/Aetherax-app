@@ -1,0 +1,252 @@
+/**
+ * 每个接入点的二级路径候选。
+ *
+ * 热力图每帧只建一次这些候选，纹素循环里不再反复遍历所有墙和所有刃峰。
+ * 这里不是完整的射线追踪：反射候选仍交给 `reflections()` 做镜像法，绕射候选只保留
+ * AP 一侧可见的刃峰，客户端一侧的可见性在纹素循环里检查。
+ */
+import type { Band } from '@aetherax/channels';
+import { edgesOf, type DiffractionEdge } from './diffraction.js';
+import { rayWallLossDb } from './wall-crossings.js';
+import { getScatteringCoefficient, type WallMaterialId } from '$lib/domain/materials.js';
+import { reflectionPowerRatio, type ReflectingWall, type ReflectionPair } from './reflection.js';
+import { directiveNormalization, wallNormal } from './scattering.js';
+
+/** 绕射距离和净空上限，单位米，与 `diffraction.ts` 的默认值一致。 */
+export const DIFFRACTION_MAX_DISTANCE_M = 60;
+export const DIFFRACTION_MAX_CLEARANCE_M = 40;
+
+export interface ReflectionCandidateSet {
+	/** 只保留至少存在一个有效入射角的墙。 */
+	walls: ReflectingWall[];
+	/** 每面候选墙在原始 `walls` 中的下标；反射点仍按候选墙计算。 */
+	wallIndices: number[];
+	/** 按墙中点建立的均匀网格；候选很少时为 null，直接线性扫描更便宜。 */
+	grid: WallCandidateGrid | null;
+}
+
+/**
+ * 按墙中点分格的均匀网格。反射点随客户端变化，但“哪面墙离 AP–客户端中点足够近”
+ * 可以先由网格筛一遍，避免每个纹素都扫完候选墙。
+ */
+export class WallCandidateGrid {
+	private readonly cells = new Map<string, number[]>();
+
+	constructor(
+		walls: readonly ReflectingWall[],
+		private readonly cellSize: number
+	) {
+		if (!(cellSize > 0)) return;
+		walls.forEach((wall, index) => {
+			const key = this.key(
+				Math.floor(((wall.ax + wall.bx) / 2) / cellSize),
+				Math.floor(((wall.ay + wall.by) / 2) / cellSize)
+			);
+			const cell = this.cells.get(key);
+			if (cell) cell.push(index);
+			else this.cells.set(key, [index]);
+		});
+	}
+
+	private key(ix: number, iy: number): string {
+		return `${ix},${iy}`;
+	}
+
+	/** 中点落在这个圆内的候选墙下标，已去重。 */
+	query(x: number, y: number, radius: number): number[] {
+		if (!(this.cellSize > 0)) return [];
+		const minX = Math.floor((x - radius) / this.cellSize);
+		const maxX = Math.floor((x + radius) / this.cellSize);
+		const minY = Math.floor((y - radius) / this.cellSize);
+		const maxY = Math.floor((y + radius) / this.cellSize);
+		const out = new Set<number>();
+		for (let ix = minX; ix <= maxX; ix++) {
+			for (let iy = minY; iy <= maxY; iy++) {
+				const cell = this.cells.get(this.key(ix, iy));
+				if (!cell) continue;
+				for (const index of cell) out.add(index);
+			}
+		}
+		return [...out];
+	}
+}
+
+/**
+ * 同一材质、同一频段下反射系数为 0 的墙不可能产生反射，直接排除。
+ * 真正的反射点仍由镜像法按客户端位置计算。
+ */
+export function reflectionCandidates(
+	walls: readonly ReflectingWall[],
+	band: Band,
+	cellSizeWu = 0
+): ReflectionCandidateSet {
+	const out: ReflectingWall[] = [];
+	const indices: number[] = [];
+	for (let i = 0; i < walls.length; i++) {
+		const wall = walls[i]!;
+		// 正入射的反射系数是这面墙能给出的上限；为 0 时任何角度都不会有反射。
+		// 但漫散射仍可能有贡献，所以还要看材质的散射系数。
+		if (
+			reflectionPowerRatio(wall, band, 1) <= 0 &&
+			getScatteringCoefficient(wall.material as WallMaterialId, band) <= 0
+		) {
+			continue;
+		}
+		out.push(wall);
+		indices.push(i);
+	}
+	return {
+		walls: out,
+		wallIndices: indices,
+		grid: cellSizeWu > 0 && out.length >= 12 ? new WallCandidateGrid(out, cellSizeWu) : null
+	};
+}
+
+/**
+ * 一维漫散射的面元。
+ */
+export interface ScatterSample {
+	wall: ReflectingWall;
+	wallIndex: number;
+	x: number;
+	y: number;
+	/** AP 到该面元中心的距离，米。 */
+	d1M: number;
+	/** 该面元等效面积，平方米。 */
+	areaM2: number;
+	/** 面元中心高度，世界坐标；一维时地面为 0。 */
+	z: number;
+	/** 该面元在 AP 入射角下的 Directive 归一化因子，预计算避免逐像素循环。 */
+	directiveNorm: number;
+}
+
+/** 一维墙面积分的面元长度和每面墙的最大采样数。 */
+export const SCATTER_SEGMENT_M = 1;
+export const MAX_SCATTER_SAMPLES_PER_WALL = 16;
+/** 超过这个净高才在高度方向也采样（二维墙面积分）。 */
+export const SCATTER_2D_HEIGHT_THRESHOLD_M = 4;
+
+/**
+ * 随频段和 AP 距离缩放的散射面元长度。
+ *
+ * 高频、近场需要更细的面元；低频、远场可以用更粗的面元。这是采样分辨率规则，
+ * 不是电磁波长本身的严格推导。
+ */
+export function scatteringSegmentLengthM(band: Band, distanceM: number): number {
+	const frequencyFactor = band === '2.4ghz' ? 1.4 : band === '6ghz' ? 0.85 : 1;
+	const distanceFactor = Math.min(2, Math.max(0.6, distanceM / 10));
+	return Math.min(2.5, Math.max(0.4, SCATTER_SEGMENT_M * frequencyFactor * distanceFactor));
+}
+
+/**
+ * 把墙按长度切成面元，保留 AP 一侧可见、且材质有散射系数的面元。
+ * 客户端一侧的可见性仍由调用方逐纹素判断。
+ */
+export function scatterSamplesForAp(
+	ap: { x: number; y: number },
+	walls: readonly ReflectingWall[],
+	band: Band,
+	metersPerWorldUnit: number,
+	wallHeightM: number
+): ScatterSample[] {
+	const out: ScatterSample[] = [];
+	if (!(wallHeightM > 0)) return out;
+	for (let wallIndex = 0; wallIndex < walls.length; wallIndex++) {
+		const wall = walls[wallIndex]!;
+		if (getScatteringCoefficient(wall.material as WallMaterialId, band) <= 0) continue;
+		const lengthWu = Math.hypot(wall.bx - wall.ax, wall.by - wall.ay);
+		const lengthM = lengthWu * metersPerWorldUnit;
+		if (!(lengthM > 0)) continue;
+		const midDistanceM =
+			Math.hypot((wall.ax + wall.bx) / 2 - ap.x, (wall.ay + wall.by) / 2 - ap.y) *
+			metersPerWorldUnit;
+		const segmentM = scatteringSegmentLengthM(band, midDistanceM);
+		const count = Math.min(
+			MAX_SCATTER_SAMPLES_PER_WALL,
+			Math.max(1, Math.ceil(lengthM / segmentM))
+		);
+		const rows =
+			wallHeightM > SCATTER_2D_HEIGHT_THRESHOLD_M
+				? Math.min(3, Math.max(2, Math.ceil(wallHeightM / segmentM)))
+				: 1;
+		const areaM2 = (lengthM / count) * (wallHeightM / rows);
+		for (let i = 0; i < count; i++) {
+			const t = (i + 0.5) / count;
+			const x = wall.ax + (wall.bx - wall.ax) * t;
+			const y = wall.ay + (wall.by - wall.ay) * t;
+			const d1M = Math.hypot(x - ap.x, y - ap.y) * metersPerWorldUnit;
+			const apLoss = rayWallLossDb(ap, { x, y }, walls, band, [wallIndex]);
+			if (apLoss > 1e-9) continue;
+			const normal = wallNormal(wall);
+			const inX = ap.x - x;
+			const inY = ap.y - y;
+			const inLen = Math.hypot(inX, inY);
+			const cosIn =
+				inLen > 1e-9 ? Math.abs((inX * normal.x + inY * normal.y) / inLen) : 0;
+			const directiveNorm = directiveNormalization(cosIn);
+			for (let row = 0; row < rows; row++) {
+				const z = rows === 1 ? 0 : ((row + 0.5) / rows) * wallHeightM * metersPerWorldUnit;
+				out.push({
+					wall,
+					wallIndex,
+					x,
+					y,
+					d1M,
+					areaM2,
+					z,
+					directiveNorm
+				});
+			}
+		}
+	}
+	return out;
+}
+
+/**
+ * 二次反射的候选墙对，按正入射功率比乘积取前 `limit` 对。
+ *
+ * 墙对顺序有意义：first 是 AP 侧反射面，second 是客户端侧反射面。
+ * 这是候选剪枝，不代替逐像素的镜像几何。
+ */
+export function reflectionPairsForAp(
+	walls: readonly ReflectingWall[],
+	band: Band,
+	limit = 8
+): ReflectionPair[] {
+	const scored: Array<{ pair: ReflectionPair; score: number }> = [];
+	for (let first = 0; first < walls.length; first++) {
+		const r1 = reflectionPowerRatio(walls[first]!, band, 1);
+		if (r1 <= 1e-4) continue;
+		for (let second = 0; second < walls.length; second++) {
+			if (first === second) continue;
+			const r2 = reflectionPowerRatio(walls[second]!, band, 1);
+			if (r2 <= 1e-4) continue;
+			scored.push({ pair: { first, second }, score: r1 * r2 });
+		}
+	}
+	scored.sort((a, b) => b.score - a.score);
+	return scored.slice(0, Math.max(0, limit)).map((item) => item.pair);
+}
+
+/**
+ * AP 一侧的绕射候选：刃峰在 AP 的最大距离内，且 AP 到刃峰之间没有其他墙。
+ * 客户端一侧的可见性仍取决于纹素位置，留给调用方逐点判断。
+ */
+export function diffractionCandidatesForAp(
+	ap: { x: number; y: number },
+	walls: readonly ReflectingWall[],
+	band: Band,
+	metersPerWorldUnit: number,
+	wallHeightWu = 0
+): DiffractionEdge[] {
+	const edges = edgesOf(walls, wallHeightWu);
+	const out: DiffractionEdge[] = [];
+	for (const edge of edges) {
+		const d1 = Math.hypot(edge.x - ap.x, edge.y - ap.y);
+		if (d1 * metersPerWorldUnit > DIFFRACTION_MAX_DISTANCE_M) continue;
+		const apLoss = rayWallLossDb(ap, edge, walls, band, edge.wallIndices ?? []);
+		if (apLoss > 1e-9) continue;
+		out.push(edge);
+	}
+	return out;
+}

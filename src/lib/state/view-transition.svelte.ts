@@ -1,0 +1,47 @@
+import { motionDuration } from '$lib/motion.js';
+
+/**
+ * 视图切换动画
+ */
+export const VIEW_FADE_MS = 160;
+
+function delay(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function nextFrame(): Promise<void> {
+	return new Promise((resolve) => requestAnimationFrame(() => resolve()));
+}
+
+class ViewTransitionState {
+	active = $state(false);
+	covering = $state(false);
+	private running = false;
+
+	async run(commit: () => void): Promise<void> {
+		if (this.running) return;
+		if (motionDuration(VIEW_FADE_MS) <= 0) {
+			commit();
+			return;
+		}
+		this.running = true;
+		this.active = true;
+		this.covering = true;
+		try {
+			// 等遮罩完全变不透明，再换掉旧视图。
+			await delay(VIEW_FADE_MS);
+			commit();
+			// 新图层是在 effect 里装的、下一帧才画出来。等两帧，免得淡入时露出半成品。
+			await nextFrame();
+			await nextFrame();
+			this.covering = false;
+			await delay(VIEW_FADE_MS);
+		} finally {
+			this.active = false;
+			this.covering = false;
+			this.running = false;
+		}
+	}
+}
+
+export const viewTransition = new ViewTransitionState();

@@ -1,0 +1,11 @@
+{
+	"name": "@aetherax/tsconfig",
+	"author": "Axol-l",
+	"license": "UNLICENSED",
+	"private": true,
+	"type": "module",
+	"files": [
+		"base.json",
+		"svelte.json"
+	]
+}

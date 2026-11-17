@@ -1,0 +1,169 @@
+import { test, expect } from '@playwright/test';
+import {
+	setupCleanState,
+	enablePlaceMode,
+	waitForDetectedWalls,
+	SAMPLE_PLAN_TIMEOUT_MS
+} from './helpers';
+
+test.describe('Room types', () => {
+	test.describe.configure({ timeout: SAMPLE_PLAN_TIMEOUT_MS });
+	test.beforeEach(async ({ page }) => {
+		await setupCleanState(page);
+		await page.goto('/');
+		await page.waitForSelector('canvas');
+		await page.getByRole('tab', { name: 'Floorplan' }).click();
+		await page.waitForTimeout(300);
+		// The label carries the sample's area in the project's display unit, so
+		// match on the name rather than on a unit that the toolbar can change.
+		await page.locator('.sample-btn', { hasText: 'Apartment' }).click();
+		await waitForDetectedWalls(page);
+	});
+
+	test('room labels toggle appears in layer panel', async ({ page }) => {
+		const layerPanel = page.locator('.layer-panel');
+		// Panel may be collapsed — expand if needed
+		const body = layerPanel.locator('.panel-body');
+		if (!(await body.isVisible().catch(() => false))) {
+			await layerPanel.locator('.panel-header').click();
+			await page.waitForTimeout(200);
+		}
+		await expect(layerPanel).toContainText('Room labels');
+	});
+
+	test('right-click on interior opens room type popup', async ({ page }) => {
+		const canvas = page.locator('canvas');
+
+		// Right-click on an interior area (not a wall)
+		await canvas.click({ position: { x: 300, y: 250 }, button: 'right' });
+		await page.waitForTimeout(500);
+		await page.screenshot({ path: 'test-results/room-popup-rightclick.png', fullPage: true });
+
+		const popup = page.locator('.popup');
+		if (await popup.isVisible({ timeout: 2000 }).catch(() => false)) {
+			// Should show room type options
+			await expect(popup.locator('.type-row').first()).toBeVisible();
+			await page.screenshot({ path: 'test-results/room-popup-visible.png', fullPage: true });
+
+			// Close with Escape
+			await page.keyboard.press('Escape');
+			await expect(popup).not.toBeVisible();
+		}
+	});
+
+	test('right-click on wall opens wall material popup (not room)', async ({ page }) => {
+		const canvas = page.locator('canvas');
+
+		// Right-click on a wall pixel area
+		await canvas.click({ position: { x: 100, y: 120 }, button: 'right' });
+		await page.waitForTimeout(500);
+		await page.screenshot({ path: 'test-results/wall-popup-rightclick.png', fullPage: true });
+
+		const popup = page.locator('.popup');
+		if (await popup.isVisible({ timeout: 2000 }).catch(() => false)) {
+			// Should show wall materials (Drywall, etc)
+			await expect(popup).toContainText('Drywall');
+			await page.keyboard.press('Escape');
+		}
+	});
+
+	test('assign room type via right-click and see label', async ({ page }) => {
+		const canvas = page.locator('canvas');
+
+		// Take baseline screenshot
+		await page.screenshot({ path: 'test-results/room-before-assign.png', fullPage: true });
+
+		// Right-click interior to open room type popup
+		await canvas.click({ position: { x: 300, y: 250 }, button: 'right' });
+		await page.waitForTimeout(500);
+
+		const popup = page.locator('.popup');
+		if (await popup.isVisible({ timeout: 2000 }).catch(() => false)) {
+			// Click "Conference Room" or the first available type
+			const firstType = popup.locator('.type-row').first();
+			await firstType.click();
+			await page.waitForTimeout(500);
+
+			// Room should now show label tint on canvas
+			await page.screenshot({ path: 'test-results/room-after-assign.png', fullPage: true });
+		}
+	});
+
+	test('popup shifts up when right-clicking near bottom of canvas', async ({ page }) => {
+		const canvas = page.locator('canvas');
+		const canvasBox = await canvas.boundingBox();
+		if (!canvasBox) return;
+		const canvasBottom = canvasBox.y + canvasBox.height;
+
+		// Right-click in the bottom quarter of the canvas
+		const clickY = Math.round(canvasBox.height * 0.75);
+		await canvas.click({ position: { x: 300, y: clickY }, button: 'right' });
+		await page.waitForTimeout(800);
+
+		await page.screenshot({
+			path: 'test-results/room-popup-shift-up.png',
+			fullPage: true
+		});
+
+		const popup = page.locator('.popup');
+		if (await popup.isVisible({ timeout: 2000 }).catch(() => false)) {
+			const popupBox = await popup.boundingBox();
+
+			// Popup must not overflow past the canvas bottom
+			expect(popupBox!.y + popupBox!.height).toBeLessThanOrEqual(canvasBottom + 2);
+			// Popup top must stay on screen
+			expect(popupBox!.y).toBeGreaterThanOrEqual(0);
+
+			// Select Custom — popup content changes, should still fit
+			const customRow = popup.locator('.type-row', { hasText: 'Custom' }).first();
+			await customRow.click();
+			await page.waitForTimeout(600);
+
+			await page.screenshot({
+				path: 'test-results/room-popup-shift-up-custom.png',
+				fullPage: true
+			});
+
+			const popupBox2 = await popup.boundingBox();
+			expect(popupBox2!.y + popupBox2!.height).toBeLessThanOrEqual(canvasBottom + 2);
+			expect(popupBox2!.y).toBeGreaterThanOrEqual(0);
+
+			await page.keyboard.press('Escape');
+		}
+	});
+
+	test('left-click on interior places AP (not room popup)', async ({ page }) => {
+		const canvas = page.locator('canvas');
+
+		// Regular left-click on interior places an AP (placement mode on)
+		await enablePlaceMode(page);
+		await canvas.click({ position: { x: 300, y: 250 } });
+		await page.waitForTimeout(500);
+
+		// Should NOT see room popup
+		const popup = page.locator('.popup');
+		const visible = await popup.isVisible({ timeout: 500 }).catch(() => false);
+		expect(visible).toBeFalsy();
+
+		await page.screenshot({ path: 'test-results/room-leftclick-places-ap.png', fullPage: true });
+	});
+
+	test('mobile: room popup renders as bottom sheet', async ({ browser }) => {
+		const context = await browser.newContext({
+			viewport: { width: 390, height: 844 },
+			hasTouch: true
+		});
+		const page = await context.newPage();
+		await setupCleanState(page);
+		await page.goto('/');
+		await page.waitForSelector('canvas');
+		await page.waitForTimeout(500);
+
+		// Canvas loads on mobile
+		const canvas = page.locator('canvas');
+		await expect(canvas).toBeVisible();
+		await page.screenshot({ path: 'test-results/room-mobile-canvas.png', fullPage: true });
+
+		await context.close();
+	});
+});

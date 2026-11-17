@@ -1,0 +1,637 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Aetherax 使用手册</title>
+<style>
+	:root { color-scheme: light; }
+	* { box-sizing: border-box; }
+	body {
+		margin: 0 auto;
+		padding: 32px 28px 64px;
+		max-width: 920px;
+		background: #ffffff;
+		color: #1f2937;
+		font-family: "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+		font-size: 15px;
+		line-height: 1.8;
+	}
+	h1 { font-size: 26px; margin: 0 0 20px; color: #111827; }
+	h2 { font-size: 20px; margin: 36px 0 12px; padding-bottom: 6px; border-bottom: 1px solid #e5e7eb; color: #111827; }
+	h3 { font-size: 16px; margin: 24px 0 8px; color: #111827; }
+	p { margin: 8px 0; }
+	ol { margin: 8px 0 12px; padding-left: 24px; }
+	li { margin: 4px 0; }
+	table { border-collapse: collapse; width: 100%; margin: 12px 0 18px; font-size: 14px; }
+	th, td { border: 1px solid #d1d5db; padding: 6px 10px; text-align: left; vertical-align: top; }
+	th { background: #f3f4f6; font-weight: 600; }
+	tr:nth-child(even) td { background: #fafafa; }
+</style>
+</head>
+<body>
+<h1>Aetherax 使用说明书</h1>
+<p>适用版本：Windows 桌面版 1.0.0。本手册按 English 界面编写；点击工具栏右侧的 EN/中 可以切换中文界面。</p>
+<h2>目录</h2>
+<ol>
+<li>启动与界面</li>
+<li>工程与文件</li>
+<li>楼层管理</li>
+<li>导入平面图</li>
+<li>比例标定</li>
+<li>楼层属性与对齐</li>
+<li>墙体</li>
+<li>规划范围</li>
+<li>放置与编辑 AP</li>
+<li>覆盖率与优化器</li>
+<li>热力图与图层</li>
+<li>视图</li>
+<li>抬升面</li>
+<li>房间类型与密度</li>
+<li>标注</li>
+<li>撤销、重做与快捷键</li>
+<li>数据与备份</li>
+<li>常见问题</li>
+</ol>
+<h2>1. 启动与界面</h2>
+<h3>1.1 启动</h3>
+<ol>
+<li>运行安装包 Aetherax_0.1.0_x64-setup.exe，按向导完成安装。</li>
+<li>从开始菜单或安装目录运行 Aetherax。</li>
+<li>首次启动会显示欢迎窗口。点击 Get Started 进入主界面；勾选 Don't show this again 后不再显示。</li>
+<li>如果窗口空白，安装 Microsoft Edge WebView2 Runtime 后重新启动。</li>
+</ol>
+<h3>1.2 主界面</h3>
+<p>界面分为五个区域：</p>
+<ol>
+<li>顶部工具栏：工程名、File 菜单、撤销、重做、单位切换、语言切换、帮助、侧栏开关。</li>
+<li>左侧侧栏：Floorplan 与 APs 两个标签页，底部固定 Coverage、Placement optimiser 和 Placement advice。</li>
+<li>中间画布：平面图、墙体、AP、热力图和各类覆盖物。</li>
+<li>画布左下角 Layers 面板：图层开关、底图不透明度、视图角度、信号强度色标。</li>
+<li>底部状态栏：缩放比例、Fit 按钮、单层/平铺/堆叠/3D 视图切换。</li>
+</ol>
+<p>顶部工具栏的工程名可以双击改名，输入后按 Enter 确认，按 Esc 取消。帮助按钮打开版本信息、快捷键和入门说明。</p>
+<h2>2. 工程与文件</h2>
+<h3>2.1 新建工程</h3>
+<ol>
+<li>点击 File。</li>
+<li>点击 New Project。</li>
+<li>输入工程名称。</li>
+<li>点击 Create。</li>
+</ol>
+<p>新建会清空当前布局，恢复为单层、5 GHz、20 MHz、FCC 的空白工程。需要保留当前内容时，先导出工程文件。</p>
+<h3>2.2 打开工程</h3>
+<ol>
+<li>点击 File。</li>
+<li>点击 Open Project...。</li>
+<li>选择 .json 工程文件。</li>
+<li>打开后当前工程被替换。</li>
+</ol>
+<p>可以打开本程序导出的工程文件。其他来源的 JSON 必须符合本程序的工程结构，否则会提示导入失败。</p>
+<h3>2.3 保存工程</h3>
+<ol>
+<li>按 Ctrl+S。</li>
+<li>界面显示 Project saved 即完成。</li>
+</ol>
+<p>保存写入程序自己的本地存储，不会生成文件；日常编辑会自动保存，Ctrl+S 用于立即落盘。要生成文件用 File → Export Project File...（相当于另存为），它才会打开系统保存对话框。</p>
+<h3>2.4 导出工程文件</h3>
+<ol>
+<li>点击 File。</li>
+<li>点击 Export Project File...。</li>
+<li>浏览器或桌面窗口会下载一个 .json 文件。</li>
+<li>把该文件保存到固定位置，作为备份或迁移用。</li>
+</ol>
+<p>工程文件包含所有楼层、平面图图像、墙体、规划范围、AP、抬升面、标注和覆盖率数据。换电脑时用 Open Project... 导入这个文件。</p>
+<h3>2.5 导出 PNG</h3>
+<ol>
+<li>调整好当前视图和楼层。</li>
+<li>点击 File，选择 Export as PNG。</li>
+<li>程序按当前画布导出 2 倍分辨率 PNG。</li>
+<li>在下载目录查看文件。</li>
+</ol>
+<p>PNG 只包含当前画布视图，不包含侧栏和被隐藏的图层。</p>
+<h3>2.6 导出 PDF</h3>
+<ol>
+<li>点击 File，选择 Export as PDF。</li>
+<li>程序会依次切换楼层并截取画布，生成横向 A4 报告。</li>
+<li>等待下载完成，导出期间不要操作画布或切换楼层。</li>
+<li>报告包含封面、每层平面图截图、AP 清单和覆盖率数据。</li>
+</ol>
+<p>导出过程中界面可能短暂切换楼层，这是报告截图的正常过程。</p>
+<h2>3. 楼层管理</h2>
+<h3>3.1 添加楼层</h3>
+<ol>
+<li>打开 Floorplan 标签页。</li>
+<li>在楼层条右侧点击 +。</li>
+<li>新楼层以 Floor N 命名并自动切换过去。</li>
+</ol>
+<p>新楼层会继承当前楼层的比例标定，但不会复制平面图、墙体、AP 或规划范围。需要单独导入平面图并绘制或识别墙体。</p>
+<p>已有楼层的布局可以复制：打开该层 Floorplan 卡片，点击 Copy layout…，选择目标楼层或 New floor，再勾选平面图与比例、墙体/柱子/房间、规划范围、抬升面和标注。AP 永远不会被复制。</p>
+<h3>3.2 切换楼层</h3>
+<ol>
+<li>点击楼层条上的楼层名称。</li>
+<li>画布切换到该层。</li>
+</ol>
+<p>每层的平面图、墙体、标定、规划范围、AP、抬升面和标注相互独立。</p>
+<h3>3.3 重命名楼层</h3>
+<ol>
+<li>双击楼层名称。</li>
+<li>输入新名称。</li>
+<li>按 Enter 确认，按 Esc 取消。</li>
+</ol>
+<h3>3.4 调整楼层顺序</h3>
+<ol>
+<li>选中要移动的楼层。</li>
+<li>点击楼层名称左侧的 ◀ 或右侧的 ▶。</li>
+</ol>
+<p>顺序决定楼层标高和堆叠视图中的上下关系。</p>
+<h3>3.5 删除楼层</h3>
+<ol>
+<li>选中要删除的楼层。</li>
+<li>点击楼层名称右侧的 ×。</li>
+<li>在确认框中确认删除。</li>
+</ol>
+<p>删除会同时删除该层的 AP 和平面图存储。最后一层不能删除。</p>
+<h2>4. 导入平面图</h2>
+<h3>4.1 支持的格式</h3>
+<p>支持 PNG、JPEG、SVG。不支持 PDF。PDF 图纸先导出为 PNG，再导入。</p>
+<h3>4.2 导入方法</h3>
+<p>方法一：</p>
+<ol>
+<li>打开 Floorplan 标签页。</li>
+<li>点击 Import Floorplan。</li>
+<li>选择图片文件。</li>
+</ol>
+<p>导入新平面图会清除当前楼层的比例标定，导入后需要重新标定。底图透明度可以用 Floorplan 卡片的 Opacity 或 Layers 面板的 Plan opacity 调整。</p>
+<p>方法二：</p>
+<ol>
+<li>把 PNG、JPEG 或 SVG 文件直接拖到画布上。</li>
+<li>松开鼠标后开始导入。</li>
+</ol>
+<h3>4.3 使用示例图</h3>
+<ol>
+<li>在导入区域点击 Apartment、House 或 Office 示例。</li>
+<li>程序载入内置示例平面图，用于熟悉流程。</li>
+</ol>
+<h3>4.4 从零绘制</h3>
+<ol>
+<li>点击 Draw from Scratch。</li>
+<li>不导入底图，直接使用 Draw wall 和 Place APs 建立平面。</li>
+</ol>
+<p>适合没有现成图纸、只需要布置 AP 的场景。</p>
+<h3>4.5 识别墙体</h3>
+<p>导入 SVG 后，程序优先按矢量对象识别墙、窗、门：</p>
+<ol>
+<li>导入后侧栏出现 Read from vector geometry 区块。</li>
+<li>区块标题显示墙、窗、门的数量。</li>
+<li>展开区块可以逐项修改元素类型：Wall、Door、Window、Not a barrier。</li>
+<li>修改后立即重新生成墙体掩膜。</li>
+<li>点击 Read walls from pixels instead 可改用像素识别。</li>
+<li>点击 Reset 撤销手动分类。</li>
+</ol>
+<p>导入 PNG 或 JPEG 时按像素识别，不会出现矢量分类列表。</p>
+<p>已有平面图时，可以在 Floorplan 标签页的 Walls 卡片中点击 Detect walls 或 Re-detect walls 重新识别。重新识别会清除手工绘制的墙体和已上色的材质，执行前会要求确认。</p>
+<h3>4.6 移除平面图</h3>
+<ol>
+<li>点击平面图卡片底部的垃圾桶按钮（Remove floorplan）。</li>
+<li>确认提示。</li>
+</ol>
+<p>该操作会删除当前楼层的平面图、墙体与柱子、规划范围、抬升面、标注、墙体掩膜、比例标定、房间类型与密度覆盖、房间标签以及该层所有 AP。只删除底图而保留 AP 时，不要使用这个按钮。</p>
+<h2>5. 比例标定</h2>
+<p>比例按楼层独立保存。新楼层继承当前楼层的比例，之后可以单独重新标定。</p>
+<h3>5.1 用已知距离标定</h3>
+<ol>
+<li>打开 Floorplan 标签页。</li>
+<li>找到 Scale 卡片，点击 Measure a distance。</li>
+<li>在平面图上点击已知线段的一个端点。</li>
+<li>点击另一个端点。</li>
+<li>在输入框中填入这段线的真实长度。</li>
+<li>确认单位。工具栏的 m/ft 开关决定输入单位。</li>
+<li>点击 Apply。</li>
+</ol>
+<p>标定完成后，Scale 卡片显示当前比例，画布上的距离、AP 半径和面积按真实单位计算。</p>
+<h3>5.2 重新标定</h3>
+<ol>
+<li>点击 Recalibrate。</li>
+<li>重复 5.1 的步骤。</li>
+</ol>
+<h2>6. 楼层属性与对齐</h2>
+<h3>6.1 楼层属性</h3>
+<p>在 Floorplan 标签页展开 Floor properties：</p>
+<ol>
+<li>Ceiling height：层高，单位跟随 m/ft 开关。</li>
+<li>Floor thickness：楼板厚度。</li>
+<li>Floor material：楼板材质，影响跨层损耗。</li>
+</ol>
+<p>这些值用于 3D 视图、跨层路径和 AP 高度。</p>
+<h3>6.2 对齐楼层</h3>
+<ol>
+<li>展开 Floor properties。</li>
+<li>修改 Align X 或 Align Y，按真实距离平移当前楼层。</li>
+<li>或者点击 Drag to align 进入拖动对齐模式。进入后 Floor below 图层自动打开。</li>
+<li>在画布上按住左键拖动，把当前楼层对到下一层上。</li>
+<li>再次点击按钮或按 Esc 结束。</li>
+</ol>
+<p>对齐会同时移动该层的平面图、墙体、规划范围和 AP。</p>
+<h2>7. 墙体</h2>
+<h3>7.1 绘制墙体</h3>
+<ol>
+<li>打开 Floorplan 标签页。</li>
+<li>在 Walls 卡片点击 Draw wall。</li>
+<li>画布顶部出现墙体工具栏。</li>
+<li>选择 Walls 或 Columns。</li>
+<li>绘制柱子时选择 Rectangle 或 Circle。</li>
+<li>点击 Material 选择下一段墙的材质。</li>
+<li>在画布上点击墙体起点。</li>
+<li>点击终点完成这一段。</li>
+<li>按住 Shift 画正交墙。</li>
+<li>按 Esc 退出墙体工具或取消未完成的墙段。</li>
+<li>点击 Done 退出墙体工具。</li>
+</ol>
+<p>绘制时端点会吸附到已有墙体。</p>
+<h3>7.2 修改墙体材质</h3>
+<ol>
+<li>点击一段墙体将其选中。</li>
+<li>右键点击该墙体。</li>
+<li>在材质列表中选择材质。</li>
+</ol>
+<p>材质列表底部可以添加自定义材质：</p>
+<ol>
+<li>点击 + Custom material。</li>
+<li>输入 Name。</li>
+<li>输入 Loss per crossing。</li>
+<li>输入 Thickness。</li>
+<li>点击 Add。</li>
+</ol>
+<p>自定义材质可以删除，删除后使用该材质的墙体按默认墙体计算。</p>
+<h3>7.3 删除墙体</h3>
+<ol>
+<li>点击墙体选中。</li>
+<li>按 Delete 或 Backspace。</li>
+<li>柱子同样先选中再删除。</li>
+</ol>
+<p>删除最后一根墙或柱子时，墙体掩膜会同步清空。</p>
+<h3>7.4 擦除与清空</h3>
+<ol>
+<li>在 Walls 卡片点击 Draw wall 进入墙体工具。</li>
+<li>选择 Erase。</li>
+<li>在墙上拖动擦除。</li>
+<li>点击工具栏右侧的垃圾桶图标清空当前楼层所有墙体和柱子。</li>
+</ol>
+<p>清空墙体不会删除 AP，但覆盖率会按空墙体重算。</p>
+<h3>7.5 识别墙体</h3>
+<ol>
+<li>在 Walls 卡片点击 Detect walls。</li>
+<li>已有掩膜时按钮显示 Re-detect walls。</li>
+<li>重新识别会替换墙体并清除手工上色，执行前确认。</li>
+</ol>
+<h2>8. 规划范围</h2>
+<p>规划范围用于明确本层哪些区域算作楼层。未绘制时使用自动识别的范围。</p>
+<h3>8.1 绘制规划范围</h3>
+<ol>
+<li>打开 Floorplan 标签页。</li>
+<li>在 Planning area 卡片点击 Draw planning area。</li>
+<li>在画布上依次点击角点。至少需要三个角点。</li>
+<li>角点会吸附到已绘制的墙体。</li>
+<li>第三个角点落下后，顶部出现 Confirm area。</li>
+<li>点击回第一个角点可以闭合轮廓，轮廓闭合后仍可撤销或取消。</li>
+<li>点击 Confirm area 应用范围。</li>
+<li>点击 Undo corner 撤销上一个角点，按 Backspace 效果相同。</li>
+<li>点击 Cancel 或按 Esc 放弃本次绘制。</li>
+</ol>
+<h3>8.2 重新绘制</h3>
+<ol>
+<li>点击 Redraw planning area。</li>
+<li>重复 8.1。</li>
+</ol>
+<p>已应用的范围在绘制期间以虚线显示，确认后隐藏。侧栏按钮文字可以判断当前是否已有规划范围。</p>
+<h3>8.3 规划范围的作用</h3>
+<p>规划范围是楼层范围的最终依据。它会限制热力图和覆盖率的计算区域，也用于判断 AP 是否在楼层内。</p>
+<p>没有绘制规划范围时，使用墙体推导出的自动范围。自动范围在墙洞较大时可能不准确，此时应手工绘制。</p>
+<h2>9. 放置与编辑 AP</h2>
+<h3>9.1 放置 AP</h3>
+<ol>
+<li>切到单层视图。</li>
+<li>在左侧 Coverage 区域点击 Place APs。</li>
+<li>画布顶部出现 AP 放置工具栏。</li>
+<li>选择 Mounting：Ceiling mount、Floor mount 或 Wall mount。</li>
+<li>在画布上点击放置。</li>
+<li>放置多个 AP 时继续点击。</li>
+<li>点击 Done 或按 Esc 退出。</li>
+</ol>
+<p>Wall mount 必须点击在距墙 1 米以内。AP 会自动吸附到墙面，并按朝向确定覆盖方向。</p>
+<h3>9.2 AP 列表</h3>
+<ol>
+<li>打开 APs 标签页。</li>
+<li>列表显示当前工程的所有 AP。</li>
+<li>点击一个 AP 进入编辑。</li>
+<li>All 选中全部 AP。</li>
+<li>Delete selected 删除选中的 AP。</li>
+<li>Clear 清空工程中所有 AP。</li>
+</ol>
+<p>多选时按 Shift 点击 AP，或在空白画布上拖出选择框。拖动 AP 可以移动位置。固定位置在 AP 编辑页的 Pin position 中设置。</p>
+<h3>9.3 编辑 AP</h3>
+<p>选中 AP 后，Properties 区域可以修改：</p>
+<ol>
+<li>Model：选择设备型号，自动填入频段、功率、范围和该型号的建议终端数。</li>
+<li>Name：AP 名称。</li>
+<li>Band：2.4 GHz、5 GHz 或 6 GHz。</li>
+<li>Channel Width：信道宽度。</li>
+<li>Channel：Auto 由求解器分配，选择具体数字则固定该信道。</li>
+<li>TX Power：发射功率，单位 dBm。</li>
+<li>Clients：该 AP 计划承载的并发终端数；选择型号时自动填入建议值，也可以单独修改。</li>
+<li>Mounting：安装方式。</li>
+<li>安装高度：Mounting 右侧的数值框。</li>
+<li>Antenna：Vertical beamwidth、Horizontal beamwidth 和 Aim。Vertical 控制垂直切面；Horizontal 控制平面方向图，360° 为全向，小于 360° 时按面板处理；Aim 是垂直峰值方向，正值向下。新建吊顶 AP 默认 Aim 30°、Horizontal 360°，壁挂 AP 默认 Horizontal 90°。</li>
+<li>Facing：Wall mount 或 Horizontal 小于 360° 时显示，表示平面内的朝向角。</li>
+<li>Position：显示当前 X、Y 坐标，不可直接输入；拖动 AP 移动位置。</li>
+<li>Pin position：固定该 AP 的位置，优化器不会移动它。</li>
+</ol>
+<p>修改天线、朝向、安装高度或位置后，热力图和覆盖率都会重算。CO-CHANNEL CONFLICTS 区域列出同信道冲突的 AP。</p>
+<h3>9.4 删除 AP</h3>
+<ol>
+<li>选中 AP。</li>
+<li>按 Delete 或 Backspace。</li>
+<li>或在 AP 编辑页点击 Delete Access Point。</li>
+<li>多选时点击 Delete All 删除选中的 AP。</li>
+</ol>
+<h3>9.5 AP 在楼层外的警告</h3>
+<p>Allow APs outside the floor boundary 关闭时，手动点击边界外会拒绝放置并给出提示；落到边界外的 AP 会在画布下方显示警告。打开后，放置和优化都允许 AP 在边界外，警告不再出现。警告可以单独关闭。</p>
+<h2>10. 覆盖率与优化器</h2>
+<h3>10.1 查看覆盖率</h3>
+<ol>
+<li>放置至少一个 AP。</li>
+<li>Coverage 区域显示当前楼层覆盖率。</li>
+<li>多楼层工程显示 Whole building 平均值、最弱楼层和已测量楼层数。</li>
+<li>点击 Whole building 标题可以展开计算说明。</li>
+</ol>
+<p>覆盖率按密度加权，房间类型和密度会影响结果。它回答的是“多少比例的加权采样点达到覆盖门限”，不是终端容量；覆盖门限默认 −70 dBm，可在优化器设置里修改。</p>
+<p>Coverage 下方是 Capacity 卡片：同时显示 Clients（当前 AP 数 / 按每台 AP 的 Client 容量估算）和 Traffic（业务需求 / 规划供给），两者共用一条状态条。没有房间类型/密度数据时只显示 Clients。</p>
+<p>点击 Capacity 标题旁的 ⓘ 可打开 Capacity assumptions，选择 Office、High density、IoT / hotel 预设，或自定义 Activity 和 1 流占比。预设计算的是规划容量，不是实测终端普查。</p>
+<p>默认 Office 假设：</p>
+<p>- 终端构成：1 流 60%、2 流 35%、4 流 5%；第一版只启用 1/2 流，4 流不参与计算； - 业务量：低 2、标准 10、高档 20 Mbps/终端；未标注房间类型的区域不计业务需求；没有可统计的房间类型时不显示 Traffic； - 并发率（活动因子）30%；参考 Cisco 高密度设计指南的 20–30% 并发使用区间； - MAC 效率 45%、可用率 70%； - 供给按中位 SINR，边缘警告按 5% 分位。</p>
+<p>完整的传播、材质、PHY、容量和优化器参数，以及每项的可信度分级，见 [MODEL-PARAMETERS.zh-CN.md](./MODEL-PARAMETERS.zh-CN.md)。</p>
+<h3>10.2 优化放置</h3>
+<p>单层工程：</p>
+<ol>
+<li>点击 Optimize placement。</li>
+<li>进度条显示优化进度。</li>
+<li>优化完成后 AP 移动到新位置。</li>
+<li>需要撤销时按 Ctrl+Z。</li>
+</ol>
+<p>多楼层工程有两个按钮：</p>
+<ol>
+<li>Optimize all floors：逐层轮流优化，直到整栋覆盖率不再提升。设了 Min coverage 时，还会对未达标的最弱层单独补跑（最多两轮，只在这层仍在提升时继续）。</li>
+<li>Optimize this floor：只优化当前楼层，其他楼层不动。</li>
+</ol>
+<p>优化过程中可以点击 Cancel 中止。</p>
+<h3>10.3 优化器设置</h3>
+<p>点击 Placement optimiser 右侧的齿轮：</p>
+<ol>
+<li>Allow APs outside the floor boundary：允许 AP 落在楼层边界外（有规划范围时以它为准，否则按识别出的建筑内部），默认关闭。</li>
+<li>Coverage threshold：覆盖率判定门限，默认 -70 dBm；高密度办公区可提高到 -65 或 -60。</li>
+<li>Interference：同信道干扰在评分中的权重。</li>
+<li>Min coverage：最低覆盖率约束，0 表示不约束。</li>
+<li>Client height：客户端离地高度。</li>
+<li>Restarts：优化重启次数，1 到 8。</li>
+<li>Propagation：传播环境，可选 Walls drawn in full、Walls partly drawn、Walls barely drawn，按墙体绘制完整程度选择。</li>
+</ol>
+<h3>10.4 放置建议</h3>
+<p>Placement advice 区域根据最近一次优化结果给出增删 AP、调整楼层或信道建议。容量约束触发时会单独显示“Client capacity”，说明容量覆盖的终端数和建议增加的 AP 数。点击 Dismiss 关闭。</p>
+<h3>10.5 信道分配</h3>
+<p>信道由求解器自动分配。需要固定某个 AP 的信道时，在 AP 编辑页把 Channel 从 Auto 改为具体信道。固定后该 AP 不再参与信道重分配。</p>
+<h2>11. 热力图与图层</h2>
+<h3>11.1 显示热力图</h3>
+<ol>
+<li>放置至少一个 AP。</li>
+<li>点击 Layers 面板中的 Signal heatmap，或按 H。</li>
+<li>颜色表示接收信号强度，单位 dBm。</li>
+<li>低于热力图着色下限（覆盖门限下方 10 dB）的区域保持透明。</li>
+</ol>
+<p>Layers 面板中的按钮会显示当前视图，例如 `Heatmap view: RSSI`；点击后循环切换：</p>
+<ol>
+<li>RSSI：接收信号强度，色标单位 dBm；</li>
+<li>SINR：最强 AP 与服务小区干扰的比值；</li>
+<li>Rate：PHY 参考速率。预估吞吐按 MAC 折损，不是实测吞吐。</li>
+</ol>
+<h3>11.2 图层开关</h3>
+<p>Layers 面板包含：</p>
+<ol>
+<li>Signal heatmap：信号热力图。</li>
+<li>Floorplan：底图。</li>
+<li>Access points：AP 标记和覆盖半径。</li>
+<li>Walls：墙体。</li>
+<li>Room labels：房间标签。</li>
+<li>Floor below：下一层地图。</li>
+<li>Labels：AP、墙体和测量标签。</li>
+<li>Notes：标注。</li>
+<li>Grid：网格。</li>
+</ol>
+<h3>11.3 底图不透明度</h3>
+<ol>
+<li>在 Layers 面板找到 Plan opacity。</li>
+<li>拖动滑块调整底图透明度。</li>
+</ol>
+<h3>11.4 信号色标</h3>
+<p>Layers 面板底部显示当前指标的色标。RSSI 色标范围随覆盖门限变化；SINR 固定 -5..30 dB；Rate 按当前信道带宽自动缩放。最左侧的深色格表示低于门限、无可用信号。</p>
+<h2>12. 视图</h2>
+<h3>12.1 单层视图</h3>
+<ol>
+<li>点击状态栏第一个图标进入单层视图。</li>
+<li>滚轮缩放，按住鼠标中键拖动平移。</li>
+<li>点击 Fit 缩放到可见范围。</li>
+<li>只有单层视图可以编辑墙体、AP、规划范围、抬升面和标注。</li>
+</ol>
+<h3>12.2 平铺视图</h3>
+<ol>
+<li>点击状态栏第二个图标。</li>
+<li>每层显示为一张卡片，并排排列。</li>
+<li>点击卡片切换到该层。</li>
+<li>卡片按各层标定比例绘制，比较的是真实尺寸。</li>
+<li>平铺视图只读，不能编辑几何。</li>
+</ol>
+<h3>12.3 堆叠视图</h3>
+<ol>
+<li>点击状态栏第三个图标。</li>
+<li>楼层按层高堆叠。</li>
+<li>按住左键拖动旋转视角。</li>
+<li>Layers 面板出现 Rotate、Tilt、Spacing。</li>
+<li>多楼层时可以打开 Only this floor，只显示当前层。</li>
+<li>点击某一层切换到该层。</li>
+<li>堆叠视图只读。</li>
+</ol>
+<h3>12.4 3D 视图</h3>
+<ol>
+<li>点击状态栏第四个图标。</li>
+<li>显示当前楼层，墙体按真实高度拉伸，并使用墙体材质颜色。</li>
+<li>按住左键拖动旋转视角。</li>
+<li>Layers 面板的 Rotate 和 Tilt 可以精确设置角度。</li>
+<li>画布上方的 ↑ 和 ↓ 按钮切换上下楼层，也可以使用楼层条直接切换。</li>
+<li>3D 视图只读。</li>
+</ol>
+<h2>13. 抬升面</h2>
+<p>抬升面用于平台、楼梯和坡道。它们会改变热力图和优化器中的客户端高度。</p>
+<h3>13.1 绘制抬升面</h3>
+<ol>
+<li>打开 Floorplan 标签页。</li>
+<li>展开 Raised surfaces。</li>
+<li>选择 Platform、Stair 或 Ramp。</li>
+<li>选择 Material，或使用 Custom。</li>
+<li>设置 Upper height、Thickness。</li>
+<li>Platform 设置 Height；Stair 和 Ramp 设置 Lower height。</li>
+<li>Stair 的 N of steps 显示自动计算值，不手工输入。</li>
+<li>需要实心底座时打开 Solid base floor。楼梯没有这一项。</li>
+<li>点击 Draw raised area。</li>
+<li>在画布上点击一个角，再点击对角。</li>
+<li>点击 Done 结束。</li>
+</ol>
+<h3>13.2 材质与衰减</h3>
+<p>预设材质自带衰减值，选择后 Attenuation 显示固定 dB 值。Custom 可以手动输入衰减。</p>
+<h3>13.3 删除抬升面</h3>
+<p>点击抬升面的边缘选中它，然后按 Delete 或 Backspace。删除多个抬升面时逐个选中删除，不再提供清空全部抬升面的按钮。</p>
+<h2>14. 房间类型与密度</h2>
+<ol>
+<li>在单层视图右键点击一个房间。</li>
+<li>在弹出窗口中搜索房间类型，或从分类列表选择。</li>
+<li>设置 Density，单位 devices/m²。</li>
+<li>可以输入 Custom label。</li>
+<li>点击 Clear 清除该房间的类型和密度覆盖。</li>
+</ol>
+<p>房间类型影响覆盖率的密度加权。Room labels 图层控制房间标签显示。</p>
+<p>移动端触屏长按房间打开同一窗口。</p>
+<h2>15. 标注</h2>
+<ol>
+<li>打开 Floorplan 标签页，展开 Notes。</li>
+<li>点击 Add note。</li>
+<li>在画布上点击位置。</li>
+<li>输入标注内容。</li>
+<li>点击 Done 保存。</li>
+<li>在 Notes 列表点击标注可以选中，点击 Delete note 删除。</li>
+</ol>
+<p>按 Esc 取消放置。Notes 图层控制标注显示。</p>
+<h2>16. 撤销、重做与快捷键</h2>
+<h3>16.1 撤销与重做</h3>
+<ol>
+<li>Ctrl+Z 撤销。</li>
+<li>Ctrl+Shift+Z 重做。</li>
+<li>顶部工具栏的撤销和重做按钮效果相同。</li>
+</ol>
+<p>撤销覆盖墙体、AP、规划范围、抬升面、材质和标注等编辑。</p>
+<h3>16.2 快捷键</h3>
+<table>
+<thead><tr>
+<th>按键</th>
+<th>作用</th>
+</tr></thead><tbody>
+<tr>
+<td>H</td>
+<td>显示或隐藏热力图</td>
+</tr>
+<tr>
+<td>G</td>
+<td>显示或隐藏网格</td>
+</tr>
+<tr>
+<td>W</td>
+<td>显示或隐藏墙体</td>
+</tr>
+<tr>
+<td>Ctrl+Z</td>
+<td>撤销</td>
+</tr>
+<tr>
+<td>Ctrl+Shift+Z</td>
+<td>重做</td>
+</tr>
+<tr>
+<td>Ctrl+S</td>
+<td>立即保存</td>
+</tr>
+<tr>
+<td>Delete 或 Backspace</td>
+<td>删除选中的 AP、墙体、柱子或抬升面</td>
+</tr>
+<tr>
+<td>Esc</td>
+<td>退出当前模式；绘制中取消</td>
+</tr>
+<tr>
+<td>Shift</td>
+<td>画墙时保持正交；多选 AP</td>
+</tr>
+<tr>
+<td>Enter</td>
+<td>闭合规划范围；确认输入</td>
+</tr>
+<tr>
+<td>Backspace</td>
+<td>绘制规划范围时撤销上一个角点</td>
+</tr>
+<tr>
+<td>鼠标中键拖动</td>
+<td>平移画布</td>
+</tr>
+<tr>
+<td>滚轮</td>
+<td>缩放画布</td>
+</tr>
+</tbody></table>
+<h2>17. 数据与备份</h2>
+<ol>
+<li>编辑会自动保存到本地存储。</li>
+<li>Ctrl+S 立即保存。</li>
+<li>File &gt; Export Project File... 导出完整工程 JSON。</li>
+<li>File &gt; Open Project... 导入工程 JSON。</li>
+<li>File &gt; Export as PNG 导出当前视图。</li>
+<li>File &gt; Export as PDF 导出完整报告。</li>
+</ol>
+<p>换电脑、重装系统或清理应用数据前，先导出工程 JSON。只依赖自动保存会在清理数据后丢失工程。</p>
+<h2>18. 常见问题</h2>
+<h3>18.1 热力图不显示</h3>
+<ol>
+<li>确认 Layers 面板中 Signal heatmap 已打开，或按 H。</li>
+<li>确认当前楼层至少有一个 AP。</li>
+<li>确认已完成比例标定。</li>
+<li>热力图只画到覆盖门限下方 10 dB；如果大片区域没有颜色，说明该处信号确实低于门限。</li>
+<li>确认当前在单层或包含热力图的概览视图。</li>
+</ol>
+<h3>18.2 AP 放不下去</h3>
+<ol>
+<li>确认在单层视图。</li>
+<li>确认 Place APs 已打开。</li>
+<li>Wall mount 需要点击距墙 1 米以内的位置。</li>
+<li>范围外点击会被拒绝，除非在优化器设置中打开 Allow APs outside the floor boundary。</li>
+</ol>
+<h3>18.3 覆盖率明显偏低或偏高</h3>
+<ol>
+<li>检查当前楼层比例是否正确。</li>
+<li>检查墙体是否识别完整，墙洞是否过大。</li>
+<li>检查规划范围是否覆盖真实楼层。</li>
+<li>检查房间类型和密度是否合理。</li>
+<li>检查 Coverage threshold 是否与评估标准一致（默认 −70 dBm）。</li>
+<li>检查 Propagation 是否按墙体绘制程度选择；墙体已完整绘制时用 Walls drawn in full。高密度办公区还要检查每台 AP 的 Clients 和本层终端估算。</li>
+</ol>
+<h3>18.4 优化器没有改变布局</h3>
+<ol>
+<li>确认 AP 数量大于零。</li>
+<li>确认没有把所有 AP 都 Pin position。</li>
+<li>确认当前层墙体、比例和规划范围有效。</li>
+<li>多楼层时确认使用的是 Optimize this floor 还是 Optimize all floors。</li>
+</ol>
+<h3>18.5 导出 PDF 后页面是错的楼层</h3>
+<p>导出期间不要切换楼层或视图。PDF 导出会自动切换楼层截图，操作会打断截图流程。</p>
+<h3>18.6 平面图与下一层对不齐</h3>
+<ol>
+<li>打开 Floor below 图层查看下一层。</li>
+<li>使用 Align X、Align Y 或 Drag to align 调整当前层。</li>
+<li>对齐只移动当前层的平面图、墙体、规划范围和 AP。</li>
+</ol>
+<h3>18.7 工程无法导入</h3>
+<ol>
+<li>确认文件是本程序导出的 .json。</li>
+<li>确认文件没有被手动修改或截断。</li>
+<li>先新建工程，再重新导入。</li>
+<li>导入前导出当前工程，避免覆盖后无法恢复。</li>
+</ol>
+</body>
+</html>

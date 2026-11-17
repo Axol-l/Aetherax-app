@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Aetherax">
+  <defs>
+    <linearGradient id="ax-a" x1="0" y1="1" x2="0.35" y2="0">
+      <stop offset="0" stop-color="#d9ff3d"/>
+      <stop offset="0.55" stop-color="#4be3a0"/>
+      <stop offset="1" stop-color="#00bfa6"/>
+    </linearGradient>
+    <mask id="ax-cut">
+    	<!-- White keeps the letter; black takes the signal out of it. -->
+    	<rect width="32" height="32" fill="#fff" />
+    	<!-- The source dot *is* the A's enclosed part: the centre of its counter. -->
+    	<circle cx="16" cy="15" r="1.8" fill="#000" />
+    	<g fill="none" stroke="#000" stroke-width="1.15" stroke-linecap="round">
+    		<path d="M13.18 17.54 A3.8 3.8 0 0 0 18.82 17.54" />
+    		<path d="M11.69 18.88 A5.8 5.8 0 0 0 20.31 18.88" />
+    		<path d="M10.35 20.09 A7.6 7.6 0 0 0 21.65 20.09" />
+    	</g>
+    </mask>
+  </defs>
+  <rect width="32" height="32" rx="7.5" fill="#0b0d14"/>
+  <path d="M13.4 5.4 h5.2 L26.4 26.6 h-4.6 l-1.5-3.2 h-8.6 l-1.5 3.2 H5.6 Z" fill="url(#ax-a)" stroke="url(#ax-a)" stroke-width="1" stroke-linejoin="round" mask="url(#ax-cut)"/>
+</svg>

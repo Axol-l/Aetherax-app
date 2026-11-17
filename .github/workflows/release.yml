@@ -1,0 +1,144 @@
+# The Windows bundle, built from a push or a pull request instead of from a developer's
+# machine.
+#
+# `ci.yml` gates the frontend; this workflow is the only thing that produces distributables.
+# It checks the code out fresh, installs the workspace, runs `pnpm tauri:build` (which runs
+# `pnpm build` through `beforeBuildCommand`) and collects what Tauri left behind:
+#
+#   Aetherax_<version>_x64-setup.exe   the NSIS installer, WebView2 bootstrapper embedded
+#   Aetherax_<version>_x64_portable.zip the bare aetherax.exe, no installer
+#   SHA256SUMS.txt                     checksums for both
+#
+# A push to `main` and every pull request keep those as a workflow artifact (the PR one is
+# named after the PR, so review builds are easy to find). A `v*` tag does the same and
+# publishes them as a GitHub Release.
+#
+# The version lives in three files and they must agree: `package.json`,
+# `src-tauri/Cargo.toml` and `src-tauri/tauri.conf.json`. The step below rejects a mismatch
+# before the build, and a tag has to match that version too, so `v0.2.0` can never ship a
+# bundle labelled 0.1.0 — both checks fail before the 15-minute compile rather than after it.
+#
+# The binaries are unsigned: Windows SmartScreen warns on first run until the project has a
+# code-signing certificate (see README.md → Releases).
+
+name: Release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  # Review builds: a PR gets the same installer and portable exe as main, without publishing.
+  pull_request:
+  workflow_dispatch:
+
+# Two pushes to the same ref: only the newest bundle is worth finishing.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: true
+
+# `contents: write` is what lets the tag job create the release and upload its assets.
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    name: Windows bundle
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      # pnpm before setup-node, because the latter's cache needs `pnpm` on PATH.
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 10
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+
+      # The MSVC toolchain windows-latest carries is what Tauri links against.
+      - uses: dtolnay/rust-toolchain@stable
+
+      # ~15 minutes of release-profile Rust (lto + one codegen unit) is worth caching.
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # One version, three files that each own a piece of it. Failing here names the odd one
+      # out instead of shipping a bundle whose file properties disagree with its name.
+      - name: Check the version agrees everywhere
+        shell: pwsh
+        run: |
+          $package = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $cargo = (Select-String -Path src-tauri/Cargo.toml -Pattern '^version = "([^"]+)"' | Select-Object -First 1).Matches[0].Groups[1].Value
+          $bundle = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+
+          @(
+            [pscustomobject]@{ File = 'package.json'; Version = $package }
+            [pscustomobject]@{ File = 'src-tauri/Cargo.toml'; Version = $cargo }
+            [pscustomobject]@{ File = 'src-tauri/tauri.conf.json'; Version = $bundle }
+          ) | Format-Table -AutoSize
+
+          if (@($package, $cargo, $bundle | Select-Object -Unique).Count -ne 1) {
+            throw "The app version differs ($package / $cargo / $bundle). Bump package.json, src-tauri/Cargo.toml and src-tauri/tauri.conf.json together; the next cargo build refreshes the aetherax entry in src-tauri/Cargo.lock."
+          }
+
+      - name: Check the tag matches the app version
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $tag = '${{ github.ref_name }}'
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($tag -ne "v$version") {
+            throw "Tag '$tag' does not match tauri.conf.json version '$version' — bump package.json, src-tauri/Cargo.toml and src-tauri/tauri.conf.json together, then retag."
+          }
+
+      - name: Build the bundle
+        run: pnpm tauri:build
+
+      - name: Collect the installers
+        shell: pwsh
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          $out = 'dist-artifacts'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+
+          $installer = Get-ChildItem 'src-tauri/target/release/bundle/nsis/*.exe'
+          if (-not $installer) { throw 'No NSIS installer in src-tauri/target/release/bundle/nsis' }
+          Copy-Item $installer.FullName "$out/$($installer.Name)"
+
+          $exe = 'src-tauri/target/release/aetherax.exe'
+          if (-not (Test-Path $exe)) { throw "No application at $exe" }
+          Compress-Archive -Path $exe -DestinationPath "$out/Aetherax_${version}_x64_portable.zip" -Force
+
+          Get-ChildItem $out -File | ForEach-Object {
+            $hash = (Get-FileHash $_.FullName -Algorithm SHA256).Hash.ToLower()
+            "$hash  $($_.Name)"
+          } | Set-Content "$out/SHA256SUMS.txt"
+
+          Get-ChildItem $out | Format-Table Name, Length
+
+      - uses: actions/upload-artifact@v7
+        with:
+          # A PR run is named after the PR so a reviewer can find it without the SHA.
+          name: Aetherax-windows-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.sha }}
+          path: dist-artifacts/*
+          if-no-files-found: error
+          retention-days: 14
+
+      # Only a tag publishes. `main` builds stay artifacts so a release is a deliberate act.
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v3
+        with:
+          files: dist-artifacts/*
+          generate_release_notes: true
+          fail_on_unmatched_files: true
