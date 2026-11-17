@@ -1,6 +1,6 @@
 # Aetherax 使用说明书
 
-适用版本：Windows 桌面版 0.4.0。本手册按 English 界面编写；点击工具栏右侧的 EN/中 可以切换中文界面。
+适用版本：Windows 桌面版 0.5.0。本手册按 English 界面编写；点击工具栏右侧的 EN/中 可以切换中文界面。
 
 ## 目录
 
@@ -400,6 +400,8 @@ Coverage 下方是 Capacity 卡片：同时显示 Clients（当前 AP 数 / 按�
 - 并发率（活动因子）30%；参考 Cisco 高密度设计指南的 20–30% 并发使用区间；
 - MAC 效率 45%、可用率 70%；
 - 供给按中位 SINR，边缘警告按 5% 分位。
+
+完整的传播、材质、PHY、容量和优化器参数，以及每项的可信度分级，见 [MODEL-PARAMETERS.zh-CN.md](./MODEL-PARAMETERS.zh-CN.md)。
 
 ### 10.2 优化放置
 

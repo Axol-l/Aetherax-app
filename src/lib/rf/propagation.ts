@@ -397,7 +397,7 @@ const SENSITIVITY_20MHZ_DBM = -85;
 /**
  * 20 MHz 下的系统等效噪声系数（dB），反解使噪声底恰好等于该灵敏度。
  *
- * 该系数包含接收机噪声与实现余量，参见 `docs/PHYSICAL_MODELS.md` §A4。
+ * 该系数包含接收机噪声与实现余量，参见 `docs/MODEL-PARAMETERS.zh-CN.md` §3.3。
  */
 const NOISE_FIGURE_DB = SENSITIVITY_20MHZ_DBM - (THERMAL_NOISE_DBM_PER_HZ + 10 * Math.log10(20e6));
 
@@ -429,7 +429,7 @@ const SENSITIVITY = sensitivityDbm(20);
 /**
  * 室内距离功率损耗系数，写作 N = 10·n，`n` 为路径损耗指数。
  *
- * ITU-R P.1238-13 的取值已隐含穿墙余量，参见 `docs/PHYSICAL_MODELS.md` §A3。
+ * ITU-R P.1238-13 的取值已隐含穿墙余量，参见 `docs/MODEL-PARAMETERS.zh-CN.md` §3.1。
  */
 
 /**
@@ -645,7 +645,7 @@ export const COVERAGE_SNR_DB = COVERAGE_THRESHOLD_DBM - thermalNoiseFloorDbm(20)
 /**
  * 给定信道宽度下的空闲信道评估（CCA）前导检测门限，单位 dBm，20 MHz 时为 −82 dBm。
  *
- * 取自标准而非由噪声底推导；宽度每翻一倍提高 3 dB。参见 `docs/PHYSICAL_MODELS.md` §E3。
+ * 取自标准而非由噪声底推导；宽度每翻一倍提高 3 dB。参见 `docs/MODEL-PARAMETERS.zh-CN.md` §3.3。
  */
 export function ccaThresholdDbm(channelWidthMhz: number): number {
 	const width = channelWidthMhz > 0 ? channelWidthMhz : 20;

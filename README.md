@@ -8,6 +8,12 @@ the shell around it: one window, one process, everything local.
 The layering, the data flows and where new code belongs are in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+Every propagation, PHY and capacity parameter, with its source and confidence
+level, is listed in
+[docs/MODEL-PARAMETERS.zh-CN.md](docs/MODEL-PARAMETERS.zh-CN.md). The model
+boundary and known approximations are in
+[docs/RF-SECONDARY-PATHS.zh-CN.md](docs/RF-SECONDARY-PATHS.zh-CN.md).
+
 ## Requirements
 
 | Need | Notes |
