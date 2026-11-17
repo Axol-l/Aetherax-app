@@ -1,0 +1,366 @@
+import { test, expect, type Page } from '@playwright/test';
+import { enablePlaceMode, waitForSavedProject } from './helpers';
+
+test.beforeEach(async ({ page }) => {
+	await page.addInitScript(() => localStorage.setItem('aetherax:welcomed', '1'));
+	await page.goto('http://localhost:4183');
+	await page.waitForLoadState('networkidle');
+	await page.waitForTimeout(500);
+});
+
+/** Ensure sidebar is open on the Floorplan tab. */
+async function openFloorplanTab(page: Page) {
+	// Already visible?
+	if (
+		await page
+			.locator('.floor-strip')
+			.isVisible({ timeout: 200 })
+			.catch(() => false)
+	)
+		return;
+
+	// Check if sidebar is open (the aside element exists in DOM)
+	const sidebarVisible = await page
+		.locator('aside[aria-label="Sidebar"]')
+		.isVisible({ timeout: 200 })
+		.catch(() => false);
+
+	if (!sidebarVisible) {
+		// Sidebar is closed — open it
+		await page.locator('button[aria-label="Toggle sidebar"]').click();
+		await page.waitForTimeout(500);
+	}
+
+	// Now sidebar should be open. Click Floorplan tab.
+	const fpTab = page.locator('button[role="tab"]').filter({ hasText: 'Floorplan' });
+	await fpTab.waitFor({ state: 'visible', timeout: 3000 });
+	await fpTab.click();
+	await page.waitForTimeout(300);
+}
+
+test.describe('Multi-floor', () => {
+	// ─── Data model ──────────────────────────────────────────────
+
+	test('v3 persistence: floors + floorId on APs', async ({ page }) => {
+		await enablePlaceMode(page);
+		const canvas = page.locator('canvas');
+		await canvas.click({ position: { x: 400, y: 400 } });
+
+		// The autosave is debounced; wait for the write, not for a guessed duration.
+		const data = await waitForSavedProject(page, (project) => project.aps.length === 1);
+
+		expect(data.version).toBe(3);
+		expect(data.floors).toHaveLength(1);
+		expect(data.aps[0]!.floorId).toBe(data.floors[0]!.id);
+	});
+
+	test('v2 migration adds floor and floorId', async ({ page }) => {
+		await page.evaluate(() => {
+			localStorage.setItem(
+				'aetherax:project',
+				JSON.stringify({
+					version: 2,
+					name: 'Legacy',
+					band: '5ghz',
+					channelWidth: 20,
+					regulatoryDomain: 'fcc',
+					aps: [
+						{
+							id: 'a1',
+							name: 'AP-1',
+							x: 400,
+							y: 300,
+							band: '5ghz',
+							channelWidth: 20,
+							fixedChannel: null,
+							assignedChannel: null,
+							interferenceRadius: 300,
+							power: 20,
+							modelId: null,
+							modelLabel: null
+						}
+					],
+					floorplanScale: 0.4,
+					unitSystem: 'imperial',
+					ispSpeed: 0,
+					targetThroughput: 25,
+					calibration: null
+				})
+			);
+		});
+		await page.reload();
+		await page.waitForTimeout(1500);
+
+		// Trigger save
+		await enablePlaceMode(page);
+		const canvas = page.locator('canvas');
+		await canvas.click({ position: { x: 500, y: 500 } });
+
+		// The seeded file already has one AP, so the condition has to be the *migrated*
+		// record with the new AP in it — checking for "some record exists" would read the
+		// version 2 file back and call the migration done.
+		const data = await waitForSavedProject(
+			page,
+			(project) => project.version === 3 && project.aps.length === 2
+		);
+
+		expect(data.version).toBe(3);
+		expect(data.floors).toHaveLength(1);
+		expect(data.aps[0]!.floorId).toBeTruthy();
+	});
+
+	// ─── Floor management ────────────────────────────────────────
+
+	test('add floor', async ({ page }) => {
+		await openFloorplanTab(page);
+		await page.locator('.floor-pill.add').click();
+		await page.waitForTimeout(300);
+		await expect(page.locator('.floor-pill:not(.add)')).toHaveCount(2);
+		await page.screenshot({ path: 'test-results/multi-floor/add-floor.png' });
+	});
+
+	test('rename floor', async ({ page }) => {
+		await openFloorplanTab(page);
+		const pill = page.locator('.floor-pill:not(.add)').first();
+		await pill.dblclick();
+		await page.waitForTimeout(200);
+		await page.locator('.floor-name-input').fill('Lobby');
+		await page.locator('.floor-name-input').press('Enter');
+		await page.waitForTimeout(200);
+		await expect(page.locator('.floor-pill:not(.add)').first()).toHaveText(/Lobby/);
+	});
+
+	test('delete floor', async ({ page }) => {
+		await openFloorplanTab(page);
+		await page.locator('.floor-pill.add').click();
+		await page.waitForTimeout(300);
+		await expect(page.locator('.floor-pill:not(.add)')).toHaveCount(2);
+
+		const del = page.locator('.floor-action.delete');
+		if (await del.isVisible()) await del.click();
+		await page.waitForTimeout(300);
+		// Confirm the styled delete dialog
+		const confirmBtn = page.locator('button:has-text("Delete")').last();
+		if (await confirmBtn.isVisible({ timeout: 1000 }).catch(() => false)) {
+			await confirmBtn.click();
+		}
+		await page.waitForTimeout(300);
+		await expect(page.locator('.floor-pill:not(.add)')).toHaveCount(1);
+	});
+
+	test('cannot delete last floor', async ({ page }) => {
+		await openFloorplanTab(page);
+		await expect(page.locator('.floor-action.delete')).not.toBeVisible();
+	});
+
+	// ─── Multi-floor AP placement ────────────────────────────────
+
+	test('APs placed on different floors get different floorIds', async ({ page }) => {
+		// Placement mode survives the tab and floor changes below, so one call does.
+		await enablePlaceMode(page);
+		const canvas = page.locator('canvas');
+
+		// Place AP on floor 1
+		await canvas.click({ position: { x: 350, y: 350 } });
+		await page.waitForTimeout(500);
+
+		// Switch to floorplan tab, add floor 2
+		await openFloorplanTab(page);
+		await page.locator('.floor-pill.add').click();
+		await page.waitForTimeout(300);
+
+		// Place AP on floor 2
+		await canvas.click({ position: { x: 500, y: 400 }, force: true });
+		await page.waitForTimeout(500);
+
+		// Add floor 3
+		await openFloorplanTab(page);
+		await page.locator('.floor-pill.add').click();
+		await page.waitForTimeout(300);
+
+		// Place AP on floor 3
+		await canvas.click({ position: { x: 400, y: 300 }, force: true });
+		await page.waitForTimeout(2000);
+
+		await page.screenshot({ path: 'test-results/multi-floor/three-floors.png' });
+
+		const data = await waitForSavedProject(
+			page,
+			(project) => project.floors.length === 3 && project.aps.length === 3
+		);
+
+		expect(data.floors).toHaveLength(3);
+		expect(data.aps).toHaveLength(3);
+		const floorIds = new Set(data.aps.map((ap) => ap.floorId));
+		expect(floorIds.size).toBe(3);
+	});
+
+	test('switch floors preserves floorplan state', async ({ page }) => {
+		// Load apartment on floor 1
+		await page.click('text=Apartment');
+		await page.waitForTimeout(4000);
+		const skip = page.locator('text=Skip');
+		if (await skip.isVisible({ timeout: 2000 }).catch(() => false)) await skip.click();
+		await page.waitForTimeout(500);
+
+		await page.screenshot({ path: 'test-results/multi-floor/apartment-floor1.png' });
+
+		// Add floor 2 (should be empty)
+		await openFloorplanTab(page);
+		await page.locator('.floor-pill.add').click();
+		await page.waitForTimeout(300);
+
+		await page.screenshot({ path: 'test-results/multi-floor/empty-floor2.png' });
+
+		// Switch back to floor 1 (apartment should return)
+		await page.locator('.floor-pill:not(.add)').first().click();
+		await page.waitForTimeout(500);
+
+		await page.screenshot({ path: 'test-results/multi-floor/back-to-floor1.png' });
+	});
+
+	test('heatmap shows only current floor APs', async ({ page }) => {
+		const canvas = page.locator('canvas');
+
+		// Place 2 APs on floor 1
+		await canvas.click({ position: { x: 350, y: 350 } });
+		await page.waitForTimeout(300);
+		await canvas.click({ position: { x: 550, y: 350 }, force: true });
+		await page.waitForTimeout(1500);
+
+		// Enable heatmap
+		await page.click('text=Signal heatmap');
+		await page.waitForTimeout(500);
+		await page.screenshot({ path: 'test-results/multi-floor/heatmap-floor1.png' });
+
+		// Add floor 2, place 1 AP
+		await openFloorplanTab(page);
+		await page.locator('.floor-pill.add').click();
+		await page.waitForTimeout(300);
+		await canvas.click({ position: { x: 450, y: 400 }, force: true });
+		await page.waitForTimeout(1500);
+		await page.screenshot({ path: 'test-results/multi-floor/heatmap-floor2.png' });
+
+		// Back to floor 1
+		await openFloorplanTab(page);
+		await page.locator('.floor-pill:not(.add)').first().click();
+		await page.waitForTimeout(500);
+		await page.screenshot({ path: 'test-results/multi-floor/heatmap-back-floor1.png' });
+	});
+
+	// ─── Persistence ─────────────────────────────────────────────
+
+	test('multi-floor state survives reload', async ({ page }) => {
+		await openFloorplanTab(page);
+		await page.locator('.floor-pill.add').click();
+		await page.waitForTimeout(300);
+
+		// Rename floor 2
+		const pill = page.locator('.floor-pill:not(.add)').nth(1);
+		await pill.dblclick();
+		await page.waitForTimeout(200);
+		await page.locator('.floor-name-input').fill('Attic');
+		await page.locator('.floor-name-input').press('Enter');
+		// The rename has to reach storage before the reload, or it is testing nothing.
+		await waitForSavedProject(
+			page,
+			(project) => project.floors.length === 2 && project.floors[1]?.name === 'Attic'
+		);
+
+		await page.reload();
+		await page.waitForTimeout(1500);
+
+		await openFloorplanTab(page);
+		const pills = page.locator('.floor-pill:not(.add)');
+		await expect(pills).toHaveCount(2);
+		await expect(pills.nth(1)).toHaveText(/Attic/);
+	});
+
+	test('floorplan survives multiple floor switches and visibility toggles', async ({ page }) => {
+		// Load apartment on floor 1
+		await openFloorplanTab(page);
+		await page.click('text=Apartment');
+		await page.waitForTimeout(4000);
+		const skip = page.locator('text=Skip');
+		if (await skip.isVisible({ timeout: 2000 }).catch(() => false)) await skip.click();
+		await page.waitForTimeout(500);
+
+		// Verify floorplan loaded — check for "Floorplan loaded" checkbox
+		await expect(page.locator('text=Floorplan loaded')).toBeVisible({ timeout: 3000 });
+
+		// Add floor 2 (empty)
+		await page.locator('.floor-pill.add').click();
+		await page.waitForTimeout(500);
+
+		// Switch back to floor 1 — floorplan should survive
+		await page.locator('.floor-pill:not(.add)').first().click();
+		await page.waitForTimeout(1000);
+		await expect(page.locator('text=Floorplan loaded')).toBeVisible({ timeout: 3000 });
+
+		// Toggle floorplan visibility off and on via layers panel
+		const layerToggle = page.locator('.layer-row').filter({ hasText: 'Floorplan' });
+		await layerToggle.click();
+		await page.waitForTimeout(200);
+		await layerToggle.click();
+		await page.waitForTimeout(200);
+
+		// Switch to floor 2 and back again (second round-trip)
+		await openFloorplanTab(page);
+		await page.locator('.floor-pill:not(.add)').nth(1).click();
+		await page.waitForTimeout(500);
+		await page.locator('.floor-pill:not(.add)').first().click();
+		await page.waitForTimeout(1000);
+
+		// Floorplan should still be present
+		await expect(page.locator('text=Floorplan loaded')).toBeVisible({ timeout: 3000 });
+		await page.screenshot({ path: 'test-results/multi-floor/floorplan-survives-switches.png' });
+	});
+
+	/**
+	 * The alignment controls need a floor *below* the one being moved, in a view
+	 * where a canvas drag means something.
+	 *
+	 * On the bottom floor there is nothing to line up with — every floor's offset
+	 * is a shift of the same building, so moving the bottom one moves the reference
+	 * frame and nothing else. In the tiled overview a pointer down picks a card and
+	 * returns, so "Drag to align" offers a mode whose gesture never arrives.
+	 */
+	test('align controls are hidden on the bottom floor and in the tiled view', async ({
+		page
+	}) => {
+		await openFloorplanTab(page);
+		await page.locator('.floor-pill.add').click();
+		await page.waitForTimeout(400);
+
+		const alignX = page.locator('.prop-row').filter({ hasText: 'Align X' });
+		const alignBtn = page.getByRole('button', { name: 'Drag to align' });
+
+		// Floor 2, single view: the control is offered.
+		await expect(alignX).toBeVisible();
+
+		// Floor 1, the bottom one: not offered.
+		await page.locator('.floor-pill:not(.add)').first().click();
+		await page.waitForTimeout(300);
+		await expect(alignX).toBeHidden();
+
+		// Back up, then into the tiled overview: not offered there either.
+		await page.locator('.floor-pill:not(.add)').nth(1).click();
+		await page.waitForTimeout(300);
+		await expect(alignX).toBeVisible();
+
+		// Enter the mode first, so the test also covers being left in it.
+		await alignBtn.click();
+		await expect(page.getByRole('button', { name: 'Drag on canvas…' })).toBeVisible();
+
+		await page.locator('.view-btn[aria-label^="Tile every floor"]').click();
+		await page.waitForTimeout(500);
+		await expect(alignX).toBeHidden();
+
+		// Leaving the tiled view brings the control back — and it comes back
+		// *ready*, not stuck in a mode the user can no longer see or leave.
+		await page.locator('.view-btn[aria-label^="Show the current floor only"]').click();
+		await page.waitForTimeout(500);
+		await expect(alignX).toBeVisible();
+		await expect(page.getByRole('button', { name: 'Drag to align' })).toBeVisible();
+	});
+});

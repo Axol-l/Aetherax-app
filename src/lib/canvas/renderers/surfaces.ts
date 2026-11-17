@@ -1,0 +1,237 @@
+/**
+ * 抬升面在平面图上的绘制：夹层、楼梯、坡道。
+ * 这类区域的地面行走标高不是楼板，图上用随高度加深的底色与行程标注表示。
+ */
+import type { Layer, RenderContext } from '../types.js';
+import {
+	surfaceBox,
+	surfaceColor,
+	surfaceCorners,
+	type ElevatedSurface,
+	type SurfaceKind,
+	type SurfaceMaterialId
+} from '$lib/rf/surface-height.js';
+
+/**
+ * 抬升面的底色：由材质与高度决定。
+ * 色相来自材质，高度越高越偏向白色。
+ */
+function tintFor(
+	material: SurfaceMaterialId | undefined,
+	heightM: number,
+	alpha: number
+): string {
+	const [r, g, b] = surfaceColor(material);
+	const t = Math.max(0, Math.min(1, heightM / 4)) * 0.18;
+	const mix = (channel: number) => Math.round(channel + (255 - channel) * t);
+	return `rgba(${mix(r)},${mix(g)},${mix(b)},${alpha})`;
+}
+
+export class SurfacesLayer implements Layer {
+	id = 'surfaces';
+	visible = true;
+	surfaces: ElevatedSurface[] = [];
+	/** 指针所指或刚绘制的那个；选中的抬升面可编辑或删除。 */
+	selectedId: string | null = null;
+	/** 正在绘制的矩形，以世界坐标下的两个对角点表示。 */
+	draft: { ax: number; ay: number; bx: number; by: number } | null = null;
+	/** 草稿将生成的内容类型，供预览提前显示。 */
+	draftKind: SurfaceKind = 'platform';
+	draftHeightM = 2;
+	draftTopHeightM = 3;
+	/** 下一个抬升面使用的材质，用于预览配色。 */
+	draftMaterial: SurfaceMaterialId | null = null;
+
+	render(rc: RenderContext): void {
+		if (!this.visible) return;
+		const { ctx, camera } = rc;
+		const zoom = camera.state.zoom || 1;
+		ctx.save();
+		/*
+		 * 先进入世界坐标，与其他绘制平面图的图层一致。
+		 * 否则图形会按世界坐标以屏幕像素绘制：平移时不动、缩放时不放大，标签尺寸也会随缩放变化。
+		 */
+		const [m0, m1, m2, m3, m4, m5] = camera.getTransform();
+		ctx.transform(m0, m1, m2, m3, m4, m5);
+
+		for (const surface of this.surfaces) {
+			this.drawSurface(ctx, surface, zoom, surface.id === this.selectedId);
+		}
+		if (this.draft) {
+			this.drawSurface(
+				ctx,
+				{
+					id: 'draft',
+					kind: this.draftKind,
+					ax: this.draft.ax,
+					ay: this.draft.ay,
+					bx: this.draft.bx,
+					by: this.draft.by,
+					heightM: this.draftHeightM,
+					topHeightM: this.draftTopHeightM,
+					material: this.draftMaterial ?? undefined
+				},
+				zoom,
+				false,
+				true
+			);
+		}
+
+		ctx.restore();
+	}
+
+	private drawSurface(
+		ctx: CanvasRenderingContext2D,
+		surface: ElevatedSurface,
+		zoom: number,
+		selected: boolean,
+		isDraft = false
+	): void {
+		const corners = surfaceCorners(surface);
+		const flat = surface.heightM === surface.topHeightM ? surface.heightM : surface.topHeightM;
+		ctx.beginPath();
+		ctx.moveTo(corners[0]!.x, corners[0]!.y);
+		for (let i = 1; i < corners.length; i++) ctx.lineTo(corners[i]!.x, corners[i]!.y);
+		ctx.closePath();
+		ctx.fillStyle = tintFor(surface.material, flat, isDraft ? 0.14 : 0.2);
+		ctx.fill();
+		ctx.strokeStyle = selected
+			? 'rgba(255,255,255,0.95)'
+			: tintFor(surface.material, flat, isDraft ? 0.5 : 0.75);
+		ctx.lineWidth = (selected ? 2 : 1.25) / zoom;
+		ctx.setLineDash(isDraft ? [6 / zoom, 4 / zoom] : []);
+		ctx.stroke();
+		ctx.setLineDash([]);
+
+		// 行程箭头：沿较长边从低端指向高端，使坡道不会只被读成带标签的平台。
+		if (surface.heightM !== surface.topHeightM) {
+			const low = this.runEnd(surface, 0);
+			const high = this.runEnd(surface, 1);
+			this.arrow(ctx, low, high, zoom, selected);
+		}
+
+		// 标签位于绘图平面内，保证任意缩放下都清晰可读。
+		const { x0, y0, x1, y1 } = surfaceBox(surface);
+		const cx = (x0 + x1) / 2;
+		const cy = (y0 + y1) / 2;
+		const text =
+			surface.heightM === surface.topHeightM
+				? `${this.kindLabel(surface.kind)} · ${surface.heightM.toFixed(1)} m`
+				: `${this.kindLabel(surface.kind)} · ${surface.heightM.toFixed(1)} → ${surface.topHeightM.toFixed(1)} m`;
+		ctx.font = `${11 / zoom}px sans-serif`;
+		ctx.textAlign = 'center';
+		ctx.textBaseline = 'middle';
+		// 标签下垫深色底板：底色偏浅，而下方平面图不是。
+		const width = ctx.measureText(text).width;
+		ctx.fillStyle = 'rgba(12,14,20,0.72)';
+		ctx.fillRect(cx - width / 2 - 3 / zoom, cy - 8 / zoom, width + 6 / zoom, 16 / zoom);
+		ctx.fillStyle = 'rgba(255,238,220,0.95)';
+		ctx.fillText(text, cx, cy);
+	}
+
+	/** 抬升面低端（fraction 为 0）或高端（为 1）边缘的中点，单位为世界坐标。 */
+	private runEnd(surface: ElevatedSurface, fraction: number): { x: number; y: number } {
+		const { x0, y0, x1, y1, width, height } = surfaceBox(surface);
+		if (width >= height) {
+			// 水平行程从左向右升高，若绘制方向相反则从右向左。
+			const forward = surface.bx >= surface.ax;
+			const t = forward ? fraction : 1 - fraction;
+			return { x: x0 + width * t, y: (y0 + y1) / 2 };
+		}
+		const forward = surface.by >= surface.ay;
+		const t = forward ? fraction : 1 - fraction;
+		return { x: (x0 + x1) / 2, y: y0 + height * t };
+	}
+
+	private arrow(
+		ctx: CanvasRenderingContext2D,
+		low: { x: number; y: number },
+		high: { x: number; y: number },
+		zoom: number,
+		selected: boolean
+	): void {
+		const dx = high.x - low.x;
+		const dy = high.y - low.y;
+		const length = Math.hypot(dx, dy);
+		if (length < 8 / zoom) return;
+		const ux = dx / length;
+		const uy = dy / length;
+		const head = 7 / zoom;
+		ctx.strokeStyle = selected ? 'rgba(255,255,255,0.95)' : 'rgba(255,214,170,0.85)';
+		ctx.lineWidth = 1.25 / zoom;
+		ctx.beginPath();
+		ctx.moveTo(low.x, low.y);
+		ctx.lineTo(high.x, high.y);
+		ctx.stroke();
+		// 只在远端画箭头：两端的位置即表示方向。
+		ctx.beginPath();
+		ctx.moveTo(high.x, high.y);
+		ctx.lineTo(high.x - ux * head - uy * head * 0.55, high.y - uy * head + ux * head * 0.55);
+		ctx.moveTo(high.x, high.y);
+		ctx.lineTo(high.x - ux * head + uy * head * 0.55, high.y - uy * head - ux * head * 0.55);
+		ctx.stroke();
+	}
+
+	private kindLabel(kind: SurfaceKind): string {
+		return kind === 'platform' ? 'Platform' : kind === 'stair' ? 'Stair' : 'Ramp';
+	}
+}
+
+/** 世界坐标点位于某个抬升面内时返回 true，用于选中。 */
+export function surfaceAtPoint(
+	surfaces: readonly ElevatedSurface[],
+	x: number,
+	y: number
+): ElevatedSurface | null {
+	// 后绘制的优先，重叠时即用户刚放置的那个。
+	for (let i = surfaces.length - 1; i >= 0; i--) {
+		const surface = surfaces[i]!;
+		const { x0, y0, x1, y1 } = surfaceBox(surface);
+		if (x >= x0 && x <= x1 && y >= y0 && y <= y1) return surface;
+	}
+	return null;
+}
+
+/**
+ * 边缘距离在 `tolerance` 以内的最近抬升面。
+ * 按边缘而非面积选择，避免夹层覆盖整块地面时抢走在其上放置访问点的点击。
+ */
+export function surfaceEdgeNear(
+	surfaces: readonly ElevatedSurface[],
+	x: number,
+	y: number,
+	tolerance: number
+): ElevatedSurface | null {
+	let best: ElevatedSurface | null = null;
+	let bestDistance = tolerance;
+	for (const surface of surfaces) {
+		const corners = surfaceCorners(surface);
+		for (let i = 0; i < corners.length; i++) {
+			const a = corners[i]!;
+			const b = corners[(i + 1) % corners.length]!;
+			const distance = distanceToEdge(x, y, a.x, a.y, b.x, b.y);
+			if (distance < bestDistance) {
+				bestDistance = distance;
+				best = surface;
+			}
+		}
+	}
+	return best;
+}
+
+function distanceToEdge(
+	px: number,
+	py: number,
+	ax: number,
+	ay: number,
+	bx: number,
+	by: number
+): number {
+	const dx = bx - ax;
+	const dy = by - ay;
+	const lengthSquared = dx * dx + dy * dy;
+	if (lengthSquared === 0) return Math.hypot(px - ax, py - ay);
+	let t = ((px - ax) * dx + (py - ay) * dy) / lengthSquared;
+	t = Math.max(0, Math.min(1, t));
+	return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
