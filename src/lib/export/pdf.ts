@@ -13,6 +13,8 @@ import { apState } from '$state/ap-state.svelte.js';
 import { projectMeta } from '$state/project-meta.svelte.js';
 import { floorplanState } from '$state/floorplan-state.svelte.js';
 import { FLOOR_MATERIALS } from '$canvas/floor-materials.js';
+import { DEFAULT_MAC_EFFICIENCY } from '$lib/rf/mcs.js';
+import { CAPACITY_UTILIZATION, ROOM_DEMAND_MBPS } from '$lib/rf/capacity-plan.js';
 
 /** 等 Svelte 副作用与异步解码稳定下来，切楼层后使用。 */
 function waitForRender(): Promise<void> {
@@ -34,6 +36,17 @@ const bandLabels: Record<string, string> = {
 	'5ghz': '5 GHz',
 	'6ghz': '6 GHz'
 };
+
+const capacityProfileLabels: Record<string, string> = {
+	office: 'Office',
+	highDensity: 'High density',
+	iot: 'IoT / hotel',
+	custom: 'Custom'
+};
+
+function pct(value: number): string {
+	return `${Math.round(value * 100)}%`;
+}
 
 function drawHeader(doc: jsPDF, pageWidth: number, margin: number) {
 	// 顶部品牌色条
@@ -102,6 +115,112 @@ async function waitForView(
 	}
 }
 
+/**
+ * One page that makes the numbers interpretable without reading the manual:
+ * what was assumed for capacity and PHY, and what this report is not.
+ */
+function drawMethodologyPage(
+	doc: jsPDF,
+	pageWidth: number,
+	pageHeight: number,
+	margin: number,
+	contentWidth: number
+): void {
+	doc.addPage();
+	drawHeader(doc, pageWidth, margin);
+
+	let y = 24;
+	doc.setFontSize(15);
+	doc.setFont('helvetica', 'bold');
+	doc.setTextColor(...DARK);
+	doc.text('How this plan was calculated', margin, y);
+	y += 7;
+	doc.setFontSize(8.5);
+	doc.setFont('helvetica', 'normal');
+	doc.setTextColor(...GRAY);
+	doc.text(
+		'Planning assumptions are printed on this page so the coverage and capacity figures can be read in context.',
+		margin,
+		y
+	);
+	y += 9;
+
+	const gap = 10;
+	const colW = (contentWidth - gap) / 2;
+	const leftX = margin;
+	const rightX = margin + colW + gap;
+
+	const drawRows = (x: number, startY: number, rows: Array<[string, string]>): number => {
+		let rowY = startY;
+		for (const [label, value] of rows) {
+			doc.setFontSize(7.5);
+			doc.setFont('helvetica', 'bold');
+			doc.setTextColor(...GRAY);
+			doc.text(label, x, rowY);
+			doc.setFontSize(8);
+			doc.setFont('helvetica', 'normal');
+			doc.setTextColor(...DARK);
+			const lines = doc.splitTextToSize(value, colW - 34);
+			doc.text(lines, x + 34, rowY);
+			rowY += Math.max(4.5, lines.length * 3.8) + 2.2;
+		}
+		return rowY;
+	};
+
+	const section = (x: number, title: string, rows: Array<[string, string]>): number => {
+		doc.setFontSize(9);
+		doc.setFont('helvetica', 'bold');
+		doc.setTextColor(...BRAND_COLOR);
+		doc.text(title, x, y);
+		doc.setTextColor(...DARK);
+		return drawRows(x, y + 6, rows);
+	};
+
+	const demand = ROOM_DEMAND_MBPS;
+	const leftBottom = section(leftX, 'CAPACITY ASSUMPTIONS', [
+		['Profile', capacityProfileLabels[projectMeta.capacityProfile] ?? 'Custom'],
+		['Activity', `${pct(projectMeta.activityFactor)} of associated devices`],
+		[
+			'Terminal mix',
+			`${pct(projectMeta.oneStreamShare)} 1-stream · ${pct(projectMeta.twoStreamShare)} 2-stream · ${pct(projectMeta.fourStreamShare)} 4-stream (not used)`
+		],
+		['Demand', `${demand.low} / ${demand.standard} / ${demand.high} Mbps per device`],
+		['MAC / utilisation', `${pct(DEFAULT_MAC_EFFICIENCY)} / ${pct(CAPACITY_UTILIZATION)}`],
+		['Supply basis', 'median SINR per AP; edge = 5th percentile'],
+		['Warning', 'traffic shortfall, required APs, or edge SNR < 20 dB']
+	]);
+
+	const rightBottom = section(rightX, 'PHY & PROPAGATION', [
+		[
+			'PHY tables',
+			'802.11ac MCS 0–9; 802.11ax MCS 0–11; GI 800 ns; 2 streams'
+		],
+		['Path loss', `${projectMeta.pathLossScenario.replace(/-/g, ' ')} · log-distance, 10 m breakpoint`],
+		['Walls / floors', 'P.2040 slab transmission; floor material × thickness'],
+		['Multipath', 'single/2nd reflection, P.526 knife-edge, directive scattering'],
+		['SINR', 'best server; ACIR 25 dB; thermal noise kTB + NF'],
+		['Channel', `${bandLabels[apState.band] ?? apState.band} · ${apState.channelWidth} MHz · ${apState.regulatoryDomain.toUpperCase()}`]
+	]);
+
+	y = Math.max(leftBottom, rightBottom) + 4;
+	const noteLines = doc.splitTextToSize(
+		'PLANNING MODEL — NOT SITE ACCEPTANCE. Standard formulas are used for path loss, materials and diffraction, but material thickness, scattering coefficients, ACIR, MAC efficiency, activity and terminal mix remain engineering assumptions. Compare options with this report, then confirm with a site survey. Rate and capacity are not measured throughput.',
+		contentWidth - 10
+	);
+	const noteHeight = noteLines.length * 3.8 + 10;
+	doc.setFillColor(...LIGHT_BG);
+	doc.roundedRect(margin, y, contentWidth, noteHeight, 1.5, 1.5, 'F');
+	doc.setFontSize(7.5);
+	doc.setFont('helvetica', 'bold');
+	doc.setTextColor(...DARK);
+	doc.text('READ THIS BEFORE USING THE NUMBERS', margin + 5, y + 6);
+	doc.setFont('helvetica', 'normal');
+	doc.setTextColor(...GRAY);
+	doc.text(noteLines, margin + 5, y + 11);
+
+	drawFooter(doc, pageWidth, pageHeight, margin);
+}
+
 export async function exportPdf(engine: CanvasEngine): Promise<void> {
 	const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
 	const pageWidth = doc.internal.pageSize.getWidth();
@@ -117,6 +236,22 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 	const apCount = apState.aps.length;
 	const floorCount = floorState.floors.length;
 	const sortedFloors = [...floorState.floors].sort((a, b) => a.level - b.level);
+
+	// Traffic is measured per floor; the report shows the building total, not a
+	// single floor's figure dressed up as the whole project.
+	let hasTraffic = false;
+	let trafficDemandMbps = 0;
+	let trafficSupplyMbps = 0;
+	let trafficRequiredAps = 0;
+	let trafficActualAps = 0;
+	for (const fc of floorCoverage.values()) {
+		if (!fc.traffic) continue;
+		hasTraffic = true;
+		trafficDemandMbps += fc.traffic.demandMbps;
+		trafficSupplyMbps += fc.traffic.supplyMbps;
+		trafficRequiredAps += fc.traffic.requiredAps;
+		trafficActualAps += fc.traffic.apCount;
+	}
 
 	// 先算出每层的覆盖率
 	const originalFloorId = floorState.currentFloorId;
@@ -176,6 +311,14 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 	if (buildingCov > 0) {
 		stats.push(`${buildingCov}% building coverage`);
 	}
+	if (hasTraffic) {
+		stats.push(
+			`Traffic demand / capacity: ${trafficDemandMbps} / ${trafficSupplyMbps} Mbps`
+		);
+		if (trafficRequiredAps > trafficActualAps) {
+			stats.push(`Traffic needs ${trafficRequiredAps} APs; ${trafficActualAps} placed`);
+		}
+	}
 	// 跑过优化后同时列出同频干扰与争用空口时间，两者含义不同。
 	if (optimizerState.interferenceMeasured) {
 		stats.push(`Co-channel interference ${optimizerState.interference}%`);
@@ -222,6 +365,8 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 			['Regulatory domain', apState.regulatoryDomain.toUpperCase()],
 			['Client height', `${projectMeta.clientHeight.toFixed(1)} m`],
 			['Path loss', projectMeta.pathLossScenario.replace(/-/g, ' ')],
+			['PHY', '802.11ac / 802.11ax · 2 streams'],
+			['Capacity', `${capacityProfileLabels[projectMeta.capacityProfile] ?? 'Custom'} · ${pct(projectMeta.activityFactor)} active`],
 			['Units', floorplanState.unitSystem === 'imperial' ? 'Imperial (ft)' : 'Metric (m)']
 		];
 		// 两列三行排布，避免占满封面。
@@ -240,6 +385,8 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 	}
 
 	drawFooter(doc, pageWidth, pageHeight, margin);
+
+	drawMethodologyPage(doc, pageWidth, pageHeight, margin, contentWidth);
 
 	// ─── 各层布局页（图片尺寸统一） ───────────────────────
 
@@ -419,13 +566,16 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 			doc.setFont('helvetica', 'normal');
 			doc.setFontSize(7);
 			doc.setTextColor(...GRAY);
+			const trafficText = fc?.traffic
+				? `  ·  traffic ${fc.traffic.demandMbps}/${fc.traffic.supplyMbps} Mbps`
+				: '';
 			doc.text(
 				[
 					`ceiling ${floor.ceilingHeight.toFixed(1)} m`,
 					`slab ${floor.floorThickness.toFixed(2)} m`,
 					material ? material.name : 'unknown material',
 					`${floorAps.length} access point${floorAps.length === 1 ? '' : 's'}`
-				].join('  ·  '),
+				].join('  ·  ') + trafficText,
 				margin + 3,
 				y + 6
 			);
@@ -520,6 +670,15 @@ export async function exportPdf(engine: CanvasEngine): Promise<void> {
 		if (floorCount > 1 && floorCoverage.size > 1) {
 			summaryItems.push(`Building average coverage: ${getBuildingCoverage()}%`);
 		}
+	}
+
+	if (hasTraffic) {
+		summaryItems.push(
+			`Traffic demand / capacity: ${trafficDemandMbps} / ${trafficSupplyMbps} Mbps`
+		);
+		summaryItems.push(
+			`Traffic-required APs: ${trafficRequiredAps}; placed: ${trafficActualAps}`
+		);
 	}
 
 	for (const item of summaryItems) {
