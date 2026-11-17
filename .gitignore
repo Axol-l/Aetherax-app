@@ -20,5 +20,5 @@ vite.config.ts.timestamp-*
 /docs/MEASUREMENTS.md
 /docs/WEBGPU-DIRECT-FIELD.md
 /docs/screenshots
-
+/docs/ANTENNA-MODEL.zh-CN.md
 # The Rust build tree lives in src-tauri/.gitignore, which Tauri maintains.
